@@ -1,8 +1,9 @@
 {
   "compilerOptions": {
     "target": "ES2023",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "paths": { "@/*": ["../web/src/*"] },
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
@@ -11,5 +12,5 @@
     "esModuleInterop": true,
     "types": ["node"]
   },
-  "include": ["src", "test", "../shared/contracts/src"]
+  "include": ["src", "test", "../shared/contracts/src", "../web/src/features/mission/staffing-plan.ts"]
 }

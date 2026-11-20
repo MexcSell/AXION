@@ -1,5 +1,8 @@
 import pg from 'pg';
 import { randomBytes } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { buildApp } from '../src/app.ts';
 import { migrate } from '../src/migrate.ts';
 import type { FastifyInstance } from 'fastify';
@@ -33,8 +36,9 @@ export interface TestApp { app: FastifyInstance; schema: string; pool: pg.Pool; 
 
 export async function makeTestApp(over: Record<string, unknown> = {}): Promise<TestApp> {
   const s = await makeSchema();
-  const app = await buildApp({ databaseUrl: TEST_DB(), schema: s.schema, logger: false, ...over });
-  return { app, schema: s.schema, pool: s.pool, close: async () => { await app.close(); await s.drop(); } };
+  const uploadDir = mkdtempSync(join(tmpdir(), 'axion-up-'));
+  const app = await buildApp({ databaseUrl: TEST_DB(), schema: s.schema, logger: false, uploadDir, ...over });
+  return { app, schema: s.schema, pool: s.pool, close: async () => { await app.close(); await s.drop(); rmSync(uploadDir, { recursive: true, force: true }); } };
 }
 
 /** One simulated browser: keeps its own cookies and the CSRF token from the last `me`. */

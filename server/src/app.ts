@@ -5,6 +5,9 @@ import { ApiError } from './errors.ts';
 import { type Config, VERSION, DEFAULT_TENANT } from './config.ts';
 import cookie from '@fastify/cookie';
 import authRoutes from './auth/routes.ts';
+import missionRoutes from './missions/routes.ts';
+import uploadRoutes from './missions/uploads.ts';
+import multipart from '@fastify/multipart';
 import { checkOrigin } from './auth/session.ts';
 
 declare module 'fastify' {
@@ -47,7 +50,10 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
 
   await app.register(cookie);
   app.addHook('onRequest', async (req) => { if (req.url.startsWith('/api/')) checkOrigin(req, cfg.allowedOrigins); });
+  await app.register(multipart, { preservePath: true, limits: { fileSize: 25 * 1024 * 1024, files: 1, fields: 4 } });
   await app.register(authRoutes, { prefix: '/api/v1' });
+  await app.register(missionRoutes, { prefix: '/api/v1' });
+  await app.register(uploadRoutes, { prefix: '/api/v1' });
 
   app.get('/api/v1/health', async () => {
     let up = false;
