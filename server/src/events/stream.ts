@@ -4,7 +4,7 @@ import pg from 'pg';
 import { requireUser, sha256, SID } from '../auth/session.ts';
 import { CHANNEL, eventDto } from './log.ts';
 
-declare module 'fastify' { interface FastifyInstance { eventBus: EventEmitter; sseClients: () => number } }
+declare module 'fastify' { interface FastifyInstance { eventBus: EventEmitter; sse: { clients: number } } }
 
 const HEARTBEAT_MS = 15_000;
 const SAFETY_POLL_MS = 5_000;
@@ -30,8 +30,6 @@ export function startListener(app: FastifyInstance, databaseUrl: string) {
 }
 
 export default async function streamRoutes(app: FastifyInstance) {
-  let clients = 0;
-  app.decorate('sseClients', () => clients);
 
   app.get('/events/stream', async (req, reply) => {
     const ctx = await requireUser(req);
@@ -44,14 +42,14 @@ export default async function streamRoutes(app: FastifyInstance) {
     const res = reply.raw;
     res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache, no-transform', connection: 'keep-alive', 'x-accel-buffering': 'no' });
     res.write(`retry: 2000\n\nevent: hello\ndata: ${JSON.stringify({ cursor, userId: ctx.user.id })}\n\n`);
-    clients++;
+    app.sse.clients++;
 
     let open = true;
     let busy = false;
     let again = false;
     const finish = () => {
       if (!open) return;
-      open = false; clients--;
+      open = false; app.sse.clients--;
       clearInterval(hb); clearInterval(poll);
       app.eventBus.off('wake', pump); app.eventBus.off('close', end);
     };

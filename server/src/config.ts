@@ -7,6 +7,8 @@ export interface Config {
   uploadDir?: string;
   /** staffing simulation step in ms (tests shorten it) */
   staffingStepMs?: number;
+  /** where db-backup.sh writes dumps (Operations › Health shows the newest) */
+  backupDir?: string;
   /** SSE ping interval (tests shorten it) */
   sseHeartbeatMs?: number;
   /** seed demo missions when the first admin appears */

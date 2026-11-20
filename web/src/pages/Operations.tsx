@@ -21,12 +21,16 @@ import { openDialog, toast } from '@/store/ui';
 import {
   SERVICES, WORKERS, QUEUES, STORAGE_AREAS, makeLog, RELEASES, INCIDENTS, READINESS, type Sev, type Health } from '@/data/operations';
 import { cx } from '@/lib/format';
+import { isApi } from '@/api/mode';
+import { useMe, isAdmin } from '@/store/auth';
+import { ServerHealth } from '@/features/ops/ServerHealth';
 import '@/theme/pages/settings-ops-help.css';
 
 const ICONS = [Server, Monitor, Bot, Boxes, Cpu, ListChecks, HardDrive, ScrollText, LifeBuoy];
 const HCOL: Record<Health, string> = { good: 'good', warn: 'warn', bad: 'bad' };
 
 export default function OperationsPage() {
+  const me = useMe();
   const [tab, setTab, tabs] = useTab('operations');
   const up = SERVICES.filter((s) => s.health === 'good').length;
   const vms = useVms((s) => s.vms);
@@ -64,7 +68,7 @@ export default function OperationsPage() {
         </FrameBody>
       ) : (
         <FrameBody tab={tab} panel={false}>
-          {tab === 'Services' && <Services />}
+          {tab === 'Services' && <>{isApi() && isAdmin(me) && <ServerHealth />}<Services /></>}
           {tab === 'VMs' && <VMs />}
           {tab === 'Workers' && <Workers />}
           {tab === 'Queues' && <Queues />}

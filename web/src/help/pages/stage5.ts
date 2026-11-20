@@ -16,6 +16,13 @@ const entries: Record<string, HelpEntry> = {
   'settings.users.password': { title: 'Password change', what: 'Change the password you connect with. You need the current one; the new one needs at least 8 characters.', permission: 'The server keeps only an argon2id hash. Changing it signs out your other devices.' },
   'settings.users.devices': { title: 'My devices', what: 'Every browser you connected from. A new browser waits until an administrator approves it.', how: 'Remove a device to force a new approval next time.' },
   'shell.account': { title: 'Account', what: 'Who is connected in this browser. Every tab of a browser is the same user; use another browser or a private window for a second user.', how: 'Open your profile, or sign out to connect as someone else.' },
+  'ops.serverHealth': {
+    title: 'AXION server',
+    what: 'Live, read-only status of the real server: API uptime, database size and mission count, event-log length, open live streams, the newest backup, and whether mission execution is enabled.',
+    how: 'Refreshes every 15 seconds and after live events. Backups: npm run db:backup on the server; npm run db:restore-check proves a backup restores.',
+    why: 'Execution stays disabled in Stage 5: missions are planned and staffed (simulated), but no agent, model or browser runs yet.',
+    permission: 'Administrators only.',
+  },
   'mission.demoTag': { title: 'DEMO mission', what: 'A sample mission from the prototype, stored on the server so the screens have content. It is marked DEMO everywhere.', how: 'An administrator removes all of them with "npm run demo:clear" on the server. Your own missions are never DEMO.' },
 };
 export default entries;

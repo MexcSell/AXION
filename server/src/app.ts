@@ -13,6 +13,7 @@ import approvalRoutes from './approvals/routes.ts';
 import notificationRoutes from './notifications/routes.ts';
 import { startStaffingSim } from './missions/staffing-sim.ts';
 import { seedDemo } from './seed/demo.ts';
+import opsRoutes from './ops/routes.ts';
 import { checkOrigin } from './auth/session.ts';
 
 declare module 'fastify' {
@@ -60,9 +61,11 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   await app.register(missionRoutes, { prefix: '/api/v1' });
   await app.register(uploadRoutes, { prefix: '/api/v1' });
   app.decorate('eventBus', startListener(app, cfg.databaseUrl));
+  app.decorate('sse', { clients: 0 });
   await app.register(streamRoutes, { prefix: '/api/v1' });
   await app.register(approvalRoutes, { prefix: '/api/v1' });
   await app.register(notificationRoutes, { prefix: '/api/v1' });
+  await app.register(opsRoutes, { prefix: '/api/v1' });
 
   app.get('/api/v1/health', async () => {
     let up = false;
