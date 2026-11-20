@@ -3,9 +3,12 @@ import { randomUUID } from 'node:crypto';
 import { makePool, type Db } from './db.ts';
 import { ApiError } from './errors.ts';
 import { type Config, VERSION, DEFAULT_TENANT } from './config.ts';
+import cookie from '@fastify/cookie';
+import authRoutes from './auth/routes.ts';
+import { checkOrigin } from './auth/session.ts';
 
 declare module 'fastify' {
-  interface FastifyInstance { db: Db; cfg: Required<Pick<Config, 'tenantId'>> & Config }
+  interface FastifyInstance { db: Db; cfg: Required<Pick<Config, 'tenantId'>> & Config; onFirstAdmin?: (userId: string) => Promise<void> }
 }
 
 export async function buildApp(cfg: Config): Promise<FastifyInstance> {
@@ -41,6 +44,10 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
     return reply.status(500).send({ code: 'INTERNAL', message: 'Something went wrong on the server. Try again.', correlationId, retryable: true });
   });
   app.setNotFoundHandler((req, reply) => reply.status(404).send({ code: 'NOT_FOUND', message: 'Not found.', correlationId: String(req.id), retryable: false }));
+
+  await app.register(cookie);
+  app.addHook('onRequest', async (req) => { if (req.url.startsWith('/api/')) checkOrigin(req, cfg.allowedOrigins); });
+  await app.register(authRoutes, { prefix: '/api/v1' });
 
   app.get('/api/v1/health', async () => {
     let up = false;

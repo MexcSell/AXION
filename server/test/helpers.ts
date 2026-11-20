@@ -36,3 +36,47 @@ export async function makeTestApp(over: Record<string, unknown> = {}): Promise<T
   const app = await buildApp({ databaseUrl: TEST_DB(), schema: s.schema, logger: false, ...over });
   return { app, schema: s.schema, pool: s.pool, close: async () => { await app.close(); await s.drop(); } };
 }
+
+/** One simulated browser: keeps its own cookies and the CSRF token from the last `me`. */
+export class Browser {
+  jar = new Map<string, string>();
+  csrf = '';
+  constructor(public app: FastifyInstance, public ip = '127.0.0.1', public ua = 'Chrome on Linux') {}
+  async req(method: string, url: string, body?: unknown, headers: Record<string, string> = {}) {
+    const cookie = [...this.jar].map(([k, v]) => `${k}=${v}`).join('; ');
+    const r = await this.app.inject({
+      method: method as 'GET', url: '/api/v1' + url, remoteAddress: this.ip,
+      headers: { ...(cookie ? { cookie } : {}), ...(this.csrf && method !== 'GET' ? { 'x-csrf': this.csrf } : {}), ...(body !== undefined ? { 'content-type': 'application/json' } : {}), ...headers },
+      ...(body !== undefined ? { payload: JSON.stringify(body) } : {}),
+    });
+    for (const c of r.cookies as { name: string; value: string; maxAge?: number; expires?: Date }[]) {
+      if (c.value === '' || c.maxAge === 0 || (c.expires && c.expires.getTime() < Date.now())) this.jar.delete(c.name); else this.jar.set(c.name, c.value);
+    }
+    let json: any = undefined;
+    try { json = r.json(); } catch { /* not json */ }
+    if (json?.me?.csrf) this.csrf = json.me.csrf;
+    return { status: r.statusCode, body: json, raw: r };
+  }
+  connect(name: string, password: string, device = { name: 'Chrome on Linux', kind: 'desktop', browser: 'Chrome' }) {
+    return this.req('POST', '/auth/connect', { name, password, device });
+  }
+}
+
+/** Admin "Luca" signed in, plus a helper to make approved members. */
+export async function withAdmin(app: FastifyInstance) {
+  const admin = new Browser(app);
+  const r = await admin.connect('Luca', 'pass1234');
+  if (r.status !== 200) throw new Error('admin connect failed ' + JSON.stringify(r.body));
+  const member = async (name: string, pass = 'pass1234') => {
+    const b = new Browser(app);
+    const w = await b.connect(name, pass);
+    if (w.status !== 202) throw new Error('expected waiting ' + JSON.stringify(w.body));
+    const users = (await admin.req('GET', '/users')).body.users as { id: string; name: string }[];
+    const u = users.find((x) => x.name === name)!;
+    await admin.req('POST', `/users/${u.id}/approve`);
+    const ok = await b.req('GET', '/auth/wait');
+    if (ok.status !== 200) throw new Error('approve failed ' + JSON.stringify(ok.body));
+    return { b, id: u.id };
+  };
+  return { admin, adminId: r.body.me.account.id as string, member };
+}
