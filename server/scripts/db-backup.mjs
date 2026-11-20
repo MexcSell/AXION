@@ -28,7 +28,7 @@ await c.end();
 renameSync(base + '.dump.part', base + '.dump'); chmodSync(base + '.dump', 0o600);
 const uploads = process.env.UPLOAD_DIR || join(here, '..', 'data', 'uploads');
 let uploadsFile = null;
-if (existsSync(uploads) && readdirSync(uploads).length) { await run('tar', ['-czf', base + '.uploads.tar.gz', '-C', uploads, '.']); chmodSync(base + '.uploads.tar.gz', 0o600); uploadsFile = `axion-${stamp}.uploads.tar.gz`; }
+if (existsSync(uploads) && readdirSync(uploads).length) /* tar only when there are files */ { await run('tar', ['-czf', base + '.uploads.tar.gz', '-C', uploads, '.']); chmodSync(base + '.uploads.tar.gz', 0o600); uploadsFile = `axion-${stamp}.uploads.tar.gz`; }
 writeFileSync(base + '.json', JSON.stringify({ createdAt: new Date().toISOString(), snapshot: snap, counts, uploads: uploadsFile }, null, 2), { mode: 0o600 });
 // keep the newest 14 backups
 const dumps = readdirSync(dir).filter((f) => /^axion-.*\.dump$/.test(f)).sort().reverse();

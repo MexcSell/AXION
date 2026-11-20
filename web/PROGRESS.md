@@ -8,7 +8,7 @@ Autonomous build session started 2026-11-20. The owner was away for ~8h and said
   (≈ spec Stages 1–4: shell, design system, all routes/tabs, dialogs, using clearly-marked DEMO fixtures).
 - OUT of scope (not started): backend/API, DB, auth, real Playwright browser sessions, systemd, deployment.
 - `/home/thomas/subnet-scout` was read-only. `update/2026-11-20/` was not modified.
-- New project: `/home/luca/AXION/web` (no git; nothing committed).
+- New project: `/home/luca/AXION/web`. Git on `main` since Stage 5 (commit per task; `node_modules/`, `dist/`, `.env` ignored).
 
 ## Design decisions
 - Visual target: `/home/thomas/subnet-scout/docs/update_2026-11-15/40-4.png` (1672×941), a dark neon-glass command center.
@@ -32,7 +32,7 @@ Autonomous build session started 2026-11-20. The owner was away for ~8h and said
 | React Flow / XYFlow | Custom SVG hierarchy graph and task DAG (tidy-tree layout, pan/zoom/fit, list alternative) | Exact control over directional animated edges (delegate ↓ / report ↑ pulses) and node styling, with fewer dependencies. Can be swapped in later. |
 | TanStack Query, React Hook Form + Zod | Not yet; zustand DEMO store and local validation | There is no API until Stage 5. Add them together with the typed contracts. |
 | Vitest | Playwright scripts (`crawl`, `crawl-deep`, `flows`, `dialog-smoke`, `check-help`, `check-dialogs`) | These verify the real rendered UI. Add Vitest when backend logic (state machines, policy) exists. |
-| Versions unpinned | React 19.3, Vite 8.3, TypeScript 7.0 (native), motion 14, react-router 7.18, zustand 5, lucide 1.76. Exact versions are locked in `package-lock.json`; there is no git repo yet. | — |
+| Versions unpinned | React 19.3, Vite 8.3, TypeScript 7.0 (native), motion 14, react-router 7.18, zustand 5, lucide 1.76. Exact versions are locked in `package-lock.json` (in git since Stage 5). | — |
 
 ## Owner update 2026-11-20 u1 (`update/2026-11-20_u1.md`)
 Plan, interpretations and review notes: `docs/plan-2026-11-20_u1.md`. Executed in 11 steps; each step was typechecked and screenshot-checked, and crawl/flows ran after steps 1, 4, 6, 7 and at the end.
@@ -212,3 +212,91 @@ Measured with `scripts/perf-nav.mjs` (headless Chromium with software rendering,
   | Dev, after | 176 ms | 60 fps |
 
 - **Side bug fixed:** the production CSS minifier dropped the unprefixed `backdrop-filter` from `.panel`, so builds had no glass in current Chrome. The gated rule now builds with both forms.
+
+## Stage 5 (2026-11-20, autonomous; owner away 9 h: "make up your own mind and do it. Please refer to the backend in axor.")
+
+**How I read the owner's words.** "Refer to the backend in axor" = use `/home/luca/axor/backend` (Python FastAPI) as a
+**read-only pattern source**, not a code base to port or call. The spec names Node + TypeScript + Fastify (§10.2), says to
+borrow proven requirements from AXoR rather than import its code (§16), and never to change AXoR assets. If the owner meant
+"build it in Python like axor" or "reuse axor's API", the server would need rewriting — that is the main risk of this reading.
+
+**Decisions D1–D6** (plan `docs/plan-2026-11-20_stage5.md`): all taken as recommended.
+D1 new PostgreSQL database `axion` (+ `axion_test`, `axion_e2e`, `axion_restore_check`), role `axion`; the other databases on
+the server were not touched. D2 code in `/home/luca/AXION/server` and `/home/luca/AXION/shared/contracts`. D3 git baseline
+committed, then one commit per task on `main`. D4 one user per browser (HTTP-only cookie). D5 the prototype's missions are
+seeded as DEMO rows when the first administrator registers (`npm run demo:clear` removes them). D6 GM → executor → agents
+staffing runs on the server as a labelled simulation that sends real events.
+
+**Taken from axor** (file → what I adopted):
+
+| axor | Adopted in AXION |
+|---|---|
+| `auth.py` PasswordHasher, `_DUMMY` | argon2id hashes; only a sha256 of the session token is stored |
+| `auth.py` `new_session`, TTLs | a new token at every sign-in step (waiting → signed in); 30-day absolute + 24-hour idle limit |
+| `main.py` CSRF middleware | `X-CSRF` header bound to the session + same-origin `Origin` check on every write |
+| `admin.py` | last-administrator guard; admins can't demote/disable themselves; revoke all sessions on disable/reject/password change |
+| `missions.py` compare-and-set updates, `company.py` execute gateway | `UPDATE … WHERE status=$old RETURNING` for every mission transition and approval decision |
+| `missions.py` `mx_requests` (hash-bound, 72 h expiry) | approvals bound to a sha256 digest of canonical JSON, with expiry and single use |
+| `secretbox.fingerprint` / audit rules | the audit log drops every password/token/hash field |
+| SSE loops in `main.py`/`workforce.py` | the stream re-checks the session on every wake-up, `X-Accel-Buffering: no` |
+
+Not taken: axor's single-connection SQLite→Postgres shim, ad hoc migrations (AXION has up/down SQL migrations with tests),
+and its 12-character password rule (u1 keeps ≥ 4 at sign-up, ≥ 8 for a change).
+
+**What was built** (commits `d3b8606`…, see `git log`):
+- **Server** (`server/`, README there): Fastify 5 on 127.0.0.1:5191, error envelope `{code,message,correlationId,retryable}`,
+  migrations 0001–0004, sign-in with admin approval of users and devices, missions with the spec §10.6 state machine
+  (people can only `start/pause/resume/cancel/retry/archive/restore`), revisions + If-Match, Idempotency-Key, uploads
+  (≤ 25 MB, type from the bytes), approvals, notifications with per-user read state, a durable append-only event log and an
+  SSE stream with Last-Event-ID replay, the staffing simulation, `GET /operations/health`, backups and a restore check.
+  **Execution is disabled**: no task, model, browser or process runs (tested).
+- **Web**: `api` data mode by default (`?data=demo` = old prototype). Sign-in, waiting and "Server not reachable" screens;
+  missions, approvals and notifications from the server; live updates with a **Live / Reconnecting / Stale** badge in the top
+  bar (`?` help); a mission made private while someone has it open moves them off it with a toast; DEMO tags on seeded
+  missions; Operations › Services shows the real server's health (admins).
+
+**Deviations from the plan** (all in the ledger with their cost): migration 0003 split into 0003/0004; the demo seed moved to
+Task 8 and runs when the first admin registers; `/auth/hello`, `/auth/cancel`, `/people`, `DELETE /me/devices/:id` added;
+resume returns to the state the mission was paused from; the sign-in limit is per name (behind the local proxy every client
+has the same address); `flows.mjs`/crawls stay demo-mode suites — api mode has its own browser checks.
+
+**Reviews.** Two independent read-only reviews, every Important item fixed test-first (a test that failed first, then passed):
+- Review 1 (session axion-53, Tasks 1–4 and 7): 6 Important, 19 Minor. Fixed: the sign-in limit could be bypassed with a forged
+  `X-Forwarded-For` or used to lock a user out; password checks ran inside a global lock (anyone could stall sign-in); a
+  declined waiting user waited forever; pause → resume skipped a pending approval; idempotency was not atomic with the work;
+  the dev server served the whole repo, including database backups. Also fixed: device cookies stored hashed, avatar images
+  limited to data URLs, members see only names/avatars of others, members can remove their own devices, a DB outage shows
+  "Server not reachable" instead of the sign-in screen.
+- Review 2 (fresh reviewer, whole branch): 1 Critical, 7 Important. Fixed: the event listener's reconnect loop multiplied
+  itself during a database outage (could exhaust PostgreSQL connections shared with the other apps); a refused action kept its
+  optimistic status; If-Match was bumped by system writes (spurious "someone changed it") and the edit dialog didn't send the
+  version it opened on (lost update); a decision/cancel race could deadlock; expired approvals stranded missions; a session
+  revoked while offline left the tab "stale" forever; re-login in another tab could leave this tab syncing as nobody; a slow
+  refresh could re-add a mission that had just become private. Backups are now consistent (dump + row-count manifest from one
+  snapshot, uploads archived).
+- Deferred minors are listed in the ledger (`.superpowers/sdd/plan-2026-11-20_stage5/progress.md`, lines "minor (deferred)").
+
+**Evidence (2026-11-20, final run).**
+- `cd server && npm test` → **127/127** (migrations up/down/up, append-only audit/events/decisions, sign-in and approvals of
+  users/devices, rate limit, CSRF/Origin, state machine (every edge and every illegal pair), visibility matrix, tenants,
+  If-Match, idempotency, uploads (0 bytes, 25 MB, wrong content, `../`), event replay/filtering/revocation/ordering,
+  approvals digest/expiry/duplicates, notifications, staffing simulation, execution guard, seed, ops health, review fixes).
+- `web/scripts/api-e2e.sh` (real server on axion_e2e, two/three browsers) → **api-auth-flow 15/15, api-flows 23/23**
+  (live share/pause/approval across users, uploads, un-share moves the other user off the mission, API restart mid-test:
+  reconnecting → live, no lost or doubled rows, half-typed draft kept, persistence, rollback of a refused action, revoked
+  while offline → Connect).
+- `web/scripts/verify-all.sh` (demo mode) → typecheck + build, 77-view crawl, deep crawl (15 missions), flows, u1 flows,
+  dialog smoke 104/104, dialog ids, help keys, **dev-server file guard** — all green. `fit-check` ALL FIT, `ov-fit` NO SCROLL.
+- Backup + restore check: `npm run db:backup && npm run db:restore-check` → PASS (also against the populated e2e database:
+  13 missions, 11 events, all 17 tables equal).
+- Screenshots: `docs/screenshots/stage5-{connect,waiting,missions-live,ops-health,users-approvals}-{dark,light}.png`.
+
+**Still DEMO after Stage 5:** mission conversations and the chat dock (Stage 6), agents, lineage, models and VMs (6/9), Job
+Search, News, results/artifacts (8), the Operations tabs other than the AXION server panel, the fixture notices, and the
+seeded sample missions (DEMO tag; `npm run demo:clear`).
+
+**Start it:** `cd /home/luca/AXION/server && npm run dev`, then `cd /home/luca/AXION/web && npm run dev`, tunnel
+`ssh -L 5190:127.0.0.1:5190 <vps>`, open http://127.0.0.1:5190. **The first name that connects becomes the administrator**
+(nobody has connected to the real database yet). Offline prototype: http://127.0.0.1:5190/?data=demo.
+
+**Stage 5 is complete. Do you approve Stage 6?**
