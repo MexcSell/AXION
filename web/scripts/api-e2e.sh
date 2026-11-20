@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Runs the api-mode browser checks against a throw-away stack:
 #   API 127.0.0.1:5192 on axion_e2e (reset on start, DEMO seed on) + Vite 127.0.0.1:5193 proxying /api to it.
-# Usage: ./scripts/api-e2e.sh [script.mjs ...]   (default: api-auth-flow.mjs api-flows.mjs)
+# Usage: ./scripts/api-e2e.sh [script.mjs | "full command" ...]   (default: api-auth-flow.mjs api-flows.mjs)
+# api-mode views: ./scripts/api-e2e.sh "DATA_MODE=api node scripts/crawl.mjs /tmp/x dark luminous" (LOGIN_AS=Mina = a member)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT="${OUT:-/tmp/axion-api-e2e}"; mkdir -p "$OUT"
@@ -25,10 +26,11 @@ export BASE=http://127.0.0.1:5193
 scripts=("$@"); [ ${#scripts[@]} -eq 0 ] && scripts=(api-auth-flow.mjs api-flows.mjs)
 rc=0
 for s in "${scripts[@]}"; do
-  [ -f "scripts/$s" ] || continue
   echo "== $s"
   start  # a fresh stack per script: the e2e database is emptied on every API start
-  API_PID=$API node "scripts/$s" || rc=1
+  if [[ "$s" == *" "* ]]; then API_PID=$API bash -c "$s" || rc=1     # a full command, e.g. "DATA_MODE=api node scripts/crawl.mjs …"
+  elif [ -f "scripts/$s" ]; then API_PID=$API node "scripts/$s" || rc=1
+  else echo "no such script: $s"; rc=1; fi
   stop
 done
 exit $rc

@@ -35,13 +35,13 @@ server (`myapp`, `agentapp`, `ajp`, `ajp_test`, `postgres`) are never read or ch
 
 | Command | What it does |
 |---|---|
-| `npm test` | 107 Vitest tests against `axion_test` |
+| `npm test` | 128 Vitest tests against `axion_test` |
 | `npm run typecheck` | TypeScript |
 | `npm run migrate [-- down <n>]` | migrations up (default) or down to version n (`down 0` empties the schema) |
 | `npm run admin:approve-device -- <name>` | recovery: approves that user's newest waiting device (e.g. the only admin lost their cookies) |
 | `npm run demo:seed` / `npm run demo:clear` | add / remove the DEMO missions (`demo=true` rows only) |
-| `npm run db:backup` | `pg_dump -Fc axion` → `../backups/axion-<UTC>.dump`, keeps 14 |
-| `npm run db:restore-check` | restores the newest dump into `axion_restore_check` and compares row counts |
+| `npm run db:backup` | `pg_dump -Fc axion` on one snapshot → `../backups/axion-<UTC>.dump` + `.json` manifest of row counts (+ uploads archive), keeps 14 |
+| `npm run db:restore-check` | restores the newest dump into `axion_restore_check` and compares row counts with its manifest |
 | `npm run e2e:serve` | API on 5192 with `axion_e2e` (used by the browser checks) |
 
 ## API (prefix `/api/v1`)
@@ -50,7 +50,9 @@ server (`myapp`, `agentapp`, `ajp`, `ajp_test`, `postgres`) are never read or ch
 - Sessions: HTTP-only `SameSite=Strict` cookie `axion_sid` (only its sha256 is stored), 30-day absolute and 24-hour idle limit.
   Every write needs `X-CSRF` (from `me.csrf`); a cross-site `Origin` is refused.
 - Auth: `POST /auth/connect`, `GET /auth/wait`, `POST /auth/cancel`, `GET /auth/hello`, `GET /me`, `PATCH /me`,
-  `POST /me/password`, `POST /auth/logout`, `GET /people`.
+  `POST /me/password`, `DELETE /me/devices/:did` (one of your other devices), `POST /auth/logout`, `GET /people`.
+- Sign-in limit: 10 wrong passwords per name per minute (per name, not per address: behind the local proxy every client
+  is 127.0.0.1, and `X-Forwarded-For` is not trusted).
 - Admin: `GET /users`, `POST /users/:id/approve|reject`, `PATCH /users/:id`, `POST /users/:id/devices/:did/approve|block`,
   `DELETE /users/:id/devices/:did`, `GET /operations/health`.
 - Missions: `GET /missions`, `GET /missions/:id`, `POST /missions` (Idempotency-Key), `PATCH /missions/:id` (If-Match),
@@ -69,6 +71,11 @@ decision; approvals bound to a hash with expiry; secrets never written to the au
 every wake-up and sends `X-Accel-Buffering: no`.
 Not taken: axor's single-connection SQLite→Postgres shim, ad hoc migrations and its 12-character password rule
 (owner update u1 keeps ≥ 4 characters at sign-up and ≥ 8 for a change).
+
+## Stopping a running API
+
+`npm run dev` fails with EADDRINUSE while another API holds 5191:
+`kill $(ss -ltnpH "sport = :5191" | grep -o 'pid=[0-9]*' | cut -d= -f2)`.
 
 ## Rollback
 

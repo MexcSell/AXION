@@ -38,9 +38,11 @@ In `?data=demo` mode the old in-browser accounts still work (demo members Mina P
 Stage 5 (server + api mode):
 
 ```bash
-cd ../server && npm test            # 121 API tests (PostgreSQL axion_test)
+cd ../server && npm test            # 128 API tests (PostgreSQL axion_test)
 ./scripts/api-e2e.sh                # browser checks on a throw-away stack (API 5192 + Vite 5193, database axion_e2e)
 ./scripts/api-e2e.sh api-shots.mjs  # docs/screenshots/stage5-*.png
+./scripts/api-e2e.sh "DATA_MODE=api node scripts/crawl.mjs /tmp/c dark luminous"   # any demo script in api mode (LOGIN_AS=Mina = member)
+./scripts/api-offline.sh            # the "Server not reachable" card and recovery
 ```
 
 Prototype checks (demo mode; the scripts pin `axion.data-mode=demo`):

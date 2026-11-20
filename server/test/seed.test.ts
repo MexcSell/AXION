@@ -26,6 +26,7 @@ describe('demo seed', () => {
     const approvals = (await A.admin.req('GET', '/approvals')).body.approvals;
     expect(approvals.length).toBe(MISSIONS.reduce((s, m) => s + m.pendingApprovals, 0));
     expect(approvals.find((a: any) => a.id === 'APR-M-128-1')).toBeTruthy();
+    expect(Math.min(...approvals.map((a: any) => a.expiresMin))).toBeGreaterThan(6 * 24 * 60); // DEMO approvals don't vanish an hour after the owner signs in
     // a real mission survives clear
     await A.admin.req('POST', '/missions', { text: 'Real one', files: [], shared: false }, { 'idempotency-key': 'real-1' });
     await clearDemo(t.app.db, 't-1');
@@ -41,5 +42,19 @@ describe('demo seed', () => {
     let n = 0;
     while (Date.now() - t0 < 3000) { n = (await A.admin.req('GET', '/missions')).body.missions.length; if (n) break; await new Promise((r) => setTimeout(r, 50)); }
     expect(n).toBe(MISSIONS.length);
+  });
+});
+
+describe('demo clear after a decision', () => {
+  it('removes demo missions even when one of their approvals was decided (append-only decisions cascade)', async () => {
+    t = await makeTestApp({ staffingStepMs: 60_000 });
+    const A = await withAdmin(t.app);
+    await seedDemo(t.app.db, 't-1', A.adminId);
+    const ap = (await A.admin.req('GET', '/approvals')).body.approvals[0];
+    expect((await A.admin.req('POST', `/approvals/${ap.id}/decision`, { decision: 'approved', digest: ap.digest })).status).toBe(200);
+    const r = await clearDemo(t.app.db, 't-1');
+    expect(r.missions).toBe(MISSIONS.length);
+    expect((await t.pool.query('select count(*)::int n from approval_decisions')).rows[0].n).toBe(0);
+    await expect(t.pool.query('delete from approval_decisions')).resolves.toBeTruthy(); // nothing left to delete
   });
 });

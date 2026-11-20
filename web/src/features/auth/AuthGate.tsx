@@ -84,7 +84,7 @@ function OfflineCard() {
       <Brand />
       <div className="auth-radar bad" aria-hidden><span className="auth-radar-ico"><WifiOff size={16} /></span></div>
       <h1 className="auth-h bad">Server not reachable</h1>
-      <p className="auth-sub dim"><Loader2 size={14} className="spin" /> Retrying every 3 seconds. Start it with <span className="kbd">cd server &amp;&amp; npm run dev</span>.</p>
+      <p className="auth-sub dim"><Loader2 size={14} className="spin" /> Retrying every 3 seconds. Start it with <span className="kbd" style={{ whiteSpace: 'nowrap' }}>cd server &amp;&amp; npm run dev</span>.</p>
       <button className="btn ghost block" onClick={() => switchMode('demo')}>Open the offline demo instead</button>
     </motion.div>
   );

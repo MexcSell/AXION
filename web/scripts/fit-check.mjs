@@ -1,7 +1,7 @@
 // Desktop fit-to-screen check: every route × tab must fill exactly one screen (no .main scroll),
 // with a visible .fit-scroll region of reasonable height. Usage: node scripts/fit-check.mjs [w] [h] [shotDir]
 import { chromium } from 'playwright';
-import { signIn } from './_session.mjs';
+import { signIn, navWait, settle } from './_session.mjs';
 import { mkdirSync, readFileSync } from 'node:fs';
 const [, , w = '1672', h = '941', shots = ''] = process.argv;
 const base = process.env.BASE || 'http://127.0.0.1:5190';
@@ -24,7 +24,7 @@ for (const [key, path] of routes) {
   const views = (tabs[key] ?? ['']).flatMap((t) => (key === 'operations' && (t === 'Agents' || t === 'Models') ? tabs[t.toLowerCase()].map((x) => [t, x]) : [[t, '']]));
   for (const [t, sb] of views) {
     const cur = `${path}?tab=${slug(t)}${sb ? `&sub=${slug(sb)}` : ''}`;
-    await p.goto(base + cur, { waitUntil: 'networkidle' });
+    await p.goto(base + cur, { waitUntil: navWait() }); await settle(p);
     await p.waitForTimeout(600);
     const r = await p.evaluate(() => {
       const m = document.querySelector('main'); const mr = m.getBoundingClientRect();

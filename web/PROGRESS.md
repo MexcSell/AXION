@@ -260,7 +260,10 @@ Task 8 and runs when the first admin registers; `/auth/hello`, `/auth/cancel`, `
 resume returns to the state the mission was paused from; the sign-in limit is per name (behind the local proxy every client
 has the same address); `flows.mjs`/crawls stay demo-mode suites — api mode has its own browser checks.
 
-**Reviews.** Two independent read-only reviews, every Important item fixed test-first (a test that failed first, then passed):
+**Reviews.** Two independent read-only reviews. Every Important item is fixed; most with a test that failed first and then
+passed. Exceptions, stated plainly: review-2 C1 (the reconnect storm) has a test that could not run on the old code (the
+reviewer reproduced the storm: 7 → 1723 attempts in about 1 s); review-2 I6 and I7 and review-1 M9 were fixed in the client
+code without an automated test.
 - Review 1 (session axion-53, Tasks 1–4 and 7): 6 Important, 19 Minor. Fixed: the sign-in limit could be bypassed with a forged
   `X-Forwarded-For` or used to lock a user out; password checks ran inside a global lock (anyone could stall sign-in); a
   declined waiting user waited forever; pause → resume skipped a pending approval; idempotency was not atomic with the work;
@@ -277,19 +280,36 @@ has the same address); `flows.mjs`/crawls stay demo-mode suites — api mode has
 - Deferred minors are listed in the ledger (`docs/stage5-ledger.md`, lines "minor (deferred)"; every decision I made for you is a "Ruling:" line there).
 
 **Evidence (2026-11-20, final run).**
-- `cd server && npm test` → **127/127** (migrations up/down/up, append-only audit/events/decisions, sign-in and approvals of
+- `cd server && npm test` → **128/128** (migrations up/down/up, append-only audit/events/decisions, sign-in and approvals of
   users/devices, rate limit, CSRF/Origin, state machine (every edge and every illegal pair), visibility matrix, tenants,
   If-Match, idempotency, uploads (0 bytes, 25 MB, wrong content, `../`), event replay/filtering/revocation/ordering,
   approvals digest/expiry/duplicates, notifications, staffing simulation, execution guard, seed, ops health, review fixes).
-- `web/scripts/api-e2e.sh` (real server on axion_e2e, two/three browsers) → **api-auth-flow 15/15, api-flows 23/23**
+- `web/scripts/api-e2e.sh` (real server on axion_e2e, two/three browsers) → **api-auth-flow 15/15, api-flows 23/23**;
+  in api mode also: the 77-view crawl as administrator and as member (NO PROBLEMS), `fit-check` ALL FIT (both), `ov-fit` NO
+  SCROLL, the top bar fits at 390/900/1280 px; `scripts/api-offline.sh` 4/4 (API down → "Server not reachable", the offline
+  demo link works, API back → Connect without a reload).
   (live share/pause/approval across users, uploads, un-share moves the other user off the mission, API restart mid-test:
   reconnecting → live, no lost or doubled rows, half-typed draft kept, persistence, rollback of a refused action, revoked
   while offline → Connect).
 - `web/scripts/verify-all.sh` (demo mode) → typecheck + build, 77-view crawl, deep crawl (15 missions), flows, u1 flows,
   dialog smoke 104/104, dialog ids, help keys, **dev-server file guard** — all green. `fit-check` ALL FIT, `ov-fit` NO SCROLL.
-- Backup + restore check: `npm run db:backup && npm run db:restore-check` → PASS (also against the populated e2e database:
-  13 missions, 11 events, all 17 tables equal).
-- Screenshots: `docs/screenshots/stage5-{connect,waiting,missions-live,ops-health,users-approvals}-{dark,light}.png`.
+- Backup + restore check: `npm run db:backup && npm run db:restore-check` → PASS on the real (still empty) database. On the
+  populated e2e database: PASS with all 17 tables equal to the backup's manifest (14 missions, 19 events), and still PASS
+  after a row was written post-backup.
+- README commands run as written against `axion_e2e`: `migrate down 0` / up, `npm run dev`, `demo:clear`, `demo:seed`
+  (13 missions, 4 approvals), `admin:approve-device`.
+- Screenshots: `docs/screenshots/stage5-{connect,waiting,missions-live,ops-health,users-approvals}-{dark,light}.png`,
+  `stage5-offline-dark.png`.
+
+**Things to know.**
+- Commit `d4cfd12 "ui"` (22:40) holds most of my Task 8 work but was not made by me: it was an ordinary `git commit` under
+  the repo's identity (no git hook does this) — from the editor or another session. I left history as it is.
+- The API I started on 127.0.0.1:5191 runs detached and may not outlive my session. To restart it yourself, stop it first
+  (`kill $(ss -ltnpH "sport = :5191" | grep -o 'pid=[0-9]*' | cut -d= -f2)`), otherwise `npm run dev` fails with EADDRINUSE.
+- Open question: any member who can see a shared mission may decide its approvals (the spec doesn't say). Say if only the
+  owner/admins should.
+- The seeded DEMO approvals expire after a week (the fixtures said 60–90 minutes, which would have made them vanish soon
+  after your first sign-in).
 
 **Still DEMO after Stage 5:** mission conversations and the chat dock (Stage 6), agents, lineage, models and VMs (6/9), Job
 Search, News, results/artifacts (8), the Operations tabs other than the AXION server panel, the fixture notices, and the

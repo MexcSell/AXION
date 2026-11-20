@@ -215,6 +215,7 @@ button.kpi:hover { transform: translateY(calc(-2px * var(--motion-scale))); box-
   .brand-word { font-size: 26px; }
   .topbar-inner { padding: 0 10px; gap: 8px; }
   .top-actions .demo-tag { display: none; }
+  .top-actions .conn-badge > button, .top-actions .conn-badge .conn-badge-in { font-size: 0; gap: 0; padding: 4px; } /* icon + dot only */
   .hero-layer { width: 100vw; transform: translateX(-50%); height: 150px; }
 }
 
@@ -299,3 +300,11 @@ button.kpi:hover { transform: translateY(calc(-2px * var(--motion-scale))); box-
 [data-gfx='full'] .conn-badge.good .conn-badge-in::before { animation: conn-pulse 2.4s ease-out infinite; }
 @keyframes conn-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in oklab, currentColor 60%, transparent); } 100% { box-shadow: 0 0 0 7px transparent; } }
 @media (max-width: 900px) { .conn-badge .conn-badge-in { padding: 3px 6px; } }
+/* phones: the top bar must fit 390 px (Stage 5 added the live badge; the bar already overflowed slightly before) */
+@media (max-width: 480px) {
+  .top-actions { gap: 2px; }
+  .top-actions .conn-badge .help-btn { display: none; }
+  .topbar-inner .brand-word { font-size: 18px; }
+  .topbar-inner { gap: 4px; }
+  .topbar-inner .brand svg { width: 30px; height: 30px; }
+}

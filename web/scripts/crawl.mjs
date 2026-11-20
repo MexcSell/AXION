@@ -1,7 +1,7 @@
 // Visits every route × tab, records console/page errors, screenshots each.
 // Usage: node scripts/crawl.mjs [outDir] [theme] [skin] [width] [height]
 import { chromium } from 'playwright';
-import { signIn } from './_session.mjs';
+import { signIn, navWait, settle } from './_session.mjs';
 import { mkdirSync, readFileSync } from 'node:fs';
 const [, , out = 'crawl', theme = 'dark', skin = 'luminous', w = '1672', h = '941'] = process.argv;
 const base = process.env.BASE || 'http://127.0.0.1:5190';
@@ -27,7 +27,7 @@ for (const [key, path] of routes) {
   const views = (tabs[key] ?? ['']).flatMap((t) => (key === 'operations' && (t === 'Agents' || t === 'Models') ? tabs[t.toLowerCase()].map((s) => [t, s]) : [[t, '']]));
   for (const [t, sb] of views) {
     cur = `${path}?tab=${slug(t)}${sb ? `&sub=${slug(sb)}` : ''}`;
-    await p.goto(base + cur, { waitUntil: 'networkidle' });
+    await p.goto(base + cur, { waitUntil: navWait() }); await settle(p);
     await p.waitForTimeout(500);
     const empty = await p.evaluate(() => (document.querySelector('main')?.innerText ?? '').trim().length);
     if (empty < 40) problems.push(`${cur} EMPTY main content (${empty} chars)`);
