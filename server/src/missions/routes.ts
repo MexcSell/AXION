@@ -53,7 +53,7 @@ export default async function missionRoutes(app: FastifyInstance) {
         await c.query(`insert into mission_revisions(mission_id, revision, title, kind, priority, text, files, criteria, created_by) values ($1,1,$2,$3,'normal',$4,$5,'[]',$6)`,
           [id, d.title, d.kind, b.text.trim(), JSON.stringify(files), ctx.user.id]);
         await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'mission.create', subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { shared: b.shared, files: files.length } });
-        await emit(c, { tenantId: ctx.tenantId, type: 'mission.created', subject: id, missionId: id, payload: { status } });
+        await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'mission.created', subject: id, missionId: id, payload: { status } });
         return missionDto(await loadRow(c, id));
       });
       return { status: 201, body: { mission: m } };
@@ -87,7 +87,7 @@ export default async function missionRoutes(app: FastifyInstance) {
         [id, rev, expected, `Edited by ${ctx.user.name}`, Date.now()]);
       if (!u.rowCount) throw conflict();
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'mission.revise', subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { revision: rev, fields: Object.keys(b) } });
-      await emit(c, { tenantId: ctx.tenantId, type: 'mission.revised', subject: id, missionId: id, payload: { revision: rev } });
+      await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'mission.revised', subject: id, missionId: id, payload: { revision: rev } });
       return missionDto(await loadRow(c, id));
     });
     return { mission: m };
@@ -102,7 +102,7 @@ export default async function missionRoutes(app: FastifyInstance) {
       if (!canManage(ctx, r)) throw new ApiError('FORBIDDEN', 403, 'Only the owner or an administrator can change sharing.');
       await c.query(`update missions set shared=$2, row_version=row_version+1, updated_at=now() where id=$1`, [id, b.shared]);
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'mission.share', subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { shared: b.shared } });
-      await emit(c, { tenantId: ctx.tenantId, type: 'mission.shared', subject: id, missionId: id, payload: { shared: b.shared, ownerId: r.owner_id } });
+      await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'mission.shared', subject: id, missionId: id, payload: { shared: b.shared } });
       return missionDto(await loadRow(c, id));
     });
     return { mission: m };
@@ -139,7 +139,7 @@ export default async function missionRoutes(app: FastifyInstance) {
         if (['canceled', 'archived', 'failed'].includes(to)) await c.query(`update mission_runs set ended_at=now(), status=$2 where mission_id=$1 and ended_at is null`, [id, to]);
         for (const [f, a, t2] of steps) {
           await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: `mission.${a}`, subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { from: f, to: t2 } });
-          await emit(c, { tenantId: ctx.tenantId, type: 'mission.stateChanged', subject: id, missionId: id, payload: { from: f, to: t2, action: a, by: ctx.user.name } });
+          await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'mission.stateChanged', subject: id, missionId: id, payload: { from: f, to: t2, action: a, by: ctx.user.name } });
         }
         return missionDto(await loadRow(c, id));
       });
@@ -158,7 +158,7 @@ export default async function missionRoutes(app: FastifyInstance) {
       if (!canManage(ctx, r)) throw new ApiError('FORBIDDEN', 403, 'Only the owner or an administrator can delete a mission.');
       await c.query(`update missions set deleted_at=now(), row_version=row_version+1, updated_at=now() where id=$1`, [id]);
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'mission.delete', subject: id, result: 'ok', correlationId: ctx.correlationId });
-      await emit(c, { tenantId: ctx.tenantId, type: 'mission.deleted', subject: id, missionId: id, payload: { ownerId: r.owner_id, shared: r.shared } });
+      await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'mission.deleted', subject: id, missionId: id, payload: { ownerId: r.owner_id, shared: r.shared } });
     });
     app.onMissionChanged?.(id, 'canceled');
     return { ok: true };

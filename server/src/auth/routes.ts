@@ -166,7 +166,7 @@ export default async function authRoutes(app: FastifyInstance) {
       }
       if (b.avatar) await t.query('update users set avatar=$1 where id=$2', [JSON.stringify(b.avatar), c.user.id]);
       await audit(t, { tenantId, actor: c.user.id, action: 'user.profile', subject: c.user.id, result: 'ok', correlationId: c.correlationId, detail: { name: b.name !== undefined, avatar: !!b.avatar } });
-      await emit(t, { tenantId, type: 'user.changed', subject: c.user.id, payload: { userId: c.user.id } });
+      await emit(t, { tenantId, actor: c.user.id, correlationId: c.correlationId, type: 'user.changed', subject: c.user.id, payload: { userId: c.user.id } });
     });
     return { me: { account: await loadAccount(app.db, tenantId, c.user.id), deviceId: c.deviceId, csrf: c.csrf } };
   });
@@ -182,6 +182,7 @@ export default async function authRoutes(app: FastifyInstance) {
     await tx(app.db, async (t) => {
       await t.query('update users set pass_hash=$1, password_changed_at=now() where id=$2', [ph, c.user.id]);
       await revokeUserSessions(t, c.user.id, c.tokenHash);
+      await emit(t, { tenantId, actor: c.user.id, correlationId: c.correlationId, type: 'user.changed', subject: c.user.id, payload: { userId: c.user.id, passwordChanged: true } });
       await audit(t, { tenantId, actor: c.user.id, action: 'user.password', subject: c.user.id, result: 'ok', correlationId: c.correlationId });
     });
     return { ok: true };
@@ -208,7 +209,7 @@ export default async function authRoutes(app: FastifyInstance) {
       await t.query(`update users set status='approved', approved_at=now(), approved_by=$1 where id=$2`, [c.user.name, id]);
       await t.query(`update devices set status='approved' where user_id=$1 and status='pending'`, [id]);
       await audit(t, { tenantId, actor: c.user.id, action: 'user.approve', subject: id, result: 'ok', correlationId: c.correlationId });
-      await emit(t, { tenantId, type: 'auth.approved', subject: id, payload: { userId: id } });
+      await emit(t, { tenantId, actor: c.user.id, correlationId: c.correlationId, type: 'auth.approved', subject: id, payload: { userId: id } });
     });
     return { ok: true };
   });
@@ -223,7 +224,7 @@ export default async function authRoutes(app: FastifyInstance) {
       await t.query(`update users set status='rejected', approved_by=$1 where id=$2`, [c.user.name, id]);
       await revokeUserSessions(t, id);
       await audit(t, { tenantId, actor: c.user.id, action: 'user.reject', subject: id, result: 'ok', correlationId: c.correlationId });
-      await emit(t, { tenantId, type: 'user.changed', subject: id, payload: { userId: id, revoked: true } });
+      await emit(t, { tenantId, actor: c.user.id, correlationId: c.correlationId, type: 'user.changed', subject: id, payload: { userId: id, revoked: true } });
     });
     return { ok: true };
   });
@@ -248,7 +249,7 @@ export default async function authRoutes(app: FastifyInstance) {
         if (b.status === 'disabled') await revokeUserSessions(t, id);
       }
       await audit(t, { tenantId, actor: c.user.id, action: 'user.update', subject: id, result: 'ok', correlationId: c.correlationId, detail: b });
-      await emit(t, { tenantId, type: 'user.changed', subject: id, payload: { userId: id, ...(b.status === 'disabled' ? { revoked: true } : {}) } });
+      await emit(t, { tenantId, actor: c.user.id, correlationId: c.correlationId, type: 'user.changed', subject: id, payload: { userId: id, ...(b.status === 'disabled' ? { revoked: true } : {}) } });
     });
     return { ok: true };
   });
@@ -268,7 +269,7 @@ export default async function authRoutes(app: FastifyInstance) {
       await t.query('update devices set status=$1 where id=$2', [action === 'approve' ? 'approved' : 'blocked', did]);
       if (action === 'block') await revokeDeviceSessions(t, did);
       await audit(t, { tenantId, actor: c.user.id, action: `device.${action}`, subject: did, result: 'ok', correlationId: c.correlationId, detail: { user: id } });
-      await emit(t, { tenantId, type: action === 'approve' ? 'auth.approved' : 'user.changed', subject: id, payload: { userId: id, deviceId: did } });
+      await emit(t, { tenantId, actor: c.user.id, correlationId: c.correlationId, type: action === 'approve' ? 'auth.approved' : 'user.changed', subject: id, payload: { userId: id, deviceId: did } });
     });
     return { ok: true };
   });
@@ -282,7 +283,7 @@ export default async function authRoutes(app: FastifyInstance) {
       await revokeDeviceSessions(t, did);
       await t.query('delete from devices where id=$1', [did]);
       await audit(t, { tenantId, actor: c.user.id, action: 'device.remove', subject: did, result: 'ok', correlationId: c.correlationId, detail: { user: id } });
-      await emit(t, { tenantId, type: 'user.changed', subject: id, payload: { userId: id, deviceId: did } });
+      await emit(t, { tenantId, actor: c.user.id, correlationId: c.correlationId, type: 'user.changed', subject: id, payload: { userId: id, deviceId: did } });
     });
     return { ok: true };
   });

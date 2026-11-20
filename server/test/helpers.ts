@@ -84,3 +84,43 @@ export async function withAdmin(app: FastifyInstance) {
   };
   return { admin, adminId: r.body.me.account.id as string, member };
 }
+
+/** Open the SSE stream of a listening app as this browser; collects parsed events. */
+export async function openStream(base: string, b: Browser, lastEventId?: string) {
+  const cookie = [...b.jar].map(([k, v]) => `${k}=${v}`).join('; ');
+  const ac = new AbortController();
+  const res = await fetch(base + '/api/v1/events/stream', { headers: { cookie, accept: 'text/event-stream', ...(lastEventId ? { 'last-event-id': lastEventId } : {}) }, signal: ac.signal });
+  const events: { id?: string; event: string; data: any }[] = [];
+  let ended = false;
+  const done = (async () => {
+    if (!res.body) return;
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf('\n\n')) >= 0) {
+          const block = buf.slice(0, i); buf = buf.slice(i + 2);
+          const ev: { id?: string; event: string; data: any } = { event: 'message', data: undefined };
+          for (const line of block.split('\n')) {
+            if (line.startsWith('id: ')) ev.id = line.slice(4);
+            else if (line.startsWith('event: ')) ev.event = line.slice(7);
+            else if (line.startsWith('data: ')) ev.data = JSON.parse(line.slice(6));
+          }
+          if (ev.data !== undefined) events.push(ev);
+        }
+      }
+    } catch { /* aborted */ }
+    ended = true;
+  })();
+  const waitFor = async (pred: (e: { id?: string; event: string; data: any }) => boolean, ms = 4000) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < ms) { const e = events.find(pred); if (e) return e; await new Promise((r) => setTimeout(r, 25)); }
+    return undefined;
+  };
+  return { status: res.status, events, waitFor, isEnded: () => ended, done, close: () => { ac.abort(); } };
+}
