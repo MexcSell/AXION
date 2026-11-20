@@ -1,0 +1,1 @@
+import{Ct as e,St as t,wt as n}from"./Chips--tH353MS.js";import{a as r,n as i}from"./react-DrE1smQy.js";var a=r(i(),1);function o(){!e.current&&t();let[r]=(0,a.useState)(n.current);return r}export{o as t};

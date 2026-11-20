@@ -1,0 +1,1 @@
+export{h as downloadText}from"./browser-results-BRM_Yo7O.js";

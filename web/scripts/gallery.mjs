@@ -1,0 +1,43 @@
+// Regenerates docs/screenshots/*.png (key screens, 8 skin×theme combos, responsive sizes).
+import { chromium } from 'playwright';
+import { mkdirSync } from 'node:fs';
+const base = process.env.BASE || 'http://127.0.0.1:5190';
+const out = 'docs/screenshots'; mkdirSync(out, { recursive: true });
+const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
+const shot = async (name, path, { w = 1672, h = 941, theme = 'dark', skin = 'luminous', wait = 2600, act } = {}) => {
+  const ctx = await b.newContext({ viewport: { width: w, height: h } });
+  await ctx.addInitScript(([theme, skin]) => localStorage.setItem('axion.settings.v1', JSON.stringify({ state: { themeMode: theme, skin, motion: 'full' }, version: 0 })), [theme, skin]);
+  const p = await ctx.newPage();
+  await p.goto(base + path, { waitUntil: 'networkidle' }); await p.waitForTimeout(wait);
+  if (act) await act(p);
+  await p.screenshot({ path: `${out}/${name}.png` }); await ctx.close();
+};
+await shot('01-agents-40-4', '/agents');
+await shot('02-missions', '/missions?m=M-126');
+await shot('03-mission-control-hierarchy', '/control/M-126?tab=hierarchy', { wait: 4200 });
+await shot('04-mission-control-conversation', '/control/M-126?tab=conversations&agent=coder-01', { act: async (p) => {
+  await p.locator('.composer textarea').fill('Re-run the visual diff on the checkout page in dark mode and attach screenshots.');
+  await p.keyboard.press('Control+Enter'); await p.waitForTimeout(7500); } });
+await shot('05-mission-control-task-flow', '/control/M-126?tab=task-flow');
+await shot('06-mission-control-browser', '/control/M-126?tab=browser');
+await shot('07-create-mission-wizard', '/missions', { act: async (p) => { await p.getByRole('button', { name: 'Add Mission' }).first().click(); await p.waitForTimeout(900); } });
+await shot('08-overview', '/overview');
+await shot('09-organization', '/organization');
+await shot('10-agent-profile', '/agents/coder-01?tab=capabilities');
+await shot('11-browser-studio', '/browser?tab=live-view');
+await shot('12-results-branch-graph', '/results?tab=branch-graph');
+await shot('13-evolution-lab', '/evolution?tab=promotions');
+await shot('14-models-routing', '/models?tab=routing');
+await shot('15-governance-approvals', '/governance?tab=approvals');
+await shot('16-notifications', '/notifications');
+await shot('17-settings-appearance', '/settings?tab=appearance');
+await shot('18-settings-avatars-faces', '/settings?tab=avatars-and-faces');
+await shot('19-usage', '/usage');
+await shot('20-help-context', '/help?tab=context-help');
+for (const skin of ['luminous', 'flat', 'pretty', 'fancy']) for (const theme of ['dark', 'light']) await shot(`skin-${skin}-${theme}`, '/agents', { skin, theme, wait: 2000 });
+await shot('resp-1280-mission-control', '/control/M-126?tab=hierarchy', { w: 1280, h: 800 });
+await shot('resp-900-missions', '/missions', { w: 900, h: 1000 });
+await shot('resp-390-agents', '/agents', { w: 390, h: 844 });
+await shot('resp-390-mission-control', '/control/M-126?tab=conversations', { w: 390, h: 844 });
+await b.close();
+console.log('gallery written to', out);
