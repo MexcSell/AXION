@@ -1,0 +1,54 @@
+import Fastify, { type FastifyInstance, type FastifyError } from 'fastify';
+import { randomUUID } from 'node:crypto';
+import { makePool, type Db } from './db.ts';
+import { ApiError } from './errors.ts';
+import { type Config, VERSION, DEFAULT_TENANT } from './config.ts';
+
+declare module 'fastify' {
+  interface FastifyInstance { db: Db; cfg: Required<Pick<Config, 'tenantId'>> & Config }
+}
+
+export async function buildApp(cfg: Config): Promise<FastifyInstance> {
+  const app = Fastify({
+    logger: cfg.logger ? { level: 'info', redact: ['req.headers.cookie', 'req.headers["x-csrf"]', 'res.headers["set-cookie"]'] } : false,
+    genReqId: () => randomUUID(),
+    bodyLimit: 1_000_000,
+    trustProxy: '127.0.0.1',
+  });
+  const db = makePool(cfg.databaseUrl, cfg.schema);
+  app.decorate('db', db);
+  app.decorate('cfg', { tenantId: DEFAULT_TENANT, ...cfg });
+  app.addHook('onClose', async () => { await db.end(); });
+
+  app.addHook('onSend', async (_req, reply) => {
+    reply.header('cache-control', 'no-store');
+    reply.header('x-content-type-options', 'nosniff');
+    reply.header('referrer-policy', 'no-referrer');
+    reply.header('x-frame-options', 'DENY');
+  });
+
+  app.setErrorHandler((err: FastifyError | ApiError, req, reply) => {
+    const correlationId = String(req.id);
+    if (err instanceof ApiError) {
+      return reply.status(err.status).send({ code: err.code, message: err.message, correlationId, retryable: err.opts.retryable ?? false, ...(err.opts.fieldErrors ? { fieldErrors: err.opts.fieldErrors } : {}) });
+    }
+    const fe = err as FastifyError;
+    if (fe.statusCode === 429) return reply.status(429).send({ code: 'RATE_LIMITED', message: 'Too many attempts. Wait a minute and try again.', correlationId, retryable: true });
+    if (fe.validation || (fe.statusCode && fe.statusCode >= 400 && fe.statusCode < 500)) {
+      return reply.status(fe.statusCode ?? 400).send({ code: fe.statusCode === 413 ? 'UPLOAD_REJECTED' : 'BAD_REQUEST', message: fe.statusCode === 413 ? 'The request is too large.' : 'The request could not be read.', correlationId, retryable: false });
+    }
+    req.log.error({ err }, 'unhandled error');
+    return reply.status(500).send({ code: 'INTERNAL', message: 'Something went wrong on the server. Try again.', correlationId, retryable: true });
+  });
+  app.setNotFoundHandler((req, reply) => reply.status(404).send({ code: 'NOT_FOUND', message: 'Not found.', correlationId: String(req.id), retryable: false }));
+
+  app.get('/api/v1/health', async () => {
+    let up = false;
+    try { await db.query('select 1'); up = true; } catch { /* reported below */ }
+    return { ok: up, db: up ? 'up' : 'down', version: VERSION };
+  });
+
+  cfg.configure?.(app);
+  await app.ready();
+  return app;
+}
