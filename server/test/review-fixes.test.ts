@@ -167,3 +167,59 @@ describe('I5 idempotency is atomic with the work', () => {
     expect((await kenji.b.req('POST', `/missions/${m.id}/actions/pause`, {}, { 'idempotency-key': 'm5k' })).status).toBe(404);
   });
 });
+
+describe('review 2', () => {
+  it('I2 system writes (staffing, approvals, state changes) do not make a content edit stale', async () => {
+    const { admin } = await withAdmin(t.app);
+    const m = (await admin.req('POST', '/missions', { text: 'Write a report', files: [], shared: false }, { 'idempotency-key': 'r2a' + n++ })).body.mission;
+    await admin.req('POST', `/missions/${m.id}/actions/pause`, {}, { 'idempotency-key': 'r2p' + n++ });
+    await t.pool.query(`update missions set presentation = presentation || '{"x":1}', row_version=row_version+1 where id=$1`, [m.id]); // like a staffing step
+    const r = await admin.req('PATCH', `/missions/${m.id}`, { title: 'Fixed title' }, { 'if-match': String(m.rowVersion) });
+    expect(r.status).toBe(200);
+    const stale = await admin.req('PATCH', `/missions/${m.id}`, { title: 'Other' }, { 'if-match': String(m.rowVersion) });
+    expect(stale.status).toBe(409);
+  });
+
+  it('I3 deciding an approval while the mission is paused/cancelled concurrently never 500s', async () => {
+    const { admin } = await withAdmin(t.app);
+    for (let i = 0; i < 8; i++) {
+      const m = (await admin.req('POST', '/missions', { text: 'Race ' + i, files: [], shared: false }, { 'idempotency-key': 'r3m' + n++ })).body.mission;
+      await t.pool.query(`update missions set status='waiting_approval' where id=$1`, [m.id]);
+      const a = await tx(t.app.db, (c) => requestApproval(c, { tenantId: 't-1', missionId: m.id, agentId: 'release-01', kind: 'release', title: 'P', detail: '', risk: 'R2', payload: { i }, expiresInMin: 60 }));
+      const [d, p] = await Promise.all([
+        admin.req('POST', `/approvals/${a.id}/decision`, { decision: 'approved', digest: a.digest }),
+        admin.req('POST', `/missions/${m.id}/actions/cancel`, {}, { 'idempotency-key': 'r3c' + n++ }),
+      ]);
+      expect(d.status, JSON.stringify(d.body)).not.toBe(500);
+      expect(p.status, JSON.stringify(p.body)).not.toBe(500);
+    }
+  });
+
+  it('I4 an expired approval releases its waiting mission and leaves the list', async () => {
+    const { admin } = await withAdmin(t.app);
+    const m = (await admin.req('POST', '/missions', { text: 'Expire', files: [], shared: false }, { 'idempotency-key': 'r4' + n++ })).body.mission;
+    await t.pool.query(`update missions set status='waiting_approval' where id=$1`, [m.id]);
+    await tx(t.app.db, (c) => requestApproval(c, { tenantId: 't-1', missionId: m.id, agentId: 'release-01', kind: 'release', title: 'Old', detail: '', risk: 'R2', payload: {}, expiresInMin: -1 }));
+    const list = (await admin.req('GET', '/approvals')).body.approvals;
+    expect(list.filter((x: any) => x.missionId === m.id)).toEqual([]);
+    const after = (await admin.req('GET', `/missions/${m.id}`)).body.mission;
+    expect(after.status).toBe('running');
+    expect(after.pendingApprovals).toBe(0);
+  });
+
+  it('sharing to the same value is a no-op (no event to everyone)', async () => {
+    const { admin } = await withAdmin(t.app);
+    const m = (await admin.req('POST', '/missions', { text: 'Private', files: [], shared: false }, { 'idempotency-key': 'sh' + n++ })).body.mission;
+    await admin.req('POST', `/missions/${m.id}/share`, { shared: false });
+    expect((await t.pool.query(`select count(*)::int n from events where type='mission.shared'`)).rows[0].n).toBe(0);
+  });
+
+  it('the stream refuses an idle-expired session', async () => {
+    const { admin } = await withAdmin(t.app);
+    await t.pool.query(`update sessions set last_seen_at = now() - interval '25 hours'`);
+    await t.app.listen({ host: '127.0.0.1', port: 0 });
+    const res = await fetch(`http://127.0.0.1:${(t.app.server.address() as { port: number }).port}/api/v1/events/stream`, { headers: { cookie: [...admin.jar].map(([k, v]) => `${k}=${v}`).join('; ') } });
+    expect(res.status).toBe(401);
+    await res.body?.cancel();
+  });
+});

@@ -14,6 +14,8 @@ import notificationRoutes from './notifications/routes.ts';
 import { startStaffingSim } from './missions/staffing-sim.ts';
 import { seedDemo } from './seed/demo.ts';
 import opsRoutes from './ops/routes.ts';
+import { sweepExpired } from './approvals/service.ts';
+import { tx } from './db.ts';
 import { checkOrigin } from './auth/session.ts';
 
 declare module 'fastify' {
@@ -74,6 +76,10 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   });
 
   startStaffingSim(app, cfg.staffingStepMs ?? 1500);
+  // review I4: expired approvals are settled every minute, even when nobody opens the approvals list
+  const sweep = setInterval(() => { void tx(db, (c) => sweepExpired(c)).then((ids) => ids.forEach((id) => app.onMissionChanged?.(id, 'running'))).catch(() => {}); }, 60_000);
+  sweep.unref();
+  app.addHook('onClose', async () => clearInterval(sweep));
   if (cfg.demoSeed) app.onFirstAdmin = async (adminId) => { try { await seedDemo(db, app.cfg.tenantId, adminId); } catch (e) { app.log.error({ err: e }, 'demo seed failed'); } };
   cfg.configure?.(app);
   await app.ready();

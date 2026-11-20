@@ -166,20 +166,31 @@ if (typeof window !== 'undefined' && !isApi()) {
 type ServerMission = Mission & { rowVersion: number; serverStatus: string };
 type ServerApproval = Approval & { digest: string; state: string };
 const say = async (title: string, e: unknown) => { const { toast } = await import('@/store/ui'); toast({ tone: 'error', title, body: e instanceof ApiFailure ? e.message : 'Something went wrong. Try again.' }); };
+// review I7: a response that is older than what we hold (syncVersion = the server's row_version) is ignored,
+// and a per-id request generation lets drop() cancel refreshes that were already in flight.
+const gen = new Map<string, number>();
+const bump = (id: string) => { const g = (gen.get(id) ?? 0) + 1; gen.set(id, g); return g; };
+let snapGen = 0;
+type Synced = Mission & { syncVersion?: number };
 const put = (m: Mission) => useData.setState((s) => {
   const i = s.missions.findIndex((x) => x.id === m.id);
+  const cur = s.missions[i] as Synced | undefined;
+  const inc = m as Synced;
+  if (cur && cur.syncVersion !== undefined && inc.syncVersion !== undefined && inc.syncVersion < cur.syncVersion) return {};
   const missions = i < 0 ? [m, ...s.missions] : s.missions.map((x) => (x.id === m.id ? m : x));
   return { missions, lastEventAt: Date.now() };
 });
-const drop = (id: string) => useData.setState((s) => ({ missions: s.missions.filter((m) => m.id !== id), lastEventAt: Date.now() }));
+const drop = (id: string) => { bump(id); useData.setState((s) => ({ missions: s.missions.filter((m) => m.id !== id), lastEventAt: Date.now() })); };
 
 /** Full snapshot: after sign-in, after every (re)connect of the event stream, or after a gap. */
 export async function loadSnapshot() {
+  const mine = ++snapGen;
   const [ms, ap, nt] = await Promise.all([
     api<{ missions: ServerMission[] }>('GET', '/missions'),
     api<{ approvals: ServerApproval[] }>('GET', '/approvals'),
     api<{ notifications: Notice[]; read: string[] }>('GET', '/notifications'),
   ]);
+  if (mine !== snapGen) return; // a newer snapshot was started meanwhile
   useData.setState((s) => ({
     missions: ms.missions, loaded: true, lastEventAt: Date.now(),
     ...approvalsState(ap.approvals),
@@ -190,9 +201,16 @@ export async function loadSnapshot() {
 function approvalsState(list: ServerApproval[]) {
   return { approvals: list as Approval[], approvalDecisions: Object.fromEntries(list.filter((a) => a.status !== 'pending').map((a) => [a.id, a.status as 'approved' | 'denied'])) };
 }
-export async function refreshMission(id: string): Promise<'ok' | 'gone'> {
-  try { put((await api<{ mission: ServerMission }>('GET', `/missions/${id}`)).mission); return 'ok'; }
-  catch (e) { if (e instanceof ApiFailure && e.status === 404) { drop(id); return 'gone'; } throw e; }
+export async function refreshMission(id: string): Promise<'ok' | 'gone' | 'stale'> {
+  const mine = bump(id);
+  try {
+    const r = await api<{ mission: ServerMission }>('GET', `/missions/${id}`);
+    if (gen.get(id) !== mine) return 'stale';
+    put(r.mission); return 'ok';
+  } catch (e) {
+    if (e instanceof ApiFailure && e.status === 404) { if (gen.get(id) !== mine) return 'stale'; const had = useData.getState().missions.some((m) => m.id === id); drop(id); return had ? 'gone' : 'stale'; }
+    throw e;
+  }
 }
 export async function refreshApprovals() { useData.setState(approvalsState((await api<{ approvals: ServerApproval[] }>('GET', '/approvals')).approvals)); }
 export async function refreshNotices() {
@@ -227,19 +245,24 @@ async function apiUpdateMission(id: string, patch: Partial<Mission>) {
     if (patch.objective !== undefined && body.text === undefined && patch.objective !== before.objective) body.text = patch.objective;
     if (Object.keys(body).length) {
       const cur = useData.getState().missions.find((m) => m.id === id);
-      put((await api<{ mission: ServerMission }>('PATCH', `/missions/${id}`, body, { ifMatch: cur?.rowVersion ?? before.rowVersion })).mission);
+      put((await api<{ mission: ServerMission }>('PATCH', `/missions/${id}`, body, { ifMatch: patch.rowVersion ?? cur?.rowVersion ?? before.rowVersion })).mission);
     }
   } catch (e) {
-    put(before);
+    bump(id); useData.setState((s) => ({ missions: s.missions.map((x) => (x.id === id ? before : x)) }));
     await refreshMission(id).catch(() => undefined);
     await say('Not saved', e);
   }
 }
 
-async function apiAction(id: string, action: string, body: Record<string, unknown> = {}) {
-  const before = useData.getState().missions.find((m) => m.id === id);
+async function apiAction(id: string, action: string, body: Record<string, unknown> = {}, original?: Mission) {
+  const before = original ?? useData.getState().missions.find((m) => m.id === id);
   try { put((await api<{ mission: ServerMission }>('POST', `/missions/${id}/actions/${action}`, body, { idempotencyKey: newKey() })).mission); }
-  catch (e) { if (before) put(before); await say('Not changed', e); }
+  catch (e) {
+    // review I1: restore the state from before the optimistic change, then re-read the truth
+    if (before) { bump(id); useData.setState((s) => ({ missions: s.missions.map((x) => (x.id === id ? before : x)) })); }
+    await refreshMission(id).catch(() => undefined);
+    await say('Not changed', e);
+  }
 }
 
 async function apiSetStatus(id: string, status: MissionStatus) {
@@ -249,15 +272,15 @@ async function apiSetStatus(id: string, status: MissionStatus) {
   if (m.status === 'archived') return apiAction(id, 'restore');
   const action = actionForUiStatus(m.status as UiMissionStatus, status as UiMissionStatus);
   if (!action) { await say('Not changed', new ApiFailure('ILLEGAL_TRANSITION', 409, `The server decides when a mission becomes ${status}.`)); return; }
-  put({ ...m, status });
-  await apiAction(id, action);
+  useData.setState((s) => ({ missions: s.missions.map((x) => (x.id === id ? { ...m, status } : x)) }));
+  await apiAction(id, action, {}, m);
 }
 
 async function apiDelete(id: string) {
   const before = useData.getState().missions.find((m) => m.id === id);
   drop(id);
   try { await api('DELETE', `/missions/${id}`); }
-  catch (e) { if (before) put(before); await say('Not deleted', e); }
+  catch (e) { if (e instanceof ApiFailure && e.status === 404) return; if (before) put(before); await say('Not deleted', e); }
 }
 
 async function apiDecide(id: string, decision: 'approved' | 'denied') {

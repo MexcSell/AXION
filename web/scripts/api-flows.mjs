@@ -115,6 +115,25 @@ await A.p.locator('.mw-share').first().click();
 check('B is moved off the mission with a toast', await until(async () => (await B.p.getByText(`${newId} is no longer available`).count()) > 0 && !B.p.url().includes(newId), 8000));
 check('B no longer lists it', await until(async () => !(await hasRow(B.p, newId)), 5000));
 
+
+  // --- review I1: an action the server refuses rolls back to the true state (not the optimistic one)
+  await B.p.goto(base + '/missions/M-133', { waitUntil: 'domcontentloaded' });
+  await until(async () => (await row(B.p, 'M-133').count()) > 0);
+  await B.p.evaluate(() => window.__axion.data.getState().setMissionStatus('M-133', 'paused'));
+  check('a refused pause shows an error and rolls back', await until(async () => (await B.p.getByText('Not changed').count()) > 0 && (await B.p.evaluate(() => window.__axion.data.getState().missions.find((m) => m.id === 'M-133')?.status)) === 'completed', 6000));
+
+  // --- review I5: revoked while the link is down → back to Connect when it returns (not a stale badge forever)
+  await B.ctx.setOffline(true);
+  if (API_PID) process.kill(API_PID, 'SIGUSR2'); // drop every open stream while B is offline
+  await until(async () => (await fetch(base + '/api/v1/health').then((r) => r.ok).catch(() => false)) === false, 8000, 100);
+  await until(async () => fetch(base + '/api/v1/health').then((r) => r.ok).catch(() => false), 20000, 200);
+  await A.p.goto(base + '/settings?tab=users', { waitUntil: 'domcontentloaded' });
+  const dis = A.p.getByRole('button', { name: 'Disable Mina' });
+  await dis.waitFor({ timeout: 8000 });
+  await dis.click();
+  await A.p.waitForTimeout(500);
+  await B.ctx.setOffline(false);
+  check('a user disabled while offline returns to Connect once back online', await until(async () => (await B.p.getByRole('heading', { name: 'Connect' }).count()) > 0, 45000, 300));
 } catch (e) { check('script ran to the end', false, String(e).split('\n')[0]); }
 await A?.p.screenshot({ path: '/tmp/axion-api-e2e/missions-live-A.png' }).catch(() => {});
 await B?.p.screenshot({ path: '/tmp/axion-api-e2e/missions-live-B.png' }).catch(() => {});

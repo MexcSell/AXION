@@ -5,15 +5,18 @@ A React + TypeScript frontend for the Agent Company OS described in
 updated by the owner's change list `../update/2026-11-20_u1.md`. The u1 plan and decisions are in `docs/plan-2026-11-20_u1.md`.
 
 - The visual design follows `/home/thomas/subnet-scout/docs/update_2026-11-15/40-4.png`: a dark neon-glass command center.
-- It covers spec Stages 1–4 (UI only).
-- **All data is deterministic DEMO data, kept in this browser.** No backend, real Playwright browser, model provider or deployment is connected.
+- It covers spec Stages 1–4 (UI) and **Stage 5**: sign-in, users and devices, missions, approvals and notifications come from the
+  AXION server (`../server`, PostgreSQL) with live updates. Execution is still disabled.
+- Still DEMO (marked): conversations, agents, models, VMs, results, Job Search, News, and the sample missions seeded on the server.
+- `?data=demo` on any URL switches this tab to the old browser-only prototype (no server needed); `?data=api` switches back.
 
 ## Run
 
 ```bash
 cd /home/luca/AXION/web
 npm install            # already done
-npm run dev            # http://127.0.0.1:5190   (bound to localhost only)
+(cd ../server && npm run dev)   # the API on 127.0.0.1:5191 — start it first
+npm run dev            # http://127.0.0.1:5190   (bound to localhost only; /api is proxied to 5191)
 npm run build          # typecheck + production bundle in dist/
 npm run preview        # serve dist/ at http://127.0.0.1:4190
 ```
@@ -22,13 +25,25 @@ From your workstation, use an SSH tunnel: `ssh -L 5190:127.0.0.1:5190 <vps>`, th
 `dist/` is a static SPA. Serve it with any static server that falls back to `index.html`.
 
 ### First start: sign-in
-Everyone registers with a **name, a password and Connect**. The **first user becomes the administrator** and is connected at once.
-Later users and new devices wait until an administrator approves them in **Settings › Users** or **Notifications › Pending**.
-The waiting screen then connects automatically, even when the admin approves in another tab.
-Each browser tab has its own session, so two tabs can be two different people.
-Demo members (Mina Park, Kenji Sato, Sara Lind; password `demo`) are created right after the first account.
+Everyone registers with a **name, a password and Connect**. The **first user becomes the administrator** and is connected at once
+(the server then loads the sample DEMO missions). Later users and new devices wait until an administrator approves them in
+**Settings › Users**; the waiting screen connects by itself. The session is an HTTP-only cookie, so every tab of one browser is
+the same user — use another browser or a private window for a second user. If the server is down the app shows
+"Server not reachable" and retries, with a link to the offline demo.
+Locked out (cookies cleared, new browser)? On the server: `cd server && npm run admin:approve-device -- <your name>`.
+In `?data=demo` mode the old in-browser accounts still work (demo members Mina Park, Kenji Sato, Sara Lind; password `demo`).
 
 ## Verify
+
+Stage 5 (server + api mode):
+
+```bash
+cd ../server && npm test            # 121 API tests (PostgreSQL axion_test)
+./scripts/api-e2e.sh                # browser checks on a throw-away stack (API 5192 + Vite 5193, database axion_e2e)
+./scripts/api-e2e.sh api-shots.mjs  # docs/screenshots/stage5-*.png
+```
+
+Prototype checks (demo mode; the scripts pin `axion.data-mode=demo`):
 
 The scripts drive the running app, so start `npm run dev` first (or set `BASE=http://127.0.0.1:4190` for the preview build).
 Every script signs in as the first administrator through `scripts/_session.mjs`. Set `NO_LOGIN=1` to see the Connect screen.

@@ -40,3 +40,36 @@ export function approvalDto(r: any, now = Date.now()) {
     expiresAt: new Date(r.expires_at).getTime(),
   };
 }
+
+/**
+ * Keep a mission's pending count current; the last decided or expired approval releases a waiting mission
+ * (system action approvalDone). Returns true when the mission moved to running.
+ */
+export async function settleMission(c: Tx, tenantId: string, missionId: string, correlationId = ''): Promise<boolean> {
+  const m = (await c.query('select status from missions where id=$1 and tenant_id=$2 for update', [missionId, tenantId])).rows[0];
+  if (!m) return false;
+  const left = Number((await c.query(`select count(*) from approval_requests where mission_id=$1 and state='pending' and expires_at > now()`, [missionId])).rows[0].count);
+  await c.query(`update missions set presentation = presentation || jsonb_build_object('pendingApprovals', $2::int), row_version=row_version+1, updated_at=now() where id=$1`, [missionId, left]);
+  if (left === 0 && m.status === 'waiting_approval') {
+    const s = await c.query(`update missions set status='running' where id=$1 and status='waiting_approval' returning id`, [missionId]);
+    if (s.rowCount) {
+      await emit(c, { tenantId, correlationId, type: 'mission.stateChanged', subject: missionId, missionId, payload: { from: 'waiting_approval', to: 'running', action: 'approvalDone', by: 'system' } });
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Review I4: pending approvals past their expiry become 'expired' and their missions are settled. */
+export async function sweepExpired(c: Tx, tenantId?: string): Promise<string[]> {
+  const rows = (await c.query(
+    `update approval_requests set state='expired' where state='pending' and expires_at <= now() ${tenantId ? 'and tenant_id=$1' : ''} returning id, mission_id, tenant_id`,
+    tenantId ? [tenantId] : [])).rows;
+  const released: string[] = [];
+  for (const mid of [...new Set(rows.map((r) => `${r.tenant_id}|${r.mission_id}`))]) {
+    const [t, m] = mid.split('|');
+    if (await settleMission(c, t, m, 'expiry')) released.push(m);
+  }
+  for (const r of rows) await emit(c, { tenantId: r.tenant_id, type: 'approval.decided', subject: r.mission_id, missionId: r.mission_id, payload: { approvalId: r.id, decision: 'expired', by: 'system' } });
+  return released;
+}

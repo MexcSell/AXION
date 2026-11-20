@@ -71,7 +71,7 @@ export default async function missionRoutes(app: FastifyInstance) {
     const expected = Number(String(ifm).replace(/"/g, ''));
     const m = await tx(app.db, async (c) => {
       const r = await getVisibleRow(c, ctx, id, true);
-      if (r.row_version !== expected) throw conflict();
+      if (r.content_version !== expected) throw conflict();
       if (r.status === 'archived') throw new ApiError('ILLEGAL_TRANSITION', 409, 'Restore the mission before editing it.');
       const next = { title: b.title ?? r.title, kind: b.kind ?? r.kind, priority: b.priority ?? r.priority, text: b.text ?? r.text, criteria: JSON.stringify(b.criteria ?? r.criteria) };
       let rev = r.current_revision;
@@ -82,8 +82,8 @@ export default async function missionRoutes(app: FastifyInstance) {
         await c.query(`insert into mission_revisions(mission_id, revision, title, kind, priority, text, files, criteria, created_by) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
           [id, rev, next.title, next.kind, next.priority, next.text, JSON.stringify(r.files), next.criteria, ctx.user.id]);
       }
-      const u = await c.query(`update missions set current_revision=$2, row_version=row_version+1, updated_at=now(),
-          presentation = presentation || jsonb_build_object('lastEvent', $4::text, 'lastEventAt', $5::bigint) where id=$1 and row_version=$3 returning id`,
+      const u = await c.query(`update missions set current_revision=$2, row_version=row_version+1, content_version=content_version+1, updated_at=now(),
+          presentation = presentation || jsonb_build_object('lastEvent', $4::text, 'lastEventAt', $5::bigint) where id=$1 and content_version=$3 returning id`,
         [id, rev, expected, `Edited by ${ctx.user.name}`, Date.now()]);
       if (!u.rowCount) throw conflict();
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'mission.revise', subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { revision: rev, fields: Object.keys(b) } });
@@ -100,6 +100,7 @@ export default async function missionRoutes(app: FastifyInstance) {
     const m = await tx(app.db, async (c) => {
       const r = await getVisibleRow(c, ctx, id, true);
       if (!canManage(ctx, r)) throw new ApiError('FORBIDDEN', 403, 'Only the owner or an administrator can change sharing.');
+      if (r.shared === b.shared) return missionDto(r); // no change: no event to everyone
       await c.query(`update missions set shared=$2, row_version=row_version+1, updated_at=now() where id=$1`, [id, b.shared]);
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'mission.share', subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { shared: b.shared } });
       await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'mission.shared', subject: id, missionId: id, payload: { shared: b.shared } });

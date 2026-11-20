@@ -84,13 +84,15 @@ function MissionEdit({ close, props }: DialogComponentProps<{ missionId: string 
   const [objective, setObjective] = useState(m?.content?.text || m?.objective || '');
   const [why, setWhy] = useState('');
   const [scope, setScope] = useState<'future' | 'all'>('future');
+  // review I2: the version this dialog was opened on travels with the save, so someone else's edit is never overwritten silently
+  const [openedAt] = useState(m?.rowVersion);
   if (!m) return <Missing close={close} />;
   const running = ['running', 'verifying', 'planning'].includes(m.status);
   const changed = title !== m.title || objective !== (m.content?.text || m.objective);
   const save = () => {
     if (!title.trim()) return;
-    update(m.id, { title: title.trim(), objective, content: { ...(m.content ?? { files: [] }), text: objective }, revision: m.revision + 1, lastEvent: `Content revised to rev ${m.revision + 1}`, lastEventAgoMin: 0 });
-    toast({ tone: 'success', title: `Saved revision ${m.revision + 1}`, body: running ? (scope === 'future' ? 'Applies to future tasks; running tasks keep their terms.' : 'Queued for all non-started tasks.') : undefined });
+    update(m.id, { title: title.trim(), objective, content: { ...(m.content ?? { files: [] }), text: objective }, revision: m.revision + 1, lastEvent: `Content revised to rev ${m.revision + 1}`, lastEventAgoMin: 0, ...(isApi() ? { rowVersion: openedAt } : {}) });
+    toast({ tone: 'success', title: isApi() ? `Saving revision ${m.revision + 1}…` : `Saved revision ${m.revision + 1}`, body: running ? (scope === 'future' ? 'Applies to future tasks; running tasks keep their terms.' : 'Queued for all non-started tasks.') : undefined });
     close();
   };
   return (

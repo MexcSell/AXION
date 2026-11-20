@@ -50,7 +50,7 @@ export function missionDto(r: any, now = Date.now()) {
     content: { text: r.text, files: r.files ?? [] },
     objective: p.objective ?? (r.text?.trim() || 'See the attached files.'),
     criteria: r.criteria ?? [],
-    revision: r.current_revision, rowVersion: r.row_version, demo: r.demo,
+    revision: r.current_revision, rowVersion: r.content_version ?? r.row_version, syncVersion: r.row_version, demo: r.demo,
     summaryAgoMin: minsAgo(summaryAt, now) ?? p.summaryAgoMin ?? 0,
     lastEventAgoMin: minsAgo(lastEventAt, now) ?? p.lastEventAgoMin ?? 0,
     createdAgoDays: r.demo && typeof p.createdAgoDays === 'number' ? p.createdAgoDays : Math.floor((now - created) / 86_400_000),

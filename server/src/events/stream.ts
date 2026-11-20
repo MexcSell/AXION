@@ -9,23 +9,48 @@ declare module 'fastify' { interface FastifyInstance { eventBus: EventEmitter; s
 const HEARTBEAT_MS = 15_000;
 const SAFETY_POLL_MS = 5_000;
 
-/** One LISTEN connection per process; NOTIFY only wakes streams, which then re-read the log by cursor. */
+/**
+ * One LISTEN connection per process; NOTIFY only wakes streams, which then re-read the log by cursor.
+ * Review C1: exactly one reconnect chain — a failed connect emits both an error and 'end', so retries are scheduled
+ * from one place behind a guard, and a stale client is always ended before it is replaced.
+ */
+export function createListener(databaseUrl: string, opts: { retryMs?: number; onWake: () => void }) {
+  const retryMs = opts.retryMs ?? 1000;
+  let client: pg.Client | null = null;
+  let closed = false;
+  let timer: NodeJS.Timeout | null = null;
+  let attempts = 0;
+  const schedule = () => { if (closed || timer) return; timer = setTimeout(() => { timer = null; void connect(); }, retryMs); };
+  const connect = async () => {
+    if (closed) return;
+    attempts++;
+    const c = new pg.Client({ connectionString: databaseUrl });
+    let gone = false;
+    const lost = () => { if (gone) return; gone = true; if (client === c) client = null; c.end().catch(() => {}); schedule(); };
+    c.on('notification', () => opts.onWake());
+    c.on('error', lost);
+    c.on('end', lost);
+    try {
+      await c.connect();
+      await c.query(`listen ${CHANNEL}`);
+      if (closed || gone) { await c.end().catch(() => {}); return; }
+      if (client && client !== c) await client.end().catch(() => {});
+      client = c;
+      opts.onWake();
+    } catch { lost(); }
+  };
+  void connect();
+  return {
+    attempts: () => attempts,
+    close: async () => { closed = true; if (timer) clearTimeout(timer); timer = null; if (client) await client.end().catch(() => {}); client = null; },
+  };
+}
+
 export function startListener(app: FastifyInstance, databaseUrl: string) {
   const bus = new EventEmitter();
   bus.setMaxListeners(0);
-  let client: pg.Client | null = null;
-  let closed = false;
-  const connect = async () => {
-    if (closed) return;
-    const c = new pg.Client({ connectionString: databaseUrl });
-    c.on('notification', () => bus.emit('wake'));
-    c.on('error', () => { /* handled by end */ });
-    c.on('end', () => { client = null; if (!closed) setTimeout(() => void connect(), 1000); });
-    try { await c.connect(); await c.query(`listen ${CHANNEL}`); client = c; bus.emit('wake'); }
-    catch { try { await c.end(); } catch { /* ignore */ } if (!closed) setTimeout(() => void connect(), 1000); }
-  };
-  void connect();
-  app.addHook('onClose', async () => { closed = true; bus.emit('close'); if (client) await client.end().catch(() => {}); });
+  const l = createListener(databaseUrl, { onWake: () => bus.emit('wake') });
+  app.addHook('onClose', async () => { bus.emit('close'); await l.close(); });
   return bus;
 }
 
