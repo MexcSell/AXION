@@ -2,9 +2,9 @@ import { AnimatePresence, LayoutGroup, motion } from 'motion/react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
-  Target, Plus, Search, Pencil, Trash2, Sparkles, Globe, Package, Users, Wallet, Clock3, CheckCircle2, MoreHorizontal, Play, Pause,
+  Target, Plus, Search, Pencil, Trash2, Sparkles, Globe, Package, Users, Cpu, Clock3, CheckCircle2, MoreHorizontal, Play, Pause,
   Square, RotateCcw, Copy, ArrowUpDown, ListChecks, Gavel, FileText, ShieldCheck, ArchiveRestore, Inbox, Crown, LayoutTemplate,
-  LayoutDashboard, Network, Workflow, MessagesSquare, History, PanelLeftClose, PanelLeftOpen, Archive, Pin, AlertTriangle, ChevronsDownUp, ChevronsUpDown,
+  LayoutDashboard, Network, Workflow, Gauge, Share2, Lock, EyeOff, UserRound, MessagesSquare, History, PanelLeftClose, PanelLeftOpen, Archive, Pin, AlertTriangle, ChevronsDownUp, ChevronsUpDown,
 } from 'lucide-react';
 import { Panel } from '@/components/ui/Panel';
 import { Tabs } from '@/components/ui/Tabs';
@@ -15,16 +15,21 @@ import { Menu } from '@/components/ui/Menu';
 import { MissionStatusChip, Chip, Dot } from '@/components/ui/Chips';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { CountUp } from '@/components/ui/CountUp';
-import { useData, allApprovals } from '@/store/data';
+import { useData, allApprovals, useVisibleMissions } from '@/store/data';
+import { useAuth, useMe, isAdmin } from '@/store/auth';
+import { UserAvatar } from '@/components/ui/UserAvatar';
+import { executorOf } from '@/features/mission/staffing';
+import { ActivityTab } from '@/features/mission/ActivityTab';
 import { openDialog, toast } from '@/store/ui';
 import { useTab } from '@/hooks/useTab';
 import { Splitter, usePaneWidth } from '@/components/ui/Splitter';
 import { MISSION_FILTERS, slug } from '@/config/nav';
+import { missionTotals, fmtTokens, fmtMin } from '@/data/activity';
 import { AGENT_BY_ID } from '@/data/agents';
 import { getMissionControl } from '@/data/missions';
 import { MISSION_STATUS, TONE_VAR } from '@/data/roles';
 import type { Mission } from '@/data/types';
-import { ago, money, cx } from '@/lib/format';
+import { ago, cx } from '@/lib/format';
 import { KindIcon, ProgressRing, KIND_META } from '@/features/mission/MissionBits';
 import { HierarchyGraph } from '@/features/mission/HierarchyGraph';
 import { Messenger } from '@/features/mission/Messenger';
@@ -54,11 +59,12 @@ const FILTER_META: Record<string, { test: (m: Mission) => boolean; icon: typeof 
 };
 
 const TAB_ICONS: Record<string, typeof Target> = {
-  Overview: LayoutDashboard, Hierarchy: Network, 'Task Flow': Workflow, Browser: Globe, Conversations: MessagesSquare,
+  Overview: LayoutDashboard, Activity: Gauge, Hierarchy: Network, 'Task Flow': Workflow, Browser: Globe, Conversations: MessagesSquare,
   Results: Package, Approvals: Gavel, Reports: FileText, Timeline: History,
 };
 
 type Sort = 'recent' | 'priority' | 'progress' | 'due';
+type Scope = 'all' | 'mine' | 'shared';
 const PRIO = { critical: 0, high: 1, normal: 2, low: 3 };
 const LIST_KEY = 'axion.missions.listCollapsed';
 
@@ -69,7 +75,7 @@ export default function MissionsPage() {
   const params = useParams();
   const nav = useNavigate();
   const [sp, setSp] = useSearchParams();
-  const missions = useData((s) => s.missions);
+  const missions = useVisibleMissions();
   const decisions = useData((s) => s.approvalDecisions);
   const [tab, setTab, tabs] = useTab('missions');
 
@@ -81,13 +87,16 @@ export default function MissionsPage() {
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<Sort>('recent');
   const [kind, setKind] = useState<Mission['kind'] | 'all'>('all');
+  const me = useMe();
+  const [scope, setScope] = useState<Scope>('all');
   const [collapsed, setCollapsedState] = useState(readCollapsed);
   const setCollapsed = (v: boolean) => { setCollapsedState(v); writeCollapsed(v); };
 
   const list = useMemo(() => {
     const f = FILTER_META[filter].test;
     const s = q.trim().toLowerCase();
-    const arr = missions.filter(f).filter((m) => (kind === 'all' || m.kind === kind) && (!s || (m.title + m.id + m.summary + m.owner).toLowerCase().includes(s)));
+    const inScope = (m: Mission) => scope === 'all' || (scope === 'mine' ? m.ownerId === me?.id : m.shared);
+    const arr = missions.filter(f).filter(inScope).filter((m) => (kind === 'all' || m.kind === kind) && (!s || (m.title + m.id + m.summary + m.owner + m.content.text).toLowerCase().includes(s)));
     const sorter: Record<Sort, (a: Mission, b: Mission) => number> = {
       recent: (a, b) => a.lastEventAgoMin - b.lastEventAgoMin,
       priority: (a, b) => PRIO[a.priority] - PRIO[b.priority],
@@ -95,11 +104,12 @@ export default function MissionsPage() {
       due: (a, b) => a.dueInDays - b.dueInDays,
     };
     return [...arr].sort(sorter[sort]);
-  }, [missions, filter, q, sort, kind]);
+  }, [missions, filter, q, sort, kind, scope, me?.id]);
 
   // selection -------------------------------------------------------------
   const wantedId = params.id ?? sp.get('m');
   const m = wantedId ? missions.find((x) => x.id === wantedId) : list[0];
+  const hiddenFromMe = useData((s) => !!wantedId && !m && s.missions.some((x) => x.id === wantedId));
   const select = (id: string) => {
     const n = new URLSearchParams(sp); n.delete('agent'); n.delete('m');
     if (MISSION_FILTERS.some((x) => slug(x) === n.get('tab'))) n.delete('tab');
@@ -124,7 +134,7 @@ export default function MissionsPage() {
       <div className={cx('mw-grid', collapsed && 'list-collapsed')} style={{ ['--mw-list-w' as string]: `${listW}px` }}>
         <MissionList
           missions={missions} list={list} selected={m} onSelect={select}
-          filter={filter} setFilter={setFilter} q={q} setQ={setQ} sort={sort} setSort={setSort} kind={kind} setKind={setKind}
+          filter={filter} setFilter={setFilter} q={q} setQ={setQ} sort={sort} setSort={setSort} kind={kind} setKind={setKind} scope={scope} setScope={setScope}
           collapsed={collapsed} setCollapsed={setCollapsed}
         />
         {!collapsed && <Splitter pane="prev" width={listW} onChange={setListW} onReset={resetListW} min={260} maxFrac={.45} label="Resize mission list" className="mw-split" />}
@@ -140,6 +150,7 @@ export default function MissionsPage() {
                 <AnimatePresence mode="wait">
                   <motion.div key={m.id + tab} className="fit-scroll" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2 }} role="tabpanel" aria-label={tab} style={{ height: '100%' }}>
                     {tab === 'Overview' && <OverviewTab m={m} onSelectAgent={openChat} />}
+                    {tab === 'Activity' && <ActivityTab m={m} onOpenChat={openChat} />}
                     {tab === 'Hierarchy' && (
                       <div className="pane-split hier-split">
                         <div className="hier-graph-pane"><HierarchyGraph mission={m} selected={agentId} onSelect={selectAgent} onOpenChat={openChat} /></div>
@@ -175,8 +186,9 @@ export default function MissionsPage() {
           ) : (
             <Panel className="mw-empty">
               {wantedId
-                ? <EmptyState icon={Target} title={`Mission ${wantedId} not found`} body="It may have been purged, or the link is wrong." action={<button className="btn primary" onClick={() => nav('/missions')}>Show all missions</button>} />
-                : <EmptyState icon={Target} title="No mission selected" body="Create a mission with a clear outcome and success criteria, or pick one from the list." action={<button className="btn primary" onClick={() => openDialog('mission-create')}><Plus size={15} />Add Mission</button>} />}
+                ? hiddenFromMe ? <EmptyState icon={EyeOff} title={`Mission ${wantedId} is not shared with you`} body="Missions are visible to the user who added them and to administrators. Ask the owner to share it." action={<button className="btn primary" onClick={() => nav('/missions')}>Show my missions</button>} />
+                : <EmptyState icon={Target} title={`Mission ${wantedId} not found`} body="It may have been purged, or the link is wrong." action={<button className="btn primary" onClick={() => nav('/missions')}>Show all missions</button>} />
+                : <EmptyState icon={Target} title="No mission selected" body="Add a mission: write what you want and attach files. The General Manager staffs it." action={<button className="btn primary" onClick={() => openDialog('mission-create')}><Plus size={15} />Add Mission</button>} />}
             </Panel>
           )}
         </div>
@@ -188,7 +200,8 @@ export default function MissionsPage() {
 /* ------------------------------------------------------------------ */
 /* Left column: mission list, the selected mission unfolds its team     */
 /* ------------------------------------------------------------------ */
-function MissionList({ missions, list, selected, onSelect, filter, setFilter, q, setQ, sort, setSort, kind, setKind, collapsed, setCollapsed }: {
+function MissionList({ missions, list, selected, onSelect, filter, setFilter, q, setQ, sort, setSort, kind, setKind, scope, setScope, collapsed, setCollapsed }: {
+  scope: Scope; setScope: (s: Scope) => void;
   missions: Mission[]; list: Mission[]; selected?: Mission; onSelect: (id: string) => void;
   filter: string; setFilter: (f: string) => void; q: string; setQ: (v: string) => void; sort: Sort; setSort: (s: Sort) => void;
   kind: Mission['kind'] | 'all'; setKind: (k: Mission['kind'] | 'all') => void; collapsed: boolean; setCollapsed: (v: boolean) => void;
@@ -196,6 +209,7 @@ function MissionList({ missions, list, selected, onSelect, filter, setFilter, q,
   const pinned = selected && !list.some((x) => x.id === selected.id) ? selected : undefined;
   const rows = pinned ? [pinned, ...list] : list;
   const counts = Object.fromEntries(MISSION_FILTERS.map((f) => [f, missions.filter(FILTER_META[f].test).length]));
+  const me = useMe();
 
   // keep the selected mission (and its unfolded team) in view
   useEffect(() => {
@@ -276,6 +290,16 @@ function MissionList({ missions, list, selected, onSelect, filter, setFilter, q,
         />
       </div>
 
+      <div className="mw-scope" role="radiogroup" aria-label="Whose missions">
+        {([['all', 'All', Target], ['mine', 'Mine', UserRound], ['shared', 'Shared', Share2]] as const).map(([k, l, I]) => (
+          <button key={k} role="radio" aria-checked={scope === k} className={cx('mw-scope-btn', scope === k && 'on')} onClick={() => setScope(k)}>
+            {scope === k && <motion.span layoutId="mw-scope-sel" className="mw-scope-sel" transition={{ type: 'spring', stiffness: 480, damping: 38 }} />}
+            <I size={13} /><span>{l}</span><b className="tnum">{k === 'all' ? missions.length : k === 'mine' ? missions.filter((x) => x.ownerId === me?.id).length : missions.filter((x) => x.shared).length}</b>
+          </button>
+        ))}
+        <HelpTrigger k="mission.visibility" />
+      </div>
+
       <div className="mission-list" role="listbox" aria-label="Missions">
         <LayoutGroup>
           <AnimatePresence initial={false}>
@@ -286,7 +310,7 @@ function MissionList({ missions, list, selected, onSelect, filter, setFilter, q,
         </LayoutGroup>
         {list.length === 0 && (
           <EmptyState icon={Inbox} title={q ? 'No missions match' : `No ${filter.toLowerCase()} missions`}
-            body={filter === 'Archived' ? 'Archived missions appear here with their retention date.' : 'Create a mission with a clear outcome and success criteria.'}
+            body={filter === 'Archived' ? 'Archived missions appear here with their retention date.' : scope === 'shared' ? 'Nobody has shared a mission in this filter yet.' : 'Write what you want done and attach files. The General Manager staffs it.'}
             action={<button className="btn primary" onClick={() => openDialog('mission-create')}><Plus size={15} />Add Mission</button>} />
         )}
       </div>
@@ -345,12 +369,23 @@ function MissionRow({ m, selected, pinned, onSelect, index }: {
               <span className="tnum" style={{ fontWeight: 700, fontSize: 12 }}>{m.progress}%</span>
               <span className="row dim" style={{ gap: 3, fontSize: 11.5 }}><Users size={12} />{m.agentIds.length}</span>
               {m.pendingApprovals > 0 && <span className="row warn" style={{ gap: 3, fontSize: 11.5, fontWeight: 700 }}><Gavel size={12} />{m.pendingApprovals}</span>}
+              <OwnerBadge m={m} />
               <span className="mono dim" style={{ fontSize: 11 }}>{m.id}</span>
             </div>
           </div>
         </div>
       </div>
     </motion.div>
+  );
+}
+
+/** Who added the mission, and whether it is shared (owner update u1). */
+function OwnerBadge({ m, size = 18 }: { m: Mission; size?: number }) {
+  const owner = useAuth((s) => s.accounts.find((a) => a.id === m.ownerId));
+  return (
+    <Tip label={`Added by ${owner?.name ?? m.owner} · ${m.shared ? 'shared with all users' : 'private: owner and administrators'}`}>
+      <span className="mw-owner">{owner ? <UserAvatar account={owner} size={size} /> : <UserRound size={12} />}{m.shared ? <Share2 size={11} className="info" /> : <Lock size={11} className="dim" />}</span>
+    </Tip>
   );
 }
 
@@ -383,7 +418,7 @@ function MissionControls({ m }: { m: Mission }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Centre header: identity, budget, verified progress, lifecycle        */
+/* Centre header: identity, agent activity, verified progress           */
 /* ------------------------------------------------------------------ */
 const HEAD_KEY = 'axion.missions.headerMin';
 function readHeadMin() { try { return localStorage.getItem(HEAD_KEY) === '1'; } catch { return false; } }
@@ -392,10 +427,18 @@ function writeHeadMin(v: boolean) { try { localStorage.setItem(HEAD_KEY, v ? '1'
 /** Mission header; folds to one compact row (owner 2026-11-20 (e): "the top must be able to minimize"). */
 function MissionHeader({ m }: { m: Mission }) {
   const lead = AGENT_BY_ID[m.leadId];
+  const exec = AGENT_BY_ID[executorOf(m) ?? ''];
+  const me = useMe();
+  const owner = useAuth((s) => s.accounts.find((a) => a.id === m.ownerId));
+  const update = useData((s) => s.updateMission);
+  const canShare = !!me && (me.id === m.ownerId || isAdmin(me));
+  const toggleShare = () => { update(m.id, { shared: !m.shared, lastEvent: `${m.shared ? 'Unshared' : 'Shared with all users'} by ${me?.name}`, lastEventAgoMin: 0 }); toast({ tone: 'success', title: m.shared ? `${m.id} is private again` : `${m.id} is shared with all users`, body: m.shared ? 'Only the owner and administrators see it now.' : 'Every user can now see and follow it.' }); };
+  const staffing = m.staffing && m.staffing.stage !== 'working' ? m.staffing : undefined;
+  const shareBtn = <Tip label={canShare ? (m.shared ? 'Shared with all users — click to make it private' : 'Private — click to share with all users') : (m.shared ? 'Shared with all users' : 'Private: owner and administrators')}><button className={cx('mw-share', m.shared && 'on')} disabled={!canShare} onClick={toggleShare} aria-pressed={m.shared} aria-label={m.shared ? 'Shared with all users' : 'Private mission'}>{m.shared ? <Share2 size={13} /> : <Lock size={13} />}<span>{m.shared ? 'Shared' : 'Private'}</span></button></Tip>;
   const [min, setMinState] = useState(readHeadMin);
   const setMin = (v: boolean) => { setMinState(v); writeHeadMin(v); };
   const tone = m.status === 'failed' ? 'var(--bad)' : 'var(--accent-2)';
-  const used = Math.round((m.cost / m.budget) * 100);
+  const tot = missionTotals(m);
   const fold = <IconButton size="sm" icon={min ? ChevronsUpDown : ChevronsDownUp} label={min ? 'Expand mission header' : 'Minimize mission header'} onClick={() => setMin(!min)} aria-expanded={!min} className="mw-header-fold" />;
   if (min) return (
     <motion.section layout className="panel mc-header mw-header min" initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} aria-label={`Mission ${m.id}`}>
@@ -403,9 +446,11 @@ function MissionHeader({ m }: { m: Mission }) {
       <h2 className="mp-title ellipsis" title={m.title}>{m.title}</h2>
       <MissionStatusChip status={m.status} />
       <span className="mono dim nowrap mw-min-id">{m.id}</span>
+      {staffing && <Chip hue={38} size="sm">staffing {staffing.joined}/{staffing.plan.length}</Chip>}
       <span className="spacer" />
-      <Tip label={`Budget ${money(m.cost)} / ${money(m.budget, 0)} · ${used}% used`}>
-        <span className={cx('row nowrap mw-min-budget', used > 85 ? 'warn' : 'muted')} style={{ gap: 4 }}><Wallet size={13} /><b className="tnum">{used}%</b></span>
+      {shareBtn}
+      <Tip label={`${fmtTokens(tot.tokens)} tokens · ${m.agentIds.length} agents · avg CPU ${tot.cpu}%`}>
+        <span className="row nowrap mw-min-budget muted" style={{ gap: 4 }}><Cpu size={13} /><b className="tnum">{fmtTokens(tot.tokens)}</b></span>
       </Tip>
       <Tip label={`${m.progress}% verified progress`}><span><ProgressRing value={m.progress} size={30} stroke={3.5} tone={tone} /></span></Tip>
       {fold}
@@ -422,17 +467,19 @@ function MissionHeader({ m }: { m: Mission }) {
         </div>
         <div className="row wrap mw-header-meta">
           <span className="mono dim">{m.id} · rev {m.revision} · {m.version}</span>
-          <span className="row" style={{ gap: 4 }}><Crown size={13} className="warn" /><b style={{ color: 'var(--text)' }}>{lead?.name}</b><span className="mono dim">{lead?.version}</span></span>
-          <span>Owner {m.owner}</span>
+          <Tip label="The General Manager appoints the mission's general executor"><span className="row" style={{ gap: 4 }}><Crown size={13} className="warn" /><b style={{ color: 'var(--text)' }}>{lead?.name}</b>{exec && exec.id !== lead?.id ? <><span className="dim">→</span><b style={{ color: 'var(--text)' }}>{exec.name}</b><span className="dim">executor</span></> : <span className="mono dim">{lead?.version}</span>}</span></Tip>
+          <span className="row" style={{ gap: 5 }}>{owner && <UserAvatar account={owner} size={16} />}by {owner?.name ?? m.owner}</span>
+          {shareBtn}
+          {staffing && <span className="row warn" style={{ gap: 4, fontWeight: 700 }}><Sparkles size={13} />staffing {staffing.joined}/{staffing.plan.length}</span>}
           <span className="row" style={{ gap: 4 }}><Clock3 size={13} />{m.elapsedH} h · due {m.dueInDays >= 0 ? `in ${m.dueInDays} d` : `${-m.dueInDays} d ago`}</span>
           {m.blocked > 0 && <span className="row bad" style={{ gap: 4, fontWeight: 700 }}><AlertTriangle size={13} />{m.blocked} blocked</span>}
           <Tip label="Policy: prepare + gated execute — consequential actions need your approval"><span className="row good" style={{ gap: 4 }}><ShieldCheck size={13} />gated</span></Tip>
         </div>
       </div>
       <div className="mc-budget">
-        <div className="row" style={{ justifyContent: 'space-between', fontSize: 12 }}><span className="row muted nowrap" style={{ gap: 5 }}><Wallet size={13} />Budget</span><b className="tnum">{money(m.cost)} / {money(m.budget, 0)}</b></div>
-        <div className={'bar ' + (m.cost / m.budget > .85 ? 'warn' : 'good')} style={{ marginTop: 6 }}><motion.i initial={{ width: 0 }} animate={{ width: `${Math.min(100, (m.cost / m.budget) * 100)}%` }} transition={{ duration: 1 }} /></div>
-        <div className="dim" style={{ fontSize: 11, marginTop: 4 }}>{Math.round((m.cost / m.budget) * 100)}% used · hard cap pauses mission</div>
+        <div className="row" style={{ justifyContent: 'space-between', fontSize: 12 }}><span className="row muted nowrap" style={{ gap: 5 }}><Cpu size={13} />Activity<HelpTrigger k="mission.activity" /></span><b className="tnum">{fmtTokens(tot.tokens)} tok</b></div>
+        <div className="bar info" style={{ marginTop: 6 }}><motion.i initial={{ width: 0 }} animate={{ width: `${Math.min(100, tot.cpu)}%` }} transition={{ duration: 1 }} /></div>
+        <div className="dim" style={{ fontSize: 11, marginTop: 4 }}>{m.agentIds.length} agents · {fmtMin(tot.activeMin)} active · CPU {tot.cpu}%</div>
       </div>
       <div className="col" style={{ alignItems: 'center', gap: 2 }}>
         <ProgressRing value={m.progress} size={56} stroke={6} tone={tone} />

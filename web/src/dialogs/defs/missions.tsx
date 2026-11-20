@@ -2,9 +2,8 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Target, Pencil, Trash2, Play, Pause, Square, RotateCcw, LayoutTemplate, Paperclip, Sparkles, Bot, GitBranch, ListChecks, Info,
-  Image as ImageIcon, FileText, X, Plus, Check, ChevronRight, ChevronLeft, Globe, ShieldCheck, Wallet, Users, AlertTriangle, Archive, Upload, MessageSquare, Send, Copy,
-} from 'lucide-react';
+  Pencil, Trash2, Play, Pause, Square, RotateCcw, LayoutTemplate, Paperclip, Sparkles, Bot, GitBranch, ListChecks, Info,
+  Image as ImageIcon, FileText, X, Check, ChevronRight, ShieldCheck, Users, AlertTriangle, Archive, Upload, MessageSquare, Send, Copy } from 'lucide-react';
 import type { DialogComponentProps } from '@/dialogs/DialogHost';
 import { Modal } from '@/components/ui/Modal';
 import { Field, Segmented, SwitchRow } from '@/components/ui/Form';
@@ -17,7 +16,7 @@ import { getMissionControl } from '@/data/missions';
 import { ROLES } from '@/data/roles';
 import type { Mission, Attachment } from '@/data/types';
 import { KIND_META } from '@/features/mission/MissionBits';
-import { ago, clock, cx, money } from '@/lib/format';
+import { ago, clock, cx } from '@/lib/format';
 import '@/theme/pages/missions.css';
 import { EvidenceThumb } from '@/features/mission/EvidenceThumb';
 import { Messenger } from '@/features/mission/Messenger';
@@ -77,227 +76,19 @@ const TEMPLATES: { key: string; kind: Mission['kind']; title: string; objective:
   { key: 'research', kind: 'research', title: 'Research report', objective: 'Research the topic with cited sources and deliver a report with recommendations.', criteria: ['Every claim cited', '≥ 3 sources per section', 'Executive summary approved'] },
 ];
 
-function MissionCreate({ close, props }: DialogComponentProps<{ cloneFrom?: string; template?: string }>) {
-  const nav = useNavigate();
-  const add = useData((s) => s.addMission);
-  const clone = useMission(props.cloneFrom);
-  const tpl = TEMPLATES.find((t) => t.key === props.template);
-  const [step, setStep] = useState(0);
-  const [dir, setDir] = useState(1);
-  const [title, setTitle] = useState(clone ? `${clone.title} (copy)` : tpl?.title ?? '');
-  const [objective, setObjective] = useState(clone?.objective ?? tpl?.objective ?? '');
-  const [kind, setKind] = useState<Mission['kind']>(clone?.kind ?? tpl?.kind ?? 'website');
-  const [criteria, setCriteria] = useState<string[]>(clone?.criteria.map((c) => c.text) ?? tpl?.criteria ?? ['']);
-  const [priority, setPriority] = useState<Mission['priority']>('normal');
-  const [due, setDue] = useState(7);
-  const [files, setFiles] = useState<LocalFile[]>([]);
-  const [origins, setOrigins] = useState<string[]>(['www.example.com']);
-  const [originDraft, setOriginDraft] = useState('');
-  const [team, setTeam] = useState<string[]>(clone?.agentIds ?? ['gm', 'planner-01', 'coder-01', 'browser-01', 'tester-01']);
-  const [autonomy, setAutonomy] = useState<'read' | 'prepare' | 'review' | 'execute'>('prepare');
-  const [budget, setBudget] = useState(50);
-  const [retain, setRetain] = useState(true);
-  const [touched, setTouched] = useState(false);
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const dirty = !clone && !tpl && (title.trim() !== '' || objective.trim() !== '' || files.length > 0);
-  const tryClose = () => (dirty && !confirmDiscard ? setConfirmDiscard(true) : close());
-
-  const steps = [{ k: 'Goal', i: Target }, { k: 'Resources', i: Paperclip }, { k: 'Agents, policy & budget', i: Users }, { k: 'Review & create', i: ListChecks }];
-  const validCriteria = criteria.filter((c) => c.trim());
-  const errors = { team: team.length === 0 ? 'Pick at least one agent to lead the mission' : '', title: !title.trim() ? 'A title is required' : '', criteria: validCriteria.length === 0 ? 'At least one measurable success criterion is required' : '', objective: objective.trim().length < 10 ? 'Describe the outcome (10+ characters)' : '' };
-  const goalOk = !errors.title && !errors.criteria && !errors.objective && !errors.team;
-  const dup = validCriteria.length !== new Set(validCriteria.map((c) => c.trim().toLowerCase())).size;
-
-  const go = (n: number) => { if (n > step && step === 0 && !goalOk) { setTouched(true); return; } setDir(n > step ? 1 : -1); setStep(n); };
-  const create = (start: boolean) => {
-    if (!goalOk) { setTouched(true); setStep(0); return; }
-    const m = add({ title: title.trim(), objective: objective.trim(), kind, priority, dueInDays: due, budget, agentIds: team, leadId: team[0] ?? 'gm', criteria: validCriteria.map((text) => ({ text, done: false })) }, start);
-    toast({ tone: 'success', title: start ? `${m.id} created and started` : `${m.id} saved as draft`, body: start ? 'GM is planning and staffing. External actions still require approval.' : 'Nothing is running yet.', action: { label: 'Open', run: () => nav(`/missions/${m.id}`) } });
-    close();
-    nav(`/missions/${m.id}`);
-  };
-
-  return (
-    <Modal title={clone ? 'Clone mission' : 'Create mission'} icon={Target} help="mission.create" dialogId="DL-01" size="lg" onClose={tryClose}
-      sub="A mission is an outcome with measurable success criteria. Agents plan, delegate, execute and verify it."
-      footer={
-        <>
-          {step > 0 && <button className="btn" onClick={() => go(step - 1)}><ChevronLeft size={15} />Back</button>}
-          <span className="spacer" />
-          <button className="btn ghost" onClick={tryClose}>Cancel</button>
-          {step < 3 ? (
-            <button className="btn primary" onClick={() => go(step + 1)}>Next<ChevronRight size={15} /></button>
-          ) : (
-            <>
-              <button className="btn" onClick={() => create(false)}>Create Draft</button>
-              <button className="btn primary" onClick={() => create(true)}><Play size={15} />Create &amp; Start</button>
-            </>
-          )}
-        </>
-      }>
-      <AnimatePresence>
-        {confirmDiscard && (
-          <motion.div className="callout warn" data-dialog="DL-64" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} role="alertdialog" aria-label="Unsaved changes">
-            <AlertTriangle size={16} />
-            <div className="grow"><b>Discard this draft?</b> You changed the title, outcome or attachments.</div>
-            <button className="btn sm" data-autofocus onClick={() => setConfirmDiscard(false)}>Continue Editing</button>
-            <button className="btn sm danger" onClick={close}>Discard Changes</button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-      <div className="wizard-steps" role="tablist" aria-label="Wizard steps">
-        {steps.map((s, i) => (
-          <button key={s.k} role="tab" aria-selected={i === step} className={cx('wz-step', i === step && 'on', i < step && 'done')} onClick={() => go(i)}>
-            <span className="wz-dot">{i < step ? <Check size={13} strokeWidth={3} /> : <s.i size={14} />}</span>
-            <span className="wz-label">{s.k}</span>
-            {i === step && <motion.span layoutId="wz-bar" className="wz-bar" />}
-          </button>
-        ))}
-      </div>
-      <div style={{ position: 'relative', minHeight: 360 }}>
-        <AnimatePresence mode="wait" custom={dir}>
-          <motion.div key={step} custom={dir} initial={{ opacity: 0, x: 30 * dir }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -30 * dir }} transition={{ duration: .22 }} className="col" style={{ gap: 14 }}
-            onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); step < 3 ? go(step + 1) : create(false); } }}>
-            {step === 0 && (
-              <>
-                <div className="row" style={{ gap: 8 }}>
-                  <span className="section-label">Template</span>
-                  <div className="row wrap" style={{ gap: 6 }}>
-                    {TEMPLATES.map((t) => (
-                      <button key={t.key} className={cx('chip neutral', kind === t.kind && title === t.title && 'solid')} style={{ cursor: 'pointer', ['--h' as string]: KIND_META[t.kind].hue }}
-                        onClick={() => { setKind(t.kind); setTitle(t.title); setObjective(t.objective); setCriteria(t.criteria); }}>{t.title}</button>
-                    ))}
-                  </div>
-                </div>
-                <Field label="Title" required error={touched ? errors.title : ''} hint="Short and outcome-focused. AI may suggest a better title later.">
-                  <input className="input" data-autofocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Modernize the customer portal" />
-                </Field>
-                <Field label="Requested outcome" required error={touched ? errors.objective : ''} hint="Enter adds a paragraph. Ctrl+Enter goes to the next step (it never starts anything).">
-                  <textarea className="textarea" rows={3} value={objective} onChange={(e) => setObjective(e.target.value)} placeholder="What should be true when this mission is done?" />
-                </Field>
-                <Field label="Measurable success criteria" required help="mission.progress.verified" error={touched ? errors.criteria : ''} hint={dup ? '⚠ Duplicate criteria detected' : 'Each criterion becomes a verification check.'}>
-                  <div className="col" style={{ gap: 6 }}>
-                    <AnimatePresence initial={false}>
-                      {criteria.map((c, i) => (
-                        <motion.div key={i} className="row" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
-                          <Check size={15} className={c.trim() ? 'good' : 'dim'} />
-                          <input className="input" value={c} onChange={(e) => setCriteria(criteria.map((x, j) => (j === i ? e.target.value : x)))} placeholder={`Criterion ${i + 1}, e.g. "Lighthouse accessibility ≥ 95"`} aria-label={`Criterion ${i + 1}`} />
-                          <button className="icon-btn sm" aria-label={`Remove criterion ${i + 1}`} onClick={() => setCriteria(criteria.length > 1 ? criteria.filter((_, j) => j !== i) : [''])}><X size={14} /></button>
-                        </motion.div>
-                      ))}
-                    </AnimatePresence>
-                    <button className="btn sm ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setCriteria([...criteria, ''])}><Plus size={14} />Add criterion</button>
-                  </div>
-                </Field>
-                <div className="grid g-3">
-                  <Field label="Type">
-                    <select className="select" value={kind} onChange={(e) => setKind(e.target.value as Mission['kind'])}>{Object.entries(KIND_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
-                  </Field>
-                  <Field label="Priority">
-                    <Segmented ariaLabel="Priority" size="sm" value={priority} onChange={setPriority} options={(['low', 'normal', 'high', 'critical'] as const).map((p) => ({ key: p, label: p }))} />
-                  </Field>
-                  <Field label={`Due in ${due} days`}>
-                    <input className="range" type="range" min={1} max={60} value={due} onChange={(e) => setDue(+e.target.value)} aria-label="Due in days" />
-                  </Field>
-                </div>
-              </>
-            )}
-            {step === 1 && (
-              <>
-                <Field label="Reference files, images and data" hint="Files are stored immutably with a SHA-256 checksum. Personal data is redacted in previews.">
-                  <DropZone files={files} setFiles={setFiles} />
-                </Field>
-                <Field label="Approved website origins" help="browser.originGrant" hint="Agents can only browse these origins. New sites need a separate grant.">
-                  <div className="row wrap" style={{ gap: 6 }}>
-                    {origins.map((o) => <Chip key={o} hue={190} icon={Globe}>{o}<button aria-label={`Remove ${o}`} onClick={() => setOrigins(origins.filter((x) => x !== o))} style={{ marginLeft: 2 }}><X size={11} /></button></Chip>)}
-                    <input className="input" style={{ width: 220, height: 28 }} placeholder="add origin, e.g. shop.example.com" value={originDraft} onChange={(e) => setOriginDraft(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter' && originDraft.trim()) { e.preventDefault(); setOrigins([...origins, originDraft.trim().replace(/^https?:\/\//, '')]); setOriginDraft(''); } }} aria-label="Add origin" />
-                  </div>
-                </Field>
-                <Field label="Git repository (optional)">
-                  <input className="input" placeholder="https://github.com/org/repo  (read-only until approved)" />
-                </Field>
-              </>
-            )}
-            {step === 2 && (
-              <>
-                <Field label="Assigned agents" error={errors.team} hint="GM suggested these agents from required skills (one per role). Click to toggle members. The first member leads.">
-                  <div className="row wrap" style={{ gap: 6 }}>
-                    {AGENTS.filter((a) => ['gm', 'planner-01', 'coder-01', 'browser-01', 'designer-01', 'tester-01', 'security-01', 'researcher-01', 'writer-01', 'release-01', 'mentor-01'].includes(a.id)).map((a) => {
-                      const on = team.includes(a.id);
-                      return (
-                        <button key={a.id} className={cx('team-pick', on && 'on')} onClick={() => setTeam(on ? team.filter((x) => x !== a.id) : [...team, a.id])} aria-pressed={on}>
-                          <RobotAvatar role={a.role} size={30} />
-                          <span>{a.name}</span>
-                          {on && <Check size={13} className="good" />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </Field>
-                <Field label="Autonomy level" help="gov.autonomy" hint="External effects (submit, publish, purchase) always require approval.">
-                  <Segmented ariaLabel="Autonomy" value={autonomy} onChange={setAutonomy} options={[{ key: 'read', label: 'Safe read' }, { key: 'prepare', label: 'Prepare' }, { key: 'review', label: 'Review each' }, { key: 'execute', label: 'Execute (gated)' }]} />
-                </Field>
-                <div className="grid g-2">
-                  <Field label={`Budget cap: ${money(budget, 0)}`} hint="Hard cap; the mission pauses at 100%.">
-                    <input className="range" type="range" min={5} max={300} step={5} value={budget} onChange={(e) => setBudget(+e.target.value)} aria-label="Budget cap" />
-                  </Field>
-                  <Field label="Allowed model classes">
-                    <div className="row wrap" style={{ gap: 6 }}>{['Reasoning (Opus)', 'Fast (Sonnet/Haiku)', 'Vision', 'Local'].map((m, i) => <Chip key={m} hue={[268, 200, 175, 40][i]}>{m}</Chip>)}</div>
-                  </Field>
-                </div>
-                <SwitchRow label="Retain private data for 30 days, then purge" checked={retain} onChange={setRetain} desc="Screenshots and uploads are kept for audit, then deleted unless under legal hold." />
-              </>
-            )}
-            {step === 3 && (
-              <div className="col" style={{ gap: 12 }}>
-                <div className="review-card">
-                  <div className="row" style={{ gap: 8 }}><b style={{ fontSize: 16 }}>{title || 'Untitled mission'}</b><Chip hue={KIND_META[kind].hue}>{KIND_META[kind].label}</Chip><Chip hue={priority === 'critical' ? 350 : 220} size="sm">{priority}</Chip></div>
-                  <p className="muted" style={{ fontSize: 13, marginTop: 6 }}>{objective || '—'}</p>
-                  <div className="divider" />
-                  <div className="grid g-2" style={{ fontSize: 12.5 }}>
-                    <div><div className="section-label">Criteria ({validCriteria.length})</div>{validCriteria.map((c) => <div key={c} className="row" style={{ gap: 6 }}><Check size={13} className="good" />{c}</div>)}</div>
-                    <div><div className="section-label">Grants</div>{origins.map((o) => <div key={o} className="row" style={{ gap: 6 }}><Globe size={13} className="info" />{o} · read + prepare</div>)}<div className="row" style={{ gap: 6 }}><Paperclip size={13} />{files.length} attachments</div></div>
-                  </div>
-                  <div className="divider" />
-                  <div className="section-label" style={{ marginBottom: 6 }}>Hierarchy preview</div>
-                  <div className="review-tree">
-                    {team[0] && <div className="rt-lead"><RobotAvatar role={AGENT_BY_ID[team[0]]?.role ?? 'manager'} size={40} faceMode="face" /><b>{AGENT_BY_ID[team[0]]?.name}</b></div>}
-                    <svg width="100%" height="18" aria-hidden><line x1="50%" y1="0" x2="50%" y2="18" stroke="var(--border-strong)" /></svg>
-                    <div className="row wrap" style={{ justifyContent: 'center', gap: 8 }}>{team.slice(1).map((id) => <div key={id} className="col" style={{ alignItems: 'center', gap: 0, fontSize: 11 }}><RobotAvatar role={AGENT_BY_ID[id]?.role ?? 'dev'} size={32} />{AGENT_BY_ID[id]?.name}</div>)}</div>
-                  </div>
-                </div>
-                <div className="row" style={{ gap: 10, fontSize: 12.5 }}>
-                  <span className="row" style={{ gap: 5 }}><Wallet size={14} className="info" />Budget {money(budget, 0)}</span>
-                  <span className="row" style={{ gap: 5 }}><ShieldCheck size={14} className="good" />Autonomy: {autonomy}</span>
-                  <span className="row" style={{ gap: 5 }}><AlertTriangle size={14} className="warn" />Projected risks: 1 (new origin needs grant)</span>
-                </div>
-                {!goalOk && <div className="field-error">Go back to Goal: {Object.values(errors).filter(Boolean).join(' · ')}</div>}
-              </div>
-            )}
-          </motion.div>
-        </AnimatePresence>
-      </div>
-    </Modal>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* DL-02 Edit Mission — creates a definition revision                   */
-/* ------------------------------------------------------------------ */
 function MissionEdit({ close, props }: DialogComponentProps<{ missionId: string }>) {
   const m = useMission(props.missionId);
   const update = useData((s) => s.updateMission);
   const [title, setTitle] = useState(m?.title ?? '');
-  const [objective, setObjective] = useState(m?.objective ?? '');
+  const [objective, setObjective] = useState(m?.content?.text || m?.objective || '');
   const [why, setWhy] = useState('');
   const [scope, setScope] = useState<'future' | 'all'>('future');
   if (!m) return <Missing close={close} />;
   const running = ['running', 'verifying', 'planning'].includes(m.status);
-  const changed = title !== m.title || objective !== m.objective;
+  const changed = title !== m.title || objective !== (m.content?.text || m.objective);
   const save = () => {
     if (!title.trim()) return;
-    update(m.id, { title: title.trim(), objective, revision: m.revision + 1, lastEvent: `Definition revised to rev ${m.revision + 1} by Luca`, lastEventAgoMin: 0 });
+    update(m.id, { title: title.trim(), objective, content: { ...(m.content ?? { files: [] }), text: objective }, revision: m.revision + 1, lastEvent: `Content revised to rev ${m.revision + 1}`, lastEventAgoMin: 0 });
     toast({ tone: 'success', title: `Saved revision ${m.revision + 1}`, body: running ? (scope === 'future' ? 'Applies to future tasks; running tasks keep their terms.' : 'Queued for all non-started tasks.') : undefined });
     close();
   };
@@ -305,7 +96,7 @@ function MissionEdit({ close, props }: DialogComponentProps<{ missionId: string 
     <Modal title="Edit mission" icon={Pencil} dialogId="DL-02" help="mission.revision" onClose={close} sub={`${m.id} · current revision ${m.revision}`}
       footer={<><button className="btn" onClick={close}>Cancel</button><button className="btn primary" disabled={!changed || !title.trim()} onClick={save}>Save Revision</button></>}>
       <Field label="Title" required error={!title.trim() ? 'Title is required' : ''}><input className="input" data-autofocus value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
-      <Field label="Outcome"><textarea className="textarea" rows={4} value={objective} onChange={(e) => setObjective(e.target.value)} /></Field>
+      <Field label="Content" help="mission.content"><textarea className="textarea" rows={6} value={objective} onChange={(e) => setObjective(e.target.value)} /></Field>
       <Field label="Change explanation" hint="Recorded in the audit log and shown to the lead agent."><input className="input" value={why} onChange={(e) => setWhy(e.target.value)} placeholder="Why are you changing this?" /></Field>
       {running && (
         <div className="callout warn"><Info size={16} /><div><b>This mission is running.</b> Editing creates revision {m.revision + 1}. Running tasks are never silently rewritten.
@@ -315,7 +106,7 @@ function MissionEdit({ close, props }: DialogComponentProps<{ missionId: string 
         <div className="diff-mini">
           <div className="section-label">Revision preview</div>
           {title !== m.title && <><div className="diff-del">− {m.title}</div><div className="diff-add">+ {title}</div></>}
-          {objective !== m.objective && <><div className="diff-del clamp-2">− {m.objective}</div><div className="diff-add clamp-2">+ {objective}</div></>}
+          {objective !== (m.content?.text || m.objective) && <><div className="diff-del clamp-2">− {m.content?.text || m.objective}</div><div className="diff-add clamp-2">+ {objective}</div></>}
         </div>
       )}
     </Modal>
@@ -387,13 +178,13 @@ function Lifecycle({ close, props, kind }: DialogComponentProps<{ missionId: str
           {m.criteria.map((c) => <div key={c.text} className="row" style={{ gap: 6, fontSize: 13 }}><Check size={14} className="good" />{c.text}</div>)}
           <div className="divider" />
           <div className="row wrap" style={{ gap: 6 }}>{m.agentIds.map((id) => <Chip key={id} hue={ROLES[AGENT_BY_ID[id]?.role ?? 'dev'].hue} size="sm">{AGENT_BY_ID[id]?.name} {AGENT_BY_ID[id]?.version}</Chip>)}</div>
-          <div className="row" style={{ gap: 10, fontSize: 12.5 }}><Wallet size={14} />Budget {money(m.budget, 0)}<ShieldCheck size={14} className="good" />Mode: prepare + gated execute</div>
+          <div className="row" style={{ gap: 10, fontSize: 12.5 }}><Users size={14} />{m.agentIds.length} agents<ShieldCheck size={14} className="good" />Mode: prepare + gated execute</div>
         </div>
       )}
       {(kind === 'pause' || kind === 'stop') && (
         <>
           <div className="callout warn"><Info size={16} /><div>{mc.nodes.filter((n) => n.state === 'working').length} agents are working. {kind === 'pause' ? 'They stop before their next action and keep state. Browser sessions are paused, not closed.' : 'In-flight actions finish at a safe boundary; child jobs are canceled; data is retained.'}</div></div>
-          <Field label="Reason (optional, audited)"><input className="input" data-autofocus={kind === 'pause' || undefined} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. reprioritizing budget" /></Field>
+          <Field label="Reason (optional, audited)"><input className="input" data-autofocus={kind === 'pause' || undefined} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. reprioritizing work" /></Field>
         </>
       )}
       {kind === 'retry' && (
@@ -413,7 +204,7 @@ function MissionPolicy({ close, props }: DialogComponentProps<{ missionId: strin
   if (!m) return <Missing close={close} />;
   return (
     <Modal title="Effective policy" icon={ShieldCheck} dialogId="DL-04b" onClose={close} sub={m.id} footer={<button className="btn primary" onClick={close}>Close</button>}>
-      {[['Website origins', 'www.example.com (read, prepare)'], ['Consequential actions', 'Require Owner approval, bound to action digest, 15 min expiry'], ['Models', 'claude-opus-5-5 (planning), claude-sonnet-5-5 (execution), local fallback'], ['Budget', `${money(m.budget, 0)} hard cap`], ['Data retention', '30 days, then purge'], ['Self-modification', 'Proposals only; no live source changes']].map(([k, v]) => (
+      {[['Website origins', 'www.example.com (read, prepare)'], ['Consequential actions', 'Require Owner approval, bound to action digest, 15 min expiry'], ['Models', 'claude-opus-5-5 (planning), claude-sonnet-5-5 (execution), local fallback'], ['Experience merge', 'Every 15 min into the original agent'], ['Data retention', '30 days, then purge'], ['Self-modification', 'Proposals only; no live source changes']].map(([k, v]) => (
         <div key={k} className="row" style={{ justifyContent: 'space-between', gap: 12, fontSize: 13, padding: '6px 0', borderBottom: '1px solid var(--border-soft)' }}><span className="muted">{k}</span><b style={{ textAlign: 'right' }}>{v}</b></div>
       ))}
     </Modal>
@@ -431,7 +222,7 @@ function TemplatePicker({ close }: DialogComponentProps) {
           const K = KIND_META[t.kind];
           return (
             <motion.button key={t.key} className="glass-card hoverable" style={{ padding: 14, textAlign: 'left', color: 'var(--text)' }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * .05 }}
-              onClick={() => { close(); openDialog('mission-create', { template: t.key }); }}>
+              onClick={() => { close(); openDialog('mission-create', { text: t.objective }); }}>
               <div className="row" style={{ gap: 8 }}><K.icon size={18} style={{ color: `hsl(${K.hue} 90% 65%)` }} /><b>{t.title}</b></div>
               <p className="muted" style={{ fontSize: 12.5, margin: '6px 0' }}>{t.objective}</p>
               <div className="row wrap" style={{ gap: 4 }}>{t.criteria.map((c) => <Chip key={c} hue={K.hue} size="sm">{c}</Chip>)}</div>
@@ -557,7 +348,7 @@ function TaskCriteria({ close, props }: DialogComponentProps<{ missionId: string
 function MessageDetails({ close, props }: DialogComponentProps<{ message: { id: string; from: string; to: string; kind: string; text: string; taskId?: string; agoMin: number; ts?: number; attachments?: Attachment[]; replyTo?: string } }>) {
   const msg = props.message;
   if (!msg) return <Missing close={close} />;
-  const name = (id: string) => (id.startsWith('human:') ? 'Luca (Owner) · HUMAN' : AGENT_BY_ID[id]?.name ?? id);
+  const name = (id: string) => (id.startsWith('human:') ? 'User · HUMAN' : AGENT_BY_ID[id]?.name ?? id);
   return (
     <Modal title="Message details" icon={Info} dialogId="DL-16" onClose={close}
       footer={<><button className="btn" onClick={() => { navigator.clipboard?.writeText(msg.text); toast({ tone: 'success', title: 'Copied' }); }}><Copy size={14} />Copy</button><button className="btn" onClick={() => { navigator.clipboard?.writeText(msg.id); toast({ tone: 'success', title: 'Trace ID copied' }); }}>Copy trace</button><button className="btn primary" onClick={close}>Close</button></>}>
@@ -654,7 +445,6 @@ function Missing({ close }: { close: () => void }) {
 }
 
 export const dialogs = {
-  'mission-create': MissionCreate,
   'mission-edit': MissionEdit,
   'mission-delete': MissionDelete,
   'mission-start': (p: DialogComponentProps<{ missionId: string }>) => <Lifecycle {...p} kind="start" />,

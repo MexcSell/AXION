@@ -6,13 +6,13 @@ import type { KpiItem } from './PageFrame';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { Tip } from '@/components/ui/Tip';
 import { RingGauge } from '@/components/viz/Charts';
-import { useData, allApprovals } from '@/store/data';
+import { useData, allApprovals, useVisibleMissions } from '@/store/data';
 import { AGENTS } from '@/data/agents';
 
 /** Company-wide KPI tiles (40-4 command center) — rendered through the shared TopBoard. */
 export function useCompanyKpis(): KpiItem[] {
   const nav = useNavigate();
-  const missions = useData((s) => s.missions);
+  const missions = useVisibleMissions();
   const decisions = useData((s) => s.approvalDecisions);
   const active = missions.filter((m) => ['running', 'planning', 'verifying', 'waiting'].includes(m.status)).length;
   const pending = useMemo(() => allApprovals(missions, decisions).filter((a) => a.status === 'pending').length, [missions, decisions]);
@@ -20,9 +20,9 @@ export function useCompanyKpis(): KpiItem[] {
   return [
     { key: 'missions', icon: Target, value: active, label: 'Active Missions', delta: '+2', color: '#22d3ee', help: 'kpi.activeMissions', onClick: () => nav('/missions?filter=active') },
     { key: 'agents', icon: Users, value: activeAgents, label: 'Active Agents', hint: `of ${AGENTS.length} · one per role`, color: '#3b82f6', help: 'kpi.activeAgents', onClick: () => nav('/agents') },
-    { key: 'approvals', icon: ClipboardList, value: pending, label: 'Pending Approvals', color: '#fbbf24', help: 'kpi.approvals', onClick: () => nav('/governance?tab=approvals') },
-    { key: 'success', icon: Trophy, value: 96.4, decimals: 1, suffix: '%', label: 'Mission Success', delta: '+2.1%', color: '#facc15', help: 'kpi.success', onClick: () => nav('/usage') },
-    { key: 'spend', icon: Database, value: 2840, prefix: '$', label: 'This Month Spend', hint: '76% of Budget', bar: 76, color: '#a78bfa', help: 'kpi.spend', onClick: () => nav('/usage?tab=overview') },
+    { key: 'approvals', icon: ClipboardList, value: pending, label: 'Pending Approvals', color: '#fbbf24', help: 'kpi.approvals', onClick: () => nav('/notifications?tab=pending') },
+    { key: 'success', icon: Trophy, value: 96.4, decimals: 1, suffix: '%', label: 'Mission Success', delta: '+2.1%', color: '#facc15', help: 'kpi.success', onClick: () => nav('/results') },
+    { key: 'tokens', icon: Database, value: 1.84, decimals: 2, suffix: 'M', label: 'Tokens Today', hint: 'all agents · all missions', color: '#a78bfa', help: 'kpi.tokens', onClick: () => nav('/operations') },
   ];
 }
 

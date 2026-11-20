@@ -1,0 +1,50 @@
+/* Mission › Activity (owner update 2026-11-20 u1): every agent records tokens, time, CPU and RAM */
+.act { display: flex; flex-direction: column; gap: 12px; height: 100%; min-height: 0; }
+.act-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) auto; gap: 10px; align-items: center; }
+.act-kpi { padding: 10px 12px; }
+.act-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 12px; }
+.act-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; align-content: start; overflow: auto; min-height: 0; padding: 2px; }
+.act-card { padding: 12px; display: flex; flex-direction: column; gap: 8px; cursor: pointer; }
+.act-now { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-muted); padding: 5px 8px; border-radius: 9px; background: var(--panel-3); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.act-now-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-dim); flex: none; }
+.act-now.on { color: var(--text); }
+.act-now.on .act-now-dot { background: var(--good); box-shadow: 0 0 8px var(--good); animation: glow-breathe 1.2s ease-in-out infinite; }
+.act-tokens { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; font-size: 13px; }
+.act-meter { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-muted); }
+.act-meter-l { width: 30px; }
+.act-meter b { width: 54px; text-align: right; color: var(--text); font-size: 11.5px; }
+.act-foot { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--text-muted); flex-wrap: wrap; }
+.act-vm { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 99px; border: 1px solid var(--border-soft); color: var(--text-2); text-decoration: none !important; }
+.act-merge { display: inline-flex; align-items: center; gap: 5px; }
+.act-others { display: inline-flex; align-items: center; gap: 3px; margin-left: auto; color: var(--violet); font-weight: 700; }
+.act-log { display: flex; flex-direction: column; min-height: 0; border-radius: 14px; border: 1px solid var(--border-soft); background: var(--panel-2); }
+.act-log-head { display: flex; align-items: center; gap: 7px; padding: 10px 12px; border-bottom: 1px solid var(--border-soft); font-size: 13px; }
+.act-live { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--good); }
+.act-live i { width: 7px; height: 7px; border-radius: 50%; background: var(--good); animation: pulse-ring 1.4s ease-out infinite; box-shadow: 0 0 6px var(--good); }
+.act-log-list { flex: 1; overflow: auto; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+.act-line { display: flex; gap: 8px; padding: 6px 8px; border-radius: 10px; font-size: 12px; }
+.act-line:hover { background: var(--panel-3); }
+.act-line-ico { width: 24px; height: 24px; flex: none; border-radius: 8px; display: grid; place-items: center; color: var(--accent-2); background: rgba(var(--accent-rgb), .1); }
+.act-line.merge .act-line-ico { color: var(--info); background: rgba(var(--info-rgb), .14); }
+.act-line.browse .act-line-ico { color: var(--good); background: rgba(var(--good-rgb), .12); }
+@media (max-width: 1280px) { .act-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)) auto; } .act-body { grid-template-columns: 1fr; } .act-log { max-height: 320px; } }
+
+/* Staffing (GM → executor → agents) and mission content */
+.stf { position: relative; overflow: hidden; border-color: rgba(var(--warn-rgb), .45) !important; }
+.stf.done { border-color: rgba(var(--good-rgb), .35) !important; }
+.stf-chain { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.stf-node { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 700; flex: none; }
+.stf-node span { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.stf-node.ghost { opacity: .55; }
+.stf-q { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; border: 2px dashed var(--border); font-weight: 800; color: var(--text-dim); }
+.stf-link { height: 2px; width: 46px; flex: none; transform-origin: left; background: linear-gradient(90deg, var(--warn), var(--accent-2)); box-shadow: 0 0 8px rgba(var(--accent-rgb), .6); border-radius: 2px; }
+.stf-team { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; flex: 1; }
+.stf-mini { display: flex; align-items: center; gap: 5px; padding: 3px 8px 3px 3px; border-radius: 99px; background: var(--panel-3); font-size: 11.5px; font-weight: 600; max-width: 150px; }
+.stf-mini.ghost { border: 1px dashed var(--border); background: transparent; }
+.stf-log { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.stf-log li { display: flex; align-items: center; gap: 6px; overflow: hidden; }
+.mc-content-text { margin: 0; font-size: 13px; color: var(--text-muted); white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.mc-content-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.mc-file { display: inline-flex; align-items: center; gap: 5px; max-width: 180px; height: 26px; padding: 0 8px 0 4px; border-radius: 8px; font-size: 11.5px; border: 1px solid hsl(var(--h) 70% 60% / .35); color: var(--text-2); }
+.mc-file svg { color: hsl(var(--h) 80% 65%); flex: none; margin-left: 3px; }
+.mc-file img { width: 20px; height: 20px; border-radius: 5px; object-fit: cover; }

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { seeded } from '@/data/agents';
 
-/** DEMO fixtures + tiny local store for Users, Governance and Notifications (all fabricated, nothing persisted). */
+/** DEMO fixtures + tiny local store used by Notifications (approval risk tiers, resolved notices, rules). */
 export type HumanRole = 'Owner' | 'Admin' | 'Operator' | 'Reviewer' | 'Viewer';
 export const HUMAN_ROLES: { key: HumanRole; hue: number; desc: string }[] = [
   { key: 'Owner', hue: 45, desc: 'Strategy, risky approvals, promotions, policy changes.' },

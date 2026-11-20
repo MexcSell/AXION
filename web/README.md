@@ -1,11 +1,12 @@
 # AXION — Autonomous AI Company OS (UI prototype)
 
 A React + TypeScript frontend for the Agent Company OS described in
-`../update/2026-11-20/AGENT_COMPANY_OS_MASTER_DESIGN_AND_CLAUDE_CODE_PLAN_2026-11-20.md`.
+`../update/2026-11-20/AGENT_COMPANY_OS_MASTER_DESIGN_AND_CLAUDE_CODE_PLAN_2026-11-20.md`,
+updated by the owner's change list `../update/2026-11-20_u1.md`. The u1 plan and decisions are in `docs/plan-2026-11-20_u1.md`.
 
 - The visual design follows `/home/thomas/subnet-scout/docs/update_2026-11-15/40-4.png`: a dark neon-glass command center.
 - It covers spec Stages 1–4 (UI only).
-- **All data is deterministic DEMO data.** No backend, real Playwright browser, model provider or deployment is connected.
+- **All data is deterministic DEMO data, kept in this browser.** No backend, real Playwright browser, model provider or deployment is connected.
 
 ## Run
 
@@ -17,23 +18,35 @@ npm run build          # typecheck + production bundle in dist/
 npm run preview        # serve dist/ at http://127.0.0.1:4190
 ```
 
-From your workstation, use an SSH tunnel: `ssh -L 5190:127.0.0.1:5190 <vps>`, then open http://localhost:5190.
+From your workstation, use an SSH tunnel: `ssh -L 5190:127.0.0.1:5190 <vps>`, then open <http://localhost:5190>.
 `dist/` is a static SPA. Serve it with any static server that falls back to `index.html`.
+
+### First start: sign-in
+Everyone registers with a **name, a password and Connect**. The **first user becomes the administrator** and is connected at once.
+Later users and new devices wait until an administrator approves them in **Settings › Users** or **Notifications › Pending**.
+The waiting screen then connects automatically, even when the admin approves in another tab.
+Each browser tab has its own session, so two tabs can be two different people.
+Demo members (Mina Park, Kenji Sato, Sara Lind; password `demo`) are created right after the first account.
 
 ## Verify
 
 The scripts drive the running app, so start `npm run dev` first (or set `BASE=http://127.0.0.1:4190` for the preview build).
+Every script signs in as the first administrator through `scripts/_session.mjs`. Set `NO_LOGIN=1` to see the Connect screen.
 
 ```bash
 ./scripts/verify-all.sh                          # everything below + typecheck/build
-node scripts/crawl.mjs <outDir> dark luminous    # every route × tab: console errors, empty/placeholder check, screenshots
-node scripts/crawl-deep.mjs                      # every mission's Mission Control + all 38 agent profiles, long dwells, edge-case missions
-node scripts/flows.mjs                           # 12 end-to-end owner flows (create/edit/archive mission, chat + image, approvals, a11y…)
-node scripts/dialog-smoke.mjs                    # opens all 66 dialogs with/without props → docs/dialog-ledger.txt
+node scripts/crawl.mjs <outDir> dark luminous    # every route × tab (incl. Ops › Agents/Models sub-tabs): console errors, empty check, screenshots
+node scripts/crawl-deep.mjs                      # every mission (incl. edge cases) + every agent profile, long dwells on live views
+node scripts/flows.mjs                           # mission flows: add, edit, archive, approve, hierarchy, conversation + image, palette, a11y
+node scripts/u1-flows.mjs                        # rail, navigation settings, search everything, chat dock, job sites, news, sharing, redirects
+node scripts/auth-flow.mjs                       # register → wait → admin approves in another tab → auto-connect; sign out; wrong password
+node scripts/dialog-smoke.mjs                    # opens every dialog with/without props → docs/dialog-ledger.txt
 node scripts/check-dialogs.mjs                   # every openDialog('id') exists in the runtime registry
 node scripts/check-help.mjs                      # every referenced help key exists
+node scripts/fit-check.mjs                       # every view fills exactly one screen (desktop)
 node scripts/gallery.mjs                         # regenerate docs/screenshots/
-node scripts/shot.mjs '/control/M-126?tab=hierarchy' out.png 1672 941 dark luminous
+node scripts/u1-shots.mjs <outDir> [dark|light]  # screenshots of the u1 screens, incl. interactive states
+node scripts/shot.mjs '/missions/M-126?tab=activity' out.png 1672 941 dark luminous
 ```
 
 Playwright uses the preinstalled Chromium at `/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome`.
@@ -42,43 +55,45 @@ The test hook `window.__axion` is always on in dev. In production builds it is o
 
 ## What's inside
 
+**Rail.** The top section shows Missions, Notifications and Settings. Overview, Results, System Operations and Help are hidden but reachable
+with search, links and URLs, and Settings › Navigation can show them again. The bottom section holds plug-in apps (Job Search).
+
 | Area | Route | Highlights |
-|---|---|---|
-| Overview | `/overview` | Command-center KPIs and health ring. Tabs: pulse, portfolio, live activity, health |
-| **Missions** | `/missions` | **List on the left, Mission Control tabs on the right.** Conversations = mission agents · partners · thread; Hierarchy = graph · conversation. Every divider is draggable. Each row has ✎ edit beside the title, 🗑 at the far right, the status under the name and an AI summary. 4-step create wizard with image/file attach, revisions, archive/purge |
-| **Mission Control** | `/control/:id` | 9 tabs. Animated hierarchy graph with directional arrows (delegated ↓, reports ↑, consults, verifies, mentors). **Click an agent to see its partners (superior, subordinates, peers, you), then the messenger thread.** Command/Reply composer accepts images by paste, drop or file. The agent acknowledges, then reports upward. Also: task DAG, managed-browser view with approval gate, versioned results with per-version download, approvals, reports, immutable timeline |
-| Agents | `/agents`, `/agents/:id` | The 40-4 page: agent cards, organization, lifecycle, top performers, evolution pipeline. Profile: player card, capability radar, tools, instances, memory, mentoring, audit |
-| Organization | `/organization` | Org chart (tree/graph/matrix). Drag to *propose* a reorg and see a before/after diff. Departments, assignments heatmap, policies, proposals |
-| Browser Studio | `/browser` | Sessions, live view (redacted), action timeline, site grants, recipes, replay |
-| Results & Versions | `/results` | Library, sandbox previews, branch graph, diff, downloads (real manifest + SHA-256), releases |
-| Knowledge | `/knowledge` | Library, research, sources, citations, learning queue |
-| Evolution Lab | `/evolution` | L0–L4 ladder, proposals, experiments, benchmarks, promotions (independent review), lineage history |
-| Models | `/models` | Catalog (LLM/vision/STT/TTS/…), providers (secrets never shown), routing, playground, voice pipeline |
-| Users / Governance | `/users`, `/governance` | Members, roles matrix, invitations, sessions. Cross-mission approvals, autonomy, policies, secrets, audit |
-| Usage, Notifications, Settings, Operations, Help | … | Budgets and forecast. Inbox. **Appearance (Light/Dark/System × Luminous/Flat/Pretty/Fancy) and Avatars & Faces editor.** systemd services (no Docker). Context help index |
+| --- | --- | --- |
+| **Missions** | `/missions/:id` | Add a mission with **only its content: text + files** (image, audio, video, doc, pdf, txt). The **GM appoints a general executor, who brings the agents** one by one (staffing timeline). Missions belong to their owner: users see their own + shared missions, admins see all; a share toggle sits in the header. Tabs: Overview, **Activity** (every agent's tokens, active time, CPU, RAM, VM, its other missions, and experience merges back into the original agent), Hierarchy, Task Flow, Browser, Conversations, Results, Approvals, Reports, Timeline |
+| **Notifications** | `/notifications` | Inbox, **News** (posts from users; URLs and content found by research agents), Pending (incl. new users and devices for admins), Resolved, Rules. Top and bottom boards fold |
+| **Settings** | `/settings` | General, **Users** (avatar, name, password change, devices; admins approve users and devices), **Navigation** (show/hide rail items, plug-ins), Appearance, Avatars & Faces, Accessibility, Browser, Integrations, Storage, Security, Backups |
+| System Operations | `/operations` | Services, **VMs**, **Agents** (Directory, Development, **Lineage** & knowledge, Live Instances, Departments, Assignments, Policies, Proposals), **Models** (Manager, Providers, Routing with the Model Loader's picks, Playground, Usage, Health), Workers, Queues, Storage, Logs, Recovery |
+| Agent profile | `/agents/:id` | Player card, capabilities, tools, instances, **direct chat with individual tasks**, memory, performance, mentoring, evolution, audit |
+| **Job Search** (plug-in) | `/plugins/job-search` | Investigate: job sites · live site preview with the investigation process · mobilized agents + chat (instruct, teach, control). Jobs: researched jobs, bid status, the profile tailored for each bid. Profile: documents + free text |
+| Overview, Results, Help | `/overview`, `/results`, `/help` | Hidden from the rail by default |
+
+Removed by the u1 update: Usage & Budgets, Knowledge, Governance, Evolution Lab, Browser Studio, the Users page, and every budget, cost, price or fund limit.
+Old links redirect.
 
 Global features:
-- `Ctrl K` command palette, which deep-links every screen and tab.
-- `Ctrl B` collapses the rail; `?` opens the shortcuts.
-- A `?` help popover on panels and fields. 306 help entries.
-- Toasts, an error boundary, and reduced-motion support.
-- A responsive layout from 1672px down to 390px.
+
+- `Ctrl K` **searches everything**: commands, every screen, tab and sub-tab, missions (by content), agents (by duty), chats, models, VMs, users, job sites and jobs, news, notifications, lessons and help.
+- The **chat** button left of your avatar is one inbox: the General Manager, the administrators, direct agent chats and plug-in agents. Every chat in the app uses the same component.
+- `Ctrl B` collapses the rail; `?` opens the shortcuts. A `?` help popover is on panels and fields.
+- A responsive layout from 1672px down to 390px, 4 skins × light/dark, reduced-motion support.
 - DEMO data persists in this browser. Reset it with "Reset DEMO data" in the command palette.
 
 ## Code map
 
-```
+```text
 src/
-  config/      brand.ts (product name AXION in one place), nav.ts (routes + tabs)
-  theme/       tokens.css (4 skins × light/dark), base.css, shell.css, pages.css, pages/*.css
-  components/  ui/ (Panel, Tabs, IconButton, HelpTrigger, Modal, Chips, Form, Menu, Toasts…)
-               art/ (RobotAvatar, CoreCube, HeroScene, ParticleField), viz/ (charts), layout/ (shell)
-  features/mission/   HierarchyGraph, Messenger, TaskFlow, BrowserMini, live event bus
-  pages/       one file per route
-  dialogs/     DialogHost + defs/*.tsx (66 dialogs; spec DL ids on data-dialog — 63 of DL-01…65 are dialogs, DL-63 palette is in layout/, DL-17/18 share one component)
-  data/        deterministic fixtures (seeded PRNG)
-  store/       zustand: settings (persisted), ui (dialogs/toasts), data (DEMO state, persisted)
-  help/        registry.ts + pages/*.ts
+  config/      brand.ts, nav.ts (rail items + tabs), plugins.ts (plug-in registry)
+  theme/       tokens.css (4 skins × light/dark), base.css, shell.css, frame.css, pages/*.css
+  components/  ui/ (Panel, Tabs, IconButton, HelpTrigger, Modal, Chips, Form, Menu, Toasts, UserAvatar…)
+               art/, viz/, layout/ (AppShell, Rail, TopBar, PageFrame, CommandPalette, usePreferences)
+  features/    auth/ (AuthGate), chat/ (ChatView, ChannelChat, ChatDock), mission/ (staffing, ActivityTab, StaffingCard, Messenger…),
+               agents/ (Lineage, AgentHierarchy…), ops/ (VMs), notifications/ (News), settings/ (Users, Navigation)
+  pages/       one file per route; plugins/JobSearch.tsx; Agents.tsx and Models.tsx are sections embedded in Operations
+  dialogs/     DialogHost + defs/*.tsx (mission-add.tsx is the content-only Add mission)
+  data/        deterministic fixtures (seeded PRNG): agents (+ derived agents), activity, lineage, missions, models…
+  store/       zustand: settings, ui, data (missions, v2 migration), auth (users/devices/session), chat, news, jobs
+  help/        registry.ts + pages/*.ts (u1-shell.ts, u1-missions.ts for the u1 additions)
 ```
 
-See `KIT.md` for the component API and `PROGRESS.md` for decisions and the stage report.
+See `KIT.md` for the component API and `PROGRESS.md` for decisions and stage reports.

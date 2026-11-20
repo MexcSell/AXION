@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
 import { CheckCircle2, Gavel } from 'lucide-react';
 import { Chip } from '@/components/ui/Chips';
-import { useData, allApprovals } from '@/store/data';
+import { useData, allApprovals, useVisibleMissions } from '@/store/data';
 import { openDialog, toast } from '@/store/ui';
 import { AGENT_BY_ID } from '@/data/agents';
 import { cx } from '@/lib/format';
@@ -15,7 +15,7 @@ export function EventIcon({ type }: { type: keyof typeof EV_ICON }) {
 }
 
 export function ApprovalMini({ id }: { id: string }) {
-  const missions = useData((s) => s.missions);
+  const missions = useVisibleMissions();
   const decisions = useData((s) => s.approvalDecisions);
   const decide = useData((s) => s.decideApproval);
   const a = allApprovals(missions, decisions).find((x) => x.id === id)!;

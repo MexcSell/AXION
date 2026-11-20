@@ -1,5 +1,5 @@
 import {
-  Crown, Microscope, BarChart3, Code2, Settings2, ShieldCheck, MessagesSquare, CalendarClock, Coins,
+  Crown, Microscope, BarChart3, Code2, Settings2, ShieldCheck, MessagesSquare, CalendarClock, Cpu,
   Layers, Gauge, BadgeCheck, Network, Globe, PenLine, GraduationCap, Rocket, Palette,
   type LucideIcon,
 } from 'lucide-react';
@@ -16,7 +16,7 @@ export const ROLES: Record<RoleKey, RoleMeta> = {
   security:    { key: 'security', label: 'Security', icon: ShieldCheck, hue: 148, hue2: 285, short: 'SEC' },
   comms:       { key: 'comms', label: 'Communication', icon: MessagesSquare, hue: 196, hue2: 225, short: 'COM' },
   planning:    { key: 'planning', label: 'Planning', icon: CalendarClock, hue: 38, hue2: 275, short: 'PLN' },
-  finance:     { key: 'finance', label: 'Finance', icon: Coins, hue: 42, hue2: 30, short: 'FIN' },
+  loader:     { key: 'loader', label: 'Model Loader', icon: Cpu, hue: 42, hue2: 30, short: 'MDL' },
   knowledge:   { key: 'knowledge', label: 'Knowledge', icon: Layers, hue: 212, hue2: 190, short: 'KNW' },
   optimize:    { key: 'optimize', label: 'Optimization', icon: Gauge, hue: 290, hue2: 220, short: 'OPT' },
   qa:          { key: 'qa', label: 'QA / Testing', icon: BadgeCheck, hue: 172, hue2: 285, short: 'QA' },

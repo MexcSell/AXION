@@ -30,17 +30,6 @@ const help: Record<string, HelpEntry> = {
   'ug.rule.events': e('Events', 'Categories of events this rule listens to.'),
   'ug.rule.quiet': e('Quiet hours', 'No non-critical notifications in this window. Critical alerts still break through.'),
 
-  'gv.page': e('Governance', 'Where humans keep control: exact-action approvals, grants, autonomy limits, the constitution, secret references and the signed audit log.', 'Agents do work. Governance decides what they may do.'),
-  'gv.approvals': e('Approval queue', 'Every pending approval across all missions, sorted by risk tier then expiry.', 'The most dangerous and most urgent requests come first.', { how: 'Each card is one exact action. R4 requests always open the full decision dialog.' }),
-  'gv.resolved': e('Resolved approvals', 'Decisions you made, newest first. They are immutable.'),
-  'gv.permissions': e('Permissions', 'Inventory of per-site, per-tool, per-mission and tenant grants with tier and expiry.', 'Every grant expires. Revoke early if no longer needed.'),
-  'gv.autonomy': e('Autonomy limits', 'For each mission, how far agents may act without a human: safe-read, prepare, review or execute.', 'Higher autonomy is faster but riskier.', { how: 'Move a slider, review the diff, then Apply policy.', permission: 'Raising a gate is Owner-only in the real product.' }),
-  'gv.policies': e('Company constitution', 'The rules every agent and mission must follow. Versioned, with a diff against the previous version.', 'No silent policy edits.'),
-  'gv.prohibited': e('Prohibited tools', 'Tools agents may never use, regardless of grants.'),
-  'gv.trust': e('Trust hierarchy', 'Whose instructions win when they conflict. Content from web pages is the lowest and is never an instruction.'),
-  'gv.secrets': e('Secrets', 'References to credentials with owner, scope and rotation status. Values are never revealed.', 'A leaked reference is harmless without vault access.'),
-  'gv.audit': e('Audit log', 'Append-only, hash-chained events. Each row carries the hash of the previous one.', 'Tampering would break the chain.'),
-
   'nt.page': e('Notifications & Activity', 'Alerts, system events, agent updates and mission activity in one place.'),
   'nt.inbox': e('Inbox', 'Chronological alerts and updates. Selecting one marks it read and opens the related page.'),
   'nt.summary': e('Alert summary', 'Notifications by severity.'),

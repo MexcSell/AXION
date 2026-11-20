@@ -1,24 +1,26 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { PanelLeftClose, PanelLeftOpen, X } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen, X, Plus, Puzzle, Eye } from 'lucide-react';
 import { useMemo } from 'react';
-import { NAV } from '@/config/nav';
+import { NAV, type NavItem } from '@/config/nav';
+import { PLUGINS } from '@/config/plugins';
 import { BRAND } from '@/config/brand';
 import { CoreCube } from '@/components/art/CoreArt';
 import { Tip } from '@/components/ui/Tip';
 import { Dot } from '@/components/ui/Chips';
-import { useSettings } from '@/store/settings';
-import { useData, allApprovals } from '@/store/data';
-import { useUI } from '@/store/ui';
+import { useSettings, useRailShown } from '@/store/settings';
+import { useData, allApprovals, useVisibleMissions } from '@/store/data';
+import { useUI, openDialog } from '@/store/ui';
+import { useMe, isAdmin, usePendingApprovals } from '@/store/auth';
 import { AGENTS } from '@/data/agents';
-import { ALL_NOTICES as NOTIFICATIONS } from '@/data/notifications-extra';
+import { useVisibleNotices } from '@/data/useNotices';
 import { useMediaQuery } from '@/hooks/useTab';
 
 export function Rail() {
   const collapsedPref = useSettings((s) => s.railCollapsed);
   const set = useSettings((s) => s.set);
   const loc = useLocation();
-  const missions = useData((s) => s.missions);
+  const missions = useVisibleMissions();
   const decisions = useData((s) => s.approvalDecisions);
   const read = useData((s) => s.readNotifications);
   const mobileOpen = useUI((s) => s.mobileNavOpen);
@@ -28,11 +30,37 @@ export function Rail() {
   const collapsed = !isMobile && (collapsedPref || isNarrow);
 
   const pending = useMemo(() => allApprovals(missions, decisions).filter((a) => a.status === 'pending').length, [missions, decisions]);
-  const unread = NOTIFICATIONS.filter((n) => !read[n.id]).length;
+  const notices = useVisibleNotices();
+  const unread = notices.filter((n) => !read[n.id]).length;
   const active = missions.filter((m) => ['running', 'planning', 'verifying', 'waiting'].includes(m.status)).length;
   const online = AGENTS.filter((a) => a.status !== 'offline').length;
 
   const isActive = (path: string) => loc.pathname.startsWith(path);
+  const shown = useRailShown();
+  const admin = isAdmin(useMe());
+  const userApprovals = usePendingApprovals();
+  // Top section: the shown items, plus the screen you are on when it is hidden (dashed, so you know where you are).
+  const isNavActive = (n: NavItem) => isActive(n.path) || (n.also ?? []).some((p) => loc.pathname.startsWith(p));
+  const topItems = NAV.filter((n) => shown(n.key, n.shown) || isNavActive(n));
+  const pluginItems: NavItem[] = PLUGINS.filter((p) => shown('plugin:' + p.key, true) || isActive(p.path))
+    .map((p) => ({ key: p.key, label: p.label, path: p.path, icon: p.icon, shown: true, note: p.description }));
+
+  const renderItem = (n: NavItem, i: number, pillId: string, visiting: boolean) => {
+    const sel = isNavActive(n);
+    const badge = n.badge === 'approvals' ? pending : n.badge === 'notifications' ? unread : n.badge === 'users' ? (admin ? userApprovals.total : 0) : 0;
+    const link = (
+      <NavLink to={n.path} className={'nav-item' + (sel ? ' active' : '') + (visiting ? ' visiting' : '')} aria-current={sel ? 'page' : undefined} onClick={() => setMobile(false)}>
+        {sel && <motion.span layoutId={pillId} className="nav-pill" transition={{ type: 'spring', stiffness: 480, damping: 38 }} />}
+        <motion.span className="nav-ico" initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.03 * i }}>
+          <n.icon size={20} strokeWidth={1.8} />
+        </motion.span>
+        {!collapsed && <span className="nav-label">{n.label}</span>}
+        {visiting && !collapsed && <Tip label="Hidden from the rail — shown while you are here. Settings › Navigation can pin it." side="right"><span className="nav-visit" aria-label="Hidden screen"><Eye size={13} /></span></Tip>}
+        {badge > 0 && <span className={'badge nav-badge' + (collapsed ? ' floating' : '')} aria-label={`${badge} pending`}>{badge}</span>}
+      </NavLink>
+    );
+    return collapsed ? <Tip key={n.key} label={n.label + (visiting ? ' (hidden screen)' : '')} side="right">{link}</Tip> : <motion.div key={n.key} layout initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}>{link}</motion.div>;
+  };
 
   const content = (
     <div className="rail-inner" data-collapsed={collapsed || undefined}>
@@ -44,22 +72,21 @@ export function Rail() {
           </Tip>
         )}
       </div>
-      <nav className="rail-nav" aria-label="Primary">
-        {NAV.map((n, i) => {
-          const sel = isActive(n.path);
-          const badge = n.badge === 'approvals' ? pending : n.badge === 'notifications' ? unread : 0;
-          const link = (
-            <NavLink to={n.path} className={'nav-item' + (sel ? ' active' : '')} aria-current={sel ? 'page' : undefined} onClick={() => setMobile(false)}>
-              {sel && <motion.span layoutId="nav-pill" className="nav-pill" transition={{ type: 'spring', stiffness: 480, damping: 38 }} />}
-              <motion.span className="nav-ico" initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.03 * i }}>
-                <n.icon size={20} strokeWidth={1.8} />
-              </motion.span>
-              {!collapsed && <span className="nav-label">{n.label}</span>}
-              {badge > 0 && <span className={'badge nav-badge' + (collapsed ? ' floating' : '')} aria-label={`${badge} pending`}>{badge}</span>}
-            </NavLink>
-          );
-          return collapsed ? <Tip key={n.key} label={n.label} side="right">{link}</Tip> : <div key={n.key}>{link}</div>;
-        })}
+      <nav className="rail-nav rail-top" aria-label="Primary">
+        {topItems.map((n, i) => renderItem(n, i, 'nav-pill', !shown(n.key, n.shown)))}
+      </nav>
+      <div className="rail-gap" aria-hidden />
+      <nav className="rail-nav rail-plugins" aria-label="Plug-in apps">
+        {!collapsed ? (
+          <div className="rail-sec-head">
+            <Puzzle size={13} /> <span>Plug-ins</span>
+            <Tip label="Create a plug-in through a mission" side="right">
+              <button className="icon-btn xs" aria-label="Create a plug-in through a mission" onClick={() => { setMobile(false); openDialog('mission-create', { text: 'Build a plug-in app for the rail that …' }); }}><Plus size={13} /></button>
+            </Tip>
+          </div>
+        ) : <div className="rail-sec-rule" aria-hidden />}
+        {pluginItems.length ? pluginItems.map((n, i) => renderItem(n, i, 'nav-pill-plugin', false))
+          : !collapsed && <div className="rail-empty">No plug-ins shown. <NavLink to="/settings?tab=navigation" onClick={() => setMobile(false)}>Choose in Settings</NavLink></div>}
       </nav>
       <div className="rail-foot">
         {!collapsed ? (

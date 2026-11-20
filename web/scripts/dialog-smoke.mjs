@@ -1,6 +1,7 @@
 // Opens EVERY registered dialog (with no props and with a rich props bag), asserts it renders as an
 // aria-modal dialog with no errors, records its spec DL id, and checks Escape closes it.
 import { chromium } from 'playwright';
+import { signIn } from './_session.mjs';
 import { writeFileSync } from 'node:fs';
 const base = process.env.BASE || 'http://127.0.0.1:5190';
 let ids = [];
@@ -12,6 +13,7 @@ const bag = {
 };
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
 const ctx = await b.newContext({ viewport: { width: 1672, height: 941 } });
+await signIn(ctx);
 await ctx.addInitScript(() => localStorage.setItem('axion.settings.v1', JSON.stringify({ state: { motion: 'reduced' }, version: 0 })));
 const p = await ctx.newPage(); await p.addInitScript(() => localStorage.setItem('axion.testhook', '1'));
 let errs = [];

@@ -1,9 +1,9 @@
 import { motion } from 'motion/react';
-import { Check, Monitor, Moon, RotateCcw, Sparkles, Sun } from 'lucide-react';
+import { Check, Gauge, Monitor, Moon, RotateCcw, Sparkles, Sun, Zap } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { Segmented, SwitchRow } from '@/components/ui/Form';
-import { ACCENTS, useSettings, type Accent, type Density, type MotionPref, type Skin, type ThemeMode } from '@/store/settings';
+import { ACCENTS, useSettings, type Accent, type Density, type Graphics, type MotionPref, type PageTransition, type Skin, type ThemeMode } from '@/store/settings';
 import { toast } from '@/store/ui';
 import { cx } from '@/lib/format';
 import '@/theme/pages/settings-ops-help.css';
@@ -131,8 +131,14 @@ export function AppearanceControls({ compact }: { compact?: boolean }) {
         <div><Lbl help="settings.motion">Motion</Lbl>
           <Segmented ariaLabel="Motion" value={s.motion} onChange={(v: MotionPref) => s.set({ motion: v })} options={[{ key: 'full', label: 'Full' }, { key: 'subtle', label: 'Subtle' }, { key: 'reduced', label: 'Reduced' }, { key: 'system', label: 'System' }]} />
         </div>
+        <div><Lbl help="settings.graphics">Graphics</Lbl>
+          <Segmented ariaLabel="Graphics" value={s.graphics} onChange={(v: Graphics) => s.set({ graphics: v })} options={[{ key: 'fast', label: <><Zap size={14} />Fast</> }, { key: 'full', label: <><Sparkles size={14} />Full effects</> }]} />
+        </div>
+        <div><Lbl help="settings.pageTransition">Page switch</Lbl>
+          <Segmented ariaLabel="Page switch" value={s.pageTransition} onChange={(v: PageTransition) => s.set({ pageTransition: v })} options={[{ key: 'instant', label: <><Gauge size={14} />Instant</> }, { key: 'fast', label: 'Fast' }, { key: 'smooth', label: 'Smooth' }]} />
+        </div>
         <div className="subpanel" style={{ padding: '4px 12px' }}>
-          <SwitchRow label="Particles" help="settings.particles" desc="Ambient particle field that reacts to real events" checked={s.particles} onChange={(v) => s.set({ particles: v })} />
+          <SwitchRow label="Particles" help="settings.particles" desc={s.graphics === 'full' ? 'Ambient particle field that reacts to real events' : 'Needs Graphics: Full effects'} checked={s.particles} onChange={(v) => s.set({ particles: v })} />
           <SwitchRow label="Header banner" help="settings.headerBanner" desc="Top strip with logo, skyline art, Plan → Sustain loop and quick actions" checked={s.headerBanner}
             onChange={(v) => { s.set({ headerBanner: v }); toast({ tone: 'info', title: v ? 'Header banner shown' : 'Header banner hidden', body: v ? undefined : 'Restore it from the tab at the top, Ctrl K, or here.' }); }} />
         </div>

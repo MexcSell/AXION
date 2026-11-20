@@ -1,5 +1,9 @@
 import { AnimatePresence, MotionConfig, motion } from 'motion/react';
-import { Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { useData } from '@/store/data';
+import { useMe } from '@/store/auth';
+import { useStaffingDriver } from '@/features/mission/staffing';
+import { ChatDock } from '@/features/chat/ChatDock';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { TopBar } from './TopBar';
 import { Rail } from './Rail';
@@ -7,45 +11,13 @@ import { HeroScene } from '@/components/art/HeroScene';
 import { ToastStack } from '@/components/ui/Toasts';
 import { DialogHost } from '@/dialogs/DialogHost';
 import { CommandPalette } from './CommandPalette';
-import { ACCENTS, useSettings } from '@/store/settings';
+import { useSettings } from '@/store/settings';
+import { useMotionEff } from './usePreferences';
 import { useUI } from '@/store/ui';
-import { useMediaQuery } from '@/hooks/useTab';
 import { ParticleField } from '@/components/art/ParticleField';
 import { ErrorBoundary } from './ErrorBoundary';
 import { ChevronsDown } from 'lucide-react';
 import { Tip } from '@/components/ui/Tip';
-
-/** Applies theme / skin / motion / density preferences to <html> (spec §7–8). */
-function useApplyPreferences() {
-  const s = useSettings();
-  const prefersDark = useMediaQuery('(prefers-color-scheme: dark)');
-  const prefersReduced = useMediaQuery('(prefers-reduced-motion: reduce)');
-  const theme = s.themeMode === 'system' ? (prefersDark ? 'dark' : 'light') : s.themeMode;
-  const motionEff = s.motion === 'system' ? (prefersReduced ? 'reduced' : 'full') : s.motion;
-  const first = useRef(true);
-
-  useLayoutEffect(() => {
-    const el = document.documentElement;
-    if (!first.current) {
-      el.classList.add('theme-anim');
-      window.setTimeout(() => el.classList.remove('theme-anim'), 450);
-    }
-    first.current = false;
-    el.dataset.theme = theme;
-    el.dataset.skin = s.skin;
-    el.dataset.density = s.density;
-    el.dataset.textscale = s.textScale;
-    el.dataset.contrast = s.highContrast ? 'high' : 'normal';
-    el.dataset.motion = motionEff;
-    el.lang = s.language;
-    const a = s.accent !== 'default' ? ACCENTS[s.accent] : null;
-    for (const [k, v] of Object.entries({ '--accent': a?.accent, '--accent-rgb': a?.rgb, '--accent-grad': a?.grad })) {
-      if (v) el.style.setProperty(k, v); else el.style.removeProperty(k);
-    }
-  }, [theme, s.skin, s.density, s.textScale, s.highContrast, motionEff, s.accent, s.language]);
-
-  return { theme, motionEff };
-}
 
 function useGlobalShortcuts() {
   const setPalette = useUI((s) => s.setPalette);
@@ -65,13 +37,26 @@ function useGlobalShortcuts() {
   }, [setPalette, set, nav]);
 }
 
+/** Moves every newly added mission through GM → executor → agents (owner update u1). */
+function StaffingDriver() {
+  const missions = useData((s) => s.missions);
+  const update = useData((s) => s.updateMission);
+  const me = useMe();
+  // Only the owner's tab advances its missions: with several tabs open (several users), each step happens once.
+  const staffing = useMemo(() => missions.filter((m) => m.staffing && m.staffing.stage !== 'working' && m.ownerId === me?.id), [missions, me?.id]);
+  useStaffingDriver(staffing, update);
+  return null;
+}
+
 export function AppShell() {
-  const { motionEff } = useApplyPreferences();
+  const motionEff = useMotionEff();
   useGlobalShortcuts();
   const loc = useLocation();
   const collapsed = useSettings((s) => s.railCollapsed);
   const skin = useSettings((s) => s.skin);
   const particles = useSettings((s) => s.particles);
+  const fullGfx = useSettings((s) => s.graphics) === 'full';
+  const pageTransition = useSettings((s) => s.pageTransition);
   const headerBanner = useSettings((s) => s.headerBanner);
   const setSettings = useSettings((s) => s.set);
   const routeKey = loc.pathname.split('/')[1] || 'overview';
@@ -80,12 +65,20 @@ export function AppShell() {
 
   useEffect(() => { mainRef.current?.scrollTo({ top: 0 }); setScrolled(false); }, [routeKey]);
 
+  const page = (
+    <ErrorBoundary resetKey={loc.pathname}>
+      <Suspense fallback={<PageSkeleton />}>
+        <Outlet />
+      </Suspense>
+    </ErrorBoundary>
+  );
+
   return (
     <MotionConfig reducedMotion={motionEff === 'reduced' ? 'always' : 'never'} transition={motionEff === 'subtle' ? { duration: 0.15 } : undefined}>
       <div className="app" data-rail={collapsed ? 'collapsed' : 'expanded'} data-route={routeKey} data-scrolled={scrolled || undefined} data-header={headerBanner ? 'shown' : 'hidden'}>
         <div className="app-bg-grid" aria-hidden />
-        {(skin === 'fancy' || skin === 'luminous') && particles && motionEff !== 'reduced' && <ParticleField />}
-        {headerBanner && <div className="hero-layer" aria-hidden><HeroScene animated={motionEff !== 'reduced'} /></div>}
+        {fullGfx && (skin === 'fancy' || skin === 'luminous') && particles && motionEff !== 'reduced' && <ParticleField />}
+        {headerBanner && <div className="hero-layer" aria-hidden><HeroScene animated={fullGfx && motionEff !== 'reduced'} /></div>}
         <a href="#main" className="skip-link">Skip to content</a>
         <AnimatePresence initial={false}>
           {headerBanner ? <TopBar key="topbar" /> : (
@@ -102,27 +95,30 @@ export function AppShell() {
         </AnimatePresence>
         <Rail />
         <main id="main" className="main" ref={mainRef} tabIndex={-1} onScroll={(e) => { const v = e.currentTarget.scrollTop > 6; if (v !== scrolled) setScrolled(v); }}>
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={routeKey}
-              className="route-view"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4, transition: { duration: 0.12 } }}
-              transition={{ duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }}
-              style={{ minHeight: '100%' }}
-            >
-              <ErrorBoundary resetKey={loc.pathname}>
-                <Suspense fallback={<PageSkeleton />}>
-                  <Outlet />
-                </Suspense>
-              </ErrorBoundary>
-            </motion.div>
-          </AnimatePresence>
+          {pageTransition === 'smooth' ? (
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={routeKey}
+                className="route-view"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4, transition: { duration: 0.12 } }}
+                transition={{ duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }}
+                style={{ minHeight: '100%' }}
+              >
+                {page}
+              </motion.div>
+            </AnimatePresence>
+          ) : (
+            // Instant / Fast: the new page mounts at once (no exit wait); Fast adds a 90 ms opacity-only fade.
+            <div key={routeKey} className={'route-view' + (pageTransition === 'fast' ? ' route-in' : '')} style={{ minHeight: '100%' }}>{page}</div>
+          )}
         </main>
         <ToastStack />
         <DialogHost />
         <CommandPalette />
+        <StaffingDriver />
+        <ChatDock />
       </div>
     </MotionConfig>
   );

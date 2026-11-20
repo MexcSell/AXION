@@ -2,7 +2,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
-  Bot, Radar as RadarIcon, Wrench, Boxes, MessagesSquare, Brain, Gauge, GraduationCap, Dna, ScrollText, ArrowLeft, Target, PencilLine,
+  Bot, Radar as RadarIcon, Wrench, Boxes, MessagesSquare, MessageCircle, Brain, Gauge, GraduationCap, Dna, ScrollText, ArrowLeft, Target, PencilLine,
   Crown, Sparkles, Lock, CheckCircle2, XCircle, ArrowRight, Clock, ShieldCheck, FlaskConical, MoreHorizontal, KeyRound, Check, X, TrendingUp, Fingerprint, UserRound,
 } from 'lucide-react';
 import { RobotAvatar } from '@/components/art/RobotAvatar';
@@ -17,15 +17,19 @@ import { Segmented } from '@/components/ui/Form';
 import { CountUp } from '@/components/ui/CountUp';
 import { IconButton } from '@/components/ui/IconButton';
 import { Radar, AreaChart, Sparkline, RingGauge } from '@/components/viz/Charts';
+import { activityFor, fmtTokens } from '@/data/activity';
+import { ChannelChat } from '@/features/chat/ChannelChat';
+import { channelId } from '@/store/chat';
+import { useMe } from '@/store/auth';
 import { AGENTS, AGENT_BY_ID } from '@/data/agents';
 import { ROLES } from '@/data/roles';
 import { getMissionControl } from '@/data/missions';
 import { METRIC_KEYS, METRIC_LABELS, DEPT_BY_NAME, metricSample, toolsFor, memoryFor, auditFor, evolutionFor, mentoringFor, perfSeries } from '@/data/orgdemo';
 import type { Agent } from '@/data/types';
 import { useTab } from '@/hooks/useTab';
-import { useData } from '@/store/data';
+import { useVisibleMissions } from '@/store/data';
 import { openDialog, toast } from '@/store/ui';
-import { ago, cx, money } from '@/lib/format';
+import { ago, cx } from '@/lib/format';
 import '@/theme/pages/overview-org-agent.css';
 
 export default function AgentProfilePage() {
@@ -140,7 +144,7 @@ function Profile({ agent }: { agent: Agent }) {
 
 /* ---------------------------------------------------------------- */
 function useAgentMissions(a: Agent) {
-  const missions = useData((s) => s.missions);
+  const missions = useVisibleMissions();
   return useMemo(() => missions.filter((m) => m.agentIds.includes(a.id)), [missions, a.id]);
 }
 
@@ -265,7 +269,7 @@ function InstancesTab({ a }: { a: Agent }) {
               <b className="clamp-2" style={{ margin: '6px 0 2px', fontSize: 13.5 }}>{m.title}</b>
               <div className="dim ellipsis" style={{ fontSize: 12 }}>{n.task}</div>
               <div className="row" style={{ gap: 6, margin: '10px 0' }}><div className="bar thin good" style={{ flex: 1 }}><motion.i initial={{ width: 0 }} animate={{ width: `${n.progress}%` }} transition={{ duration: .8, delay: .1 + i * .04 }} /></div><b className="tnum" style={{ fontSize: 12 }}>{n.progress}%</b></div>
-              <dl className="kv oa-kv sm"><dt>Pinned</dt><dd className="mono">{a.version}</dd><dt>Memory</dt><dd>scope {m.id} (isolated)</dd><dt>Budget</dt><dd>{money(Math.round(m.budget / m.agentIds.length), 0)}</dd><dt>Tasks</dt><dd>{n.tasks} · {n.pending} pending</dd></dl>
+              <dl className="kv oa-kv sm"><dt>Pinned</dt><dd className="mono">{a.version}</dd><dt>Memory</dt><dd>scope {m.id} (isolated)</dd><dt>Tokens</dt><dd>{fmtTokens(activityFor(m, a.id).tokens)}</dd><dt>Tasks</dt><dd>{n.tasks} · {n.pending} pending</dd></dl>
               <div className="row" style={{ gap: 6, marginTop: 8 }}><button className="btn sm" onClick={() => nav(`/missions/${m.id}?tab=hierarchy&agent=${a.id}`)}>Open in mission</button><button className="btn sm ghost" onClick={() => toast({ tone: 'info', title: 'Migration is a controlled change (demo)', body: 'Running instances stay pinned unless a migration is approved.' })}>Migrate version</button></div>
             </motion.div>
           ))}
@@ -281,8 +285,13 @@ function ConversationsTab({ a }: { a: Agent }) {
     const other = k.split('|').find((x) => x !== a.id) ?? '';
     return { m, k, other, msgs, last: msgs[msgs.length - 1] };
   })).sort((x, y) => x.last.agoMin - y.last.agoMin);
+  const me = useMe();
   return (
-    <Panel icon={MessagesSquare} titleSize="lg" title="Conversations" help="agent.conversations" sub="Immutable mission threads this agent takes part in." delay={.05} actions={<DemoTag />}>
+    <div className="ap-conv">
+    <Panel icon={MessageCircle} titleSize="lg" title={`Chat with ${a.name}`} help="agent.directTask" sub="Talk, or switch to Task to give an individual task." delay={.02} className="ap-direct">
+      {me && <ChannelChat channel={channelId.agent(a.id, me.id)} compact title={<><b>{a.name}</b><span className="dim" style={{ fontSize: 11.5 }}>direct · {ROLES[a.role].label}</span></>} />}
+    </Panel>
+    <Panel icon={MessagesSquare} titleSize="lg" title="Mission threads" help="agent.conversations" sub="Immutable mission threads this agent takes part in." delay={.05} actions={<DemoTag />}>
       {threads.length === 0 ? <EmptyState icon={MessagesSquare} title="No threads" body="Conversations appear once the agent works on a mission." /> : (
         <div className="col" style={{ gap: 6 }}>
           {threads.slice(0, 14).map((t, i) => {
@@ -304,6 +313,7 @@ function ConversationsTab({ a }: { a: Agent }) {
         </div>
       )}
     </Panel>
+    </div>
   );
 }
 
@@ -361,7 +371,7 @@ function PerformanceTab({ a }: { a: Agent }) {
     { l: 'Completion rate', v: `${Math.min(99, a.success - 1)}%`, d: perfSeries(a, 'comp', 16, a.success - 1, 4), c: 'var(--good)' },
     { l: 'Median latency', v: `${Math.round(12 + (100 - a.success) * 2)} min`, d: perfSeries(a, 'lat', 16, 40, 10), c: 'var(--accent-2)' },
     { l: 'Error rate', v: `${(100 - a.success) / 2}%`, d: perfSeries(a, 'err', 16, 12, 8), c: 'var(--warn)' },
-    { l: 'Cost per task', v: `$${(0.4 + (100 - a.success) * .05).toFixed(2)}`, d: perfSeries(a, 'cost', 16, 50, 12), c: 'var(--violet)' },
+    { l: 'Tokens per task', v: `${(8 + (100 - a.success) * .9).toFixed(1)}k`, d: perfSeries(a, 'cost', 16, 50, 12), c: 'var(--violet)' },
   ];
   return (
     <>
@@ -428,6 +438,7 @@ function MentoringTab({ a }: { a: Agent }) {
 }
 
 function EvolutionTab({ a }: { a: Agent }) {
+  const nav = useNavigate();
   const e = useMemo(() => evolutionFor(a), [a]);
   return (
     <div className="oa-grid-2b">
@@ -459,7 +470,7 @@ function EvolutionTab({ a }: { a: Agent }) {
         </dl>
         <div className="row" style={{ gap: 8, marginTop: 12 }}>
           <button className="btn primary" disabled={false} onClick={() => toast({ tone: 'info', title: 'Promotion request sent (demo)', body: 'Needs QA verdict and Owner approval first.' })}>Request promotion</button>
-          <button className="btn ghost" onClick={() => toast({ tone: 'info', title: 'Opening Evolution Lab (demo)' })}>Open in Evolution Lab</button>
+          <button className="btn ghost" onClick={() => nav('/operations?tab=agents&sub=development')}>Open Development</button>
         </div>
       </Panel>
     </div>

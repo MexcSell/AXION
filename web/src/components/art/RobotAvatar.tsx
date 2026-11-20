@@ -185,12 +185,6 @@ export const RobotAvatar = memo(function RobotAvatar({ role, size = 72, prefs, f
         </g>
       )}
 
-      {variant && mode === 'emblem' && role === 'finance' && (
-        <g filter={`url(#glow-${uid})`}>
-          {[0, 1, 2, 3].map((i) => <g key={i}><ellipse cx="92" cy={104 - i * 7} rx="16" ry="5.5" fill="#b45309" /><ellipse cx="92" cy={101 - i * 7} rx="16" ry="5.5" fill="#fbbf24" stroke="#fde68a" strokeWidth=".8" /></g>)}
-          {[0, 1].map((i) => <g key={'b' + i}><ellipse cx="70" cy={108 - i * 7} rx="13" ry="4.5" fill="#b45309" /><ellipse cx="70" cy={105 - i * 7} rx="13" ry="4.5" fill="#facc15" stroke="#fde68a" strokeWidth=".8" /></g>)}
-        </g>
-      )}
       {statusColor && (
         <g>
           <circle cx="94" cy="92" r="8" fill="var(--panel-solid)" />

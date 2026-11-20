@@ -1,10 +1,16 @@
 import { motion } from 'motion/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity, Server, Cpu, ListChecks, Globe, HardDrive, ScrollText, LifeBuoy, RotateCw, Pause, Play, Download, Search, Trash2, CircleCheck, CircleX,
-  ShieldCheck, Undo2, FlaskConical, GitBranch, Lock, ListOrdered, MemoryStick,
-} from 'lucide-react';
-import { TopBoard, FrameBody } from '@/components/layout/PageFrame';
+  Activity, Server, Cpu, ListChecks, HardDrive, ScrollText, LifeBuoy, RotateCw, Pause, Play, Download, Search, CircleCheck, CircleX,
+  ShieldCheck, Undo2, FlaskConical, GitBranch, Lock, ListOrdered, Monitor, Bot, Boxes } from 'lucide-react';
+import { TopBoard, FrameBody, type KpiItem } from '@/components/layout/PageFrame';
+import { Tabs } from '@/components/ui/Tabs';
+import { VMs, useVms } from '@/features/ops/VMs';
+import { useAgentsSection } from '@/pages/Agents';
+import { useModelsSection } from '@/pages/Models';
+import { AGENTS } from '@/data/agents';
+import '@/theme/pages/agents.css';
+import '@/theme/pages/models.css';
 import { Panel } from '@/components/ui/Panel';
 import { Chip, DemoTag, Dot } from '@/components/ui/Chips';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
@@ -13,36 +19,61 @@ import { Sparkline, RingGauge } from '@/components/viz/Charts';
 import { useTab } from '@/hooks/useTab';
 import { openDialog, toast } from '@/store/ui';
 import {
-  SERVICES, WORKERS, QUEUES, BROWSER_HOSTS, CRASH_REPORTS, STORAGE_AREAS, makeLog, RELEASES, INCIDENTS, READINESS, type Sev, type Health,
-} from '@/data/operations';
+  SERVICES, WORKERS, QUEUES, STORAGE_AREAS, makeLog, RELEASES, INCIDENTS, READINESS, type Sev, type Health } from '@/data/operations';
 import { cx } from '@/lib/format';
 import '@/theme/pages/settings-ops-help.css';
 
-const ICONS = [Server, Cpu, ListChecks, Globe, HardDrive, ScrollText, LifeBuoy];
+const ICONS = [Server, Monitor, Bot, Boxes, Cpu, ListChecks, HardDrive, ScrollText, LifeBuoy];
 const HCOL: Record<Health, string> = { good: 'good', warn: 'warn', bad: 'bad' };
 
 export default function OperationsPage() {
   const [tab, setTab, tabs] = useTab('operations');
   const up = SERVICES.filter((s) => s.health === 'good').length;
+  const vms = useVms((s) => s.vms);
+  // Agents and Models live here since the owner update u1; their own tabs become sub-tabs (?sub=).
+  const agents = useAgentsSection();
+  const models = useModelsSection();
+  const section = tab === 'Agents' ? agents : tab === 'Models' ? models : null;
+  const opsKpis: KpiItem[] = [
+    { key: 'svc', icon: Server, value: up, suffix: `/${SERVICES.length}`, label: 'Services healthy', hint: '1 warning: browser-worker', color: up === SERVICES.length ? '#2ee98a' : '#fbbf24', help: 'ops.kpi.services', onClick: () => setTab('Services') },
+    { key: 'vm', icon: Cpu, value: vms.filter((v) => v.state === 'running').length, suffix: `/${vms.length}`, label: 'VMs running', hint: `${vms.reduce((s, v) => s + v.vcpu, 0)} vCPU · ${vms.reduce((s, v) => s + v.ramGB, 0)} GB`, color: '#22d3ee', help: 'ops.vms', onClick: () => setTab('VMs') },
+    { key: 'ag', icon: Bot, value: AGENTS.length, label: 'Agents', hint: 'one per duty · derived specialists', color: '#a78bfa', help: 'ops.agents', onClick: () => setTab('Agents') },
+    { key: 'q', icon: ListOrdered, value: QUEUES.reduce((a, q) => a + q.pending + q.running, 0), label: 'Jobs in queues', hint: `${QUEUES.reduce((a, q) => a + q.failed, 0)} failed`, color: '#38bdf8', help: 'ops.kpi.queues', onClick: () => setTab('Queues') },
+    { key: 'rb', icon: LifeBuoy, value: 4, suffix: '/5', label: 'Rollback readiness', hint: 'dry-run is stale', color: '#fbbf24', help: 'ops.kpi.rollback', onClick: () => setTab('Recovery') },
+  ];
+  const SUB: Record<string, string> = {
+    Agents: 'Every agent, its duty, lineage and live instances — managed next to the machines they run on.',
+    Models: 'The model gateway. The Model Loader agent picks a fitting model for every agent.',
+  };
   return (
     <div className="page">
-      <TopBoard icon={Activity} title="System Operations" help="ops.services" sub="systemd units, workers, queues, browser hosts, logs and recovery. Read-only by default." actions={<DemoTag />}
-        kpis={[
-          { key: 'svc', icon: Server, value: up, suffix: `/${SERVICES.length}`, label: 'Services healthy', hint: '1 warning: browser-worker', color: up === SERVICES.length ? '#2ee98a' : '#fbbf24', help: 'ops.kpi.services', onClick: () => setTab('Services') },
-          { key: 'q', icon: ListOrdered, value: QUEUES.reduce((a, q) => a + q.pending + q.running, 0), label: 'Jobs in queues', hint: `${QUEUES.reduce((a, q) => a + q.failed, 0)} failed`, color: '#22d3ee', help: 'ops.kpi.queues', onClick: () => setTab('Queues') },
-          { key: 'mem', icon: MemoryStick, value: 1.3, decimals: 1, suffix: ' GB', label: 'Browser memory', hint: '1 orphan context', color: '#a78bfa', help: 'ops.kpi.memory', onClick: () => setTab('Browser Hosts') },
-          { key: 'rb', icon: LifeBuoy, value: 4, suffix: '/5', label: 'Rollback readiness', hint: 'dry-run is stale', color: '#fbbf24', help: 'ops.kpi.rollback', onClick: () => setTab('Recovery') },
-        ]}
-        tabs={{ tabs, value: tab, onChange: setTab, icons: ICONS, ariaLabel: 'Operations sections' }} />
-      <FrameBody tab={tab} panel={false}>
-        {tab === 'Services' && <Services />}
-        {tab === 'Workers' && <Workers />}
-        {tab === 'Queues' && <Queues />}
-        {tab === 'Browser Hosts' && <Hosts />}
-        {tab === 'Storage' && <StorageOps />}
-        {tab === 'Logs' && <Logs />}
-        {tab === 'Recovery' && <Recovery />}
-      </FrameBody>
+      <TopBoard id="operations" icon={Activity} title="System Operations" help="ops.services"
+        sub={SUB[tab] ?? 'Services, virtual machines, agents, models, queues, logs and recovery. Read-only by default.'}
+        actions={section ? section.actions : <DemoTag />}
+        kpis={section ? section.kpis : opsKpis}
+        tabs={{ tabs, value: tab, onChange: setTab, icons: ICONS, ariaLabel: 'Operations sections' }}
+        toolbar={section?.toolbar} />
+      {section ? (
+        <FrameBody tab={`${tab}-${section.bodyKey}`} scroll={'scroll' in section ? section.scroll : true}
+          head={<div className="ops-subhead">
+            <Tabs size="sm" ariaLabel={`${tab} views`} value={section.sub.value} onChange={section.sub.onChange}
+              tabs={section.sub.tabs.map((t, i) => ({ key: t, label: t, icon: section.sub.icons[i], count: 'counts' in section.sub ? (section.sub.counts as Record<string, number | undefined>)[t] : undefined }))} />
+            {'head' in section && section.head && <div className="ops-subhead-row">{section.head}</div>}
+          </div>}>
+          {section.body}
+        </FrameBody>
+      ) : (
+        <FrameBody tab={tab} panel={false}>
+          {tab === 'Services' && <Services />}
+          {tab === 'VMs' && <VMs />}
+          {tab === 'Workers' && <Workers />}
+          {tab === 'Queues' && <Queues />}
+          {tab === 'Storage' && <StorageOps />}
+          {tab === 'Logs' && <Logs />}
+          {tab === 'Recovery' && <Recovery />}
+        </FrameBody>
+      )}
+      {tab === 'Agents' && agents.bottom}
     </div>
   );
 }
@@ -118,35 +149,6 @@ function Queues() {
         ))}
       </div>
     </Panel>
-  );
-}
-
-function Hosts() {
-  const [orphans, setOrphans] = useState(BROWSER_HOSTS.filter((h) => h.state === 'orphan').map((h) => h.id));
-  return (
-    <div className="grid set-grid-2">
-      <Panel icon={Globe} titleSize="lg" title="Chromium hosts" help="ops.browserHosts" delay={.05} actions={<DemoTag />}>
-        <div className="table-wrap"><table className="table"><thead><tr><th>Host</th><th>Profile</th><th>Mission</th><th>Memory</th><th>Tabs</th><th>Crashes</th><th>State</th><th /></tr></thead>
-          <tbody>{BROWSER_HOSTS.map((h) => {
-            const gone = h.state === 'orphan' && !orphans.includes(h.id);
-            return (
-              <tr key={h.id} style={gone ? { opacity: .4 } : undefined}>
-                <td className="mono">{h.id}</td><td className="mono dim">{h.profile}</td><td>{h.mission}</td>
-                <td style={{ width: 130 }}><div className="row" style={{ gap: 6 }}><div className={cx('bar thin', h.mem > 500 ? 'warn' : '')} style={{ flex: 1 }}><i style={{ width: `${Math.min(100, h.mem / 8)}%` }} /></div><span className="tnum" style={{ fontSize: 11.5 }}>{h.mem}</span></div></td>
-                <td className="tnum">{h.tabs}</td><td className={cx('tnum', h.crashes > 0 && 'warn')}>{h.crashes}</td>
-                <td><Chip hue={h.state === 'attached' ? 148 : h.state === 'orphan' ? 30 : 240} size="sm">{gone ? 'cleaned' : h.state}</Chip></td>
-                <td>{h.state === 'orphan' && !gone && <button className="btn sm danger" onClick={() => { toast({ tone: 'info', title: 'Verifying orphan…', body: 'No mission session is attached to this context.' }); window.setTimeout(() => { setOrphans((o) => o.filter((x) => x !== h.id)); toast({ tone: 'success', title: `${h.id} cleaned up (demo)` }); }, 900); }}><Trash2 size={12} />Clean up</button>}</td>
-              </tr>);
-          })}</tbody></table></div>
-      </Panel>
-      <Panel icon={CircleX} title="Crash reports" help="ops.browserHosts" delay={.12}>
-        <div className="col" style={{ gap: 8 }}>
-          {CRASH_REPORTS.map((c) => (
-            <div key={c.id} className="list-row"><Dot tone="bad" /><div className="grow"><div className="mono" style={{ fontSize: 12 }}>{c.id} · {c.host}</div><div style={{ fontSize: 12.5 }}>{c.reason}</div></div><span className="dim" style={{ fontSize: 12 }}>{c.when}</span></div>
-          ))}
-        </div>
-      </Panel>
-    </div>
   );
 }
 

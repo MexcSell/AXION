@@ -2,7 +2,7 @@ import { motion } from 'motion/react';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Settings as SettingsIcon, SlidersHorizontal, Palette, ScanFace, Accessibility, Globe, Plug, HardDrive, ShieldCheck, DatabaseBackup,
+  Settings as SettingsIcon, SlidersHorizontal, PanelLeft, UsersRound, Palette, ScanFace, Accessibility, Globe, Plug, HardDrive, ShieldCheck, DatabaseBackup,
   Building2, Languages, Check, Keyboard, GitBranch, AppWindow, Mic, Cpu, KeyRound, Lock, Download, Play, Eye, RotateCcw, CircleCheck, Scale, Clock3, History,
 } from 'lucide-react';
 import { TopBoard, FrameBody } from '@/components/layout/PageFrame';
@@ -22,8 +22,12 @@ import { SNAPSHOTS } from '@/data/operations';
 import { ROLES } from '@/data/roles';
 import type { RoleKey } from '@/data/types';
 import '@/theme/pages/settings-ops-help.css';
+import '@/theme/pages/settings-nav.css';
+import { NavigationSettings } from '@/features/settings/NavigationSettings';
+import { UsersSettings } from '@/features/settings/UsersSettings';
+import '@/theme/pages/users-settings.css';
 
-const ICONS = [SlidersHorizontal, Palette, ScanFace, Accessibility, Globe, Plug, HardDrive, ShieldCheck, DatabaseBackup];
+const ICONS = [SlidersHorizontal, UsersRound, PanelLeft, Palette, ScanFace, Accessibility, Globe, Plug, HardDrive, ShieldCheck, DatabaseBackup];
 
 export default function SettingsPage() {
   const [tab, setTab, tabs] = useTab('settings');
@@ -37,11 +41,13 @@ export default function SettingsPage() {
   };
   return (
     <div className="page">
-      <TopBoard icon={SettingsIcon} title="Settings" help="settings.general" sub="Configure your workspace, appearance, avatars, accessibility, browser, integrations and security."
+      <TopBoard icon={SettingsIcon} title="Settings" help="settings.general" sub="Configure your workspace, users and devices, navigation, appearance, avatars, accessibility, browser, integrations and security."
         tabs={{ tabs, value: tab, onChange: change, icons: ICONS, ariaLabel: 'Settings sections' }}
         toolbar={dirty.length ? <span className="warn">{dirty.length} unsaved change{dirty.length > 1 ? 's' : ''}</span> : undefined} />
       <FrameBody tab={tab} panel={false}>
         {tab === 'General' && <General setDirty={setDirty} />}
+        {tab === 'Users' && <UsersSettings />}
+        {tab === 'Navigation' && <NavigationSettings />}
         {tab === 'Appearance' && <Appearance />}
         {tab === 'Avatars & Faces' && <Avatars />}
         {tab === 'Accessibility' && <A11y />}
@@ -292,7 +298,7 @@ function BrowserTab() {
 /* ----------------------------- Integrations ----------------------------- */
 function Integrations() {
   const init = [
-    { k: 'models', icon: Cpu, name: 'Model providers', desc: '3 approved providers, budget-limited', on: true, hue: 262 },
+    { k: 'models', icon: Cpu, name: 'Model providers', desc: '3 approved providers, models picked by the Model Loader', on: true, hue: 262 },
     { k: 'github', icon: GitBranch, name: 'GitHub project', desc: 'axion-company/web, read and PR comments', on: true, hue: 215 },
     { k: 'chrome', icon: AppWindow, name: 'Chrome extension', desc: 'Optional page picker for grants', on: false, hue: 38 },
     { k: 'stt', icon: Mic, name: 'Speech to text', desc: 'Voice commands in the composer', on: false, hue: 190 },

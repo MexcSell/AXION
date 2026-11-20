@@ -99,3 +99,7 @@
   .kt .kpi-val { font-size: 21px; }
   .kt-hint { display: none; }
 }
+
+/* System Operations: embedded sections (Agents, Models) show their own views as sub-tabs (owner update u1) */
+.ops-subhead { display: flex; flex-direction: column; gap: 8px; width: 100%; min-width: 0; }
+.ops-subhead-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }

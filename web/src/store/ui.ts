@@ -12,6 +12,10 @@ interface UIState {
   paletteOpen: boolean;
   mobileNavOpen: boolean;
   liveAnnouncement: string;
+  /** top-bar chat dock (owner update u1): one inbox for GM, administrators, agents and plug-ins */
+  chat: { open: boolean; channel?: string };
+  openChat: (channel?: string) => void;
+  closeChat: () => void;
   toast: (t: Omit<Toast, 'id'>) => void;
   dismissToast: (id: number) => void;
   openDialog: (id: string, props?: Record<string, unknown>) => void;
@@ -29,6 +33,9 @@ export const useUI = create<UIState>()((set, get) => ({
   paletteOpen: false,
   mobileNavOpen: false,
   liveAnnouncement: '',
+  chat: { open: false },
+  openChat: (channel) => set((s) => ({ chat: { open: true, channel: channel ?? s.chat.channel } })),
+  closeChat: () => set((s) => ({ chat: { ...s.chat, open: false } })),
   toast: (t) => {
     const id = seq++;
     set((s) => ({ toasts: [...s.toasts.slice(-3), { ...t, id }], liveAnnouncement: `${t.title}${t.body ? '. ' + t.body : ''}` }));

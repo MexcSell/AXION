@@ -1,48 +1,47 @@
 import {
-  Home, Target, Bot, Globe, Package, BookOpen, Dna, Boxes, Users, ShieldCheck,
-  BarChart3, Bell, Settings, Activity, LifeBuoy, type LucideIcon,
-} from 'lucide-react';
+  Home, Target, Package, Bell, Settings, Activity, LifeBuoy, type LucideIcon } from 'lucide-react';
 
-export interface NavItem { key: string; label: string; path: string; icon: LucideIcon; group: 'workspace' | 'intelligence' | 'management' | 'system'; badge?: 'approvals' | 'notifications'; }
+export interface NavItem {
+  key: string; label: string; path: string; icon: LucideIcon;
+  /** shown in the rail's top section by default (owner 2026-11-20 u1: only Missions, Notifications, Settings) */
+  shown: boolean;
+  badge?: 'approvals' | 'notifications' | 'users';
+  /** other paths that belong to this screen (agent profiles live under System Operations) */
+  also?: string[];
+  /** one-line purpose, used by Settings › Navigation and search */
+  note: string;
+}
 
-/** Route map (spec §2). Finance/Bittensor/Docker modules intentionally absent (spec §0.3). */
+/**
+ * Rail top section (owner update 2026-11-20 u1). Missions, Notifications and Settings are shown; the other screens
+ * are hidden by default but stay reachable through search (Ctrl K), links and URLs — Settings › Navigation can show them.
+ * Plug-in apps live in the rail's bottom section: see config/plugins.ts.
+ */
 export const NAV: NavItem[] = [
-  { key: 'overview', label: 'Overview', path: '/overview', icon: Home, group: 'workspace' },
-  { key: 'missions', label: 'Missions', path: '/missions', icon: Target, group: 'workspace' },
-  { key: 'agents', label: 'Agents', path: '/agents', icon: Bot, group: 'workspace' },
-  { key: 'browser', label: 'Browser Studio', path: '/browser', icon: Globe, group: 'workspace' },
-  { key: 'results', label: 'Results & Versions', path: '/results', icon: Package, group: 'intelligence' },
-  { key: 'knowledge', label: 'Knowledge', path: '/knowledge', icon: BookOpen, group: 'intelligence' },
-  { key: 'evolution', label: 'Evolution Lab', path: '/evolution', icon: Dna, group: 'intelligence' },
-  { key: 'models', label: 'Models', path: '/models', icon: Boxes, group: 'intelligence' },
-  { key: 'users', label: 'Users', path: '/users', icon: Users, group: 'management' },
-  { key: 'governance', label: 'Governance', path: '/governance', icon: ShieldCheck, group: 'management', badge: 'approvals' },
-  { key: 'usage', label: 'Usage & Budgets', path: '/usage', icon: BarChart3, group: 'management' },
-  { key: 'notifications', label: 'Notifications', path: '/notifications', icon: Bell, group: 'management', badge: 'notifications' },
-  { key: 'settings', label: 'Settings', path: '/settings', icon: Settings, group: 'system' },
-  { key: 'operations', label: 'System Operations', path: '/operations', icon: Activity, group: 'system' },
-  { key: 'help', label: 'Help Center', path: '/help', icon: LifeBuoy, group: 'system' },
+  { key: 'missions', label: 'Missions', path: '/missions', icon: Target, shown: true, note: 'Add missions and follow their agents live' },
+  { key: 'notifications', label: 'Notifications', path: '/notifications', icon: Bell, shown: true, badge: 'notifications', note: 'Inbox, news and pending decisions' },
+  { key: 'settings', label: 'Settings', path: '/settings', icon: Settings, shown: true, badge: 'users', note: 'Users, navigation, appearance and system preferences' },
+  { key: 'overview', label: 'Overview', path: '/overview', icon: Home, shown: false, note: 'Company pulse, portfolio and health at a glance' },
+  { key: 'results', label: 'Results & Versions', path: '/results', icon: Package, shown: false, note: 'Verified outputs and their versions' },
+  { key: 'operations', label: 'System Operations', path: '/operations', icon: Activity, shown: false, also: ['/agents', '/models'], note: 'Services, VMs, agents, models and recovery' },
+  { key: 'help', label: 'Help Center', path: '/help', icon: LifeBuoy, shown: false, note: 'Guides, context help and shortcuts' },
 ];
 
 /** Tabs per route (spec §2) — pages read these so the command palette can deep-link every tab. */
 export const ROUTE_TABS: Record<string, string[]> = {
   overview: ['Pulse', 'Portfolio', 'Activity', 'Health'],
   /** Missions = list + Mission Control workspace merged into one page: these are the workspace tabs (?tab=). */
-  missions: ['Overview', 'Hierarchy', 'Task Flow', 'Browser', 'Conversations', 'Results', 'Approvals', 'Reports', 'Timeline'],
+  missions: ['Overview', 'Activity', 'Hierarchy', 'Task Flow', 'Browser', 'Conversations', 'Results', 'Approvals', 'Reports', 'Timeline'],
   /** Agents + former Organization page merged (owner 2026-11-20). Directory has List / Cards / Hierarchy views (?view=). */
-  agents: ['Directory', 'Development', 'Live Instances', 'Departments', 'Assignments', 'Policies', 'Proposals'],
+  agents: ['Directory', 'Development', 'Lineage', 'Live Instances', 'Departments', 'Assignments', 'Policies', 'Proposals'],
   agentProfile: ['Profile', 'Capabilities', 'Tools', 'Instances', 'Conversations', 'Memory', 'Performance', 'Mentoring', 'Evolution', 'Audit'],
-  browser: ['Sessions', 'Live View', 'Actions', 'Site Grants', 'Recipes', 'Replay'],
+  /** plug-in: Job Search (replaces Browser Studio) */
+  jobSearch: ['Investigate', 'Jobs', 'Profile'],
   results: ['Summary', 'Library', 'Previews', 'Timeline', 'Branch Graph', 'Comparisons', 'Downloads', 'Releases'],
-  knowledge: ['Library', 'Research', 'Sources', 'Citations', 'Learning Queue'],
-  evolution: ['Proposals', 'Experiments', 'Benchmarks', 'Mentoring', 'Promotions', 'History'],
   models: ['Manager', 'Providers', 'Routing', 'Playground', 'Usage', 'Health'],
-  users: ['Members', 'Roles', 'Teams & Access', 'Invitations', 'Sessions', 'Audit'],
-  governance: ['Approvals', 'Permissions', 'Autonomy', 'Policies', 'Secrets', 'Audit'],
-  usage: ['Overview', 'Mission Costs', 'Model Usage', 'Limits', 'Alerts', 'Forecast'],
-  notifications: ['Inbox', 'Pending', 'Resolved', 'Rules'],
-  settings: ['General', 'Appearance', 'Avatars & Faces', 'Accessibility', 'Browser', 'Integrations', 'Storage', 'Security', 'Backups'],
-  operations: ['Services', 'Workers', 'Queues', 'Browser Hosts', 'Storage', 'Logs', 'Recovery'],
+  notifications: ['Inbox', 'News', 'Pending', 'Resolved', 'Rules'],
+  settings: ['General', 'Users', 'Navigation', 'Appearance', 'Avatars & Faces', 'Accessibility', 'Browser', 'Integrations', 'Storage', 'Security', 'Backups'],
+  operations: ['Services', 'VMs', 'Agents', 'Models', 'Workers', 'Queues', 'Storage', 'Logs', 'Recovery'],
   help: ['Guides', 'Context Help', 'Shortcuts', 'Troubleshooting', 'Glossary'],
 };
 

@@ -3,9 +3,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Bell, AlertTriangle, Radio, Bot, Target, CheckCheck, Activity, Info, CheckCircle2, ArrowRight, Database, Workflow, GitMerge, BookOpen, ShieldCheck, Settings2, RefreshCw, Clock, XCircle,
-  Plus, Inbox, Hourglass, Archive, SlidersHorizontal, Play, Pause, Layers, Cpu, Trash2,
+  Plus, Inbox, Hourglass, Archive, SlidersHorizontal, Newspaper, Play, Pause, Layers, Cpu, Trash2,
 } from 'lucide-react';
-import { TopBoard, FrameBody } from '@/components/layout/PageFrame';
+import { TopBoard, FrameBody, BottomBoard } from '@/components/layout/PageFrame';
+import { NewsTab, UserRequests } from '@/features/notifications/News';
+import { useNews } from '@/store/news';
+import { useMe, isAdmin, usePendingApprovals } from '@/store/auth';
 import { Panel } from '@/components/ui/Panel';
 import { Tabs } from '@/components/ui/Tabs';
 import { Chip, DemoTag } from '@/components/ui/Chips';
@@ -16,9 +19,10 @@ import { Field, Segmented, Switch } from '@/components/ui/Form';
 import { Donut } from '@/components/viz/Charts';
 import { CoreCube } from '@/components/art/CoreArt';
 import { useTab } from '@/hooks/useTab';
-import { useData, allApprovals } from '@/store/data';
+import { useData, allApprovals, useVisibleMissions } from '@/store/data';
 import type { Notice } from '@/data/notifications';
-import { ACTIVITY, ALL_NOTICES, LIVE_POOL, type ActivityEvent } from '@/data/notifications-extra';
+import { ACTIVITY, LIVE_POOL, type ActivityEvent } from '@/data/notifications-extra';
+import { useVisibleNotices } from '@/data/useNotices';
 import { RISK_TIER, useUG } from '@/data/users-governance';
 import { toast, openDialog } from '@/store/ui';
 import { ago, clock, cx } from '@/lib/format';
@@ -36,32 +40,65 @@ type Filter = 'all' | 'alerts' | 'system' | 'agent' | 'mission';
 const matches = (n: Notice, f: Filter) => f === 'all' || (f === 'alerts' && (n.severity === 'critical' || n.severity === 'warning')) || (f === 'system' && n.category === 'system') || (f === 'agent' && (n.category === 'agent' || n.category === 'evolution')) || (f === 'mission' && (n.category === 'mission' || n.category === 'approval'));
 
 export default function NotificationsPage() {
+  const ALL_NOTICES = useVisibleNotices();
   const [tab, setTab, tabs] = useTab('notifications');
   const read = useData((s) => s.readNotifications);
   const resolved = useUG((s) => s.resolvedNotices);
-  const missions = useData((s) => s.missions);
+  const missions = useVisibleMissions();
   const decisions = useData((s) => s.approvalDecisions);
   const pendingAppr = useMemo(() => allApprovals(missions, decisions).filter((a) => a.status === 'pending').length, [missions, decisions]);
   const unread = ALL_NOTICES.filter((n) => !read[n.id]).length;
   const pendingNotices = ALL_NOTICES.filter((n) => n.actionable && !resolved[n.id]).length;
-  const icons = [Inbox, Hourglass, Archive, SlidersHorizontal];
-  const counts: Record<string, number | undefined> = { Inbox: unread, Pending: pendingNotices + pendingAppr };
+  const icons = [Inbox, Newspaper, Hourglass, Archive, SlidersHorizontal];
+  const me = useMe();
+  const userReq = usePendingApprovals();
+  const news = useNews((s) => s.items);
+  const freshNews = news.filter((n) => Date.now() - n.at < 6 * 3_600_000).length;
+  const counts: Record<string, number | undefined> = { Inbox: unread, News: freshNews || undefined, Pending: pendingNotices + pendingAppr + (isAdmin(me) ? userReq.total : 0) };
   return (
     <div className="page ug-page">
-      <TopBoard icon={Bell} title="Notifications & Activity" help="nt.page" sub="Real-time alerts, system events, agent updates, and execution activity." className="nt-head"
+      <TopBoard id="notifications" icon={Bell} title="Notifications & Activity" help="nt.page" sub="Real-time alerts, system events, agent updates, and execution activity." className="nt-head"
         actions={<DemoTag />}
         tabs={{ tabs, value: tab, onChange: setTab, icons, ariaLabel: 'Notification views', counts }}
-        toolbar={<span>{{ Inbox: 'Everything new, newest first.', Pending: 'Items that need a decision from you.', Resolved: 'Handled items, kept for audit.', Rules: 'What notifies whom, and how.' }[tab]}</span>}>
+        toolbar={<span>{{ Inbox: 'Everything new, newest first.', News: 'News from users, and new URLs and content found by the research agents.', Pending: 'Items that need a decision from you.', Resolved: 'Handled items, kept for audit.', Rules: 'What notifies whom, and how.' }[tab]}</span>}>
         <div className="nt-hero" aria-hidden><CoreCube width={150} /></div>
       </TopBoard>
       <FrameBody tab={tab} panel={false} className="col fb-gap">
         {tab === 'Inbox' && <InboxTab />}
+        {tab === 'News' && <NewsTab />}
         {tab === 'Pending' && <PendingTab />}
         {tab === 'Resolved' && <ResolvedTab />}
         {tab === 'Rules' && <RulesTab />}
       </FrameBody>
+      <BottomBoard id="notifications" title="Notification boards" cols="repeat(3, minmax(0, 1fr))">
+        <NoticeBoards />
+      </BottomBoard>
     </div>
   );
+}
+
+/** Foldable bottom boards (owner update u1: top and bottom of Notifications can be minimized). */
+function NoticeBoards() {
+  const ALL_NOTICES = useVisibleNotices();
+  const read = useData((s) => s.readNotifications);
+  const news = useNews((s) => s.items);
+  const me = useMe();
+  const req = usePendingApprovals();
+  const bySev = (['critical', 'warning', 'info', 'success'] as const).map((k) => ({ label: SEV[k].label, value: ALL_NOTICES.filter((n) => n.severity === k).length, color: SEV[k].c }));
+  const latest = [...news].sort((a, b) => b.at - a.at).slice(0, 3);
+  return <>
+    <Panel icon={Layers} title="By severity" help="nt.page" className="bottom-panel">
+      <div className="row" style={{ gap: 14 }}><Donut segs={bySev} size={96} center={String(ALL_NOTICES.length)} sub="notices" /><div className="col" style={{ gap: 4, fontSize: 12.5 }}>{bySev.map((s) => <span key={s.label} className="row" style={{ gap: 6 }}><i style={{ width: 9, height: 9, borderRadius: 3, background: s.color }} />{s.label}<b className="tnum" style={{ marginLeft: 'auto' }}>{s.value}</b></span>)}</div></div>
+    </Panel>
+    <Panel icon={Inbox} title="Unread" help="nt.page" className="bottom-panel">
+      <div className="display tnum" style={{ fontSize: 34 }}><CountUp value={ALL_NOTICES.filter((n) => !read[n.id]).length} /></div>
+      <div className="dim" style={{ fontSize: 12 }}>of {ALL_NOTICES.length} notifications</div>
+      {isAdmin(me) && <div className="row warn" style={{ gap: 6, marginTop: 8, fontSize: 12.5 }}><Hourglass size={13} />{req.total} user / device request{req.total === 1 ? '' : 's'}</div>}
+    </Panel>
+    <Panel icon={Newspaper} title="Latest news" help="nt.news" className="bottom-panel">
+      <div className="col" style={{ gap: 6 }}>{latest.map((n) => <div key={n.id} className="ellipsis" style={{ fontSize: 12.5 }} title={n.title}><span className="dim tnum" style={{ marginRight: 6 }}>{clock(0, n.at)}</span>{n.title}</div>)}</div>
+    </Panel>
+  </>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -89,6 +126,7 @@ function useOpen() {
 }
 
 function InboxTab() {
+  const ALL_NOTICES = useVisibleNotices();
   const [f, setF] = useState<Filter>('all');
   const open = useOpen();
   const read = useData((s) => s.readNotifications);
@@ -146,7 +184,7 @@ function InboxTab() {
               <div key={n} className="nt-agent-row"><span className="nt-mini-bot"><Bot size={18} /></span><b>{n}</b><span className="dim mono" style={{ fontSize: 11.5 }}>{a} → {b}</span><span className="spacer" /><b className="good tnum">{g}</b>
                 <IconButton icon={Play} label={`Open ${n} versions`} size="xs" variant="bordered" onClick={() => nav(`/agents/${id}?tab=versions`)} /></div>))}
           </div>
-          <button className="nt-more" onClick={() => nav('/evolution')}>View all agent updates <ArrowRight size={15} /></button>
+          <button className="nt-more" onClick={() => nav('/agents?tab=development')}>View all agent updates <ArrowRight size={15} /></button>
         </Panel>
         <Panel icon={Settings2} title={<>System Events <span className="dim" style={{ fontSize: 13, fontWeight: 500 }}>(18)</span></>} help="nt.system" delay={.3}>
           <div className="col" style={{ gap: 8 }}>
@@ -205,10 +243,11 @@ function ActivityStream() {
 
 /* ------------------------------------------------------------------ */
 function PendingTab() {
+  const ALL_NOTICES = useVisibleNotices();
   const open = useOpen();
   const resolved = useUG((s) => s.resolvedNotices);
   const resolve = useUG((s) => s.resolveNotice);
-  const missions = useData((s) => s.missions);
+  const missions = useVisibleMissions();
   const decisions = useData((s) => s.approvalDecisions);
   const decide = useData((s) => s.decideApproval);
   const appr = allApprovals(missions, decisions).filter((a) => a.status === 'pending').sort((a, b) => RISK_TIER[a.risk].order - RISK_TIER[b.risk].order || a.expiresMin - b.expiresMin);
@@ -216,6 +255,7 @@ function PendingTab() {
   const groups: [string, Notice[]][] = [['Critical', notices.filter((n) => n.severity === 'critical')], ['Needs attention', notices.filter((n) => n.severity !== 'critical')]];
   return (
     <div className="nt-two">
+      <UserRequests />
       <Panel icon={Hourglass} title="Unhandled" help="nt.pending" delay={.05} sub="Grouped by urgency. Resolving moves an item to Resolved.">
         <div className="col" style={{ gap: 12 }}>
           {groups.map(([g, ns]) => ns.length > 0 && (
@@ -249,8 +289,9 @@ function PendingTab() {
 }
 
 function ResolvedTab() {
+  const ALL_NOTICES = useVisibleNotices();
   const resolved = useUG((s) => s.resolvedNotices);
-  const missions = useData((s) => s.missions);
+  const missions = useVisibleMissions();
   const decisions = useData((s) => s.approvalDecisions);
   const done = allApprovals(missions, decisions).filter((a) => a.status !== 'pending');
   const open = useOpen();
@@ -270,7 +311,7 @@ function ResolvedTab() {
               <div className="row" style={{ gap: 6 }}>{a.status === 'approved' ? <CheckCircle2 size={16} className="good" /> : <XCircle size={16} className="bad" />}<b className="ellipsis" style={{ fontSize: 13 }}>{a.title}</b></div>
               <div className="dim" style={{ fontSize: 12, marginTop: 3 }}>{a.status} by Luca (Owner) just now · {a.missionId} · {RISK_TIER[a.risk].tier}</div>
             </motion.div>))}</AnimatePresence>
-          {done.length === 0 && <div className="dim" style={{ fontSize: 12.5 }}>Decisions made in Governance or Pending appear here, with comment and hash.</div>}
+          {done.length === 0 && <div className="dim" style={{ fontSize: 12.5 }}>Decisions made in Pending appear here, with comment and hash.</div>}
         </div>
       </Panel>
     </div>

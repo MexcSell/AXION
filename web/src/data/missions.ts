@@ -7,7 +7,7 @@ const phases = (active: number, blockedAt = -1): MissionPhase[] => {
   return keys.map(([key, label], i) => ({ key, label, date: dates[i], state: i === blockedAt ? 'blocked' : i < active ? 'done' : i === active ? 'active' : 'next' }));
 };
 
-export const MISSIONS: Mission[] = [
+const RAW_MISSIONS: Omit<Mission, 'ownerId' | 'shared' | 'content'>[] = [
   {
     id: 'M-126', title: 'Website modernization · customer portal', kind: 'website', status: 'running', priority: 'high', owner: 'Luca',
     objective: 'Rebuild the customer portal with the new design system, responsive layouts and dark/light themes, verified by automated visual and accessibility tests.',
@@ -21,7 +21,7 @@ export const MISSIONS: Mission[] = [
     agentIds: ['gm', 'planner-01', 'coder-01', 'designer-01', 'browser-01', 'tester-01', 'writer-01'], leadId: 'gm',
     summary: 'Header, navigation and 11 of 14 pages are migrated. QA is running visual diffs on checkout; two contrast issues were fixed in v1.4.',
     summaryAgoMin: 6, lastEvent: 'Tester-01 started visual regression (dark theme)', lastEventAgoMin: 2,
-    cost: 42.8, budget: 120, elapsedH: 31, dueInDays: 4, revision: 3, version: 'v1.4.0', phases: phases(3), pendingApprovals: 1, unread: 3, createdAgoDays: 10,
+    elapsedH: 31, dueInDays: 4, revision: 3, version: 'v1.4.0', phases: phases(3), pendingApprovals: 1, unread: 3, createdAgoDays: 10,
   },
   {
     id: 'M-127', title: 'Train Browser-01 on checkout flows', kind: 'training', status: 'running', priority: 'normal', owner: 'Luca',
@@ -35,7 +35,7 @@ export const MISSIONS: Mission[] = [
     agentIds: ['mentor-01', 'browser-01', 'tester-01', 'optimizer-01'], leadId: 'mentor-01',
     summary: 'Browser-01 improved from 81% → 88% after locator-recipe exercise 3. Exercise 4 (address forms) starts after QA re-evaluation.',
     summaryAgoMin: 18, lastEvent: 'Mentor-01 assigned exercise 4 to Browser-01', lastEventAgoMin: 11,
-    cost: 18.2, budget: 60, elapsedH: 20, dueInDays: 6, revision: 1, version: 'v0.6.0', phases: phases(2), pendingApprovals: 0, unread: 1, createdAgoDays: 6,
+    elapsedH: 20, dueInDays: 6, revision: 1, version: 'v0.6.0', phases: phases(2), pendingApprovals: 0, unread: 1, createdAgoDays: 6,
   },
   {
     id: 'M-128', title: 'Homepage structure update', kind: 'structure', status: 'waiting', priority: 'high', owner: 'Luca',
@@ -49,7 +49,7 @@ export const MISSIONS: Mission[] = [
     agentIds: ['gm', 'designer-01', 'coder-01', 'writer-01', 'release-01'], leadId: 'gm',
     summary: 'Preview is live in the sandbox with the new hero, mission showcase and pricing blocks. Waiting for your publish decision.',
     summaryAgoMin: 25, lastEvent: 'Release-01 requested publish approval', lastEventAgoMin: 24,
-    cost: 21.4, budget: 50, elapsedH: 14, dueInDays: 1, revision: 2, version: 'v2.1.0', phases: phases(4, 4), pendingApprovals: 1, unread: 2, createdAgoDays: 5,
+    elapsedH: 14, dueInDays: 1, revision: 2, version: 'v2.1.0', phases: phases(4, 4), pendingApprovals: 1, unread: 2, createdAgoDays: 5,
   },
   {
     id: 'M-129', title: 'Self-update: AXION dashboard v2.5', kind: 'self-update', status: 'verifying', priority: 'high', owner: 'Luca',
@@ -63,7 +63,7 @@ export const MISSIONS: Mission[] = [
     agentIds: ['gm', 'coder-01', 'tester-01', 'security-01', 'release-01'], leadId: 'gm',
     summary: 'Branch mission/M-129 has 14 commits. Security-01 found no policy changes. Tester-01 is running the independent E2E suite.',
     summaryAgoMin: 9, lastEvent: 'Security-01 passed policy-diff review', lastEventAgoMin: 8,
-    cost: 36.0, budget: 90, elapsedH: 26, dueInDays: 3, revision: 4, version: 'v2.5.0-rc.2', phases: phases(3), pendingApprovals: 0, unread: 0, createdAgoDays: 8,
+    elapsedH: 26, dueInDays: 3, revision: 4, version: 'v2.5.0-rc.2', phases: phases(3), pendingApprovals: 0, unread: 0, createdAgoDays: 8,
   },
   {
     id: 'M-130', title: 'Competitor intelligence report', kind: 'research', status: 'running', priority: 'normal', owner: 'Mina',
@@ -77,7 +77,7 @@ export const MISSIONS: Mission[] = [
     agentIds: ['researcher-01', 'analyst-01', 'writer-01', 'browser-01'], leadId: 'researcher-01',
     summary: '5 of 8 competitor profiles are complete with citations. Analyst-01 is building the pricing comparison matrix.',
     summaryAgoMin: 14, lastEvent: 'Browser-01 captured pricing page (granted origin)', lastEventAgoMin: 5,
-    cost: 12.6, budget: 40, elapsedH: 9, dueInDays: 5, revision: 1, version: 'v0.9.2', phases: phases(2), pendingApprovals: 0, unread: 1, createdAgoDays: 3,
+    elapsedH: 9, dueInDays: 5, revision: 1, version: 'v0.9.2', phases: phases(2), pendingApprovals: 0, unread: 1, createdAgoDays: 3,
   },
   {
     id: 'M-131', title: 'Knowledge base consolidation', kind: 'data', status: 'running', priority: 'low', owner: 'Luca',
@@ -87,7 +87,7 @@ export const MISSIONS: Mission[] = [
     agentIds: ['knowledge-01', 'researcher-01', 'tester-01'], leadId: 'knowledge-01',
     summary: '248 duplicates merged; 17 contradictions are queued for your review in Knowledge › Learning Queue.',
     summaryAgoMin: 33, lastEvent: 'Knowledge-01 merged 32 duplicate entries', lastEventAgoMin: 30,
-    cost: 6.1, budget: 25, elapsedH: 7, dueInDays: 9, revision: 1, version: 'v0.4.0', phases: phases(2), pendingApprovals: 0, unread: 0, createdAgoDays: 4,
+    elapsedH: 7, dueInDays: 9, revision: 1, version: 'v0.4.0', phases: phases(2), pendingApprovals: 0, unread: 0, createdAgoDays: 4,
   },
   {
     id: 'M-132', title: 'Security & compliance audit (public pages)', kind: 'automation', status: 'waiting', priority: 'critical', owner: 'Luca',
@@ -97,7 +97,7 @@ export const MISSIONS: Mission[] = [
     agentIds: ['security-01', 'browser-01', 'coder-01'], leadId: 'security-01',
     summary: 'Scan complete: 3 medium findings (CSP, cookie flags). Browser-01 needs a new origin grant for the status page.',
     summaryAgoMin: 12, lastEvent: 'Browser-01 requested origin grant status.example.com', lastEventAgoMin: 12,
-    cost: 9.4, budget: 30, elapsedH: 6, dueInDays: 2, revision: 1, version: 'v0.3.1', phases: phases(2, 2), pendingApprovals: 2, unread: 2, createdAgoDays: 2,
+    elapsedH: 6, dueInDays: 2, revision: 1, version: 'v0.3.1', phases: phases(2, 2), pendingApprovals: 2, unread: 2, createdAgoDays: 2,
   },
   {
     id: 'M-133', title: 'Mentor program: Tester-01', kind: 'training', status: 'completed', priority: 'normal', owner: 'Mina',
@@ -107,7 +107,7 @@ export const MISSIONS: Mission[] = [
     agentIds: ['mentor-01', 'tester-01'], leadId: 'mentor-01',
     summary: 'Verified: triage accuracy improved 84% → 95% (n=120). Tester-01 v2.4.0 promoted for future instances.',
     summaryAgoMin: 1440, lastEvent: 'Promotion approved by Owner', lastEventAgoMin: 1430,
-    cost: 14.9, budget: 30, elapsedH: 40, dueInDays: -2, revision: 1, version: 'v1.0.0', phases: phases(6), pendingApprovals: 0, unread: 0, createdAgoDays: 14,
+    elapsedH: 40, dueInDays: -2, revision: 1, version: 'v1.0.0', phases: phases(6), pendingApprovals: 0, unread: 0, createdAgoDays: 14,
   },
   {
     id: 'M-134', title: 'Org restructure: Growth department', kind: 'structure', status: 'planning', priority: 'normal', owner: 'Luca',
@@ -117,7 +117,7 @@ export const MISSIONS: Mission[] = [
     agentIds: ['gm', 'planner-01', 'analyst-01'], leadId: 'gm',
     summary: 'GM drafted the department charter. Planner-01 is simulating workload across active missions.',
     summaryAgoMin: 48, lastEvent: 'Planner-01 started workload simulation', lastEventAgoMin: 40,
-    cost: 2.2, budget: 15, elapsedH: 2, dueInDays: 7, revision: 1, version: 'v0.1.0', phases: phases(0), pendingApprovals: 0, unread: 0, createdAgoDays: 1,
+    elapsedH: 2, dueInDays: 7, revision: 1, version: 'v0.1.0', phases: phases(0), pendingApprovals: 0, unread: 0, createdAgoDays: 1,
   },
   {
     id: 'M-135', title: 'Support FAQ automation', kind: 'automation', status: 'paused', priority: 'low', owner: 'Mina',
@@ -125,9 +125,9 @@ export const MISSIONS: Mission[] = [
     criteria: [{ text: '60 answers drafted', done: true }, { text: 'Owner review', done: false }],
     progress: 35, tasksVerified: 3, tasksTotal: 9, blocked: 0,
     agentIds: ['comms-01', 'writer-01', 'knowledge-01'], leadId: 'comms-01',
-    summary: 'Paused by Owner to reprioritize budget. 60 drafts are saved as v0.3; nothing was published.',
+    summary: 'Paused by Owner to reprioritize work. 60 drafts are saved as v0.3; nothing was published.',
     summaryAgoMin: 300, lastEvent: 'Mission paused by Luca', lastEventAgoMin: 298,
-    cost: 4.7, budget: 20, elapsedH: 5, dueInDays: 12, revision: 1, version: 'v0.3.0', phases: phases(2), pendingApprovals: 0, unread: 0, createdAgoDays: 7,
+    elapsedH: 5, dueInDays: 12, revision: 1, version: 'v0.3.0', phases: phases(2), pendingApprovals: 0, unread: 0, createdAgoDays: 7,
   },
   {
     id: 'M-136', title: 'Product catalog data refresh', kind: 'data', status: 'completed', priority: 'normal', owner: 'Luca',
@@ -137,7 +137,7 @@ export const MISSIONS: Mission[] = [
     agentIds: ['integrator-01', 'browser-01', 'analyst-01', 'tester-01'], leadId: 'integrator-01',
     summary: 'Verified dataset v3 published (2,412 rows, 99.6% audit accuracy). Versions v1–v3 are downloadable.',
     summaryAgoMin: 2880, lastEvent: 'Dataset v3 verified by Tester-01', lastEventAgoMin: 2870,
-    cost: 11.3, budget: 25, elapsedH: 18, dueInDays: -4, revision: 2, version: 'v3.0.0', phases: phases(6), pendingApprovals: 0, unread: 0, createdAgoDays: 12,
+    elapsedH: 18, dueInDays: -4, revision: 2, version: 'v3.0.0', phases: phases(6), pendingApprovals: 0, unread: 0, createdAgoDays: 12,
   },
   {
     id: 'M-125', title: 'Landing page A/B variants', kind: 'website', status: 'failed', priority: 'normal', owner: 'Mina',
@@ -147,7 +147,7 @@ export const MISSIONS: Mission[] = [
     agentIds: ['designer-01', 'coder-01', 'optimizer-01'], leadId: 'designer-01',
     summary: 'Variant C exceeded the 2.5s LCP budget twice. Retry from checkpoint is available after an image-pipeline fix.',
     summaryAgoMin: 720, lastEvent: 'Verification failed: LCP 3.1s', lastEventAgoMin: 715,
-    cost: 8.8, budget: 20, elapsedH: 11, dueInDays: -1, revision: 2, version: 'v0.8.0', phases: phases(3, 3), pendingApprovals: 0, unread: 0, createdAgoDays: 9,
+    elapsedH: 11, dueInDays: -1, revision: 2, version: 'v0.8.0', phases: phases(3, 3), pendingApprovals: 0, unread: 0, createdAgoDays: 9,
   },
   {
     id: 'M-118', title: 'Legacy blog migration', kind: 'website', status: 'archived', priority: 'low', owner: 'Luca',
@@ -156,9 +156,28 @@ export const MISSIONS: Mission[] = [
     agentIds: ['writer-01', 'integrator-01'], leadId: 'writer-01',
     summary: 'Archived after completion. Retention until 2027-05-01.',
     summaryAgoMin: 30000, lastEvent: 'Archived by Luca', lastEventAgoMin: 29000,
-    cost: 5.1, budget: 10, elapsedH: 8, dueInDays: -30, revision: 1, version: 'v1.0.0', phases: phases(6), pendingApprovals: 0, unread: 0, createdAgoDays: 40,
+    elapsedH: 8, dueInDays: -30, revision: 1, version: 'v1.0.0', phases: phases(6), pendingApprovals: 0, unread: 0, createdAgoDays: 40,
   },
 ];
+
+/**
+ * Who added each fixture mission, and whether it is shared (owner update 2026-11-20 u1).
+ * u-1 is always the first account created in this browser (the administrator).
+ * Users see their own missions plus shared ones; administrators see all.
+ */
+export const FIXTURE_OWNERS: Record<string, { ownerId: string; shared: boolean }> = {
+  'M-126': { ownerId: 'u-1', shared: true }, 'M-127': { ownerId: 'u-1', shared: false }, 'M-128': { ownerId: 'u-1', shared: false },
+  'M-129': { ownerId: 'u-1', shared: false }, 'M-130': { ownerId: 'u-mina', shared: true }, 'M-131': { ownerId: 'u-kenji', shared: true },
+  'M-132': { ownerId: 'u-1', shared: false }, 'M-133': { ownerId: 'u-mina', shared: true }, 'M-134': { ownerId: 'u-1', shared: false },
+  'M-135': { ownerId: 'u-mina', shared: false }, 'M-136': { ownerId: 'u-sara', shared: false }, 'M-125': { ownerId: 'u-mina', shared: false },
+  'M-118': { ownerId: 'u-1', shared: false },
+};
+
+export const MISSIONS: Mission[] = RAW_MISSIONS.map((m) => ({
+  ...m, ...(FIXTURE_OWNERS[m.id] ?? { ownerId: 'u-1', shared: false }),
+  content: { text: m.objective, files: [] },
+}));
+
 
 /* ------------------------------------------------------------------ */
 /* Mission Control fixture generator — every mission gets a full set.   */
@@ -177,7 +196,7 @@ const TASK_TITLES: Record<string, string[]> = {
 const LINES = {
   delegation: [
     'Please take "{task}". Acceptance: evidence attached, tests green, report back to me when done.',
-    'Assigning "{task}" to you. Budget: 40 min of model time. Ask me if a new website origin is needed.',
+    'Assigning "{task}" to you. Time box: 40 min. Ask me if a new website origin is needed.',
     'New subtask: {task}. Use the current design tokens and keep changes scoped to this mission branch.',
   ],
   ack: ['Acknowledged. Starting "{task}" now.', 'Received — I will report progress at each checkpoint.', 'On it. ETA ~25 minutes; I will attach evidence.'],
@@ -335,7 +354,7 @@ export function buildMissionControl(m: Mission): MissionControlData {
     const nm = AGENT_BY_ID[actor]?.name ?? 'Luca (Owner)';
     const text: Record<TimelineEvent['type'], string> = {
       create: `Mission ${m.id} created (revision ${m.revision})`, delegate: `${nm} delegated "${titles[i % titles.length]}"`,
-      browser: `${nm} navigated to granted origin · screenshot captured`, model: `${nm} model call · 2.1k tokens · $0.03`,
+      browser: `${nm} navigated to granted origin · screenshot captured`, model: `${nm} model call · 2.1k tokens`,
       message: `${nm} sent a progress report upward`, artifact: `${nm} uploaded artifact version`, verify: `${nm} verification passed (evidence ×3)`,
       report: `${nm} submitted phase report`, approval: `${nm} requested approval`, error: `${nm} encountered a recoverable error`, release: `${nm} prepared release candidate`,
     };
@@ -347,6 +366,8 @@ export function buildMissionControl(m: Mission): MissionControlData {
 
 const cache = new Map<string, MissionControlData>();
 export function getMissionControl(m: Mission) {
-  if (!cache.has(m.id)) cache.set(m.id, buildMissionControl(m));
-  return cache.get(m.id)!;
+  // keyed by the team too: agents join a mission while it runs (owner update u1)
+  const key = `${m.id}|${m.leadId}|${m.agentIds.join(',')}`;
+  if (!cache.has(key)) cache.set(key, buildMissionControl(m));
+  return cache.get(key)!;
 }

@@ -194,3 +194,17 @@
   .mw-main > .mc-center { flex: 1 1 0; min-height: 0; }
   .mw-main > .mw-empty { flex: 1 1 0; }
 }
+
+/* ---- owner update 2026-11-20 u1: ownership, sharing, scope ---- */
+.mw-scope { display: flex; align-items: center; gap: 4px; padding: 3px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border-soft); }
+.mw-scope-btn { position: relative; flex: 1; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 28px; border-radius: 9px; font-size: 12px; font-weight: 600; color: var(--text-muted); background: none; border: 0; }
+.mw-scope-btn > *:not(.mw-scope-sel) { position: relative; z-index: 1; }
+.mw-scope-btn span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mw-scope-btn b { font-size: 11px; opacity: .8; }
+.mw-scope-btn.on { color: #fff; }
+.mw-scope-sel { position: absolute; inset: 0; border-radius: 9px; background: var(--accent-grad); box-shadow: 0 0 12px rgba(var(--accent-rgb), .45); }
+.mw-owner { display: inline-flex; align-items: center; gap: 3px; flex: none; }
+.mw-share { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 99px; font-size: 11.5px; font-weight: 700; color: var(--text-muted); background: var(--panel-3); border: 1px solid var(--border-soft); transition: all var(--dur-fast); }
+.mw-share.on { color: var(--info); border-color: rgba(var(--info-rgb), .5); background: rgba(var(--info-rgb), .12); }
+.mw-share:not(:disabled):hover { border-color: var(--accent); }
+.mw-share:disabled { cursor: default; }

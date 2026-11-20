@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { seeded } from './agents';
 
-/** DEMO fixtures for Browser Studio (spec §4.8). All deterministic. */
+/** DEMO fixtures for mission browser sessions (Mission › Browser tab, Settings › Browser). All deterministic. */
 export type SessionState = 'active' | 'paused' | 'awaiting-grant' | 'takeover' | 'expired';
 export interface BrowserSession {
   id: string; missionId: string; agentId: string; origin: string; path: string; state: SessionState;

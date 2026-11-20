@@ -1,5 +1,5 @@
 export function ago(min: number): string {
-  if (min <= 0) return 'just now';
+  if (min < 0.5) return 'just now';
   if (min < 1) return `${Math.round(min * 60)}s ago`;
   if (min < 60) return `${Math.round(min)} min ago`;
   const h = min / 60;
@@ -21,7 +21,6 @@ export function dateLabel(minAgo: number, ts?: number): string {
 }
 export function agoFromTs(ts: number): string { return ago((Date.now() - ts) / 60_000); }
 
-export const money = (n: number, digits = 2) => '$' + n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
 export const pct = (n: number, digits = 0) => `${n.toFixed(digits)}%`;
 export const compact = (n: number) => Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(n);
 

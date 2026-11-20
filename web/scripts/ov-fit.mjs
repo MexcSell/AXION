@@ -1,6 +1,7 @@
 // Overview strict fit: no page scroll, no tab-region overflow, no visible inner scroller.
 // Usage: node scripts/ov-fit.mjs [shotDir]   (sizes via SIZES="1672x941,1366x768")
 import { chromium } from 'playwright';
+import { signIn } from './_session.mjs';
 import { mkdirSync } from 'node:fs';
 const shots = process.argv[2] || '';
 if (shots) mkdirSync(shots, { recursive: true });
@@ -12,6 +13,7 @@ const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/roo
 let bad = 0;
 for (const [w, h] of sizes) {
   const ctx = await b.newContext({ viewport: { width: w, height: h } });
+  await signIn(ctx);
   await ctx.addInitScript((m) => { localStorage.setItem('axion.settings.v1', JSON.stringify({ state: { themeMode: 'dark', skin: 'luminous', motion: m }, version: 0 })); }, motion);
   const p = await ctx.newPage();
   for (const t of tabs) {

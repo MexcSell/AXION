@@ -17,15 +17,16 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Tip } from '@/components/ui/Tip';
 import { Segmented } from '@/components/ui/Form';
 import { AreaChart, ColumnBars, Sparkline } from '@/components/viz/Charts';
+import { missionTotals, fmtTokens } from '@/data/activity';
 import { AGENTS, AGENT_BY_ID, seeded } from '@/data/agents';
 import { ROLES } from '@/data/roles';
 import { getMissionControl } from '@/data/missions';
 import type { Mission, Priority, TimelineEvent } from '@/data/types';
 import { useTab } from '@/hooks/useTab';
 import { useFitCount, useHeight } from '@/hooks/useFit';
-import { useData, allApprovals } from '@/store/data';
+import { useData, allApprovals, useVisibleMissions } from '@/store/data';
 import { openDialog, toast } from '@/store/ui';
-import { ago, cx, money } from '@/lib/format';
+import { ago, cx } from '@/lib/format';
 import '@/theme/pages/overview-org-agent.css';
 import '@/theme/pages/overview-fit.css';
 
@@ -72,7 +73,7 @@ const PIPE: { key: string; label: string; icon: LucideIcon; hue: number; match: 
 
 function Pulse() {
   const nav = useNavigate();
-  const missions = useData((s) => s.missions);
+  const missions = useVisibleMissions();
   const decisions = useData((s) => s.approvalDecisions);
   const decide = useData((s) => s.decideApproval);
   const approvals = useMemo(() => allApprovals(missions, decisions).filter((a) => a.status === 'pending'), [missions, decisions]);
@@ -157,7 +158,7 @@ function Pulse() {
         </Panel>
 
         <Panel icon={ClipboardCheck} title="Approval Queue" help="overview.approvals" delay={.16} sub={`${approvals.length} pending${approvals.length > nAppr ? ` · ${nAppr} shown` : ''}`}
-          actions={<button className="btn ghost sm" onClick={() => nav('/governance?tab=approvals')}>Open<ArrowRight size={14} /></button>}>
+          actions={<button className="btn ghost sm" onClick={() => nav('/notifications?tab=pending')}>Open<ArrowRight size={14} /></button>}>
           {approvals.length === 0 ? <div className="ov-fill"><EmptyState icon={CheckCircle2} title="Nothing waiting" body="Approvals appear here when an agent needs your decision." /></div> : (
             <div className="col ov-fill" style={{ gap: 8 }} ref={apprRef}>
               <AnimatePresence initial={false}>
@@ -198,10 +199,10 @@ function Pulse() {
             {([
               [Plus, 'New Mission', () => openDialog('mission-create'), 268],
               [Rocket, 'Deploy Agent', () => openDialog('agent-create'), 200],
-              [Dna, 'Evolve', () => nav('/evolution'), 290],
+              [Dna, 'Evolve', () => nav('/agents?tab=development'), 290],
               [FileBarChart, 'Report', () => toast({ tone: 'info', title: 'Executive report queued (demo)', body: 'A PDF with this week’s verified outcomes is prepared in Results.' }), 215],
               [Users, 'Org Chart', () => nav('/agents?view=hierarchy'), 172],
-              [Layers, 'Knowledge', () => nav('/knowledge'), 38],
+              [Layers, 'Lineage', () => nav('/agents?tab=development'), 38],
             ] as [LucideIcon, string, () => void, number][]).map(([I, l, fn, h], i) => (
               <motion.button key={l} className="oa-quick-btn glass-card hoverable" style={{ ['--h' as string]: h }} onClick={fn} title={l} aria-label={l} initial={{ opacity: 0, scale: .85 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: .3 + i * .04 }}>
                 <I size={22} strokeWidth={1.8} /><span>{l}</span>
@@ -234,7 +235,7 @@ function nextDecision(m: Mission): { text: string; tone: 'warn' | 'good' | 'info
 
 function Portfolio() {
   const nav = useNavigate();
-  const missions = useData((s) => s.missions);
+  const missions = useVisibleMissions();
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('all');
   const [prio, setPrio] = useState('all');
@@ -300,7 +301,7 @@ function Portfolio() {
         </div>
       )}
       <div className="ov-pager dim">
-        <span>{rows.length} missions · total spend {money(rows.reduce((s, m) => s + m.cost, 0), 0)} of {money(rows.reduce((s, m) => s + m.budget, 0), 0)} budget</span>
+        <span>{rows.length} missions · {fmtTokens(rows.reduce((s, m) => s + missionTotals(m).tokens, 0))} tokens recorded</span>
         <span className="spacer" />
         {pages > 1 && <>
           <span className="tnum">{pg * per + 1}–{Math.min(rows.length, pg * per + per)} of {rows.length}</span>
@@ -326,7 +327,7 @@ const WINDOWS: Record<string, number> = { '1h': 60, '6h': 360, '24h': 1440, all:
 
 function ActivityStream() {
   const nav = useNavigate();
-  const missions = useData((s) => s.missions);
+  const missions = useVisibleMissions();
   const [paused, setPaused] = useState(false);
   const [types, setTypes] = useState<Set<string>>(new Set());
   const [win, setWin] = useState('24h');

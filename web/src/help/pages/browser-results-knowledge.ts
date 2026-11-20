@@ -1,27 +1,12 @@
 import type { HelpEntry } from '../registry';
 
 const h: Record<string, HelpEntry> = {
-  /* ---------------- Browser Studio ---------------- */
-  'browser.sessions': { title: 'Browser sessions', what: 'A session is one isolated Playwright Chromium context on the VPS, owned by a mission and limited to granted origins.', why: 'Isolation keeps cookies, tabs and downloads of one mission away from every other mission.', how: 'Each session has a time limit, a memory cap and a profile. You can pause it, take over, or end it.', example: 'BS-2038 runs the checkout recipe for M-126 on portal.example.com with a 60 minute limit.', permission: 'Operators can create sessions only for origins that already have an active grant.' },
-  'browser.mission': { title: 'Session mission', what: 'The mission that owns this browser session and receives its evidence.', why: 'Evidence and screenshots are filed under the mission so approvals and audits stay traceable.' },
-  'browser.profile': { title: 'Browser profile', what: 'The storage profile (cookies, local storage) the context starts with.', why: 'Ephemeral profiles are wiped on close, which is the safest default.', example: 'Staging read-only uses a pre-seeded profile that cannot submit forms.' },
-  'browser.retention': { title: 'Screenshot retention', what: 'How long redacted frames are kept before they are deleted.', why: 'Short retention lowers privacy risk; longer retention helps audits.' },
-  'browser.limits': { title: 'Session limits', what: 'Maximum running time and memory for the context. The session ends when a limit is reached.', how: 'Limits are enforced by the browser worker and systemd, not by the page.' },
-  'browser.origin': { title: 'Exact origin', what: 'Scheme, host and optional port, such as https://status.example.com. No path and no wildcard.', why: 'A grant for one origin never covers its sibling subdomains.' },
+  /* ---------------- Mission browser sessions ---------------- */
   'browser.originGrant': { title: 'Origin grant', what: 'A grant authorizes only the listed origin, actions and mission for a limited period. New sites require separate permission.', why: 'It stops an agent from wandering to sites you never approved.', how: 'The worker revalidates the real origin before every action and after redirects.', example: 'status.example.com, read-only, mission M-132, 2 hours.', permission: 'Owner or Operator approval. Submit and purchase actions are always gated.' },
-  'browser.grantDuration': { title: 'Grant duration', what: 'How long the grant stays valid. It expires automatically.', why: 'Short grants limit the damage of a mistake.' },
   'browser.actionApproval': { title: 'Action approval', what: 'A one-time decision for a consequential step, such as placing an order or submitting a form.', why: 'External effects cannot be undone from the dashboard.', how: 'The approval is bound to the exact step and a nonce. It is consumed after one execution.', permission: 'Owner or a delegated approver.' },
   'browser.humanTakeover': { title: 'Human takeover', what: 'Takeover gives you temporary direct control in the isolated VPS browser session. All browser boundaries remain enforced.', why: 'Some steps, like a CAPTCHA, need a person.', how: 'Control is time-boxed, recorded and limited to the granted origin.' },
   'browser.takeoverScope': { title: 'Takeover time box', what: 'How long you control the session before it returns to the agent.' },
-  'browser.close': { title: 'Close a session', what: 'Ends the context and aborts in-flight actions. Optionally clears the saved profile.', why: 'Frees VPS memory and ends access to the origin.' },
   'browser.actions': { title: 'Action timeline', what: 'Every step moves through proposal, policy, execution and observation.', why: 'You can see what the agent wanted, what policy decided and what really happened.', example: 'Proposal: click "Place order". Policy: needs approval. Execution: after approval. Observation: confirmation page.' },
-  'browser.locator': { title: 'Locator confidence', what: 'How sure the agent is that its locator matches exactly one element.', why: 'Low confidence means the click may hit the wrong element, so the step is retried or escalated.', how: 'Role and label locators score highest. Raw CSS selectors score lower.' },
-  'browser.recipes': { title: 'Recipes', what: 'Reusable, reviewed workflows for one site, with an owner, a version and a stability score.', why: 'Proven recipes are faster and safer than planning from scratch.', how: 'Stability is the share of recent runs that finished without human help. Publishing needs a fixture test and a review.' },
-  'browser.replay': { title: 'Replay', what: 'A recorded trace of a session with frames, policy decisions and a deterministic result.', why: 'Lets you audit or debug a run without touching the live site.', how: 'Scrub the timeline, change speed, or export a sanitized trace without secrets.' },
-  'browser.boundary': { title: 'Browser boundary', what: 'The rules that always apply: isolation, redaction, origin grants, no CAPTCHA bypass, audited takeover.', why: 'The dashboard visualizes and gates the browser. It never runs arbitrary scripts in a target site.' },
-  'browser.gates': { title: 'Pending gates', what: 'Actions and origin requests that are waiting for a human decision.', permission: 'Only approvers can resolve a gate.' },
-  'browser.resources': { title: 'Host resources', what: 'Memory used by each browser context against its cap.', why: 'Prevents one runaway session from starving the VPS.' },
-
   /* ---------------- Results & Versions ---------------- */
   'results.library': { title: 'Results library', what: 'All artifacts produced by missions, with type, version, provenance and a verification badge.', why: 'One place to find what the company built, and to trust it.', how: 'Filter by type, mission or verification. Select a card to preview it in a safe viewer.' },
   'results.verification': { title: 'Verification', what: 'A version is verified when independent checks passed with evidence.', why: 'Pending versions can be previewed but should not be released.' },
@@ -37,14 +22,5 @@ const h: Record<string, HelpEntry> = {
   'results.rollback': { title: 'Rollback', what: 'Switches production back to the last-known-good version.', why: 'Restores service quickly. The failed version stays retained for analysis.', permission: 'Owner authorization.' },
 
   /* ---------------- Knowledge ---------------- */
-  'knowledge.library': { title: 'Knowledge library', what: 'Verified guides, task lessons, reusable facts and skills, each with a scope, trust score and expiry.', why: 'Agents reuse what already worked instead of rediscovering it.', how: 'Search by words or by meaning. Open an item to see its source.' },
-  'knowledge.trust': { title: 'Trust', what: 'How much evidence and review stand behind an item or source.', why: 'Low trust items are suggestions, not facts.', how: 'Verified, reviewed and untrusted labels feed the score.' },
-  'knowledge.expiry': { title: 'Expiry', what: 'Facts go stale. Each item has a date after which it must be re-verified.' },
-  'knowledge.research': { title: 'Research', what: 'Requests that send an agent to gather evidence from approved sources.', how: 'Findings carry citations and a confidence score. Review decides what enters the library.' },
-  'knowledge.sources': { title: 'Sources', what: 'Approved domains, repositories and files that agents may learn from.', why: 'Untrusted content stays evidence. It is never treated as a new instruction.', permission: 'Adding a source queues it for review.' },
-  'knowledge.citations': { title: 'Citations', what: 'Each statement is linked to a source span, a content hash and a retrieval date.', why: 'You can audit any claim and spot unsupported ones.' },
-  'knowledge.queue': { title: 'Learning queue', what: 'Lessons that agents extracted from missions and propose as reusable memory.', why: 'A human reviewer keeps wrong or private lessons out of shared memory.', how: 'Accept, edit then accept, or reject. Duplicates and contradictions are flagged.', example: '"Wait for the form to hydrate before typing" with 3 verified runs.' },
-  'knowledge.ingest': { title: 'Ingest a source', what: 'Adds a domain, repository or file to the review queue after a scan.', how: 'The scan checks malware, secrets and prompt-injection text, then deduplicates.' },
-  'knowledge.rules': { title: 'Knowledge rules', what: 'Website text is evidence, private memory is not shared by default, claims need citations, and a reviewer approves reusable memory.' },
 };
 export default h;

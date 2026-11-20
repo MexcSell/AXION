@@ -2,22 +2,17 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Globe, GlobeLock, ShieldCheck, Hand, Power, Workflow, Play, Pause, FileText, Image as ImageIcon, Table2, FileCode2, FileBarChart, Camera, Film,
-  History, Download, Rocket, GitMerge, Undo2, BookPlus, BrainCircuit, Lock, AlertTriangle, CheckCircle2, ArrowUp, ArrowDown, Trash2, Plus, FlaskConical,
-  PackageOpen, Eye, GitCompare, ScanSearch, KeyRound, Clock, MousePointer2, type LucideIcon,
-} from 'lucide-react';
+  Globe, GlobeLock, ShieldCheck, Hand, Workflow, Pause, FileText, Image as ImageIcon, Table2, FileCode2, FileBarChart, Camera, Film,
+  History, Download, Rocket, GitMerge, Undo2, Lock, AlertTriangle, CheckCircle2, PackageOpen, Eye, GitCompare, KeyRound, Clock, MousePointer2, type LucideIcon } from 'lucide-react';
 import type { DialogComponentProps } from '@/dialogs/DialogHost';
 import { Modal } from '@/components/ui/Modal';
 import { Field, Segmented, SwitchRow } from '@/components/ui/Form';
 import { Chip } from '@/components/ui/Chips';
 import { KpiBoard } from '@/components/layout/PageFrame';
 import { toast } from '@/store/ui';
-import { useData } from '@/store/data';
 import { getMissionControl } from '@/data/missions';
 import { AGENT_BY_ID, seeded } from '@/data/agents';
-import { GRANTS, REPLAY, REPLAY_LEN, STEPS, nextSessionId, useBrowser, type Target, type Risk } from '@/data/browser';
-import { RECIPES } from '@/data/browser';
-import { LEARNING, useKnowledge } from '@/data/knowledge';
+import { STEPS, useBrowser, type Target, type Risk } from '@/data/browser';
 import { buildManifest, contentLines, diffLines, downloadText, EXT, findArtifact, pickVersion, sha256Hex, TYPE_HUE, useResults, type DiffRow } from '@/data/results';
 import type { Artifact, ArtifactType, ArtifactVersion, Mission } from '@/data/types';
 import { cx, ago } from '@/lib/format';
@@ -70,8 +65,7 @@ const TARGET_RECT: Record<Target, { x: number; y: number; w: number; h: number; 
   postal: { x: 7, y: 50, w: 50, h: 9, label: 'getByLabel("Postal code")' },
   continue: { x: 7, y: 77, w: 22, h: 10, label: 'getByRole("button")' },
   place: { x: 66, y: 77, w: 29, h: 10, label: 'Place order' },
-  none: null,
-};
+  none: null };
 export const TARGET_FOR_STEP = (verb: string, target: string): Target => verb === 'navigate' ? 'nav' : target.includes('Place') ? 'place' : target.includes('Postal') ? 'postal' : verb === 'read' ? 'read' : verb === 'click' ? 'continue' : 'none';
 
 export type ViewState = 'active' | 'paused' | 'gate' | 'takeover' | 'blocked' | 'idle';
@@ -138,13 +132,8 @@ export function FakeBrowser({ origin, path, target = 'none', cursor, state = 'ac
 /* ================================================================== */
 /* small helpers                                                        */
 /* ================================================================== */
-function useMissions() {
-  const m = useData((s) => s.missions);
-  return useMemo(() => m.filter((x) => x.status !== 'archived'), [m]);
-}
 const missionTitle = (m?: Mission) => (m ? `${m.id} · ${m.title}` : '—');
 const nonce = (s: string) => Math.floor(seeded(s)() * 0xffff).toString(16).padStart(4, '0') + Math.floor(seeded(s + 'n')() * 0xffff).toString(16).padStart(4, '0');
-const VALID_ORIGIN = /^https:\/\/([a-z0-9-]+\.)+[a-z]{2,}(:\d+)?$/i;
 
 function Notice({ tone = 'warn', icon: Icon = AlertTriangle, children }: { tone?: 'warn' | 'bad' | 'info' | 'good'; icon?: LucideIcon; children: React.ReactNode }) {
   const c = { warn: 'var(--warn)', bad: 'var(--bad)', info: 'var(--info)', good: 'var(--good)' }[tone];
@@ -201,91 +190,6 @@ const NoArtifact = ({ close, id }: { close: () => void; id: string }) => (
 /* ================================================================== */
 /* DL-19 Browser Session Creator                                        */
 /* ================================================================== */
-function SessionCreate({ close, props }: DialogComponentProps<{ missionId?: string }>) {
-  const missions = useMissions();
-  const grants = useBrowser((s) => s.grants);
-  const addSession = useBrowser((s) => s.addSession);
-  const [mid, setMid] = useState(props.missionId ?? missions.find((m) => m.kind === 'automation')?.id ?? missions[0]?.id ?? '');
-  const avail = grants.filter((g) => g.status === 'active' || g.status === 'expiring');
-  const [origins, setOrigins] = useState<string[]>([]);
-  const [profile, setProfile] = useState('ephemeral');
-  const [viewport, setViewport] = useState('1440x900');
-  const [ttl, setTtl] = useState(60);
-  const [retain, setRetain] = useState('7d');
-  const [err, setErr] = useState('');
-  const submit = () => {
-    if (!mid) { setErr('Choose a mission.'); return; }
-    if (!origins.length) { setErr('Select at least one granted origin. New origins need a grant first.'); return; }
-    const m = missions.find((x) => x.id === mid)!;
-    const o = origins[0];
-    addSession({ id: nextSessionId(), missionId: mid, agentId: m.agentIds.find((a) => a.startsWith('browser')) ?? m.agentIds[0], origin: o, path: '/', state: 'active', tabs: 1, durationMin: 0, ttlMin: ttl, memMb: 120, memCap: 1024, profile, viewport, steps: 0, screenshotAgoSec: 1 });
-    toast({ tone: 'success', title: 'Browser session created (demo)', body: `${origins.length} origin(s) · ${ttl} min TTL · profile ${profile}.` });
-    close();
-  };
-  return (
-    <Modal title="New browser session" icon={Globe} help="browser.sessions" dialogId="DL-19" size="lg" sub="A managed Playwright Chromium context on the VPS, scoped to one mission." onClose={close}
-      footer={<><button className="btn" onClick={close}>Cancel</button><button className="btn primary" onClick={submit}>Create session</button></>}>
-      <div className="brk-dlg-grid">
-        <Field label="Mission" required help="browser.mission"><select className="select" data-autofocus value={mid} onChange={(e) => setMid(e.target.value)} aria-label="Mission">{missions.map((m) => <option key={m.id} value={m.id}>{missionTitle(m)}</option>)}</select></Field>
-        <Field label="Browser profile" help="browser.profile"><select className="select" value={profile} onChange={(e) => setProfile(e.target.value)} aria-label="Browser profile"><option value="ephemeral">Ephemeral (wiped on close)</option><option value="staging-readonly">Staging read-only</option><option value="training-fixture">Training fixture</option></select></Field>
-        <div className="full"><Field label="Approved origins" required help="browser.originGrant" hint="Only origins with an active grant can be attached. A newly discovered origin pauses for authorization.">
-          <div className="col" style={{ gap: 6 }}>{avail.map((g) => (
-            <label key={g.id} className="brk-check"><input type="checkbox" checked={origins.includes(g.origin)} onChange={(e) => setOrigins((o) => e.target.checked ? [...o, g.origin] : o.filter((x) => x !== g.origin))} /><span className="grow mono" style={{ fontSize: 12 }}>{g.origin}</span><RiskMeter risk={g.risk} /></label>
-          ))}</div></Field></div>
-        <Field label="Viewport"><Segmented ariaLabel="Viewport" size="sm" value={viewport} onChange={setViewport} options={[{ key: '1280x800', label: '1280×800' }, { key: '1440x900', label: '1440×900' }, { key: '390x844', label: 'Mobile' }]} /></Field>
-        <Field label="Screenshot retention" help="browser.retention"><Segmented ariaLabel="Retention" size="sm" value={retain} onChange={setRetain} options={[{ key: '24h', label: '24 h' }, { key: '7d', label: '7 days' }, { key: '30d', label: '30 days' }]} /></Field>
-        <div className="full"><Field label={`Session time limit: ${ttl} min`} help="browser.limits"><input type="range" min={15} max={240} step={15} value={ttl} onChange={(e) => setTtl(+e.target.value)} aria-label="Time limit" style={{ width: '100%', accentColor: 'var(--accent)' }} /></Field></div>
-      </div>
-      {err && <div className="field-error" role="alert">{err}</div>}
-      <Notice tone="info" icon={ShieldCheck}>Credentials, cookies, OTP and payment fields are always redacted in screenshots. CAPTCHA is never bypassed.</Notice>
-    </Modal>
-  );
-}
-
-/* ================================================================== */
-/* DL-20 Site Permission Request                                        */
-/* ================================================================== */
-function SitePermission({ close, props }: DialogComponentProps<{ origin?: string; missionId?: string; grantId?: string }>) {
-  const missions = useMissions();
-  const addGrant = useBrowser((s) => s.addGrant);
-  const approveGrant = useBrowser((s) => s.approveGrant);
-  const g0 = GRANTS.find((g) => g.id === props.grantId);
-  const [origin, setOrigin] = useState(props.origin ?? g0?.origin ?? 'https://status.example.com');
-  const [mid, setMid] = useState(props.missionId ?? g0?.missionId ?? 'M-132');
-  const [action, setAction] = useState('read');
-  const [reason, setReason] = useState('');
-  const [dur, setDur] = useState('2h');
-  const [touched, setTouched] = useState(false);
-  const originErr = !VALID_ORIGIN.test(origin) ? 'Use an exact https origin, e.g. https://status.example.com (no path, no wildcard).' : '';
-  const reasonErr = reason.trim().length < 8 ? 'Give a short reason (at least 8 characters).' : '';
-  const risk: Risk = action === 'submit' ? 'critical' : action === 'type' ? 'high' : action === 'click' ? 'medium' : 'low';
-  const minutes = { '30m': 30, '2h': 120, '8h': 480 }[dur] ?? 120;
-  const approve = () => {
-    setTouched(true);
-    if (originErr || reasonErr) return;
-    if (props.grantId) approveGrant(props.grantId);
-    else addGrant({ origin, missionId: mid, actions: action === 'read' ? ['navigate', 'read'] : ['navigate', 'read', action], cred: 'none', expiresMin: minutes, risk, status: 'active', by: 'Luca' });
-    toast({ tone: 'success', title: 'Origin approved (demo)', body: `${origin} for ${dur}, ${mid} only. Revalidated before every action.` });
-    close();
-  };
-  return (
-    <Modal title="Site permission request" icon={GlobeLock} help="browser.originGrant" dialogId="DL-20" size="md" tone="warn" sub="The agent tried to navigate to an origin outside its grant." onClose={close}
-      footer={<><button className="btn danger" onClick={() => { toast({ tone: 'info', title: 'Origin denied (demo)', body: 'The session stays blocked and the agent is told to re-plan.' }); close(); }}>Deny</button><button className="btn primary" onClick={approve}>Approve origin</button></>}>
-      <Field label="Exact origin" required error={touched ? originErr : ''} help="browser.origin"><input className="input mono" data-autofocus value={origin} onChange={(e) => setOrigin(e.target.value.trim())} aria-label="Origin" /></Field>
-      <div className="brk-dlg-grid">
-        <Field label="Intended action" help="browser.actions"><select className="select" value={action} onChange={(e) => setAction(e.target.value)} aria-label="Intended action"><option value="read">Read only</option><option value="click">Read + click</option><option value="type">Read + type</option><option value="submit">Submit forms (consequential)</option></select></Field>
-        <Field label="Scope"><select className="select" value={mid} onChange={(e) => setMid(e.target.value)} aria-label="Mission scope">{missions.map((m) => <option key={m.id} value={m.id}>{missionTitle(m)}</option>)}</select></Field>
-      </div>
-      <Field label="Duration" help="browser.grantDuration"><Segmented ariaLabel="Duration" size="sm" value={dur} onChange={setDur} options={[{ key: '30m', label: '30 min' }, { key: '2h', label: '2 hours' }, { key: '8h', label: '8 hours' }]} /></Field>
-      <Field label="Reason" required error={touched ? reasonErr : ''}><textarea className="textarea" rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why does the mission need this site?" aria-label="Reason" /></Field>
-      <div className="row" style={{ justifyContent: 'space-between' }}><span className="muted" style={{ fontSize: 12.5 }}>Computed risk tier</span><RiskMeter risk={risk} /></div>
-    </Modal>
-  );
-}
-
-/* ================================================================== */
-/* DL-21 Browser Action Approval                                        */
-/* ================================================================== */
 function ActionApproval({ close, props }: DialogComponentProps<{ sessionId?: string; stepId?: string }>) {
   const resolve = useBrowser((s) => s.resolveStep);
   const step = STEPS.find((s) => s.id === props.stepId) ?? STEPS.find((s) => s.consequential) ?? STEPS[3];
@@ -331,100 +235,6 @@ function Takeover({ close, props }: DialogComponentProps<{ sessionId?: string }>
 
 /* ================================================================== */
 /* DL-23 Close session                                                  */
-/* ================================================================== */
-function SessionClose({ close, props }: DialogComponentProps<{ sessionId?: string }>) {
-  const sessions = useBrowser((s) => s.sessions);
-  const setSession = useBrowser((s) => s.setSession);
-  const s = sessions.find((x) => x.id === props.sessionId) ?? sessions[0];
-  const [clear, setClear] = useState(false);
-  const [typed, setTyped] = useState('');
-  const ok = !clear || typed === s.id;
-  return (
-    <Modal title={`Close session ${s.id}`} icon={Power} tone="danger" help="browser.close" dialogId="DL-23" size="sm" onClose={close}
-      footer={<><button className="btn" data-autofocus onClick={close}>Cancel</button><button className="btn danger" disabled={!ok} onClick={() => { setSession(s.id, { state: 'expired', tabs: 0, ttlMin: 0, memMb: 0 }); toast({ tone: 'warning', title: `Session ${s.id} closed (demo)`, body: clear ? 'Profile data cleared.' : 'Profile retained for audit.' }); close(); }}>Close session</button></>}>
-      <KV rows={[['Open tabs', <b>{s.tabs}</b>], ['Origin', <span className="mono">{s.origin}</span>], ['Running for', `${s.durationMin} min`], ['Downloads', 'Quarantined files stay scanned']]} />
-      <Notice tone="warn">Closing stops the agent mid-step. In-flight actions are aborted and recorded in the replay.</Notice>
-      <SwitchRow label="Also clear the saved profile" desc="Deletes cookies and local storage for this context." checked={clear} onChange={setClear} />
-      {clear && <Field label={`Type ${s.id} to confirm`}><input className="input mono" value={typed} onChange={(e) => setTyped(e.target.value)} aria-label="Confirm session id" /></Field>}
-    </Modal>
-  );
-}
-
-/* ================================================================== */
-/* DL-24 Recipe Editor                                                  */
-/* ================================================================== */
-function RecipeEditor({ close, props }: DialogComponentProps<{ recipeId?: string }>) {
-  const r0 = RECIPES.find((r) => r.id === props.recipeId) ?? RECIPES[0];
-  const [name, setName] = useState(r0.name);
-  const [steps, setSteps] = useState<string[]>(['navigate to {origin}/checkout', "click getByRole('button', {name:'Accept'})", "type getByLabel('Postal code') = {input.postal}", "click getByRole('button', {name:'Continue'})", 'screenshot (redacted)']);
-  const [draft, setDraft] = useState('');
-  const [tests, setTests] = useState<number | null>(null);
-  const move = (i: number, d: number) => setSteps((s) => { const n = [...s]; const j = i + d; if (j < 0 || j >= n.length) return s; [n[i], n[j]] = [n[j], n[i]]; return n; });
-  useEffect(() => { if (tests === null || tests >= steps.length) return; const t = window.setTimeout(() => setTests((x) => (x ?? 0) + 1), 380); return () => window.clearTimeout(t); }, [tests, steps.length]);
-  const bump = r0.version.replace(/(\d+)$/, (m) => String(+m + 1));
-  return (
-    <Modal title="Recipe editor" icon={Workflow} help="browser.recipes" dialogId="DL-24" size="lg" sub={`${r0.id} · editing a candidate of ${r0.version}`} onClose={close}
-      footer={<><button className="btn ghost" onClick={close}>Discard</button><button className="btn primary" disabled={!name.trim() || !steps.length} onClick={() => { toast({ tone: 'success', title: `Candidate ${bump} saved (demo)`, body: 'Publishing requires fixture tests and a review.' }); close(); }}>Save candidate</button></>}>
-      <div className="brk-dlg-grid">
-        <Field label="Name" required><input className="input" data-autofocus value={name} onChange={(e) => setName(e.target.value)} aria-label="Recipe name" /></Field>
-        <Field label="Origin grant" help="browser.originGrant"><input className="input mono" readOnly value={r0.origin} aria-label="Origin grant" /></Field>
-      </div>
-      <div>
-        <div className="row" style={{ marginBottom: 6 }}><span className="section-label">Steps ({steps.length})</span><span className="spacer" /><Chip hue={165} size="sm">locators: role + label first</Chip></div>
-        <div className="col" style={{ gap: 6, maxHeight: 220, overflow: 'auto' }}>
-          <AnimatePresence initial={false}>
-            {steps.map((s, i) => (
-              <motion.div key={s} layout initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, height: 0 }} className="subpanel row" style={{ padding: '6px 8px', gap: 8 }}>
-                <span className="mono dim" style={{ width: 20 }}>{i + 1}</span>
-                <span className="mono grow ellipsis" style={{ fontSize: 12 }}>{s}</span>
-                {tests !== null && <span style={{ opacity: tests > i ? 1 : 0 }}><CheckCircle2 size={15} className="good" /></span>}
-                <button className="icon-btn" aria-label="Move up" onClick={() => move(i, -1)}><ArrowUp size={14} /></button>
-                <button className="icon-btn" aria-label="Move down" onClick={() => move(i, 1)}><ArrowDown size={14} /></button>
-                <button className="icon-btn" aria-label="Delete step" onClick={() => setSteps((x) => x.filter((_, k) => k !== i))}><Trash2 size={14} /></button>
-              </motion.div>
-            ))}
-          </AnimatePresence>
-        </div>
-        <div className="row" style={{ marginTop: 8 }}>
-          <input className="input mono" placeholder="Add step, e.g. click getByRole('link', {name:'Pricing'})" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && draft.trim()) { setSteps((s) => [...s, draft.trim()]); setDraft(''); } }} aria-label="New step" />
-          <button className="btn" disabled={!draft.trim()} onClick={() => { setSteps((s) => [...s, draft.trim()]); setDraft(''); }}><Plus size={14} />Add</button>
-          <button className="btn" onClick={() => setTests(0)}><FlaskConical size={14} />Test on fixture</button>
-        </div>
-        {tests !== null && <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>{tests >= steps.length ? <span className="good">Fixture passed: {steps.length}/{steps.length} steps resolved to a unique target.</span> : `Running fixture… ${tests}/${steps.length}`}</div>}
-      </div>
-    </Modal>
-  );
-}
-
-/* ================================================================== */
-/* DL-25 Replay                                                         */
-/* ================================================================== */
-function ReplayDialog({ close, props }: DialogComponentProps<{ sessionId?: string }>) {
-  const nav = useNavigate();
-  const [speed, setSpeed] = useState('1');
-  const [i, setI] = useState(0);
-  const [playing, setPlaying] = useState(true);
-  useEffect(() => { if (!playing) return; const t = window.setInterval(() => setI((x) => (x + 1) % REPLAY.length), 1400 / +speed); return () => window.clearInterval(t); }, [playing, speed]);
-  const f = REPLAY[i];
-  return (
-    <Modal title="Browser replay" icon={Play} help="browser.replay" dialogId="DL-25" size="lg" sub={`Session ${props.sessionId ?? 'BS-2038'} · sanitized trace`} onClose={close}
-      footer={<><button className="btn" onClick={close}>Close</button><button className="btn primary" data-autofocus onClick={() => { close(); nav('/browser?tab=replay'); }}>Play in Replay Viewer</button></>}>
-      <div className="brk-split">
-        <FakeBrowser small origin="https://portal.example.com" path="/checkout" target={f.tgt} state={f.kind === 'gate' ? 'gate' : 'active'} tsLabel={`t+${f.t}s`} tickKey={i} />
-        <div className="col" style={{ gap: 8 }}>
-          <div className="row"><button className="btn sm" onClick={() => setPlaying((p) => !p)}>{playing ? <Pause size={14} /> : <Play size={14} />}{playing ? 'Pause' : 'Play'}</button><Segmented ariaLabel="Replay speed" size="sm" value={speed} onChange={setSpeed} options={[{ key: '0.5', label: '0.5×' }, { key: '1', label: '1×' }, { key: '2', label: '2×' }]} /></div>
-          <div className="col" style={{ gap: 5, maxHeight: 230, overflow: 'auto' }}>
-            {REPLAY.map((x, k) => <button key={k} className={cx('rv-select-row', k === i && 'on')} onClick={() => { setI(k); setPlaying(false); }}><span className="mono dim">{String(x.t).padStart(2, '0')}s</span><span className="grow ellipsis" style={{ fontSize: 12.5 }}>{x.label}</span>{x.kind === 'gate' && <Chip hue={40} size="sm">gate</Chip>}</button>)}
-          </div>
-          <div className="dim" style={{ fontSize: 11.5 }}>{REPLAY_LEN}s trace · {REPLAY.filter((x) => x.kind === 'gate').length} policy gate</div>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-/* ================================================================== */
-/* DL-26 Artifact Preview                                               */
 /* ================================================================== */
 type AProps = { missionId?: string; artifactId?: string; version?: string };
 function ArtifactPreview({ close, props }: DialogComponentProps<AProps>) {
@@ -635,68 +445,9 @@ function RollbackConfirm({ close, props }: DialogComponentProps<AProps>) {
 /* ================================================================== */
 /* DL-52 Knowledge ingest                                               */
 /* ================================================================== */
-function KnowledgeIngest({ close, props }: DialogComponentProps<{ kind?: 'domain' | 'repo' | 'file' }>) {
-  const addSource = useKnowledge((s) => s.addSource);
-  const [kind, setKind] = useState<'domain' | 'repo' | 'file'>(props.kind ?? 'domain');
-  const [src, setSrc] = useState('');
-  const [ret, setRet] = useState('90d');
-  const [scope, setScope] = useState('team');
-  const [trust, setTrust] = useState<'reviewed' | 'untrusted'>('untrusted');
-  const [scan, setScan] = useState(0);
-  const [touched, setTouched] = useState(false);
-  const err = !src.trim() ? 'Enter a source.' : kind === 'domain' && !/^(https?:\/\/)?([a-z0-9-]+\.)+[a-z]{2,}(\/.*)?$/i.test(src.trim()) ? 'Enter a valid domain or URL.' : '';
-  useEffect(() => { if (scan <= 0 || scan >= 4) return; const t = window.setTimeout(() => setScan((x) => x + 1), 520); return () => window.clearTimeout(t); }, [scan]);
-  const steps = ['Fetch metadata', 'Malware & secret scan', 'Prompt-injection screen', 'Deduplicate'];
-  const queue = () => { setTouched(true); if (err) return; if (scan === 0) { setScan(1); return; } if (scan < 4) return;
-    addSource({ id: `S-${20 + Math.floor(seeded(src)() * 70)}`, label: src.trim().replace(/^https?:\/\//, ''), kind, trust, relevance: 60, docs: 0, scanMin: 0 });
-    toast({ tone: 'success', title: 'Queued for review (demo)', body: 'Untrusted website content stays evidence, never instructions.' }); close(); };
-  return (
-    <Modal title="Ingest knowledge source" icon={BookPlus} help="knowledge.ingest" dialogId="DL-52" size="md" onClose={close}
-      footer={<><button className="btn" onClick={close}>Cancel</button><button className="btn primary" onClick={queue}>{scan === 0 ? 'Scan & queue' : scan < 4 ? 'Scanning…' : 'Queue for review'}</button></>}>
-      <Segmented ariaLabel="Source kind" value={kind} onChange={setKind} options={[{ key: 'domain', label: 'Domain / URL' }, { key: 'repo', label: 'Repository' }, { key: 'file', label: 'File' }]} />
-      <Field label="Source" required error={touched ? err : ''} help="knowledge.sources"><input className="input mono" data-autofocus value={src} onChange={(e) => { setSrc(e.target.value); setScan(0); }} placeholder={kind === 'repo' ? 'github.com/org/repo' : kind === 'file' ? 'handbook.pdf' : 'docs.example.com'} aria-label="Source" /></Field>
-      <div className="brk-dlg-grid">
-        <Field label="Retention"><select className="select" value={ret} onChange={(e) => setRet(e.target.value)} aria-label="Retention"><option value="30d">30 days</option><option value="90d">90 days</option><option value="365d">1 year</option></select></Field>
-        <Field label="Access"><select className="select" value={scope} onChange={(e) => setScope(e.target.value)} aria-label="Access scope"><option value="team">Mission agents</option><option value="dept">Department</option><option value="all">All agents</option></select></Field>
-      </div>
-      <Field label="Trust label" help="knowledge.trust"><Segmented ariaLabel="Trust" size="sm" value={trust} onChange={setTrust} options={[{ key: 'untrusted', label: 'Untrusted' }, { key: 'reviewed', label: 'Reviewed' }]} /></Field>
-      {scan > 0 && <div className="col" style={{ gap: 6 }}>{steps.map((s, i) => <motion.div key={s} className="row" initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * .05 }} style={{ fontSize: 12.5 }}>{scan > i ? <CheckCircle2 size={15} className="good" /> : <ScanSearch size={15} className="info" />}<span className={scan > i ? '' : 'muted'}>{s}</span></motion.div>)}</div>}
-    </Modal>
-  );
-}
-
-/* ================================================================== */
-/* DL-53 Experience promotion                                           */
-/* ================================================================== */
-function ExperiencePromotion({ close, props }: DialogComponentProps<{ itemId?: string }>) {
-  const queue = useKnowledge((s) => s.queue);
-  const decide = useKnowledge((s) => s.decide);
-  const it = queue.find((q) => q.id === props.itemId) ?? queue[0] ?? LEARNING[0];
-  const [apply, setApply] = useState({ team: true, browser: true, all: false });
-  const [txt, setTxt] = useState(it.lesson);
-  return (
-    <Modal title="Promote experience" icon={BrainCircuit} help="knowledge.queue" dialogId="DL-53" size="md" sub={`${it.id} · from ${it.missionId}`} onClose={close}
-      footer={<><button className="btn danger" onClick={() => { decide(it.id, 'rejected'); toast({ tone: 'info', title: 'Lesson rejected (demo)' }); close(); }}>Reject</button><button className="btn good" data-autofocus onClick={() => { decide(it.id, 'accepted', txt); toast({ tone: 'success', title: 'Verified learning accepted (demo)', body: 'Added to the knowledge library with provenance.' }); close(); }}>Accept verified learning</button></>}>
-      <Field label="Lesson (editable)" required><textarea className="textarea" rows={3} value={txt} onChange={(e) => setTxt(e.target.value)} aria-label="Lesson" /></Field>
-      <KV rows={[['Evidence', `${it.evidence} verified runs`], ['Confidence', <b>{it.confidence}%</b>], ['Source agent', AGENT_BY_ID[it.agentId]?.name ?? it.agentId]]} />
-      {it.conflict && <Notice tone="warn">Possible contradiction: {it.conflict}</Notice>}
-      {it.dup && <Notice tone="info">Similar entry exists: {it.dup}. Accepting merges them.</Notice>}
-      <div className="subpanel"><div className="section-label">Allowed applicability</div>
-        <SwitchRow label="This mission's agents" checked={apply.team} onChange={(v) => setApply({ ...apply, team: v })} />
-        <SwitchRow label="All Browser agents" checked={apply.browser} onChange={(v) => setApply({ ...apply, browser: v })} />
-        <SwitchRow label="Company-wide" desc="Requires a second reviewer." checked={apply.all} onChange={(v) => setApply({ ...apply, all: v })} /></div>
-    </Modal>
-  );
-}
-
 export const dialogs = {
-  'browser-session-create': SessionCreate,
-  'site-permission': SitePermission,
   'browser-action-approval': ActionApproval,
   'browser-takeover': Takeover,
-  'browser-session-close': SessionClose,
-  'recipe-editor': RecipeEditor,
-  'browser-replay': ReplayDialog,
   'artifact-preview': ArtifactPreview,
   'artifact-versions': VersionPicker,
   'download-bundle': DownloadBundle,
@@ -705,6 +456,4 @@ export const dialogs = {
   'merge-proposal': MergeProposal,
   'deploy-approval': DeployApproval,
   'rollback-confirm': RollbackConfirm,
-  'knowledge-ingest': KnowledgeIngest,
-  'experience-promotion': ExperiencePromotion,
 };

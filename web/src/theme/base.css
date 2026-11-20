@@ -87,12 +87,13 @@ h1, h2, h3, h4, p { margin: 0; }
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   box-shadow: var(--glow);
-  backdrop-filter: blur(var(--blur));
-  -webkit-backdrop-filter: blur(var(--blur));
   padding: var(--pad-panel);
   min-width: 0;
   transition: border-color var(--dur-base) var(--ease), box-shadow var(--dur-base) var(--ease), background var(--dur-base) var(--ease);
 }
+/* Frosted glass only with Settings › Performance › Graphics = Full effects: a backdrop blur on every panel
+   re-blurs the animated background each frame and was the main GPU cost (idle 24 → 60 fps without it). */
+[data-gfx='full'] .panel { backdrop-filter: blur(var(--blur)); }
 .panel::before {
   /* neon top edge highlight */
   content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
@@ -440,3 +441,7 @@ div.kpi[role='button']:hover, div.kpi.hoverable:hover { transform: translateY(ca
 body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-select: none !important; }
 body.is-resizing iframe { pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .splitter.active .splitter-line { animation: none; } }
+
+/* Settings › Performance › Page switch = Fast: opacity-only (compositor) fade; the page is already mounted. */
+.route-in { animation: route-in 90ms ease-out both; }
+@keyframes route-in { from { opacity: 0; } to { opacity: 1; } }

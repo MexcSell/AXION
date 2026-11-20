@@ -34,6 +34,33 @@ Autonomous build session started 2026-11-20. The owner was away for ~8h and said
 | Vitest | Playwright scripts (`crawl`, `crawl-deep`, `flows`, `dialog-smoke`, `check-help`, `check-dialogs`) | These verify the real rendered UI. Add Vitest when backend logic (state machines, policy) exists. |
 | Versions unpinned | React 19.3, Vite 8.3, TypeScript 7.0 (native), motion 14, react-router 7.18, zustand 5, lucide 1.76. Exact versions are locked in `package-lock.json`; there is no git repo yet. | — |
 
+## Owner update 2026-11-20 u1 (`update/2026-11-20_u1.md`)
+Plan, interpretations and review notes: `docs/plan-2026-11-20_u1.md`. Executed in 11 steps; each step was typechecked and screenshot-checked, and crawl/flows ran after steps 1, 4, 6, 7 and at the end.
+
+**Owner decisions taken before starting**
+- Rail: the top section shows only Missions, Notifications, Settings. Overview, Results, System Operations and Help are *hidden* (search, links, URLs still work; Settings › Navigation can show them). Plug-ins sit at the bottom.
+- "Merge face-to-face aspects into one" = **one chat system**: one chat component and one conversation store for every chat.
+
+**Interpretations — confirmed by the owner 2026-11-20**
+- "Model Louder agent" = **Model Loader** (Loader-01). It picks a model for each agent and replaced the Finance agent (funds are gone).
+- "Ilgam" (일감) = job/work; "bid" = a freelance proposal. Jobs show the rate *as listed by the job site* (plain text, no calculation).
+- New job sites start with Homepage-01; deriving a brand-new site agent at runtime is not built (the 3 known sites have their own agents).
+- Owner answers: Model Loader ✔; job pay stays as plain listed text ✔; Job Search sites, jobs and bidding profile stay **shared** by all users (not per user) ✔;
+  a shared mission is **read and write** for every user who can see it (edit, pause, archive); only the share switch stays with the owner and admins ✔.
+
+**What changed**
+1. Removed Usage & Budgets, Knowledge, Governance, Evolution Lab, Browser Studio and the Users page (old links redirect). `/` opens Missions.
+2. Rail split into core screens (top) and plug-ins (bottom); `config/plugins.ts` registry; Settings › Navigation with a live rail preview.
+3. All funds gone: mission budget/cost, model prices, monthly limits, daily caps, department budgets, the `budget` approval kind, the Finance role. Tokens and active time are the measures; model usage is shown as a share of company use.
+4. Sign-in (`store/auth.ts`, `features/auth/AuthGate.tsx`): name + password + Connect; first user = admin; later users and new devices wait for an admin and connect automatically (cross-tab via `storage` events + polling). Session per tab (sessionStorage). Settings › Users: avatar (initials/image/robot), name, password change, devices; admin approvals and all-users list. Demo hash only — real auth is Stage 5.
+5. Missions: content-only Add mission (`dialogs/defs/mission-add.tsx`); GM → executor → agents staffing (`features/mission/staffing.ts`, driven from the shell); `ownerId`/`shared` with one visibility rule (`useVisibleMissions`, guarded `/missions/:id`); Activity tab with per-agent tokens, time, CPU, RAM, VM, concurrent missions and experience merges (`data/activity.ts`). Data store v2 migration.
+6. One chat: `features/chat/ChatView.tsx` (thread, bubble, composer, minimap) used by mission threads, `ChannelChat` (store `store/chat.ts`, synced across tabs), the top-bar **ChatDock** (GM, administrators, agents, plug-ins) and the Agent Profile direct chat with individual tasks.
+7. System Operations gained VMs, Agents and Models (their tabs are `?sub=`); Browser Hosts merged into VMs. Agents gained **Lineage**: Coder-01 → Mobile-Dev-01 / Web-Dev-01; Browser-01 → Homepage-01 → Site-Upwork / Site-Freelancer / Site-Wanted, with kept / shared-up / inherited knowledge (`data/lineage.ts`). Every agent has a unique `duty`; Create Agent checks duties.
+8. Notifications: foldable top and bottom boards, News tab (`store/news.ts`: user posts + research-agent URLs/content, "ask agents to search"), admin user/device requests in Pending.
+9. Job Search plug-in (`pages/plugins/JobSearch.tsx`, `store/jobs.ts`) replaces Browser Studio: sites | live preview + investigation process | mobilized agents + chat (instruct/teach/control); Jobs with bid status and the tailored profile; Profile with documents + text.
+10. Search everything in Ctrl K: commands, every screen/tab/sub-tab, missions by content, agents by duty, chat messages, models, VMs, users, job sites, jobs, news, notifications, lessons, help (`/help?tab=context-help&k=` deep-links an entry).
+11. Clean-up: stale wording, scripts updated to the new routes, shared sign-in for scripts (`scripts/_session.mjs`), new `auth-flow.mjs`, `u1-flows.mjs`, `u1-shots.mjs`; docs refreshed.
+
 ## Deviation from spec §2 (route map): Missions + Mission Control merged (owner request, 2026-11-20)
 Spec §2 has two routes: `/missions` (list + progress) and `/control/:id` (Mission Control). They are now **one page, `/missions/:id`**:
 - left: mission list (5 status tiles = `?filter=`, search, type, sort, row ✎/🗑); the open mission unfolds its team tree (agent → `?agent=`).
@@ -164,3 +191,24 @@ credentials or deployment. Nothing outside `/home/luca/AXION/web` was modified.
 5. Some secondary buttons only show a DEMO toast describing the future backend effect.
 6. The main bundle could be split further (motion, radix, help registry) if load time matters.
 7. Next stage per the spec: **Stage 5** (auth, tenancy, PostgreSQL, mission APIs, SSE). It needs the Owner's approval and a decision on the database and destination.
+
+## Performance pass (2026-11-20, owner: "page switches are slow, the GPU is used a lot, make it as fast as possible, change it in settings")
+Measured with `scripts/perf-nav.mjs` (headless Chromium with software rendering, so the numbers are relative).
+- **GPU root cause:** every `.panel` had `backdrop-filter: blur(14px)` over an always-animating background (particle canvas and hero SVG twinkles). The blur was recomputed every frame. Idle went from 24 fps to 60 fps with it removed.
+- **Slow switch root cause:**
+  - `AnimatePresence mode="wait"` held the new page for the 120 ms exit, then ran a 220 ms enter.
+  - `React.lazy` suspended on every first visit, and React holds a fallback for at least about 300 ms.
+- **Fix:** new preferences in Settings › Appearance (help keys `settings.graphics` and `settings.pageTransition`):
+  - **Graphics:** Fast (default) or Full effects. Fast means no panel blur (`[data-gfx='full'] .panel` gates it), no particle canvas, and still hero art.
+  - **Page switch:** Instant (default), Fast (a 90 ms opacity fade, no wait) or Smooth (the old behaviour).
+  - Route chunks are preloaded on idle, and `preloadable()` in App.tsx renders an already-loaded page without suspending.
+- **Results:**
+
+  | Build | Median page switch | Idle frame rate |
+  |---|---|---|
+  | Production, before | 438 ms | 24 fps |
+  | Production, after | 65 ms | 60 fps |
+  | Dev, before | 610 ms | 24 fps |
+  | Dev, after | 176 ms | 60 fps |
+
+- **Side bug fixed:** the production CSS minifier dropped the unprefixed `backdrop-filter` from `.panel`, so builds had no glass in current Chrome. The gated rule now builds with both forms.

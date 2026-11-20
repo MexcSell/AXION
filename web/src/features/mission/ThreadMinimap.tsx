@@ -46,7 +46,7 @@ export function ThreadMinimap({ scroller, msgs, me, kindHue, deps }: {
       out.push({
         id: m.id, top: row.offsetTop, h: row.offsetHeight, w: Math.min(LANE - 4, Math.max(8, (bub.offsetWidth / Math.max(el.clientWidth, 1)) * LANE)), // .thread-body is the offsetParent
         side: human ? 'human' : m.from === me ? 'right' : 'left', hue: kindHue[m.kind], time: clock(m.agoMin, m.ts),
-        day: day !== lastDay ? (lastDay = day) : '', who: human ? 'Luca' : AGENT_BY_ID[m.from]?.name ?? m.from, kind: m.kind, text: m.text,
+        day: day !== lastDay ? (lastDay = day) : '', who: human ? 'You' : AGENT_BY_ID[m.from]?.name ?? m.from, kind: m.kind, text: m.text,
       });
     });
     setItems(out);

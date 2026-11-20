@@ -8,7 +8,7 @@ import type { Agent, AgentMetrics, RoleKey } from './types';
 export interface Dept {
   key: string; name: string; short: string; role: RoleKey; hue: number; charter: string;
   managerId: string; memberIds: string[]; capacity: number; // percent in use
-  budget: number; spend: number; missions: number; skillCoverage: { skill: string; pct: number }[];
+  missions: number; skillCoverage: { skill: string; pct: number }[];
   kpis: { label: string; value: number; unit: string; delta: number }[];
 }
 
@@ -18,7 +18,6 @@ const DEPT_META: Record<string, { short: string; role: RoleKey; hue: number; cha
   Engineering: { short: 'ENG', role: 'dev', hue: 215, charter: 'Builds and integrates software, automates browsers and keeps the design system coherent.' },
   Operations: { short: 'OPS', role: 'ops', hue: 192, charter: 'Plans, runs and releases work; keeps services healthy and communication clear.' },
   Governance: { short: 'GOV', role: 'security', hue: 148, charter: 'Guards permissions, secrets and policy. Reviews risky actions before they run.' },
-  Finance: { short: 'FIN', role: 'finance', hue: 42, charter: 'Tracks spend and budgets per mission, model and agent; flags overruns early.' },
   Knowledge: { short: 'KNW', role: 'knowledge', hue: 212, charter: 'Curates verified lessons, documents and embeddings for reuse across missions.' },
   QA: { short: 'QA', role: 'qa', hue: 172, charter: 'Independently verifies outputs, and coaches agents with assessed exercises.' },
 };
@@ -31,11 +30,10 @@ export const DEPTS: Dept[] = Object.keys(DEPT_META).map((name) => {
   const used = members.length ? Math.round(members.reduce((s, a) => s + a.load, 0) / members.length) : 0;
   const skills = Array.from(new Set(members.flatMap((a) => a.skills))).slice(0, 5);
   const missionIds = new Set(MISSIONS.filter((x) => x.agentIds.some((id) => AGENT_BY_ID[id]?.dept === name)).map((x) => x.id));
-  const budget = Math.round((members.length * 160 + 120) / 10) * 10;
   return {
     key: name, name, short: m.short, role: m.role, hue: m.hue, charter: m.charter,
     managerId: mgr?.id ?? 'gm', memberIds: members.map((a) => a.id), capacity: used,
-    budget, spend: Math.round(budget * (0.35 + r() * 0.4)), missions: missionIds.size,
+    missions: missionIds.size,
     skillCoverage: skills.map((s) => ({ skill: s, pct: Math.round(70 + r() * 28) })),
     kpis: [
       { label: 'Verified success', value: members.length ? Math.round(members.reduce((s, a) => s + a.success, 0) / members.length) : 0, unit: '%', delta: +(r() * 2).toFixed(1) },
@@ -53,12 +51,12 @@ export const CONSTITUTION = [
   { id: 'C-1', title: 'Owner authority', text: 'The Owner can pause, redirect or stop any mission. No agent can remove that ability.' },
   { id: 'C-2', title: 'Verified progress', text: 'Progress counts only evidence that passed independent verification.' },
   { id: 'C-3', title: 'No self-approval', text: 'An agent can never approve its own improvement, grant or promotion.' },
-  { id: 'C-4', title: 'Bounded access', text: 'Capability is not authorization. Sites, tools and spend are granted per mission and expire.' },
+  { id: 'C-4', title: 'Bounded access', text: 'Capability is not authorization. Sites, tools and models are granted per mission and expire.' },
   { id: 'C-5', title: 'Reversible change', text: 'Every organisational or agent change is versioned, auditable and has a rollback.' },
 ];
 export const DELEGATION_RULES = [
   { rule: 'GM may delegate to any manager inside its own department', cap: 'Auto', hue: 145 },
-  { rule: 'Cross-department delegation above $20 budget', cap: 'GM review', hue: 38 },
+  { rule: 'Cross-department delegation of high-risk tasks', cap: 'GM review', hue: 38 },
   { rule: 'New browser origin for any agent', cap: 'Owner approval', hue: 350 },
   { rule: 'Agent promotion to a new stable version', cap: 'QA + Owner', hue: 350 },
   { rule: 'Reporting cadence: manager to GM at each phase change', cap: 'Required', hue: 200 },
@@ -67,7 +65,7 @@ export const DELEGATION_RULES = [
 export const POLICY_HISTORY = [
   { v: 'r14', agoD: 2, by: 'Luca (Owner)', note: 'Cap parallel instances per agent at 3', status: 'active' },
   { v: 'r13', agoD: 9, by: 'Security-01', note: 'Origin grants default to 2 hours', status: 'superseded' },
-  { v: 'r12', agoD: 21, by: 'GM', note: 'Cross-department budget threshold lowered to $20', status: 'superseded' },
+  { v: 'r12', agoD: 21, by: 'GM', note: 'Cross-department high-risk delegation now needs GM review', status: 'superseded' },
   { v: 'r11', agoD: 34, by: 'Luca (Owner)', note: 'Require QA verdict for every promotion', status: 'superseded' },
 ];
 
@@ -78,7 +76,7 @@ export const PROPOSALS: OrgProposal[] = [
   { id: 'P-20', kind: 'merge', title: 'Merge Knowledge into R&D', by: 'Planner-01', summary: 'Knowledge-01 would report to Researcher-01. Risk: curation independence is reduced.', stage: 'evaluate', impact: { coverage: -2, latency: -5, cost: -4 }, agentIds: ['knowledge-01', 'researcher-01'], agoD: 3 },
   { id: 'P-19', kind: 'create-role', title: 'Create a Marketing role (one new agent)', by: 'GM', summary: 'Linked to mission M-134. No current agent has the marketing skill set, so a new unique role is proposed instead of a copy of Writer-01.', stage: 'approve', impact: { coverage: 9, latency: -3, cost: 6 }, agentIds: ['analyst-01', 'writer-01'], agoD: 1 },
   { id: 'P-18', kind: 'reassign', title: 'Put Browser-01 into the Mentor program', by: 'Mentor-01', summary: 'Browser-01 is below 92% verified on checkout flows; pair with Mentor-01 for 2 weeks.', stage: 'approve', impact: { coverage: 1, latency: 2, cost: 0 }, agentIds: ['browser-01', 'mentor-01'], agoD: 2 },
-  { id: 'P-17', kind: 'retire', title: 'Retire duplicate agents (Coder-02…04, Tester-02…03 …)', by: 'Finance-01', summary: 'One agent per role and skill set. 20 copies were folded into their original; their verified history was merged.', stage: 'applied', impact: { coverage: 0, latency: 0, cost: -9 }, agentIds: ['coder-01', 'tester-01'], agoD: 0 },
+  { id: 'P-17', kind: 'retire', title: 'Retire duplicate agents (Coder-02…04, Tester-02…03 …)', by: 'Loader-01', summary: 'One agent per role and skill set. 20 copies were folded into their original; their verified history was merged.', stage: 'applied', impact: { coverage: 0, latency: 0, cost: -9 }, agentIds: ['coder-01', 'tester-01'], agoD: 0 },
   { id: 'P-16', kind: 'reassign', title: 'Add Security-01 to the M-132 audit', by: 'GM', summary: 'Applied to new instances only. Running instances stay pinned.', stage: 'applied', impact: { coverage: 4, latency: -9, cost: 1 }, agentIds: ['security-01'], agoD: 6 },
 ];
 
@@ -103,7 +101,7 @@ export function assignmentMatrix() {
 /* ------------------------------------------------------------------ */
 export const METRIC_LABELS: Record<keyof AgentMetrics, string> = {
   reliability: 'Reliability', reasoning: 'Reasoning', coding: 'Coding', research: 'Research',
-  browser: 'Browser', communication: 'Comms', toolPrecision: 'Tool precision', costEff: 'Cost-effic.',
+  browser: 'Browser', communication: 'Comms', toolPrecision: 'Tool precision', tokenEff: 'Token effic.',
 };
 export const METRIC_KEYS = Object.keys(METRIC_LABELS) as (keyof AgentMetrics)[];
 
@@ -116,7 +114,7 @@ export interface ToolDef { id: string; name: string; provider: string; scopes: s
 const TOOLS_BY_ROLE: Partial<Record<RoleKey, string[]>> = {
   browser: ['Managed browser', 'Screenshot capture', 'Form filler'], dev: ['Workspace shell', 'Git branch', 'Test runner'], research: ['Web search', 'Managed browser', 'Citation store'],
   qa: ['Test runner', 'Visual diff', 'Managed browser'], security: ['Policy scanner', 'Secret audit', 'Git read'], ops: ['Service monitor', 'Runbook runner', 'Job scheduler'],
-  integration: ['GitHub API', 'Webhook relay', 'OAuth broker'], analytics: ['SQL read', 'Dashboard builder'], finance: ['Usage meter', 'Budget ledger'], knowledge: ['Knowledge index', 'Embedding store'],
+  integration: ['GitHub API', 'Webhook relay', 'OAuth broker'], analytics: ['SQL read', 'Dashboard builder'], loader: ['Model catalog', 'Host capacity probe'], knowledge: ['Knowledge index', 'Embedding store'],
   manager: ['Mission planner', 'Delegation', 'Approval inbox'], writer: ['Doc editor', 'Release notes'], design: ['Token editor', 'Visual diff'], release: ['Version packager', 'Canary runner'],
 };
 export function toolsFor(a: Agent): ToolDef[] {
@@ -153,7 +151,7 @@ export function auditFor(a: Agent) {
     mk('model', `Model route set to ${a.model}`, 'Models admin', 3),
     mk('skill', `Skill "${a.skills[0]}" verified (n=${12 + Math.round(r() * 40)})`, 'Tester-01', 4, 'good'),
     mk('report', 'Phase report accepted, provenance linked to 3 events', 'GM', 5),
-    mk('denied', 'Denied: delegate outside own department over $20', 'policy engine', 6, 'warn'),
+    mk('denied', 'Denied: high-risk delegation outside own department', 'policy engine', 6, 'warn'),
     mk('profile', 'Profile revision saved (skill goals)', 'Luca (Owner)', 7),
   ];
 }

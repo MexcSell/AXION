@@ -16,7 +16,7 @@ import { AGENT_BY_ID } from '@/data/agents';
 import { allArtifacts, buildManifest, contentLines, defaultStage, diffLines, EXT, RELEASE_STAGES, sha256Hex, TYPE_HUE, useResults, type ArtRef, type ReleaseStage } from '@/data/results';
 import { DiffView, downloadVersion, FakeBrowser, KpiStrip, TypeIcon, VerifyBadge } from '@/dialogs/defs/browser-results';
 import type { ArtifactType, ArtifactVersion } from '@/data/types';
-import { useData } from '@/store/data';
+import { useVisibleMissions } from '@/store/data';
 import { useTab } from '@/hooks/useTab';
 import { openDialog, toast } from '@/store/ui';
 import { ago, cx } from '@/lib/format';
@@ -27,7 +27,7 @@ const LANES = [190, 275, 150, 40];
 export default function ResultsPage() {
   const [tab, setTab, tabs] = useTab('results');
   const ICONS = [LayoutDashboard, LayoutGrid, MonitorPlay, History, GitBranch, GitCompare, Download, Rocket];
-  const missions = useData((s) => s.missions);
+  const missions = useVisibleMissions();
   const stageMap = useResults((s) => s.stage);
   const refs = useMemo(() => allArtifacts(missions), [missions]);
   const versions = refs.reduce((n, r) => n + r.artifact.versions.length, 0);

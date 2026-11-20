@@ -1,3 +1,4 @@
+import { useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -36,9 +37,9 @@ export default function HelpPage() {
 }
 
 const GUIDES = [
-  { k: 'mission', icon: Rocket, hue: 268, title: 'Run your first mission', time: '4 min', route: '/missions', steps: ['Open Missions and press New Mission', 'Write the goal and the success criteria', 'Review the assigned agents and budget', 'Start, then watch verified progress rise'] },
+  { k: 'mission', icon: Rocket, hue: 268, title: 'Run your first mission', time: '4 min', route: '/missions', steps: ['Open Missions and press New Mission', 'Write what you want, attach files if useful', 'The GM appoints an executor, who brings the agents', 'Watch verified progress and each agent\'s activity'] },
   { k: 'chat', icon: MessagesSquare, hue: 195, title: 'Talk to an agent', time: '2 min', route: '/missions', steps: ['Open a mission in Missions', 'Select an agent in the hierarchy', 'Type a command and press Ctrl + Enter', 'Read the reply and its attached evidence'] },
-  { k: 'grants', icon: Globe, hue: 148, title: 'Grant browser access', time: '3 min', route: '/browser', steps: ['Open Browser Studio, then Grants', 'Add the website origin and allowed actions', 'Choose how long the grant lasts', 'Approve it. Agents can use only that origin'] },
+  { k: 'grants', icon: Globe, hue: 148, title: 'Search jobs with agents', time: '3 min', route: '/plugins/job-search', steps: ['Open Job Search in the rail\'s plug-in section', 'Add a job site address', 'Fill in Profile: headline, text and documents', 'Watch the agents investigate and bid; instruct or teach them in the chat'] },
   { k: 'results', icon: GitCompareArrows, hue: 38, title: 'Read versioned results', time: '3 min', route: '/results', steps: ['Open Results and pick a deliverable', 'Compare versions side by side', 'Check the evidence and verification state', 'Promote or request changes'] },
 ];
 
@@ -83,7 +84,8 @@ function Guides() {
 function Context() {
   const all = useMemo(() => Object.entries(HELP).map(([k, e]) => ({ k, e })).sort((a, b) => a.e.title.localeCompare(b.e.title)), []);
   const [q, setQ] = useState('');
-  const [sel, setSel] = useState<string>(all[0]?.k ?? '');
+  const [sp] = useSearchParams();
+  const [sel, setSel] = useState<string>(sp.get('k') && HELP[sp.get('k')!] ? sp.get('k')! : all[0]?.k ?? '');
   const list = all.filter(({ k, e }) => !q || (k + ' ' + e.title + ' ' + e.what).toLowerCase().includes(q.toLowerCase()));
   const cur = HELP[sel];
   return (
@@ -134,7 +136,7 @@ function Shortcuts() {
 }
 
 const ISSUES = [
-  { code: 'AX-101', sym: 'A mission does not start', cause: 'An assigned agent is still learning on an older pinned version, or the budget is empty.', fix: 'Open Start Mission, read the policy review and swap the agent or raise the budget.', perm: 'Mission owner' },
+  { code: 'AX-101', sym: 'A mission does not start', cause: 'An assigned agent is still learning on an older pinned version, or its VM is out of memory.', fix: 'Open Start Mission, read the policy review and swap the agent, or free a VM in System Operations.', perm: 'Mission owner' },
   { code: 'AX-204', sym: 'Browser agent stops at a new website', cause: 'The origin has no grant. New sites always need separate permission.', fix: 'Approve a grant in Browser Studio, Grants. Pick the shortest duration that works.', perm: 'Approver' },
   { code: 'AX-312', sym: 'Progress seems stuck at 76%', cause: 'Remaining tasks wait for verification. Unverified work is not counted.', fix: 'Open the mission in Missions › Task Flow, and look for tasks in Verifying or Rejected.', perm: 'Anyone' },
   { code: 'AX-408', sym: 'Model call fails or is slow', cause: 'The primary model timed out and a fallback route is used.', fix: 'Check Models, Routing. If a provider is down, the fallback keeps work going.', perm: 'Admin to change routes' },
@@ -177,7 +179,7 @@ function Trouble() {
 }
 
 const TERMS: [string, string][] = [
-  ['Mission', 'A goal with success criteria, assigned agents, a budget and a timeline. It is finished only when its results are verified.'],
+  ['Mission', 'What a user wants done, written as text and files. The GM appoints an executor, the executor brings agents, and it is finished only when its results are verified.'],
   ['Task', 'One unit of work inside a mission, with required evidence. Tasks count toward progress only after verification.'],
   ['Agent definition', 'A reusable agent type with a role, skills and a version. Think of it as the job description.'],
   ['Agent instance', 'A mission-specific run of an agent definition, with its own memory, access and pinned version.'],

@@ -10,9 +10,9 @@ import { AGENTS, AGENT_BY_ID } from '@/data/agents';
 import { ROLES } from '@/data/roles';
 import { DEPTS, DEPT_BY_NAME, METRIC_KEYS, METRIC_LABELS, metricSample, toolsFor } from '@/data/orgdemo';
 import type { RoleKey, AgentMetrics } from '@/data/types';
-import { useData } from '@/store/data';
+import { useVisibleMissions } from '@/store/data';
 import { toast } from '@/store/ui';
-import { cx, money } from '@/lib/format';
+import { cx } from '@/lib/format';
 import type { DialogComponentProps } from '@/dialogs/DialogHost';
 import '@/theme/pages/overview-org-agent.css';
 
@@ -23,17 +23,17 @@ const Footer = ({ close, label, onOk, disabled, tone }: { close: () => void; lab
 /* DL-34 ------------------------------------------------------------ */
 function AgentCreate({ close }: DialogComponentProps) {
   const [name, setName] = useState('');
-  /** One agent per role: existing roles are taken, so a new agent defines a new, unique role. */
+  /** One agent per duty: an existing duty is taken, so a new agent defines a new, unique duty (owner rule, u1). */
   const [roleName, setRoleName] = useState('');
   const [spec, setSpec] = useState('');
-  const holder = (label: string) => AGENTS.find((a) => ROLES[a.role].label.toLowerCase() === label.trim().toLowerCase() || ROLES[a.role].key === label.trim().toLowerCase());
+  const holder = (label: string) => AGENTS.find((a) => a.duty.toLowerCase() === label.trim().toLowerCase() || ROLES[a.role].label.toLowerCase() === label.trim().toLowerCase());
   const role: RoleKey = 'optimize';
   const [desc, setDesc] = useState('');
   const [model, setModel] = useState('claude-sonnet-5-5');
   const [tools, setTools] = useState<string[]>(['Mission messaging']);
   const [touched, setTouched] = useState(false);
   const err = !name.trim() ? 'Name is required' : AGENTS.some((a) => a.name.toLowerCase() === name.trim().toLowerCase()) ? 'An agent with this name exists' : '';
-  const roleErr = !roleName.trim() ? 'Name the new role' : holder(roleName) ? `${ROLES[holder(roleName)!.role].label} is already covered by ${holder(roleName)!.name}. No duplicate agents: assign ${holder(roleName)!.name} to more missions instead.` : '';
+  const roleErr = !roleName.trim() ? 'Name the new duty' : holder(roleName) ? `“${holder(roleName)!.duty}” is already the duty of ${holder(roleName)!.name}. No agent holds a duty twice: assign ${holder(roleName)!.name} to more missions, or derive a specialist from it.` : '';
   const toolList = ['Mission messaging', 'Test runner', 'Managed browser', 'Web search', 'Git branch', 'Knowledge read'];
   const submit = () => {
     setTouched(true);
@@ -46,7 +46,7 @@ function AgentCreate({ close }: DialogComponentProps) {
       <div className="oa-form-grid">
         <div className="col" style={{ gap: 12 }}>
           <Field label="Name" required error={touched ? err : undefined} hint="Convention: Role-01, for example Marketer-01" help="dialog.agentName"><input data-autofocus className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Marketer-01" /></Field>
-          <Field label="New role" required error={touched || roleName ? roleErr || undefined : undefined} hint="Every agent owns a unique role and skill set." help="dialog.agentRole"><input className="input" value={roleName} onChange={(e) => setRoleName(e.target.value)} placeholder="e.g. Marketing" /></Field>
+          <Field label="New duty" required error={touched || roleName ? roleErr || undefined : undefined} hint="Every agent owns a unique duty." help="dialog.agentRole"><input className="input" value={roleName} onChange={(e) => setRoleName(e.target.value)} placeholder="e.g. Marketing" /></Field>
           <div className="dim" style={{ fontSize: 11.5, marginTop: -6 }}>Taken: {Object.values(ROLES).map((r) => r.label).join(' · ')}</div>
           <Field label="Specialty"><input className="input" value={spec} onChange={(e) => setSpec(e.target.value)} placeholder="e.g. Checkout-flow forms" /></Field>
           <Field label="Description"><textarea className="textarea" rows={3} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="What should this agent be trusted to do?" /></Field>
@@ -88,18 +88,17 @@ function AgentEdit({ close, props }: DialogComponentProps<{ agentId?: string }>)
 
 /* DL-37 ------------------------------------------------------------ */
 function AgentAssign({ close, props }: DialogComponentProps<{ agentId?: string }>) {
-  const missions = useData((s) => s.missions).filter((m) => ['running', 'planning', 'verifying', 'waiting', 'paused'].includes(m.status));
+  const missions = useVisibleMissions().filter((m) => ['running', 'planning', 'verifying', 'waiting', 'paused'].includes(m.status));
   const [agentId, setAgentId] = useState(props.agentId ?? 'coder-01');
   const a = AGENT_BY_ID[agentId];
   const [mid, setMid] = useState(missions[0]?.id ?? '');
   const m = missions.find((x) => x.id === mid);
   const [mgr, setMgr] = useState('gm');
-  const [budget, setBudget] = useState(20);
   const [ver, setVer] = useState(a.version);
   const dup = !!m?.agentIds.includes(agentId);
-  const err = !m ? 'Choose a mission' : dup ? `${a.name} is already on ${m.id}` : budget <= 0 ? 'Budget must be positive' : budget > m.budget - m.cost ? `Exceeds remaining mission budget (${money(m.budget - m.cost, 0)})` : '';
+  const err = !m ? 'Choose a mission' : dup ? `${a.name} is already on ${m.id}` : '';
   return (
-    <Modal title="Assign agent to mission" icon={Target} help="agent.instance" dialogId="DL-37" onClose={close} sub="Creates an isolated instance with its own memory and grants." footer={<Footer close={close} label="Create instance" disabled={!!err} onOk={() => { toast({ tone: 'success', title: `Instance ${m!.id}:${agentId} created (demo)`, body: `Pinned ${ver}, budget ${money(budget, 0)}, isolated memory.` }); close(); }} />}>
+    <Modal title="Assign agent to mission" icon={Target} help="agent.instance" dialogId="DL-37" onClose={close} sub="Creates an isolated instance with its own memory and grants." footer={<Footer close={close} label="Create instance" disabled={!!err} onOk={() => { toast({ tone: 'success', title: `Instance ${m!.id}:${agentId} created (demo)`, body: `Pinned ${ver}, isolated memory. It merges experience back into ${a.name} every 15 min.` }); close(); }} />}>
       <div className="col" style={{ gap: 12 }}>
         <div className="grid g-2">
           <Field label="Agent"><select data-autofocus className="select" value={agentId} onChange={(e) => { setAgentId(e.target.value); setVer(AGENT_BY_ID[e.target.value].version); }}>{AGENTS.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>
@@ -108,7 +107,7 @@ function AgentAssign({ close, props }: DialogComponentProps<{ agentId?: string }
         <Field label="Mission" required error={err || undefined}><select className="select" value={mid} onChange={(e) => setMid(e.target.value)}>{missions.map((x) => <option key={x.id} value={x.id}>{x.id} · {x.title}</option>)}</select></Field>
         <div className="grid g-2">
           <Field label="Reports to"><select className="select" value={mgr} onChange={(e) => setMgr(e.target.value)}>{(m?.agentIds ?? ['gm']).map((id) => <option key={id} value={id}>{AGENT_BY_ID[id]?.name}</option>)}</select></Field>
-          <Field label="Instance budget ($)"><input className="input" type="number" min={1} value={budget} onChange={(e) => setBudget(+e.target.value)} /></Field>
+          <Field label="Merge experience every" help="agent.merge"><select className="select" defaultValue="15">{[10, 15, 20, 30].map((v) => <option key={v} value={v}>{v} min</option>)}</select></Field>
         </div>
         <div className="oa-banner"><ShieldAlert size={15} /><span>Memory and grants are isolated per instance. Running instances of {a.name} elsewhere are unaffected.</span></div>
       </div>
@@ -204,7 +203,7 @@ function ToolsPermission({ close, props }: DialogComponentProps<{ agentId?: stri
 /* DL-39 ------------------------------------------------------------ */
 interface Move { agentId: string; from: string; to: string; }
 function OrgReorg({ close, props }: DialogComponentProps<{ moves?: Move[]; readOnly?: boolean; title?: string; rebalance?: string }>) {
-  const missions = useData((s) => s.missions);
+  const missions = useVisibleMissions();
   const initial: Move[] = props.moves?.length ? props.moves : props.rebalance ? [{ agentId: props.rebalance, from: AGENT_BY_ID[props.rebalance].dept, to: 'QA' }] : [{ agentId: 'browser-01', from: 'Engineering', to: 'QA' }];
   const [moves, setMoves] = useState<Move[]>(initial);
   const [reason, setReason] = useState(props.title ?? '');
@@ -260,19 +259,18 @@ function DepartmentCreate({ close, props }: DialogComponentProps<{ dept?: string
   const [charter, setCharter] = useState(ex?.charter ?? '');
   const [mgr, setMgr] = useState(ex?.managerId ?? 'planner-01');
   const [members, setMembers] = useState<string[]>(ex?.memberIds.slice(0, 3) ?? []);
-  const [budget, setBudget] = useState(ex?.budget ?? 200);
   const [policy, setPolicy] = useState(['C-4']);
   const [touched, setTouched] = useState(false);
-  const err = name.trim().length < 3 ? 'Name must be at least 3 characters' : !ex && DEPTS.some((d) => d.name.toLowerCase() === name.trim().toLowerCase()) ? 'A department with this name exists' : charter.trim().length < 15 ? 'Charter needs at least 15 characters' : budget < 0 ? 'Budget cannot be negative' : '';
+  const err = name.trim().length < 3 ? 'Name must be at least 3 characters' : !ex && DEPTS.some((d) => d.name.toLowerCase() === name.trim().toLowerCase()) ? 'A department with this name exists' : charter.trim().length < 15 ? 'Charter needs at least 15 characters' : '';
   return (
-    <Modal title={ex ? `Edit draft: ${ex.name}` : 'Create department'} icon={Building2} help="org.departments" dialogId="DL-40" size="lg" onClose={close} sub="Saved as a draft. It takes effect only after the reorganization is approved." footer={<Footer close={close} label="Save draft" onOk={() => { setTouched(true); if (err) return; toast({ tone: 'success', title: `Department draft "${name}" saved (demo)`, body: `${members.length} members · budget ${money(budget, 0)}. Review it in Organization > Proposals.` }); close(); }} />}>
+    <Modal title={ex ? `Edit draft: ${ex.name}` : 'Create department'} icon={Building2} help="org.departments" dialogId="DL-40" size="lg" onClose={close} sub="Saved as a draft. It takes effect only after the reorganization is approved." footer={<Footer close={close} label="Save draft" onOk={() => { setTouched(true); if (err) return; toast({ tone: 'success', title: `Department draft "${name}" saved (demo)`, body: `${members.length} members. Review it in Agents › Proposals.` }); close(); }} />}>
       <div className="oa-form-grid">
         <div className="col" style={{ gap: 12 }}>
           <Field label="Name" required error={touched && err.includes('name') ? err : undefined}><input data-autofocus className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Growth" /></Field>
           <Field label="Charter" required error={touched && err.startsWith('Charter') ? err : undefined} hint="What the department owns and does not own."><textarea className="textarea" rows={4} value={charter} onChange={(e) => setCharter(e.target.value)} /></Field>
           <div className="grid g-2">
             <Field label="Manager"><select className="select" value={mgr} onChange={(e) => setMgr(e.target.value)}>{AGENTS.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
-            <Field label="Monthly budget ($)" error={touched && budget < 0 ? err : undefined}><input className="input" type="number" value={budget} onChange={(e) => setBudget(+e.target.value)} /></Field>
+            <Field label="Members"><input className="input" readOnly value={`${members.length} selected`} aria-label="Member count" /></Field>
           </div>
         </div>
         <div className="col" style={{ gap: 12 }}>

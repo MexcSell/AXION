@@ -1,0 +1,233 @@
+import { AnimatePresence, motion } from 'motion/react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { Send, Paperclip, Image as ImageIcon, AtSign, X, CheckCheck, Check, Clock, ArrowDown, Info, FileText, ShieldAlert, Map as MapIcon, Rows3, Rows2, Music, Film } from 'lucide-react';
+import { RobotAvatar } from '@/components/art/RobotAvatar';
+import { UserAvatar } from '@/components/ui/UserAvatar';
+import { IconButton } from '@/components/ui/IconButton';
+import { HelpTrigger } from '@/components/ui/HelpTrigger';
+import { Segmented } from '@/components/ui/Form';
+import { Tip } from '@/components/ui/Tip';
+import { AGENT_BY_ID } from '@/data/agents';
+import type { Attachment, Message, MessageKind } from '@/data/types';
+import { useAuth } from '@/store/auth';
+import { openDialog } from '@/store/ui';
+import { clock, cx, dateLabel } from '@/lib/format';
+import { fileKind } from '@/features/mission/staffing';
+import { EvidenceThumb } from '@/features/mission/EvidenceThumb';
+import { ThreadMinimap } from '@/features/mission/ThreadMinimap';
+import '@/theme/pages/mission-control.css';
+import '@/theme/pages/chat.css';
+
+/**
+ * The one chat component (owner update 2026-11-20 u1: "merge into one"). Mission threads, direct agent chat,
+ * the GM / Administrator dock and plug-in agent chat all render through ChatThreadView → ChatBubble + ChatComposer.
+ */
+export const KIND_HUE: Record<MessageKind, number> = { delegation: 190, report: 268, consult: 210, command: 30, reply: 40, question: 38, ack: 150, result: 145, system: 225 };
+
+const MINIMAP_KEY = 'axion.thread.minimap';
+const readMinimap = () => { try { return localStorage.getItem(MINIMAP_KEY) !== '0'; } catch { return true; } };
+const writeMinimap = (v: boolean) => { try { localStorage.setItem(MINIMAP_KEY, v ? '1' : '0'); } catch { /* per-viewer convenience only */ } };
+
+/** Who wrote it: an agent, a human account, or the system. */
+function useAuthor(id: string) {
+  const acc = useAuth((s) => (id.startsWith('human:') ? s.accounts.find((a) => a.id === id.slice(6)) : undefined));
+  if (id.startsWith('human:')) return { kind: 'human' as const, name: acc?.name ?? (id === 'human:owner' ? 'Owner' : 'User'), account: acc };
+  const ag = AGENT_BY_ID[id];
+  if (ag) return { kind: 'agent' as const, name: ag.name, agent: ag };
+  return { kind: 'system' as const, name: id === 'system' ? 'System' : id };
+}
+
+export function ChatBubble({ m, right, compact, missionId, label }: { m: Message; right: boolean; compact?: boolean; missionId?: string; label?: string }) {
+  const au = useAuthor(m.from);
+  const human = au.kind === 'human';
+  return (
+    <motion.div className={cx('bubble-row', right ? 'right' : 'left', human && 'human')} layout initial={{ opacity: 0, y: 10, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: .25 }}>
+      {!right && (au.kind === 'agent' ? <RobotAvatar role={au.agent.role} size={28} /> : au.kind === 'human' ? <UserAvatar account={au.account} name={au.name} size={28} /> : <span className="bubble-sys"><Info size={14} /></span>)}
+      <div className={cx('bubble', `k-${m.kind}`, compact && 'compact')}>
+        <div className="bubble-meta">
+          <span className="chip sm" style={{ ['--h' as string]: KIND_HUE[m.kind] }}>{label ?? `${human ? 'HUMAN · ' : ''}${m.kind.toUpperCase()}`}</span>
+          <b>{au.name}</b>
+          <span className="dim">{clock(m.agoMin, m.ts)}</span>
+          {m.taskId && <span className="mono dim">{m.taskId}</span>}
+          <button className="bubble-more" aria-label="Message details" onClick={() => openDialog('message-details', { message: m })}><Info size={12} /></button>
+        </div>
+        <div className="bubble-text">{m.text}</div>
+        {m.attachments && m.attachments.length > 0 && (
+          <div className="bubble-atts">
+            {m.attachments.map((at) => (
+              <button key={at.id} className="att" onClick={() => openDialog('attachment-preview', { attachment: at })} aria-label={`Open ${at.name}`}>
+                {at.url && at.kind === 'image' ? <img src={at.url} alt={at.name} /> : at.kind === 'image' ? <EvidenceThumb seed={at.name} /> : at.kind === 'audio' ? <Music size={20} /> : at.kind === 'video' ? <Film size={20} /> : <FileText size={20} />}
+                <span className="ellipsis">{at.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {human && right && (
+          <div className="bubble-status" aria-label={`Status: ${m.status ?? 'sent'}`}>
+            {m.status === 'acknowledged' ? <><CheckCheck size={13} className="good" /> acknowledged</> : m.status === 'delivered' ? <><CheckCheck size={13} /> delivered</> : m.status === 'queued' ? <><Clock size={12} /> queued</> : <><Check size={13} /> sent</>}
+          </div>
+        )}
+        {m.kind === 'question' && missionId && (
+          <div className="row warn" style={{ gap: 5, fontSize: 11.5, marginTop: 4 }}>
+            <ShieldAlert size={12} />Waiting for your reply · {m.replyTo ?? m.id}
+            <button className="btn sm" style={{ marginLeft: 'auto', height: 24 }} onClick={() => openDialog('send-command', { missionId, agentId: m.from, mode: 'reply', replyTo: m.replyTo ?? m.id, question: m.text })}>Reply…</button>
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+export interface ChatMode { key: string; label: ReactNode; help?: string; placeholder: string }
+interface LocalAtt { id: string; name: string; size: number; type: string; url?: string }
+let fseq = 1;
+const toLocal = (list: FileList | File[]): LocalAtt[] => Array.from(list).map((f) => ({ id: 'a' + fseq++, name: f.name, size: f.size, type: f.type, url: /^(image|audio|video)\//.test(f.type) ? URL.createObjectURL(f) : undefined }));
+
+export function ChatComposer({ modes, initialMode, toName, draftKey, disabled, disabledText, hint, onSend, compact }: {
+  modes: ChatMode[]; initialMode?: string; toName: string; draftKey: string; disabled?: boolean; disabledText?: string; hint?: (mode: string) => ReactNode;
+  onSend: (text: string, mode: string, att: Attachment[]) => void; compact?: boolean;
+}) {
+  const [mode, setMode] = useState(initialMode ?? modes[0].key);
+  const [text, setText] = useState(() => { try { return localStorage.getItem(draftKey) ?? ''; } catch { return ''; } });
+  const [files, setFiles] = useState<LocalAtt[]>([]);
+  const [over, setOver] = useState(false);
+  const ta = useRef<HTMLTextAreaElement>(null);
+  const fileIn = useRef<HTMLInputElement>(null);
+  const imgIn = useRef<HTMLInputElement>(null);
+  const cur = modes.find((m) => m.key === mode) ?? modes[0];
+
+  useEffect(() => { try { if (text) localStorage.setItem(draftKey, text); else localStorage.removeItem(draftKey); } catch { /* ignore */ } }, [text, draftKey]);
+  useLayoutEffect(() => { const el = ta.current; if (el) { el.style.height = '0px'; el.style.height = Math.min(140, el.scrollHeight) + 'px'; } }, [text]);
+
+  const submit = () => {
+    if (disabled || (!text.trim() && !files.length)) return;
+    onSend(text.trim() || '(attachment)', mode, files.map((f) => {
+      const k = fileKind(f.name, f.type);
+      return { id: f.id, name: f.name, kind: k === 'image' || k === 'audio' || k === 'video' ? k : k === 'doc' || k === 'pdf' ? 'doc' : 'file', url: f.url, size: `${Math.max(1, Math.round(f.size / 1024))} KB` };
+    }));
+    setText(''); setFiles([]);
+  };
+
+  if (disabled) return <div className="composer disabled"><Info size={14} /> {disabledText ?? 'This conversation is read-only.'}</div>;
+  return (
+    <div className={cx('composer', over && 'over', compact && 'compact')} onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
+      onDrop={(e) => { e.preventDefault(); setOver(false); setFiles([...files, ...toLocal(e.dataTransfer.files)]); }}>
+      {(modes.length > 1 || !compact) && (
+        <div className="row" style={{ gap: 8, marginBottom: 6 }}>
+          {modes.length > 1 && <Segmented ariaLabel="Message mode" size="sm" value={mode} onChange={setMode} options={modes.map((m) => ({ key: m.key, label: m.label }))} />}
+          {cur.help && <HelpTrigger k={cur.help} />}
+          <span className="dim ellipsis" style={{ fontSize: 11.5 }}>To <b style={{ color: 'var(--text-2)' }}>{toName}</b></span>
+        </div>
+      )}
+      {hint?.(mode)}
+      <AnimatePresence>
+        {files.length > 0 && (
+          <motion.div className="composer-files" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
+            {files.map((f) => (
+              <motion.span key={f.id} className="cf" layout initial={{ scale: .7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
+                {f.url && f.type.startsWith('image/') ? <img src={f.url} alt={f.name} /> : f.type.startsWith('audio/') ? <Music size={16} /> : f.type.startsWith('video/') ? <Film size={16} /> : <FileText size={16} />}
+                <span className="ellipsis">{f.name}</span>
+                <button aria-label={`Remove ${f.name}`} onClick={() => setFiles(files.filter((x) => x.id !== f.id))}><X size={11} /></button>
+              </motion.span>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <div className="composer-box">
+        <textarea ref={ta} rows={1} value={text} onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || compact) && !e.shiftKey) { e.preventDefault(); submit(); } }}
+          onPaste={(e) => { if (e.clipboardData.files.length) { e.preventDefault(); setFiles([...files, ...toLocal(e.clipboardData.files)]); } }}
+          placeholder={cur.placeholder} aria-label={typeof cur.label === 'string' ? cur.label : 'Message'} />
+        <div className="row" style={{ gap: 2 }}>
+          <IconButton icon={Paperclip} label="Attach file (image, audio, video, doc, pdf, txt)" size="sm" onClick={() => fileIn.current?.click()} />
+          <IconButton icon={ImageIcon} label="Attach image / screenshot" size="sm" onClick={() => imgIn.current?.click()} />
+          {!compact && <IconButton icon={AtSign} label="Mention" size="sm" onClick={() => { setText((t) => t + (t.endsWith(' ') || !t ? '' : ' ') + '@'); ta.current?.focus(); }} />}
+          <span className="spacer" />
+          <Tip label="Send" shortcut={compact ? 'Enter' : 'Ctrl Enter'}>
+            <motion.button className="send-btn" onClick={submit} disabled={!text.trim() && !files.length} whileTap={{ scale: .9 }} aria-label="Send message"><Send size={16} /></motion.button>
+          </Tip>
+        </div>
+        <input ref={fileIn} type="file" multiple hidden onChange={(e) => { if (e.target.files) setFiles([...files, ...toLocal(e.target.files)]); e.target.value = ''; }} />
+        <input ref={imgIn} type="file" accept="image/*" multiple hidden onChange={(e) => { if (e.target.files) setFiles([...files, ...toLocal(e.target.files)]); e.target.value = ''; }} />
+      </div>
+    </div>
+  );
+}
+
+/** A full thread: header, messages (day separators, typing, "new" pill, optional minimap and compact view) and composer. */
+export function ChatThreadView({ title, headRight, messages, isRight, typing, composer, missionId, minimap: allowMinimap = true, compactFilter, emptyText, labelFor, className, mmMe }: {
+  title: ReactNode; headRight?: ReactNode; messages: Message[]; isRight: (m: Message) => boolean;
+  typing?: { name: string; role?: import('@/data/types').RoleKey } | null;
+  composer: ReactNode; missionId?: string; minimap?: boolean; compactFilter?: (m: Message) => boolean; emptyText?: string;
+  labelFor?: (m: Message) => string | undefined; className?: string; mmMe?: string;
+}) {
+  const [view, setView] = useState<'full' | 'compact'>('full');
+  const [minimap, setMinimapState] = useState(readMinimap);
+  const setMinimap = (v: boolean) => { setMinimapState(v); writeMinimap(v); };
+  const scroller = useRef<HTMLDivElement>(null);
+  const [atBottom, setAtBottom] = useState(true);
+  const [newCount, setNewCount] = useState(0);
+  const shown = view === 'full' || !compactFilter ? messages : messages.filter(compactFilter);
+  const mm = allowMinimap && minimap;
+
+  useLayoutEffect(() => { scroller.current?.scrollTo({ top: 1e6 }); }, []);
+  const prevLen = useRef(messages.length);
+  useEffect(() => {
+    if (messages.length > prevLen.current) {
+      if (atBottom) window.setTimeout(() => scroller.current?.scrollTo({ top: 1e6, behavior: 'smooth' }), 30);
+      else setNewCount((n) => n + messages.length - prevLen.current);
+    }
+    prevLen.current = messages.length;
+  }, [messages.length, atBottom]);
+  useEffect(() => { if (typing && atBottom) window.setTimeout(() => scroller.current?.scrollTo({ top: 1e6, behavior: 'smooth' }), 30); }, [typing, atBottom]);
+
+  let lastDay = '';
+  return (
+    <div className={cx('thread', className)}>
+      <div className="thread-head">
+        <span className="row" style={{ gap: 6, minWidth: 0 }}>{title}</span>
+        <span className="spacer" />
+        <span className="dim thread-count nowrap" style={{ fontSize: 11 }}>{messages.length} msgs</span>
+        {headRight}
+        {allowMinimap && <>
+          <IconButton size="sm" icon={MapIcon} variant={minimap ? 'active' : 'default'} label={minimap ? 'Hide minimap (times beside the scroll)' : 'Show minimap (times beside the scroll)'} onClick={() => setMinimap(!minimap)} aria-pressed={minimap} className="thread-mm-toggle" />
+          <span className="thread-mm-toggle"><HelpTrigger k="thread.minimap" /></span>
+        </>}
+        {compactFilter && <Segmented ariaLabel="Thread view" size="sm" value={view} onChange={setView} options={[{ key: 'full', label: <><Rows3 size={12} />Full</>, title: 'Verbatim events' }, { key: 'compact', label: <><Rows2 size={12} />Compact</>, title: 'Assignment → report → outcome' }]} />}
+      </div>
+      <div className={cx('thread-scroll', mm && 'with-minimap')}>
+        <div className="thread-body" ref={scroller} onScroll={(e) => { const el = e.currentTarget; const b = el.scrollHeight - el.scrollTop - el.clientHeight < 40; setAtBottom(b); if (b) setNewCount(0); }} role="log" aria-label="Conversation" aria-live="polite">
+          {shown.length === 0 && <div className="empty" style={{ padding: 30 }}><div className="empty-icon"><Send size={22} /></div><h4>No messages yet</h4><p>{emptyText ?? 'Write the first message.'}</p></div>}
+          <AnimatePresence initial={false}>
+            {shown.map((m) => {
+              const day = dateLabel(m.agoMin, m.ts);
+              const sep = day !== lastDay ? (lastDay = day) : null;
+              return (
+                <div key={m.id} data-mid={m.id}>
+                  {sep && <div className="day-sep"><span>{sep}</span></div>}
+                  <ChatBubble m={m} right={isRight(m)} compact={view === 'compact'} missionId={missionId} label={labelFor?.(m)} />
+                </div>
+              );
+            })}
+          </AnimatePresence>
+          <AnimatePresence>
+            {typing && (
+              <motion.div className="typing" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+                {typing.role && <RobotAvatar role={typing.role} size={22} />} {typing.name} is composing <span className="dots"><i /><i /><i /></span>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+        {mm && <ThreadMinimap scroller={scroller} msgs={shown} me={mmMe ?? ''} kindHue={KIND_HUE} deps={`${shown.length}:${view}:${!!typing}`} />}
+      </div>
+      <AnimatePresence>
+        {newCount > 0 && (
+          <motion.button className="new-pill" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} onClick={() => { scroller.current?.scrollTo({ top: 1e6, behavior: 'smooth' }); setNewCount(0); }}>
+            <ArrowDown size={13} /> {newCount} new
+          </motion.button>
+        )}
+      </AnimatePresence>
+      {composer}
+    </div>
+  );
+}

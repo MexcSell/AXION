@@ -1,0 +1,33 @@
+/* Unified chat (owner update 2026-11-20 u1) — shared by mission threads, agent chat, the GM/Admin dock and plug-ins */
+.bubble-sys { width: 28px; height: 28px; flex: none; border-radius: 50%; display: grid; place-items: center; color: var(--text-muted); background: var(--panel-3); }
+.composer.compact { padding: 8px; }
+.thread.dock-thread .thread-head { padding: 8px 10px; }
+
+/* Top-bar chat dock: GM, administrators, direct agent chats, plug-in chats in one inbox */
+.chat-dock { position: fixed; z-index: 880; top: 74px; right: 18px; width: min(760px, calc(100vw - 32px)); height: min(560px, calc(100vh - 100px));
+  display: grid; grid-template-columns: 230px minmax(0, 1fr); border-radius: 18px; overflow: hidden;
+  background: var(--panel-solid); border: 1px solid var(--border); box-shadow: var(--glow), 0 24px 70px rgba(0,0,0,.45); }
+.app[data-header='hidden'] .chat-dock { top: 18px; }
+.chat-dock.min { height: auto; grid-template-columns: 1fr; width: 320px; }
+.chat-dock-list { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border-soft); background: var(--panel-2); }
+.chat-dock-head { display: flex; align-items: center; gap: 8px; padding: 10px 10px 8px 12px; font-family: var(--font-display); font-weight: 700; font-size: 15px; }
+.chat-dock-items { flex: 1; overflow: auto; padding: 4px 6px 8px; display: flex; flex-direction: column; gap: 2px; }
+.chat-dock-sec { font-size: 10.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim); padding: 8px 6px 3px; }
+.chat-ch { position: relative; display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 8px; border-radius: 11px; text-align: left; background: none; border: 1px solid transparent; color: var(--text-2); }
+.chat-ch:hover { background: var(--panel-3); }
+.chat-ch.on { background: rgba(var(--accent-rgb), .14); border-color: rgba(var(--accent-rgb), .45); color: var(--text); }
+.chat-ch .ttl { font-weight: 700; font-size: 13px; }
+.chat-ch .sub { font-size: 11.5px; color: var(--text-dim); }
+.chat-ch .badge { margin-left: auto; }
+.chat-dock-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.chat-dock-main .thread { flex: 1; min-height: 0; border: 0; border-radius: 0; }
+.chat-new { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--border-soft); }
+.chat-new select { flex: 1; min-width: 0; height: 30px; font-size: 12px; }
+@media (max-width: 720px) { .chat-dock { grid-template-columns: 1fr; top: 64px; right: 8px; left: 8px; width: auto; } .chat-dock-list { display: none; } .chat-dock.list-open .chat-dock-list { display: flex; } }
+/* Agent profile › Conversations: direct chat beside mission threads */
+.ap-conv { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: var(--gap, 14px); align-items: stretch; height: 100%; min-height: 380px; }
+.ap-conv > .panel { min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.ap-conv > .panel > :last-child { flex: 1; min-height: 0; overflow: auto; }
+.ap-direct > :last-child { overflow: hidden !important; display: flex; flex-direction: column; }
+.ap-direct .thread { flex: 1; min-height: 0; }
+@media (max-width: 1100px) { .ap-conv { grid-template-columns: 1fr; } }

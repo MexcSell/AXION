@@ -84,3 +84,24 @@ Open it with `openDialog('model-add', { preset: 'x' })`. Each dialog needs a tit
   `node scripts/shot.mjs '/models?tab=routing' /tmp/claude-0/-home-luca-AXION/a648e987-ffdb-49cc-888b-0956d510792d/scratchpad/<name>.png 1672 941 dark luminous`
   (arguments: path, out, width, height, theme dark|light, skin luminous|flat|pretty|fancy). Console errors are printed.
   Look at every tab in dark, and at least one tab in light, and fix what looks wrong.
+
+## Added by the owner update 2026-11-20 u1
+```ts
+import { useMe, isAdmin, useGate, usePendingApprovals } from '@/store/auth'; // signed-in account (per tab), admin check, approvals queue
+import { UserAvatar } from '@/components/ui/UserAvatar';        // <UserAvatar account={acc} size={32} ring="warn"/>  (initials | image | robot)
+import { useVisibleMissions, canSee } from '@/store/data';      // ALWAYS use this in views — never read s.missions directly (owner/shared/admin rule)
+import { missionActivity, activityFor, fmtTokens } from '@/data/activity'; // per-agent tokens, time, CPU, RAM, VM, merges. No money anywhere.
+import { executorOf } from '@/features/mission/staffing';      // GM → executor → agents
+import { ChatThreadView, ChatComposer } from '@/features/chat/ChatView'; // the ONE chat UI; mission threads use it directly
+import { ChannelChat } from '@/features/chat/ChannelChat';     // <ChannelChat channel={channelId.agent(id, me.id)} compact modes={[…]}/>
+import { channelId } from '@/store/chat';                      // gm(uid) | admin(uid) | agent(agentId, uid) | plugin(key, agentId, uid)
+import { useUI } from '@/store/ui';                             // useUI.getState().openChat(channel) opens the top-bar chat dock
+import { PLUGINS } from '@/config/plugins';                     // rail bottom section; Settings › Navigation shows/hides by 'plugin:<key>'
+import { useTab } from '@/hooks/useTab';                        // useTab('agents', 'sub') when a page is embedded as a sub-section
+```
+Rules:
+- **No funds:** never add budgets, prices, costs or money limits. Use tokens, time, CPU and RAM.
+- **One duty per agent** (`agent.duty` is unique); specialists are derived (`parentId`) and keep/share knowledge via `data/lineage.ts`.
+- **Hidden screens** still need a route and search entries; add new screens to `NAV` with `shown: false` unless the owner asks otherwise.
+- New plug-ins: add to `config/plugins.ts` + a route under `/plugins/<key>`; a `ROUTE_TABS` entry gives it deep-linkable tabs.
+- Verification scripts sign in through `scripts/_session.mjs` (`await signIn(ctx)` right after `newContext`).

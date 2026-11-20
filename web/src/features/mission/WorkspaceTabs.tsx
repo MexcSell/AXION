@@ -1,3 +1,4 @@
+import { StaffingCard, MissionContent } from './StaffingCard';
 import { AnimatePresence, motion } from 'motion/react';
 import { useState } from 'react';
 import {
@@ -51,7 +52,7 @@ export function OverviewTab({ m, onSelectAgent }: { m: Mission; onSelectAgent: (
           </motion.div>
         ))}
       </div>
-      <PhaseStepper phases={m.phases} />
+      {m.staffing ? <StaffingCard m={m} /> : <PhaseStepper phases={m.phases} />}
       {pend.length > 0 && (
         <motion.div className="next-action" initial={{ opacity: 0, scale: .98 }} animate={{ opacity: 1, scale: 1 }}>
           <Gavel size={20} />
@@ -61,13 +62,12 @@ export function OverviewTab({ m, onSelectAgent }: { m: Mission; onSelectAgent: (
       )}
       <div className="grid g-2">
         <div className="subpanel">
-          <div className="row" style={{ marginBottom: 6 }}><Target size={15} className="info" /><b>Outcome &amp; success criteria</b><span className="spacer" />
+          <div className="row" style={{ marginBottom: 6 }}><Target size={15} className="info" /><b>Mission content</b><HelpTrigger k="mission.content" /><span className="spacer" />
             <IconButton icon={Paperclip} label="Add resource" size="sm" onClick={() => openDialog('attach-files', { onAttach: (a: unknown[]) => toast({ tone: 'success', title: `${a.length} resource(s) added to ${m.id}`, body: 'Stored with checksum; agents see them in the next planning step.' }) })} />
             <IconButton icon={Pencil} label="Edit mission" size="sm" onClick={() => openDialog('mission-edit', { missionId: m.id })} />
           </div>
-          <p className="muted" style={{ fontSize: 13 }}>{m.objective}</p>
+          <MissionContent m={m} />
           <div className="col" style={{ gap: 5, marginTop: 8 }}>
-            {m.criteria.length === 0 && <span className="dim" style={{ fontSize: 12.5 }}>No criteria yet — add at least one before starting.</span>}
             {m.criteria.map((c, i) => (
               <motion.div key={c.text} className="row" style={{ gap: 7, fontSize: 12.5 }} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * .05 }}>
                 {c.done ? <CheckCircle2 size={14} className="good" /> : <Circle size={14} className="dim" />}<span style={{ color: c.done ? 'var(--text)' : 'var(--text-muted)' }}>{c.text}</span>

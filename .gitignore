@@ -1,0 +1,7 @@
+node_modules/
+web/dist/
+*.tsbuildinfo
+server/.env
+server/data/
+backups/
+.env

@@ -273,3 +273,17 @@ button.kpi:hover { transform: translateY(calc(-2px * var(--motion-scale))); box-
 @keyframes header-nudge { 0%, 70%, 100% { transform: translateY(0); } 80% { transform: translateY(2px); } 90% { transform: translateY(-1px); } }
 [data-motion='reduced'] .header-restore button svg { animation: none; }
 @media (max-width: 800px) { .header-restore button { width: 64px; height: 22px; opacity: 1; } }
+
+/* ---- Rail split (owner update 2026-11-20 u1): top = core screens, bottom = plug-in apps ---- */
+.rail-nav.rail-top { flex: 0 1 auto; }
+.rail-gap { flex: 1 1 0; min-height: 4px; }
+.rail-nav.rail-plugins { flex: 0 1 auto; max-height: 46%; }
+.rail-sec-head { display: flex; align-items: center; gap: 6px; padding: 0 4px 4px 8px; margin-bottom: 2px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim); border-bottom: 1px dashed var(--border-soft); }
+.rail-sec-head > span { flex: 1; }
+.rail-sec-rule { height: 1px; margin: 2px 6px 4px; background: var(--border-soft); }
+.rail-empty { font-size: 12px; color: var(--text-dim); padding: 6px 8px; line-height: 1.4; }
+.nav-item.visiting:not(.active) { outline: 1px dashed var(--border); outline-offset: -1px; color: var(--text-muted); }
+.nav-visit { position: relative; z-index: 1; margin-left: auto; color: var(--text-dim); display: grid; place-items: center; }
+.nav-item.active .nav-visit { color: rgba(255,255,255,.8); }
+.avatar-btn.uav-btn { position: relative; background: none; border: 0; padding: 0; box-shadow: none; overflow: visible; }
+.avatar-badge { position: absolute; top: -4px; right: -6px; }

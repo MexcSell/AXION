@@ -47,7 +47,7 @@ const CORE: Record<string, HelpEntry> = {
     title: 'Command',
     what: 'A command is a new instruction from you to the selected agent. It is checked against mission permissions and may need approval.',
     example: '"Re-run the visual diff on the checkout page in dark mode and attach screenshots."',
-    permission: 'Commands cannot grant new website origins or tools. Use Governance for that.',
+    permission: 'Commands cannot grant new website origins or tools. An administrator grants those separately.',
     shortcut: 'Ctrl + Enter to send',
   },
   'conversation.reply': {
@@ -86,7 +86,7 @@ const CORE: Record<string, HelpEntry> = {
   },
   'models.route': {
     title: 'Model route',
-    what: 'A route picks which available model handles a task. Compatibility, cost and permissions are checked before use.',
+    what: 'A route picks which available model handles a task. Compatibility, load and permissions are checked before use; the Model Loader agent picks the model that fits each agent.',
   },
   'settings.faces': {
     title: 'Avatars & faces',
@@ -107,7 +107,7 @@ const CORE: Record<string, HelpEntry> = {
   'kpi.activeAgents': { title: 'Active agents', what: 'Agent definitions with at least one live instance or that are available for work. Training/evolving agents are counted separately.' },
   'kpi.approvals': { title: 'Pending approvals', what: 'Exact actions waiting for a human decision: risky browser actions, origin grants, releases, promotions.' },
   'kpi.success': { title: 'Mission success', what: 'Verified completed missions ÷ eligible finished missions over the last 30 days.', example: '96.4% = 54 of 56.' },
-  'kpi.spend': { title: 'This month spend', what: 'Model, browser and compute cost this calendar month and the share of the monthly budget used.' },
+  'kpi.tokens': { title: 'Tokens today', what: 'Tokens consumed today by every agent instance in every mission. Each agent records its own tokens, active time, CPU and RAM.', why: 'Token use is the activity measure. There are no budgets or fund limits.' },
   'agents.directory': { title: 'Agents', what: 'Every agent in the company — exactly one per role and skill set — with its department, status, development stage and verified success. This page also holds the former Organization views: hierarchy, departments, assignments, policies and proposals.', how: 'Filter by status or development chips, department or search. Switch Cards / List / Hierarchy on the right. Click an agent to open its profile.' },
   'agents.lifecycle': { title: 'Agent lifecycle', what: 'Create → Learn → Deploy → Evolve, with the number of agents in each step now. A new version is trained and evaluated before it is deployed to future instances.' },
   'agents.performance': { title: 'Top performers', what: 'Agents ranked by verified success over the last 30 days. Each one needs at least 30 evaluated tasks.' },

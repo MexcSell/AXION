@@ -17,7 +17,7 @@ import { AGENT_BY_ID } from '@/data/agents';
 import { ROLES } from '@/data/roles';
 import { DEPTS, CONSTITUTION, DELEGATION_RULES, POLICY_HISTORY, PROPOSALS, assignmentMatrix, type ProposalStage } from '@/data/orgdemo';
 import { openDialog, toast } from '@/store/ui';
-import { cx, money } from '@/lib/format';
+import { cx } from '@/lib/format';
 import '@/theme/pages/overview-org-agent.css';
 
 /* Former Organization page sections — now tabs of the merged Agents page. */
@@ -54,7 +54,7 @@ export function Departments() {
                 ))}
               </div>
               <div className="row" style={{ gap: 8, marginTop: 10 }}>
-                <span className="dim" style={{ fontSize: 12 }}>Budget {money(d.spend, 0)} / {money(d.budget, 0)}</span>
+                <span className="dim" style={{ fontSize: 12 }}>{d.memberIds.length} agents · {d.missions} missions</span>
                 <span className="spacer" />
                 <button className="btn sm" onClick={() => openDialog('department-create', { dept: d.name })}>Edit draft</button>
                 <button className="btn sm ghost" onClick={() => toast({ tone: 'info', title: `Assign manager for ${d.name} (demo)`, body: 'Manager changes are proposals: they appear in Proposals for review.' })}>Assign manager</button>
@@ -134,7 +134,7 @@ export function Assignments() {
 /* POLICIES                                                            */
 /* ================================================================== */
 export function Policies() {
-  const [caps, setCaps] = useState({ cross: true, spawn: false, selfApprove: false, budget: true });
+  const [caps, setCaps] = useState({ cross: true, spawn: false, selfApprove: false, merge: true });
   return (
     <div className="oa-pol-grid">
       <Panel icon={ScrollText} titleSize="lg" title="Company Constitution" help="org.constitution" sub="Rules no agent can change on its own." delay={.05} actions={<button className="btn primary" onClick={() => toast({ tone: 'info', title: 'Policy proposal drafted (demo)', body: 'Policy changes need an authorized approver and create a new revision.' })}><Gavel size={15} />Propose policy</button>}>
@@ -146,10 +146,10 @@ export function Policies() {
           ))}
         </div>
         <div className="section-label" style={{ margin: '14px 0 4px' }}>Autonomy caps<HelpTrigger k="org.autonomy" /></div>
-        <SwitchRow label="Allow cross-department delegation" desc="Over $20 budget requires GM review." checked={caps.cross} onChange={(v) => { setCaps({ ...caps, cross: v }); toast({ tone: 'info', title: 'Cap change is a draft (demo)', body: 'It applies after approval.' }); }} />
+        <SwitchRow label="Allow cross-department delegation" desc="High-risk tasks require GM review." checked={caps.cross} onChange={(v) => { setCaps({ ...caps, cross: v }); toast({ tone: 'info', title: 'Cap change is a draft (demo)', body: 'It applies after approval.' }); }} />
         <SwitchRow label="Allow agents to spawn sub-agents" desc="Off by default. Needs Owner approval." checked={caps.spawn} onChange={(v) => setCaps({ ...caps, spawn: v })} />
         <SwitchRow label="Allow self-approval of improvements" desc="Locked by constitution C-3." checked={false} onChange={() => toast({ tone: 'warning', title: 'Locked by constitution C-3' })} />
-        <SwitchRow label="Enforce per-mission budgets" checked={caps.budget} onChange={(v) => setCaps({ ...caps, budget: v })} />
+        <SwitchRow label="Merge mission experience into the original agent" desc="Each instance merges what it learned at a fixed interval." checked={caps.merge} onChange={(v) => setCaps({ ...caps, merge: v })} />
       </Panel>
       <div className="col" style={{ gap: 'var(--gap)' }}>
         <Panel icon={Scale} title="Delegation & Reporting Rules" help="org.delegation" delay={.1}>
@@ -219,7 +219,7 @@ export function Proposals() {
                   <div className="row wrap" style={{ gap: 6, margin: '10px 0' }}>
                     <Chip hue={p.impact.coverage >= 0 ? 145 : 30} size="sm">coverage {p.impact.coverage >= 0 ? '+' : ''}{p.impact.coverage}%</Chip>
                     <Chip hue={p.impact.latency <= 0 ? 145 : 30} size="sm">latency {p.impact.latency > 0 ? '+' : ''}{p.impact.latency}%</Chip>
-                    <Chip hue={p.impact.cost <= 0 ? 145 : 38} size="sm">cost {p.impact.cost > 0 ? '+' : ''}{p.impact.cost}%</Chip>
+                    <Chip hue={p.impact.cost <= 0 ? 145 : 38} size="sm">tokens {p.impact.cost > 0 ? '+' : ''}{p.impact.cost}%</Chip>
                     <span className="spacer" />
                     <span className="row" style={{ gap: 0 }}>{p.agentIds.slice(0, 4).map((id) => AGENT_BY_ID[id] && <span key={id} style={{ marginLeft: -8 }}><RobotAvatar role={AGENT_BY_ID[id].role} size={26} /></span>)}</span>
                   </div>

@@ -32,16 +32,8 @@ PASS  backup-restore             no-props DL-59
 PASS  backup-restore             props    DL-59   
 PASS  browser-action-approval    no-props DL-21   
 PASS  browser-action-approval    props    DL-21   
-PASS  browser-replay             no-props DL-25   
-PASS  browser-replay             props    DL-25   
-PASS  browser-session-close      no-props DL-23   
-PASS  browser-session-close      props    DL-23   
-PASS  browser-session-create     no-props DL-19   
-PASS  browser-session-create     props    DL-19   
 PASS  browser-takeover           no-props DL-22   
 PASS  browser-takeover           props    DL-22   
-PASS  budget-limit               no-props DL-51   
-PASS  budget-limit               props    DL-51   
 PASS  compare-versions           no-props DL-30   
 PASS  compare-versions           props    DL-30   
 PASS  conversation-thread        no-props         
@@ -54,16 +46,8 @@ PASS  download-bundle            no-props DL-28
 PASS  download-bundle            props    DL-28   
 PASS  error-inspector            no-props DL-65   
 PASS  error-inspector            props    DL-65   
-PASS  evolution-experiment       no-props DL-54   
-PASS  evolution-experiment       props    DL-54   
-PASS  evolution-promotion        no-props DL-55   
-PASS  evolution-promotion        props    DL-55   
-PASS  experience-promotion       no-props DL-53   
-PASS  experience-promotion       props    DL-53   
 PASS  help-drawer                no-props DL-62   
 PASS  help-drawer                props    DL-62   
-PASS  knowledge-ingest           no-props DL-52   
-PASS  knowledge-ingest           props    DL-52   
 PASS  mentoring-session          no-props DL-38   
 PASS  mentoring-session          props    DL-38   
 PASS  merge-proposal             no-props DL-31   
@@ -100,24 +84,12 @@ PASS  notification-rule          no-props DL-61
 PASS  notification-rule          props    DL-61   
 PASS  org-reorg-proposal         no-props DL-39   
 PASS  org-reorg-proposal         props    DL-39   
-PASS  policy-revision            no-props DL-49   
-PASS  policy-revision            props    DL-49   
-PASS  recipe-editor              no-props DL-24   
-PASS  recipe-editor              props    DL-24   
-PASS  role-edit                  no-props DL-46   
-PASS  role-edit                  props    DL-46   
 PASS  rollback-confirm           no-props DL-33   
 PASS  rollback-confirm           props    DL-33   
-PASS  secret-connector           no-props DL-50   
-PASS  secret-connector           props    DL-50   
 PASS  send-command               no-props         
 PASS  send-command               props    DL-18   
 PASS  service-restart            no-props DL-60   
 PASS  service-restart            props    DL-60   
-PASS  session-revoke             no-props DL-47   
-PASS  session-revoke             props    DL-47   
-PASS  site-permission            no-props DL-20   
-PASS  site-permission            props    DL-20   
 PASS  task-criteria              no-props         
 PASS  task-criteria              props    DL-13   
 PASS  task-reassign              no-props         
@@ -128,7 +100,5 @@ PASS  tools-permission           no-props DL-36
 PASS  tools-permission           props    DL-36   
 PASS  unsaved-changes            no-props DL-64   
 PASS  unsaved-changes            props    DL-64   
-PASS  user-invite                no-props DL-45   
-PASS  user-invite                props    DL-45   
 PASS  voice-settings             no-props DL-44   
 PASS  voice-settings             props    DL-44   

@@ -1,6 +1,6 @@
 import { motion } from 'motion/react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ClipboardList, Zap, ShieldCheck, Dna, Sparkles, Bell, Search, Sun, Moon, Monitor, Menu as MenuIcon, LogOut, UserCog, Palette, Keyboard } from 'lucide-react';
+import { ClipboardList, MessagesSquare, Zap, ShieldCheck, Dna, Sparkles, Bell, Search, Sun, Moon, Monitor, Menu as MenuIcon, LogOut, UserCog, Palette, Keyboard } from 'lucide-react';
 import { LogoGlyph } from '@/components/art/CoreArt';
 import { BRAND } from '@/config/brand';
 import { IconButton } from '@/components/ui/IconButton';
@@ -10,15 +10,18 @@ import { Menu } from '@/components/ui/Menu';
 import { DemoTag } from '@/components/ui/Chips';
 import { useSettings } from '@/store/settings';
 import { useUI, openDialog, toast } from '@/store/ui';
-import { useData, allApprovals } from '@/store/data';
+import { useData, allApprovals, useVisibleMissions } from '@/store/data';
 import { useMemo } from 'react';
-import { ALL_NOTICES as NOTIFICATIONS } from '@/data/notifications-extra';
+import { useVisibleNotices } from '@/data/useNotices';
+import { UserAvatar } from '@/components/ui/UserAvatar';
+import { useChatUnread } from '@/features/chat/ChatDock';
+import { useAuth, useMe, isAdmin, usePendingApprovals } from '@/store/auth';
 
 const PIPELINE = [
   { key: 'plan', label: 'Plan', icon: ClipboardList, path: '/missions', color: '#38bdf8', tip: 'Plan — define missions & success criteria' },
   { key: 'execute', label: 'Execute', icon: Zap, path: '/missions?tab=hierarchy', color: '#22d3ee', tip: 'Execute — watch agents work in the mission hierarchy' },
   { key: 'verify', label: 'Verify', icon: ShieldCheck, path: '/results', color: '#60a5fa', tip: 'Verify — inspect verified results & versions' },
-  { key: 'evolve', label: 'Evolve', icon: Dna, path: '/evolution', color: '#a78bfa', tip: 'Evolve — proposals, experiments, promotions' },
+  { key: 'evolve', label: 'Evolve', icon: Dna, path: '/agents?tab=development', color: '#a78bfa', tip: 'Evolve — agents learn, grow through stages and share knowledge' },
   { key: 'sustain', label: 'Sustain', icon: Sparkles, path: '/operations', color: '#fbbf24', tip: 'Sustain — health, recovery and operations' },
 ];
 
@@ -31,11 +34,20 @@ export function TopBar() {
   const setPalette = useUI((s) => s.setPalette);
   const setMobileNav = useUI((s) => s.setMobileNav);
   const read = useData((s) => s.readNotifications);
-  const missions = useData((s) => s.missions);
+  const missions = useVisibleMissions();
   const decisions = useData((s) => s.approvalDecisions);
-  const unread = NOTIFICATIONS.filter((n) => !read[n.id]).length;
+  const notices = useVisibleNotices();
+  const unread = notices.filter((n) => !read[n.id]).length;
   const pending = useMemo(() => allApprovals(missions, decisions).filter((a) => a.status === 'pending').length, [missions, decisions]);
 
+  const me = useMe();
+  const admin = isAdmin(me);
+  const approvals = usePendingApprovals();
+  const signOut = useAuth((s) => s.signOut);
+  const chatUnread = useChatUnread();
+  const chatOpen = useUI((s) => s.chat.open);
+  const openChat = useUI((s) => s.openChat);
+  const closeChat = useUI((s) => s.closeChat);
   const nextTheme = themeMode === 'dark' ? 'light' : themeMode === 'light' ? 'system' : 'dark';
   const ThemeIcon = themeMode === 'dark' ? Moon : themeMode === 'light' ? Sun : Monitor;
 
@@ -91,13 +103,16 @@ export function TopBar() {
         <IconButton icon={ThemeIcon} label={`Theme: ${themeMode} (switch to ${nextTheme})`} tipSide="bottom"
           onClick={() => { set({ themeMode: nextTheme }); toast({ tone: 'info', title: `Theme: ${nextTheme}` }); }} />
         <IconButton icon={Bell} label={`Notifications (${unread} unread, ${pending} approvals)`} badge={unread || undefined} tipSide="bottom" onClick={() => nav('/notifications')} />
+        <IconButton icon={MessagesSquare} label={`Chat with the General Manager and administrators${chatUnread ? ` (${chatUnread} unread)` : ''}`} badge={chatUnread || undefined} tipSide="bottom"
+          variant={chatOpen ? 'active' : undefined} onClick={() => (chatOpen ? closeChat() : openChat())} />
         <Menu
-          trigger={<button className="avatar-btn" aria-label="Account menu"><span>LU</span></button>}
+          trigger={<button className="avatar-btn uav-btn" aria-label={`Account menu: ${me?.name ?? 'signed out'}`}>{me ? <UserAvatar account={me} size={36} ring={admin && approvals.total ? 'warn' : undefined} /> : <span>?</span>}{admin && approvals.total > 0 && <span className="badge avatar-badge">{approvals.total}</span>}</button>}
           items={[
-            { label: 'Profile & role (Owner)', icon: UserCog, onSelect: () => nav('/users') },
+            { label: `${me?.name ?? ''} · ${admin ? 'Administrator' : 'Member'}`, icon: UserCog, onSelect: () => nav('/settings?tab=users') },
+            ...(admin ? [{ label: `Approvals (${approvals.total} waiting)`, icon: ShieldCheck, onSelect: () => nav('/settings?tab=users') }] : []),
             { label: 'Appearance studio', icon: Palette, onSelect: () => openDialog('appearance') },
             { label: 'Keyboard shortcuts', icon: Keyboard, onSelect: () => nav('/help?tab=shortcuts') },
-            { label: 'Sign out (demo)', icon: LogOut, sep: true, onSelect: () => toast({ tone: 'info', title: 'Demo prototype', body: 'Authentication arrives in Stage 5.' }) },
+            { label: 'Sign out', icon: LogOut, sep: true, onSelect: () => { signOut(); toast({ tone: 'info', title: 'Signed out', body: 'Connect again with your name and password.' }); } },
           ]}
         />
       </div>

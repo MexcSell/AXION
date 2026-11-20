@@ -15,14 +15,16 @@ export const runtimeOf = (m: ModelDef): ModelRuntime => m.runtime ?? (m.local ? 
 const BAND_VAR = { ok: 'var(--accent-2)', warn: 'var(--warn)', bad: 'var(--bad)' } as const;
 
 /** Circular "how much is used" ring. Colour = status band (high use warns), always paired with a text label. */
-export function UseRing({ used, total, unit, size = 74, stroke = 7, caption, icon: Icon, ghost }: {
+export function UseRing({ used, total, unit, size = 74, stroke = 7, caption, icon: Icon, ghost, share }: {
   used: number; total: number; unit: string; size?: number; stroke?: number; caption?: string; icon?: typeof Cloud;
   /** not in use right now: draw the share it WOULD take as a dashed, muted arc */
   ghost?: boolean;
+  /** share-of-company mode: neutral colour, no limit bands (owner u1: no limits) */
+  share?: boolean;
 }) {
   const id = useId().replace(/:/g, '');
   const pct = total > 0 ? Math.min(100, (used / total) * 100) : 0;
-  const band = ghost ? { tone: 'idle' as const, label: 'not loaded' } : usageBand(pct);
+  const band = ghost ? { tone: 'idle' as const, label: 'not loaded' } : share ? { tone: 'ok' as const, label: 'company share' } : usageBand(pct);
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
   const col = band.tone === 'idle' ? 'var(--text-muted)' : BAND_VAR[band.tone];
@@ -44,7 +46,7 @@ export function UseRing({ used, total, unit, size = 74, stroke = 7, caption, ico
         </div>
       </div>
       <div className="mm-ring-cap">
-        <span className="tnum">{ghost ? 'needs ' : ''}{fmt(used)}/{fmt(total)} {unit}</span>
+        <span className="tnum">{ghost ? 'needs ' : ''}{share ? `${fmt(used)} ${unit}` : `${fmt(used)}/${fmt(total)} ${unit}`}</span>
         <span className={'mm-band ' + band.tone}>{caption ? `${caption} · ` : ''}{band.label}</span>
       </div>
     </div>
@@ -55,7 +57,7 @@ const fmt = (n: number) => (n >= 100 || Number.isInteger(n) ? String(Math.round(
 /** Four characteristic bars (0-100). */
 export function TraitBars({ m, compact }: { m: ModelDef; compact?: boolean }) {
   if (!m.traits) return <p className="dim" style={{ fontSize: 12 }}>No benchmark profile yet.</p>;
-  const rows = [['Quality', m.traits.quality], ['Speed', m.traits.speed], ['Cost eff.', m.traits.costEff], ['Context', m.traits.context]] as const;
+  const rows = [['Quality', m.traits.quality], ['Speed', m.traits.speed], ['Token eff.', m.traits.tokenEff], ['Context', m.traits.context]] as const;
   return (
     <div className={'mm-traits' + (compact ? ' compact' : '')}>
       {rows.map(([k, v], i) => (

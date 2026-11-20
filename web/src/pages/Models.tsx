@@ -5,8 +5,7 @@ import {
   Activity, HeartPulse, Route, FlaskConical, BarChart3, Settings2, Cpu, Cloud, RefreshCcw, Braces, Wand2, Zap, ArrowRight, Download, Sparkles, Waves, Layers,
   SlidersHorizontal, MemoryStick, HardDrive, FileBox, ArrowUpDown, Ban, Ruler, Timer, ChevronRight,
 } from 'lucide-react';
-import { TopBoard, FrameBody } from '@/components/layout/PageFrame';
-import { useSearchParams } from 'react-router-dom';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import { Chip, Dot } from '@/components/ui/Chips';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { IconButton } from '@/components/ui/IconButton';
@@ -19,6 +18,7 @@ import { seeded } from '@/data/agents';
 import {
   MODELS, MODEL_BY_ID, PROVIDERS, LOCAL_HOST, localFootprint, useModelState, ROUTE_ROLES, HEALTH_LABELS, healthSeries, INCIDENTS, PLAY_SAMPLES, useRoutes, useVoice, validateRoute,
   type ModelDef,
+  usageShare, LOADER_PICKS,
 } from '@/data/models';
 import { Heartbeat } from './_emuShared';
 import { KIND_ICON, RUNTIME, runtimeOf, UseRing, TraitBars, CapacityLine } from './_modelParts';
@@ -27,8 +27,17 @@ const TAB_ICONS = [SlidersHorizontal, Server, Route, FlaskConical, BarChart3, He
 const STATUS_HUE = { ready: 150, degraded: 40, disabled: 230, optional: 200 } as const;
 const TAB_SUB: Record<string, string> = { Manager: 'Characteristics, usage and local capacity per model.', Providers: 'Connections and encrypted credential status.', Routing: 'Role to model precedence with fallbacks.', Playground: 'Try prompts safely. No production routing.', Usage: 'Calls, tokens and speech by model.', Health: 'Latency, errors and incidents.' };
 
-export default function ModelsPage() {
-  const [tab, setTab, tabs] = useTab('models');
+/** Old /models links land in System Operations › Models (owner update u1). */
+export default function ModelsRedirect() {
+  const [sp] = useSearchParams();
+  const n = new URLSearchParams(sp);
+  const t = n.get('tab'); n.delete('tab'); n.set('tab', 'models'); if (t) n.set('sub', t);
+  return <Navigate to={`/operations?${n.toString()}`} replace />;
+}
+
+/** Models, embedded in System Operations: KPIs, actions, sub-tabs and body. */
+export function useModelsSection() {
+  const [tab, setTab, tabs] = useTab('models', 'sub');
   const [playModel, setPlayModel] = useState('claude-sonnet-5-5');
   const extra = useRoutes((s) => s.extra);
   const removed = useRoutes((s) => s.removed);
@@ -36,30 +45,27 @@ export default function ModelsPage() {
   const all = useMemo(() => [...extra, ...MODELS].filter((m) => !removed[m.id]), [extra, removed]);
   const ready = all.filter((m) => m.status === 'ready' && !off[m.id]).length;
   const foot = localFootprint(all);
-  return (
-    <div className="page">
-      <TopBoard icon={Boxes} title="Models" help="models.page" sub="One gateway for every model: LLM, speech and local weights. Roles are separate from providers, and secrets never leave the server."
-        actions={<><button className="btn" onClick={() => openDialog('model-add', { provider: 'local-ollama' })}><Download size={15} />Pull / import local</button><button className="btn primary" onClick={() => openDialog('model-add')}><Plus size={16} />Add model / provider</button></>}
-        kpis={[
+  return {
+    kpis: [
           { key: 'm', icon: Boxes, value: ready, label: 'Ready Models', color: '#22d3ee', hint: `of ${all.length} in catalog`, help: 'models.kpi.ready', onClick: () => setTab('Manager') },
           { key: 'p', icon: Server, value: PROVIDERS.filter((p) => p.health === 'healthy').length, label: 'Healthy Providers', color: '#2ee98a', hint: '1 degraded', help: 'models.kpi.providers', onClick: () => setTab('Providers') },
           { key: 'v', icon: MemoryStick, value: foot.vramGB, decimals: 1, suffix: ' GB', label: 'Local VRAM in use', color: '#fb923c', hint: `of ${LOCAL_HOST.vramGB} GB on ${LOCAL_HOST.gpu}`, bar: Math.round((foot.vramGB / LOCAL_HOST.vramGB) * 100), help: 'models.kpi.vram', onClick: () => setTab('Manager') },
           { key: 'l', icon: Zap, value: 720, suffix: ' ms', label: 'p50 Latency', color: '#a78bfa', delta: '-8%', down: true, help: 'models.kpi.latency', onClick: () => setTab('Health') },
           { key: 'e', icon: AlertTriangle, value: 0.4, decimals: 1, suffix: '%', label: 'Error Rate (24 h)', color: '#facc15', help: 'models.kpi.errors', onClick: () => setTab('Health') },
-        ]}
-        tabs={{ tabs, value: tab, onChange: setTab, icons: TAB_ICONS, ariaLabel: 'Models views' }}
-        toolbar={<span className="row" style={{ gap: 6 }}>{TAB_SUB[tab]}<HelpTrigger k={`models.tab.${tab.toLowerCase()}`} /></span>}
-      />
-      <FrameBody tab={tab}>
-        {tab === 'Manager' && <Manager all={all} />}
-        {tab === 'Providers' && <Providers />}
-        {tab === 'Routing' && <Routing />}
-        {tab === 'Playground' && <Playground all={all} model={playModel} setModel={setPlayModel} />}
-        {tab === 'Usage' && <ModelUsage />}
-        {tab === 'Health' && <Health />}
-      </FrameBody>
-    </div>
-  );
+        ],
+    actions: <><button className="btn" onClick={() => openDialog('model-add', { provider: 'local-ollama' })}><Download size={15} />Pull / import local</button><button className="btn primary" onClick={() => openDialog('model-add')}><Plus size={16} />Add model / provider</button></>,
+    sub: { tabs, value: tab, onChange: setTab, icons: TAB_ICONS },
+    toolbar: <span className="row" style={{ gap: 6 }}>{TAB_SUB[tab]}<HelpTrigger k={`models.tab.${tab.toLowerCase()}`} /></span>,
+    bodyKey: tab,
+    body: <>
+      {tab === 'Manager' && <Manager all={all} />}
+      {tab === 'Providers' && <Providers />}
+      {tab === 'Routing' && <Routing />}
+      {tab === 'Playground' && <Playground all={all} model={playModel} setModel={setPlayModel} />}
+      {tab === 'Usage' && <ModelUsage />}
+      {tab === 'Health' && <Health />}
+    </>,
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -84,7 +90,7 @@ function Manager({ all }: { all: ModelDef[] }) {
   const [rt, setRt] = useState<'all' | 'ollama' | 'gguf'>('all');
   const [sort, setSort] = useState<Sort>('usage');
   const C = CATS.find((c) => c.key === cat)!;
-  const pctOf = (m: ModelDef) => (m.usage ? m.usage.used / m.usage.quota : m.weights?.loaded ? m.weights.memGB / LOCAL_HOST.vramGB : m.weights ? -0.5 : -1);
+  const pctOf = (m: ModelDef) => (m.usage ? usageShare(m, all) : m.weights?.loaded ? m.weights.memGB / LOCAL_HOST.vramGB : m.weights ? -0.5 : -1);
   const list = all.filter((m) => C.test(m) && (cat !== 'Local' || rt === 'all' || runtimeOf(m) === rt) && (m.id + m.name + m.provider + (m.traits?.strengths.join(' ') ?? '')).toLowerCase().includes(q.toLowerCase()))
     .sort((a, b) => sort === 'name' ? a.name.localeCompare(b.name) : sort === 'quality' ? (b.traits?.quality ?? 0) - (a.traits?.quality ?? 0) : sort === 'speed' ? (b.traits?.speed ?? 0) - (a.traits?.speed ?? 0) : pctOf(b) - pctOf(a));
   return (
@@ -119,7 +125,7 @@ function Manager({ all }: { all: ModelDef[] }) {
       {list.length === 0 ? <EmptyState icon={Boxes} title="No models match" body="Change the category or search, or add a model." action={<button className="btn" onClick={() => openDialog('model-add')}>Add model</button>} /> : (
         <motion.div className="mm-grid" layout>
           <AnimatePresence mode="popLayout">
-            {list.map((m, i) => <ModelCard key={m.id} m={m} i={i} />)}
+            {list.map((m, i) => <ModelCard key={m.id} m={m} i={i} all={all} />)}
           </AnimatePresence>
         </motion.div>
       )}
@@ -150,7 +156,7 @@ function HostCapacity({ all }: { all: ModelDef[] }) {
   );
 }
 
-function ModelCard({ m, i }: { m: ModelDef; i: number }) {
+function ModelCard({ m, i, all }: { m: ModelDef; i: number; all: ModelDef[] }) {
   const st = useModelState(m);
   const setOff = useRoutes((s) => s.setOff);
   const K = KIND_ICON[m.kind];
@@ -176,7 +182,7 @@ function ModelCard({ m, i }: { m: ModelDef; i: number }) {
       </div>
       <p className="mm-best" title={m.traits?.bestFor ?? m.blurb}><Sparkles size={12} aria-hidden />{m.traits?.bestFor ?? m.blurb}</p>
       <div className="mm-mid">
-        {m.usage && st.quota ? <UseRing used={m.usage.used} total={st.quota} unit={m.usage.unit} caption="Used" />
+        {m.usage ? <UseRing share used={m.usage.used} total={m.usage.used / Math.max(usageShare(m, all), 1e-9)} unit={m.usage.unit} />
           : m.weights ? <UseRing used={m.weights.memGB} ghost={!st.loaded} total={m.weights.memKind === 'VRAM' ? LOCAL_HOST.vramGB : LOCAL_HOST.ramGB} unit="GB" caption={m.weights.memKind} icon={MemoryStick} />
           : <div className="mm-ring none" title="This provider does not report usage"><span className="mm-ring-none"><Ban size={18} /></span><span className="dim" style={{ fontSize: 10.5, textAlign: 'center' }}>No usage reported</span></div>}
         <TraitBars m={m} compact />
@@ -186,7 +192,7 @@ function ModelCard({ m, i }: { m: ModelDef; i: number }) {
       <div className="mm-foot">
         <span title="Context window"><Ruler size={12} />{m.ctx}</span>
         <span title="Median latency"><Timer size={12} />{m.latencyMs} ms</span>
-        <span title="Price">{m.costIn == null ? '-' : m.costIn === 0 ? 'free · local' : `$${m.costIn}${m.costOut != null ? `/$${m.costOut}` : ''} ${m.costUnit}`}</span>
+        <span title="Picked by the Model Loader for">{Object.entries(LOADER_PICKS).filter(([, v]) => v.model === m.id).map(([k]) => k).join(', ') || (m.local ? 'local' : 'remote')}</span>
         <span className="spacer" />
         <span className="mm-manage">Manage<ChevronRight size={13} /></span>
       </div>
@@ -280,7 +286,6 @@ function Providers() {
                 <div style={{ flex: 1 }}><div className="dim" style={{ fontSize: 11.5 }}>p50 latency, 24 h</div><Sparkline data={p.latency} w={180} h={34} color={`hsl(${hue} 90% 60%)`} /></div>
                 <div style={{ textAlign: 'right' }}><div className="dim" style={{ fontSize: 11.5 }}>{p.models} models</div><b className="display" style={{ fontSize: 18 }}>{p.latency[p.latency.length - 1]} ms</b></div>
               </div>
-              {p.quota > 0 && <div className="row" style={{ gap: 8, fontSize: 12 }}><span className="dim" style={{ width: 80 }}>Quota used</span><div className={'bar thin' + (p.quota > 60 ? ' warn' : ' good')} style={{ flex: 1 }}><motion.i initial={{ width: 0 }} animate={{ width: `${p.quota}%` }} transition={{ duration: 1 }} /></div><b className="tnum">{p.quota}%</b></div>}
               <div className="row" style={{ gap: 6, marginTop: 12 }}>
                 <button className="btn sm" disabled={st === 'testing'} onClick={() => test(p.id, p.health !== 'degraded')}>
                   {st === 'testing' ? <><RefreshCcw size={13} className="emu-spin" />Testing...</> : st === 'ok' ? <><CheckCircle2 size={13} className="good" />Connected</> : st === 'warn' ? <><AlertTriangle size={13} className="warn" />Slow</> : <><Activity size={13} />Test connection</>}
@@ -298,7 +303,7 @@ function Providers() {
 
 /* ------------------------------------------------------------------ */
 function Routing() {
-  const { routes, caps, setRoute, setCap } = useRoutes();
+  const { routes, setRoute } = useRoutes();
   const extra = useRoutes((s) => s.extra);
   const [checked, setChecked] = useState(false);
   const move = (role: string, i: number, d: -1 | 1) => {
@@ -311,7 +316,7 @@ function Routing() {
   return (
     <div className="col" style={{ gap: 12 }}>
       <div className="row wrap emu-note">
-        <Route size={16} className="info" /><span>The first model is tried first. If it is unavailable, over budget or incompatible, the next one is used. Drag a row or use the arrows.</span><HelpTrigger k="models.routing" /><span className="spacer" />
+        <Route size={16} className="info" /><span>The first model is tried first. If it is unavailable, overloaded or incompatible, the next one is used. The Model Loader agent keeps this order fitted to each agent. Drag a row or use the arrows.</span><HelpTrigger k="models.routing" /><span className="spacer" />
         <button className="btn sm primary" onClick={() => { setChecked(true); toast(problems.length ? { tone: 'warning', title: `${problems.length} routing warnings (demo)`, body: 'Review the amber notes under each role.' } : { tone: 'success', title: 'Routing is valid (demo)' }); }}><ShieldCheck size={14} />Validate routing</button>
       </div>
       <div className="grid g-2">
@@ -352,7 +357,7 @@ function Routing() {
                 {checked && issues.map((p) => <motion.div key={p} initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0 }} className="warn" style={{ fontSize: 12, marginTop: 6 }}><AlertTriangle size={12} style={{ display: 'inline', verticalAlign: -2 }} /> {p}</motion.div>)}
               </AnimatePresence>
               <div className="row" style={{ gap: 8, marginTop: 10, fontSize: 12 }}>
-                <span className="dim">Daily budget cap</span><input type="range" className="range" min={20} max={1500} step={10} value={caps[r.role]} onChange={(e) => setCap(r.role, +e.target.value)} aria-label={`${r.role} daily budget cap`} style={{ flex: 1 }} /><b className="tnum" style={{ width: 52, textAlign: 'right' }}>${caps[r.role]}</b>
+                <Cpu size={13} className="violet" /><span className="dim">Model Loader picks</span><b>{MODEL_BY_ID[LOADER_PICKS[r.role]?.model]?.name ?? '—'}</b><span className="dim ellipsis" style={{ flex: 1 }}>{LOADER_PICKS[r.role]?.why}</span>
               </div>
             </motion.div>
           );
@@ -442,17 +447,17 @@ function ModelUsage() {
   const r = seeded('mu');
   const calls = Array.from({ length: 24 }, (_, i) => Math.round(2400 + Math.sin(i / 3) * 700 + r() * 500));
   const rows = [
-    { id: 'claude-sonnet-5-5', prov: 'anthropic', calls: 48210, tok: '312M', err: 0.3, cost: 1120 }, { id: 'claude-haiku-5-5', prov: 'anthropic', calls: 91400, tok: '402M', err: 0.2, cost: 410 },
-    { id: 'claude-opus-5-5', prov: 'anthropic', calls: 6120, tok: '38M', err: 0.6, cost: 760 }, { id: 'claude-fable-5-2', prov: 'anthropic', calls: 2900, tok: '54M', err: 0.4, cost: 330 },
-    { id: 'whisper-large-v4', prov: 'local-speech', calls: 840, tok: '412 min', err: 0.1, cost: 0 }, { id: 'cloud-tts-studio', prov: 'cloud-speech', calls: 620, tok: '208 min', err: 2.1, cost: 96 },
-    { id: 'translate-ja-en-v2', prov: 'anthropic', calls: 11340, tok: '18M', err: 0.2, cost: 44 }, { id: 'embed-text-v4', prov: 'anthropic', calls: 188000, tok: '96M', err: 0.0, cost: 80 },
+    { id: 'claude-sonnet-5-5', prov: 'anthropic', calls: 48210, tok: '312M', err: 0.3 }, { id: 'claude-haiku-5-5', prov: 'anthropic', calls: 91400, tok: '402M', err: 0.2 },
+    { id: 'claude-opus-5-5', prov: 'anthropic', calls: 6120, tok: '38M', err: 0.6 }, { id: 'claude-fable-5-2', prov: 'anthropic', calls: 2900, tok: '54M', err: 0.4 },
+    { id: 'whisper-large-v4', prov: 'local-speech', calls: 840, tok: '412 min', err: 0.1 }, { id: 'cloud-tts-studio', prov: 'cloud-speech', calls: 620, tok: '208 min', err: 2.1 },
+    { id: 'translate-ja-en-v2', prov: 'anthropic', calls: 11340, tok: '18M', err: 0.2 }, { id: 'embed-text-v4', prov: 'anthropic', calls: 188000, tok: '96M', err: 0.0 },
   ].filter((x) => prov === 'all' || x.prov === prov);
   const segs = [{ label: 'Sonnet 5.5', value: 312, color: 'var(--info)' }, { label: 'Haiku 5.5', value: 402, color: 'var(--accent-2)' }, { label: 'Opus 5.5', value: 38, color: 'var(--violet)' }, { label: 'Fable 5.2', value: 54, color: 'var(--gold)' }];
   return (
     <div className="col" style={{ gap: 12 }}>
       <div className="row wrap" style={{ gap: 10 }}>
         <select className="select" style={{ width: 190 }} value={prov} onChange={(e) => setProv(e.target.value)} aria-label="Filter provider"><option value="all">All providers</option>{PROVIDERS.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
-        <span className="spacer" /><button className="btn" onClick={() => toast({ tone: 'success', title: 'Export queued (demo)', body: 'CSV with model, tokens, minutes, cost and errors.' })}><Download size={14} />Export</button>
+        <span className="spacer" /><button className="btn" onClick={() => toast({ tone: 'success', title: 'Export queued (demo)', body: 'CSV with model, tokens, minutes and errors.' })}><Download size={14} />Export</button>
       </div>
       <div className="grid emu-bench-top">
         <div className="subpanel"><div className="row" style={{ marginBottom: 8, gap: 6 }}><b>Calls per hour (24 h)</b><HelpTrigger k="models.usage.calls" /></div><ColumnBars data={calls} h={150} color="var(--accent-2)" labels={calls.map((_, i) => (i % 4 === 0 ? String(i) : ''))} /></div>
@@ -461,8 +466,8 @@ function ModelUsage() {
       </div>
       <div className="table-wrap">
         <table className="table">
-          <thead><tr><th>Model</th><th>Provider</th><th>Calls</th><th>Tokens / minutes</th><th>Error rate</th><th>Cost</th></tr></thead>
-          <tbody>{rows.map((x) => <tr key={x.id}><td className="mono">{x.id}</td><td className="dim">{x.prov}</td><td className="tnum">{x.calls.toLocaleString()}</td><td className="tnum">{x.tok}</td><td className={'tnum ' + (x.err > 1 ? 'warn' : 'good')}>{x.err}%</td><td className="tnum"><b>${x.cost.toLocaleString()}</b></td></tr>)}</tbody>
+          <thead><tr><th>Model</th><th>Provider</th><th>Calls</th><th>Tokens / minutes</th><th>Error rate</th></tr></thead>
+          <tbody>{rows.map((x) => <tr key={x.id}><td className="mono">{x.id}</td><td className="dim">{x.prov}</td><td className="tnum">{x.calls.toLocaleString()}</td><td className="tnum">{x.tok}</td><td className={'tnum ' + (x.err > 1 ? 'warn' : 'good')}>{x.err}%</td></tr>)}</tbody>
         </table>
       </div>
     </div>

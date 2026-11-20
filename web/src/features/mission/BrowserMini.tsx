@@ -84,7 +84,7 @@ export function BrowserMini({ mission }: { mission: Mission }) {
           <button className="btn sm" onClick={() => openDialog('browser-takeover', { missionId: mission.id })}><Hand size={14} />Request takeover</button>
           <HelpTrigger k="browser.humanTakeover" />
           <span className="spacer" />
-          <button className="btn sm ghost" onClick={() => nav('/browser?tab=live-view')}><ExternalLink size={14} />Browser Studio</button>
+          <button className="btn sm ghost" onClick={() => nav('/plugins/job-search')}><ExternalLink size={14} />Job Search</button>
         </div>
       </div>
       <div className="bmini-side">

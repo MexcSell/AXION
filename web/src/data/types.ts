@@ -1,12 +1,12 @@
 export type RoleKey =
   | 'manager' | 'research' | 'analytics' | 'dev' | 'ops' | 'security' | 'comms' | 'planning'
-  | 'finance' | 'knowledge' | 'optimize' | 'qa' | 'integration' | 'browser' | 'writer' | 'mentor' | 'release' | 'design';
+  | 'loader' | 'knowledge' | 'optimize' | 'qa' | 'integration' | 'browser' | 'writer' | 'mentor' | 'release' | 'design';
 
 export type AgentStatus = 'active' | 'in-mission' | 'training' | 'evolving' | 'idle' | 'blocked' | 'offline';
 
 export interface AgentMetrics {
   reliability: number; reasoning: number; coding: number; research: number;
-  browser: number; communication: number; toolPrecision: number; costEff: number;
+  browser: number; communication: number; toolPrecision: number; tokenEff: number;
 }
 
 export interface Agent {
@@ -22,6 +22,12 @@ export interface Agent {
   grade: 'S' | 'A' | 'B' | 'C';
   model: string;
   managerId?: string;
+  /** The agent's own duty. Unique: no two agents hold the same duty (owner rule, u1). */
+  duty: string;
+  /** Lineage: the agent this one was derived from (it keeps specialised knowledge, shares general lessons upward). */
+  parentId?: string;
+  /** a derived site agent's website (Homepage Controller lineage) */
+  site?: string;
   load: number; // 0-100
   skills: string[];
   metrics: AgentMetrics;
@@ -59,7 +65,18 @@ export interface Mission {
   kind: 'website' | 'training' | 'research' | 'structure' | 'self-update' | 'data' | 'automation';
   status: MissionStatus;
   priority: Priority;
+  /** display name of the user who added it (kept for legacy views; the account is ownerId) */
   owner: string;
+  /** account id of the user who added the mission (owner update 2026-11-20 u1) */
+  ownerId: string;
+  /** shared missions are visible to every user; otherwise only the owner and administrators see it */
+  shared: boolean;
+  /** what the user entered: text plus attached files (image, audio, video, doc, pdf, txt) */
+  content: { text: string; files: MissionFile[] };
+  /** the general executor the GM appointed (falls back to the lead / first agent on fixtures) */
+  executorId?: string;
+  /** GM → executor → agents staffing progress for missions added after u1 */
+  staffing?: import('@/features/mission/staffing').Staffing;
   objective: string;
   criteria: { text: string; done: boolean }[];
   progress: number; // verified %
@@ -72,8 +89,6 @@ export interface Mission {
   summaryAgoMin: number;
   lastEvent: string;
   lastEventAgoMin: number;
-  cost: number;
-  budget: number;
   elapsedH: number;
   dueInDays: number;
   revision: number;
@@ -83,6 +98,9 @@ export interface Mission {
   unread: number;
   createdAgoDays: number;
 }
+
+export type MissionFileKind = 'image' | 'audio' | 'video' | 'doc' | 'pdf' | 'txt' | 'file';
+export interface MissionFile { id: string; name: string; kind: MissionFileKind; size: number; mime: string; url?: string; /** first lines of a text file */ excerpt?: string }
 
 export type InstanceState = 'working' | 'waiting' | 'blocked' | 'idle' | 'verifying' | 'done' | 'reporting';
 export type EdgeKind = 'delegated' | 'reports' | 'consults' | 'verifies' | 'mentors';
@@ -102,7 +120,7 @@ export interface MissionEdge { from: string; to: string; kind: EdgeKind; label?:
 
 export type MessageKind = 'delegation' | 'report' | 'consult' | 'command' | 'reply' | 'question' | 'ack' | 'result' | 'system';
 
-export interface Attachment { id: string; name: string; kind: 'image' | 'file' | 'link'; size?: string; url?: string; }
+export interface Attachment { id: string; name: string; kind: 'image' | 'audio' | 'video' | 'doc' | 'file' | 'link'; size?: string; url?: string; }
 
 export interface Message {
   id: string;
@@ -161,7 +179,7 @@ export interface Approval {
   title: string;
   detail: string;
   risk: 'low' | 'medium' | 'high' | 'critical';
-  kind: 'browser-action' | 'origin-grant' | 'question' | 'release' | 'promotion' | 'budget' | 'reorg';
+  kind: 'browser-action' | 'origin-grant' | 'question' | 'release' | 'promotion' | 'reorg';
   expiresMin: number;
   agoMin: number;
   status: 'pending' | 'approved' | 'denied';

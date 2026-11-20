@@ -1,11 +1,12 @@
+import { Lineage } from '@/features/agents/Lineage';
 import { AnimatePresence, motion } from 'motion/react';
 import { useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Search, LayoutGrid, List, Plus, Bot, Activity, MapPin, GraduationCap, Dna, Moon, Network, RefreshCcw, Box, Sparkles, Rocket,
-  Gauge, ArrowRight, Trophy, Building2, ClipboardList, ScrollText, Lightbulb, GitPullRequest, Sprout, FlaskConical, CheckCircle2, Layers,
+  Gauge, ArrowRight, Trophy, Building2, ClipboardList, ScrollText, Lightbulb, GitBranch, Sprout, FlaskConical, CheckCircle2, Layers,
 } from 'lucide-react';
-import { TopBoard, FrameBody, BottomBoard, type KpiItem } from '@/components/layout/PageFrame';
+import { BottomBoard, type KpiItem } from '@/components/layout/PageFrame';
 import { AgentCard } from '@/components/agents/AgentCard';
 import { RobotAvatar } from '@/components/art/RobotAvatar';
 import { Panel } from '@/components/ui/Panel';
@@ -20,7 +21,7 @@ import { ROLES } from '@/data/roles';
 import { DEPTS } from '@/data/orgdemo';
 import type { Agent } from '@/data/types';
 import { useTab } from '@/hooks/useTab';
-import { useData } from '@/store/data';
+import { useVisibleMissions } from '@/store/data';
 import { getMissionControl } from '@/data/missions';
 import { openDialog } from '@/store/ui';
 import { cx } from '@/lib/format';
@@ -30,10 +31,11 @@ import { Departments, Assignments, Policies, Proposals } from '@/features/agents
 
 type Filter = 'all' | 'working' | 'in-mission' | 'idle' | 'learning' | 'evolving';
 type View = 'cards' | 'list' | 'hierarchy';
-const TAB_ICONS = [Bot, Sprout, Activity, Building2, ClipboardList, ScrollText, Lightbulb];
+const TAB_ICONS = [Bot, Sprout, GitBranch, Activity, Building2, ClipboardList, ScrollText, Lightbulb];
 const TAB_NOTE: Record<string, string> = {
   Directory: 'One agent per role. Switch between cards, list and the zoomable hierarchy.',
   Development: 'Who is learning, who is evolving, and each agent’s development stage.',
+  Lineage: 'Derived agents and how their knowledge flows: kept, shared up, inherited.',
   'Live Instances': 'Mission-scoped instances with pinned versions and current tasks.',
   Departments: 'Charter, head, capacity, skill coverage and KPIs.',
   Assignments: 'Agent workload per mission and conflicts.',
@@ -46,8 +48,17 @@ const match = (a: Agent, f: Filter) =>
   f === 'all' ? true : f === 'working' ? a.status === 'active' || a.status === 'in-mission' : f === 'learning' || f === 'evolving' ? a.growth === f : a.status === f;
 const COUNTS: Record<Filter, number> = Object.fromEntries((['all', 'working', 'in-mission', 'idle', 'learning', 'evolving'] as Filter[]).map((f) => [f, STAFF.filter((a) => match(a, f)).length])) as Record<Filter, number>;
 
-export default function AgentsPage() {
-  const [tab, setTab, tabs] = useTab('agents');
+/** Old /agents links land in System Operations › Agents (owner update u1), keeping ?tab= as ?sub= and ?view=. */
+export default function AgentsRedirect() {
+  const [sp] = useSearchParams();
+  const n = new URLSearchParams(sp);
+  const t = n.get('tab'); n.delete('tab'); n.set('tab', 'agents'); if (t) n.set('sub', t);
+  return <Navigate to={`/operations?${n.toString()}`} replace />;
+}
+
+/** Agents, embedded in System Operations: returns the frame parts (KPIs, actions, sub-tabs, body, bottom boards). */
+export function useAgentsSection() {
+  const [tab, setTab, tabs] = useTab('agents', 'sub');
   const [sp, setSp] = useSearchParams();
   const view: View = (['cards', 'list', 'hierarchy'] as View[]).find((v) => v === sp.get('view')) ?? 'cards';
   const setView = (v: View) => setSp((p) => { const n = new URLSearchParams(p); n.set('view', v); return n; });
@@ -58,7 +69,7 @@ export default function AgentsPage() {
 
   const avg = Math.round((STAFF.reduce((s, a) => s + a.success, 0) / STAFF.length) * 10) / 10;
   const kpis: KpiItem[] = [
-    { key: 'all', icon: Bot, value: AGENTS.length, label: 'Agents', hint: 'one per role · no duplicates', color: '#22d3ee', help: 'agents.kpi.total', onClick: () => { setTab('Directory'); setFilter('all'); } },
+    { key: 'all', icon: Bot, value: AGENTS.length, label: 'Agents', hint: 'one per duty · no duplicates', color: '#22d3ee', help: 'agents.kpi.total', onClick: () => { setTab('Directory'); setFilter('all'); } },
     { key: 'work', icon: Activity, value: COUNTS.working, label: 'Working', hint: `${COUNTS['in-mission']} in missions · ${COUNTS.idle} idle`, color: '#3b82f6', help: 'agents.kpi.working', onClick: () => { setTab('Directory'); setFilter('working'); } },
     { key: 'learn', icon: GraduationCap, value: COUNTS.learning, label: 'Learning', hint: 'mentor exercises running', color: '#38bdf8', help: 'agents.kpi.learning', onClick: () => setTab('Development') },
     { key: 'evo', icon: Dna, value: COUNTS.evolving, label: 'Evolving', hint: 'candidates in the pipeline', color: '#c084fc', help: 'agents.kpi.evolving', onClick: () => setTab('Development') },
@@ -87,41 +98,33 @@ export default function AgentsPage() {
     && (!q || (a.name + ' ' + ROLES[a.role].label + ' ' + a.skills.join(' ') + ' ' + a.dept).toLowerCase().includes(q.toLowerCase()))), [filter, dept, q]);
   const reset = () => { setFilter('all'); setDept('all'); setQ(''); };
 
-  return (
-    <div className="page agents-page">
-      <TopBoard icon={Bot} title="Agents" help="agents.directory" sub="Every agent, where it sits in the hierarchy, and how it is developing."
-        actions={<>
-          <button className="btn" onClick={() => openDialog('department-create')}><Building2 size={15} />New department</button>
-          <button className="btn" onClick={() => openDialog('org-reorg-proposal', { moves: [] })}><GitPullRequest size={15} />Propose reorganization</button>
-          <button className="btn primary" onClick={() => openDialog('agent-create')}><Plus size={16} />New Agent</button>
-        </>}
-        kpis={kpis}
-        tabs={{ tabs, value: tab, onChange: setTab, icons: TAB_ICONS, ariaLabel: 'Agents views', counts: { Development: COUNTS.learning + COUNTS.evolving } }}
-        toolbar={toolbar} />
-
-      <FrameBody tab={dir ? `${tab}-${view}` : tab} scroll={!(dir && view === 'hierarchy')}
-        head={dir ? <><StatusChips value={filter} onChange={setFilter} /><span className="spacer" />{controls}</> : undefined}>
-        {dir && (list.length === 0 && view !== 'hierarchy'
-          ? <EmptyState icon={Bot} title="No agents match" body="Try another status, department or search term." action={<button className="btn" onClick={reset}>Clear filters</button>} />
-          : view === 'cards' ? <Cards list={list} />
-          : view === 'list' ? <AgentTable list={list} onOpen={(id) => nav(`/agents/${id}`)} />
-          : <AgentHierarchy highlight={(a) => a.id === 'gm' || list.includes(a)} />)}
-        {tab === 'Development' && <Development />}
-        {tab === 'Live Instances' && <LiveInstances />}
-        {tab === 'Departments' && <Departments />}
-        {tab === 'Assignments' && <Assignments />}
-        {tab === 'Policies' && <Policies />}
-        {tab === 'Proposals' && <Proposals />}
-      </FrameBody>
-
-      <BottomBoard id="agents" title="Agent boards">
-        <Lifecycle />
-        <StageBoard />
-        <TopPerformers />
-        <EvolutionPipeline />
-      </BottomBoard>
-    </div>
-  );
+  return {
+    kpis,
+    actions: <>
+      <button className="btn" onClick={() => openDialog('department-create')}><Building2 size={15} />New department</button>
+      <button className="btn primary" onClick={() => openDialog('agent-create')}><Plus size={16} />New Agent</button>
+    </>,
+    sub: { tabs, value: tab, onChange: setTab, icons: TAB_ICONS, counts: { Development: COUNTS.learning + COUNTS.evolving } },
+    toolbar,
+    bodyKey: dir ? `${tab}-${view}` : tab,
+    scroll: !(dir && view === 'hierarchy'),
+    head: dir ? <><StatusChips value={filter} onChange={setFilter} /><span className="spacer" />{controls}</> : null,
+    body: <>
+      {dir && (list.length === 0 && view !== 'hierarchy'
+        ? <EmptyState icon={Bot} title="No agents match" body="Try another status, department or search term." action={<button className="btn" onClick={reset}>Clear filters</button>} />
+        : view === 'cards' ? <Cards list={list} />
+        : view === 'list' ? <AgentTable list={list} onOpen={(id) => nav(`/agents/${id}`)} />
+        : <AgentHierarchy highlight={(a) => a.id === 'gm' || list.includes(a)} />)}
+      {tab === 'Development' && <Development />}
+      {tab === 'Lineage' && <Lineage />}
+      {tab === 'Live Instances' && <LiveInstances />}
+      {tab === 'Departments' && <Departments />}
+      {tab === 'Assignments' && <Assignments />}
+      {tab === 'Policies' && <Policies />}
+      {tab === 'Proposals' && <Proposals />}
+    </>,
+    bottom: <BottomBoard id="agents" title="Agent boards"><Lifecycle /><StageBoard /><TopPerformers /><EvolutionPipeline /></BottomBoard>,
+  };
 }
 
 function StatusChips({ value, onChange }: { value: Filter; onChange: (f: Filter) => void }) {
@@ -182,7 +185,7 @@ function Development() {
   const nav = useNavigate();
   const lanes: { key: Agent['growth']; title: string; sub: string }[] = [
     { key: 'learning', title: 'Learning', sub: 'Mentor exercises with before/after evidence' },
-    { key: 'evolving', title: 'Evolving', sub: 'Candidate versions moving through the Evolution Lab' },
+    { key: 'evolving', title: 'Evolving', sub: 'Candidate versions moving through the evolution pipeline' },
     { key: 'stable', title: 'Stable', sub: 'Promoted version, no change in progress' },
   ];
   return (
@@ -241,7 +244,7 @@ function Development() {
 }
 
 function LiveInstances() {
-  const missions = useData((s) => s.missions);
+  const missions = useVisibleMissions();
   const nav = useNavigate();
   const rows = useMemo(() => missions.filter((m) => !['archived', 'completed', 'draft'].includes(m.status)).flatMap((m) => getMissionControl(m).nodes.map((n) => ({ m, n }))).filter(({ n }) => AGENT_BY_ID[n.agentId]), [missions]);
   return (
@@ -282,7 +285,7 @@ function Lifecycle() {
     { label: 'Create', icon: Box, hue: 165, n: AGENTS.filter((a) => a.createdAgo <= 14).length, go: () => openDialog('agent-create') },
     { label: 'Learn', icon: Sparkles, hue: 195, n: COUNTS.learning, go: () => nav('/agents?tab=development') },
     { label: 'Deploy', icon: Rocket, hue: 215, n: COUNTS.working, go: () => nav('/agents?tab=live-instances') },
-    { label: 'Evolve', icon: Layers, hue: 285, n: COUNTS.evolving, go: () => nav('/evolution') },
+    { label: 'Evolve', icon: Layers, hue: 285, n: COUNTS.evolving, go: () => nav('/agents?tab=development') },
   ];
   return (
     <Panel icon={RefreshCcw} title="Agent Lifecycle" help="agents.lifecycle" delay={.15} className="bottom-panel">
@@ -354,7 +357,7 @@ function EvolutionPipeline() {
           const I = icons[i];
           return (
             <div key={p.key} className="row" style={{ gap: 2, flex: 1, minWidth: 0 }}>
-              <motion.button className={cx('evo-ph-node', at.length > 0 && 'on')} onClick={() => nav(`/evolution?tab=${['proposals', 'experiments', 'benchmarks', 'promotions'][i]}`)}
+              <motion.button className={cx('evo-ph-node', at.length > 0 && 'on')} onClick={() => nav('/agents?tab=development')}
                 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .3 + i * .1 }} aria-label={`${p.label}: ${at.map((a) => a.name).join(', ') || 'none'}`}>
                 <span className="evo-ph-ico"><I size={17} /></span>
                 <b>{p.label}</b>

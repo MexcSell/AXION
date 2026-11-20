@@ -1,7 +1,7 @@
 import type { HelpEntry } from '../registry';
 
 const h: Record<string, HelpEntry> = {
-  'mission.create': { title: 'Create a mission', what: 'A four-step wizard: Goal → Resources → Agents, policy & budget → Review. You cannot start a mission without at least one measurable success criterion.', how: 'Create Draft saves without running anything. Create & Start lets GM plan and staff the team. External actions still need approval.', shortcut: 'Ctrl + Enter = next step' },
+  'mission.create': { title: 'Add a mission', what: 'Write what you want done and attach files: images, audio, video, documents, PDFs or text. That is all you enter.', how: 'The General Manager appoints a general executor; the executor brings the agents. Each agent records its tokens, time, CPU and RAM. Ctrl Enter adds the mission.', permission: 'The mission is yours. Share it to make it visible to all users; administrators always see it.' },
   'mission.revision': { title: 'Mission revisions', what: 'Editing a mission creates a new definition revision. Running tasks keep the terms they started with unless you apply the change to them explicitly.' },
   'mission.delete': { title: 'Archive vs purge', what: 'Archive hides the mission but keeps everything recoverable until the retention date. Purge permanently deletes it and needs the Owner role plus a typed confirmation.' },
   'mission.lifecycle': { title: 'Start, pause, stop, retry', what: 'Pause stops agents before their next action and keeps their state. Stop finishes in-flight actions at a safe boundary and cancels the remaining tasks. Retry resumes from the last verified checkpoint.', permission: 'Form submissions and publishes are never auto-replayed.' },

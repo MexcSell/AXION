@@ -1,10 +1,12 @@
 // End-to-end interaction checks for the core owner flows (DEMO data, no backend).
 // Usage: BASE=http://127.0.0.1:5190 node scripts/flows.mjs
 import { chromium } from 'playwright';
+import { signIn } from './_session.mjs';
 import { writeFileSync } from 'node:fs';
 const base = process.env.BASE || 'http://127.0.0.1:5190';
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
 const ctx = await b.newContext({ viewport: { width: 1672, height: 941 } }); // fresh context = fresh DEMO data
+await signIn(ctx);
 await ctx.addInitScript(() => localStorage.setItem('axion.settings.v1', JSON.stringify({ state: { themeMode: 'dark', skin: 'luminous', motion: 'reduced' }, version: 0 })));
 const p = await ctx.newPage(); await p.addInitScript(() => localStorage.setItem('axion.testhook', '1'));
 const errors = [];
@@ -31,18 +33,18 @@ await step('Mission row anatomy: edit beside title, delete at far right, status 
   await expect(row.locator('.mission-summary').count(), 'no AI summary');
 });
 
-await step('Create mission via 4-step wizard (validation blocks empty goal)', async () => {
-  await p.getByRole('button', { name: 'Add Mission' }).first().click();
+await step('Add mission: content only (text + file) → GM appoints executor → agents join', async () => {
+  await p.getByRole('button', { name: 'Add Mission' }).first().click().catch(() => p.getByRole('button', { name: 'Add mission' }).first().click());
   await p.waitForSelector('[data-dialog="DL-01"]');
-  await p.getByRole('button', { name: 'Next' }).click();
-  await expect(p.locator('.field-error').count(), 'validation error not shown');
-  await p.locator('[data-dialog="DL-01"] input.input').first().fill('E2E: refresh pricing page');
-  await p.locator('[data-dialog="DL-01"] textarea').first().fill('Update the pricing page with the new plans and verify the layout.');
-  await p.locator('[data-dialog="DL-01"] input[aria-label="Criterion 1"]').fill('Pricing page preview approved by Owner');
-  for (let i = 0; i < 3; i++) await p.getByRole('button', { name: 'Next' }).click();
-  await p.getByRole('button', { name: 'Create & Start' }).click();
-  await p.waitForTimeout(600);
+  await expect(await p.locator('[data-dialog="DL-01"] button', { hasText: 'Add mission' }).isDisabled(), 'empty content must not be addable');
+  await p.locator('[data-dialog="DL-01"] textarea').first().fill('E2E: refresh pricing page. Research the three plans and update the website page.');
+  await p.locator('[data-dialog="DL-01"] input[type=file]').setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Plan A 9 / Plan B 19') });
+  await p.waitForSelector('[data-dialog="DL-01"] .ma-file');
+  await p.locator('[data-dialog="DL-01"] button', { hasText: 'Add mission' }).click();
+  await p.waitForTimeout(900);
   await expect(p.locator('.mission-row', { hasText: 'E2E: refresh pricing page' }).count(), 'new mission not in list');
+  await p.waitForSelector('.stf', { timeout: 5000 });
+  await p.waitForFunction(() => document.querySelectorAll('.stf-mini:not(.ghost)').length >= 1, null, { timeout: 12000 });
 });
 
 await step('Edit mission beside title creates a revision', async () => {
@@ -68,9 +70,10 @@ await step('Delete (archive) from the far-right trash icon', async () => {
   await expect(p.locator('.mission-row', { hasText: 'pricing page v2' }).count(), 'not in Archived');
 });
 
-await step('Approve a pending decision updates the governance badge', async () => {
+await step('Approve a pending decision updates the approvals count', async () => {
   await p.goto(base + '/missions/M-126?tab=approvals', { waitUntil: 'networkidle' });
-  const badge = async () => Number((await p.locator('.nav-item', { hasText: 'Governance' }).locator('.badge').textContent().catch(() => '0')) || 0);
+  // Governance was removed (owner update u1); the bell's label carries the pending-approvals count.
+  const badge = async () => Number(((await p.locator('.top-actions button[aria-label^="Notifications"]').getAttribute('aria-label')) ?? '').match(/(\d+) approvals/)?.[1] ?? 0);
   const before = await badge();
   await p.getByRole('button', { name: 'Approve once' }).first().click();
   await p.waitForTimeout(500);
@@ -97,6 +100,7 @@ await step('Missions: no team tree under the mission, no page-wide conversation 
 await step('Conversations: mission agents pane on the left switches the thread', async () => {
   await p.goto(base + '/missions/M-126?tab=conversations', { waitUntil: 'networkidle' });
   await p.waitForTimeout(600);
+  await p.locator('.conv-views [role="radio"]').last().click(); // A–Z list view (Graph is the default)
   await p.locator('.conv-agents .team-row', { hasText: 'Planner-01' }).click();
   await p.waitForTimeout(500);
   await expect(p.locator('.conv-main .msg-head', { hasText: 'Planner-01' }).count(), 'thread did not switch to Planner-01');
@@ -155,9 +159,9 @@ await step('Conversation: send command with image → ack → report upward', as
 
 await step('Command palette navigates (Ctrl+K)', async () => {
   await p.keyboard.press('Control+k');
-  await p.locator('.palette-input').fill('evolution lab');
+  await p.locator('.palette-input').fill('settings navigation');
   await p.keyboard.press('Enter');
-  await p.waitForURL(/\/evolution/);
+  await p.waitForURL(/\/settings\?tab=navigation/);
 });
 
 await step('Theme toggle switches html data-theme', async () => {
@@ -185,6 +189,60 @@ await step('Modal focus trap + Escape returns focus', async () => {
   await p.keyboard.press('Escape');
   await p.waitForTimeout(400);
   await expect((await p.locator('[aria-modal=true]').count()) === 0, 'dialog not closed');
+});
+
+await step('u1 · Search finds every kind of element (agent, VM, job site, help)', async () => {
+  await p.goto(base + '/missions', { waitUntil: 'networkidle' });
+  await p.keyboard.press('Control+k');
+  await p.locator('.palette-input').fill('upwork');
+  await p.waitForTimeout(250);
+  const groups = (await p.locator('.palette-group').allInnerTexts()).map((g) => g.toLowerCase());
+  await expect(groups.includes('agents') && groups.includes('job search'), `groups: ${groups.join(', ')}`);
+  await p.locator('.palette-input').fill('vm-gpu');
+  await p.keyboard.press('Enter');
+  await p.waitForURL(/\/operations\?tab=vms/);
+});
+
+await step('u1 · Settings › Navigation shows a hidden screen in the rail', async () => {
+  await p.goto(base + '/settings?tab=navigation', { waitUntil: 'networkidle' });
+  await expect((await p.locator('.rail-top .nav-item', { hasText: 'Overview' }).count()) === 0, 'Overview should be hidden by default');
+  await p.getByRole('switch', { name: 'Show Overview in the rail' }).click();
+  await p.waitForTimeout(300);
+  await expect(p.locator('.rail-top .nav-item', { hasText: 'Overview' }).count(), 'Overview not shown after toggle');
+  await p.getByRole('switch', { name: 'Show Overview in the rail' }).click();
+});
+
+await step('u1 · Job Search: add a site → its agent starts investigating', async () => {
+  await p.goto(base + '/plugins/job-search', { waitUntil: 'networkidle' });
+  await p.getByLabel('Job site URL').fill('remoteok.com');
+  await p.getByRole('button', { name: 'Add site and start searching' }).click();
+  await p.waitForSelector('.js-site.on >> text=remoteok.com', { timeout: 5000 });
+  await p.waitForFunction(() => document.querySelectorAll('.js-step').length > 0, null, { timeout: 8000 });
+});
+
+await step('u1 · News: post news, it appears for everyone', async () => {
+  await p.goto(base + '/notifications?tab=news', { waitUntil: 'networkidle' });
+  await p.getByRole('button', { name: 'Add news' }).click();
+  await p.locator('.modal input.input').first().fill('E2E news headline');
+  await p.locator('.modal textarea').fill('Posted by the flow test.');
+  await p.getByRole('button', { name: 'Post' }).click();
+  await p.waitForSelector('.news-card >> text=E2E news headline', { timeout: 4000 });
+});
+
+await step('u1 · Chat dock: GM answers', async () => {
+  await p.getByRole('button', { name: /^Chat with the General Manager/ }).click();
+  await p.locator('.chat-dock textarea').fill('status please');
+  await p.keyboard.press('Enter');
+  await p.waitForFunction(() => [...document.querySelectorAll('.chat-dock .bubble-row.left')].length >= 2, null, { timeout: 6000 });
+  await p.keyboard.press('Escape');
+});
+
+await step('u1 · VMs: create a VM', async () => {
+  await p.goto(base + '/operations?tab=vms', { waitUntil: 'networkidle' });
+  await p.getByRole('button', { name: 'Create VM' }).click();
+  await p.locator('.modal input.input').first().fill('vm-e2e');
+  await p.locator('.modal').getByRole('button', { name: 'Create' }).click();
+  await p.waitForSelector('.vm-card >> text=vm-e2e', { timeout: 4000 });
 });
 
 await step('Help popover inside a dialog: Tab stays in popover, Esc closes popover then dialog', async () => {

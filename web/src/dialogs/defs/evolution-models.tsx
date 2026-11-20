@@ -2,7 +2,7 @@ import { motion } from 'motion/react';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Power, Trash2, SlidersHorizontal, Ban, Download } from 'lucide-react';
-import { Plug, Route as RouteIcon, FlaskConical, Mic, Wallet, Trophy, ArrowUp, ArrowDown, X, ShieldCheck, Crown, Lock, AlertTriangle, CheckCircle2, XCircle, Play, RefreshCcw, KeyRound } from 'lucide-react';
+import { Plug, Route as RouteIcon, FlaskConical, Mic, ArrowUp, ArrowDown, X, ShieldCheck, Crown, Lock, AlertTriangle, CheckCircle2, Play, RefreshCcw, KeyRound } from 'lucide-react';
 import type { DialogComponentProps } from '@/dialogs/DialogHost';
 import { Modal } from '@/components/ui/Modal';
 import { Field, SwitchRow, Segmented, Switch } from '@/components/ui/Form';
@@ -10,10 +10,7 @@ import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { KIND_ICON, RUNTIME, runtimeOf, UseRing, TraitBars, CapacityLine } from '@/pages/_modelParts';
 import { Chip } from '@/components/ui/Chips';
 import { toast } from '@/store/ui';
-import { MODELS, MODEL_BY_ID, PROVIDERS, ROUTE_ROLES, LOCAL_HOST, useRoutes, useModelState, useVoice, validateRoute, type ModelKind } from '@/data/models';
-import { PROPOSALS, EXPERIMENTS, PROMOTIONS, usePromos, LADDER } from '@/data/evolution';
-import { LIMITS, useLimits } from '@/data/usage';
-import { money } from '@/lib/format';
+import { MODELS, MODEL_BY_ID, PROVIDERS, ROUTE_ROLES, LOCAL_HOST, useRoutes, useModelState, useVoice, validateRoute, usageShare, type ModelKind } from '@/data/models';
 import '@/theme/pages/evolution-models-usage.css';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -41,7 +38,7 @@ function ModelAdd({ close, props }: DialogComponentProps<{ preset?: string; prov
   const submit = async () => {
     setTouched(true); if (bad) return;
     setBusy(true); await sleep(1300);
-    addModel({ id: id.trim(), name: id.trim(), kind, provider, local: p?.kind === 'local', status: 'optional', ctx, modalities: vision ? ['text', 'image'] : ['text'], costIn: null, costOut: null, costUnit: 'est.', latencyMs: 800, json, blurb: 'Added by you (demo)', hue: 165 });
+    addModel({ id: id.trim(), name: id.trim(), kind, provider, local: p?.kind === 'local', status: 'optional', ctx, modalities: vision ? ['text', 'image'] : ['text'], latencyMs: 800, json, blurb: 'Added by you (demo)', hue: 165 });
     toast({ tone: 'success', title: 'Connection validated (demo)', body: `${id.trim()} was added as optional. The credential was stored encrypted and is never shown again.` });
     close();
   };
@@ -71,16 +68,15 @@ function ModelAdd({ close, props }: DialogComponentProps<{ preset?: string; prov
 
 /* ------------------------------------------------------------------ DL-42 */
 function RouteEditor({ close, props }: DialogComponentProps<{ role?: string }>) {
-  const { routes, caps, setRoute, setCap, extra } = useRoutes();
+  const { routes, setRoute, extra } = useRoutes();
   const [role, setRole] = useState(props.role ?? 'Planner');
   const [list, setList] = useState<string[]>(routes[role]);
-  const [cap, setCapL] = useState(caps[role]);
   const all = [...extra, ...MODELS];
-  const pick = (r: string) => { setRole(r); setList(routes[r]); setCapL(caps[r]); };
+  const pick = (r: string) => { setRole(r); setList(routes[r]); };
   const issues = useMemo(() => validateRoute(role, list), [role, list]);
   const move = (i: number, d: number) => { const l = [...list]; const j = i + d; if (j < 0 || j >= l.length) return; [l[i], l[j]] = [l[j], l[i]]; setList(l); };
   const fatal = issues.filter((x) => x.startsWith('Primary') || x === 'No model assigned');
-  const save = () => { if (fatal.length) return; setRoute(role, list); setCap(role, cap); toast({ tone: 'success', title: `${role} routing saved (demo)`, body: `${list.length} models, daily cap ${money(cap, 0)}. Running missions keep their pinned routes.` }); close(); };
+  const save = () => { if (fatal.length) return; setRoute(role, list); toast({ tone: 'success', title: `${role} routing saved (demo)`, body: `${list.length} models. Running missions keep their pinned routes.` }); close(); };
   return (
     <Modal title="Edit model route" icon={RouteIcon} help="models.routing" dialogId="DL-42" size="lg" onClose={close} sub="Order decides precedence. Incompatible primaries are blocked."
       footer={<><button className="btn" onClick={close}>Cancel</button><button className="btn primary" disabled={fatal.length > 0} onClick={save}>Save route</button></>}>
@@ -94,7 +90,6 @@ function RouteEditor({ close, props }: DialogComponentProps<{ role?: string }>) 
           ))}
         </div>
         <Field label="Add fallback"><select className="select" value="" onChange={(e) => e.target.value && setList([...list, e.target.value])}><option value="">Choose a model...</option>{all.filter((m) => !list.includes(m.id)).map((m) => <option key={m.id} value={m.id}>{m.name} ({m.kind})</option>)}</select></Field>
-        <Field label={`Daily budget cap: ${money(cap, 0)}`} hint="When reached, the role uses local models or pauses."><input type="range" className="range" min={20} max={1500} step={10} value={cap} onChange={(e) => setCapL(+e.target.value)} /></Field>
         <div className="col" style={{ gap: 4 }}>
           {issues.length === 0 ? <span className="good" style={{ fontSize: 12.5 }}><CheckCircle2 size={13} style={{ display: 'inline', verticalAlign: -2 }} /> Route is compatible.</span> : issues.map((x) => <span key={x} className={x.startsWith('Primary') || x === 'No model assigned' ? 'bad' : 'warn'} style={{ fontSize: 12.5 }}><AlertTriangle size={13} style={{ display: 'inline', verticalAlign: -2 }} /> {x}</span>)}
         </div>
@@ -117,7 +112,7 @@ function PlaygroundDialog({ close, props }: DialogComponentProps<{ model?: strin
     for (let i = 1; i <= 10; i++) { await sleep(150); setPct(i * 10); }
     setState('done');
   };
-  const rows = sel.map((id) => { const m = MODEL_BY_ID[id]; return { m, score: Math.round(86 + (m.costOut ?? 5) / 8 + (m.json ? 2 : -4)), ms: m.latencyMs, cost: Math.round(((m.costOut ?? 0) * n * 0.0007) * 100) / 100, json: m.json ? 100 : 80 }; });
+  const rows = sel.map((id) => { const m = MODEL_BY_ID[id]; return { m, score: Math.round(70 + (m.traits?.quality ?? 80) / 4 + (m.json ? 2 : -4)), ms: m.latencyMs, tokens: Math.round(n * (1200 + (100 - (m.traits?.tokenEff ?? 60)) * 30)), json: m.json ? 100 : 80 }; });
   return (
     <Modal title="Benchmark test" icon={FlaskConical} help="models.playground" dialogId="DL-43" size="lg" onClose={close} sub="Compare models on a sample. Results never change production routing."
       footer={<><button className="btn" onClick={close}>Close</button><button className="btn primary" disabled={state === 'run' || sel.length === 0} onClick={run}>{state === 'run' ? <><RefreshCcw size={14} className="emu-spin" />Running {pct}%</> : <><Play size={14} />Run benchmark</>}</button></>}>
@@ -128,8 +123,8 @@ function PlaygroundDialog({ close, props }: DialogComponentProps<{ model?: strin
         {state === 'run' && <div className="bar"><motion.i animate={{ width: `${pct}%` }} /></div>}
         {state === 'done' && (
           <motion.div className="table-wrap" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-            <table className="table"><thead><tr><th>Model</th><th>Quality</th><th>JSON valid</th><th>Latency</th><th>Est. cost</th></tr></thead>
-              <tbody>{rows.map((r) => <tr key={r.m.id}><td><b>{r.m.name}</b></td><td className="tnum">{Math.min(r.score, 99)}</td><td className={'tnum ' + (r.json === 100 ? 'good' : 'warn')}>{r.json}%</td><td className="tnum">{r.ms} ms</td><td className="tnum">{money(r.cost)}</td></tr>)}</tbody></table>
+            <table className="table"><thead><tr><th>Model</th><th>Quality</th><th>JSON valid</th><th>Latency</th><th>Tokens used</th></tr></thead>
+              <tbody>{rows.map((r) => <tr key={r.m.id}><td><b>{r.m.name}</b></td><td className="tnum">{Math.min(r.score, 99)}</td><td className={'tnum ' + (r.json === 100 ? 'good' : 'warn')}>{r.json}%</td><td className="tnum">{r.ms} ms</td><td className="tnum">{r.tokens.toLocaleString()}</td></tr>)}</tbody></table>
           </motion.div>
         )}
         <div className="dim" style={{ fontSize: 11.5 }}><Lock size={11} style={{ display: 'inline' }} /> {kind === 'audio' ? 'Audio samples require microphone consent and are discarded after the run.' : 'Sandboxed calls. No production auto-routing.'}</div>
@@ -164,137 +159,20 @@ function VoiceSettings({ close }: DialogComponentProps) {
 }
 
 /* ------------------------------------------------------------------ DL-51 */
-function BudgetLimit({ close, props }: DialogComponentProps<{ key?: string; cap?: number }>) {
-  const over = useLimits((s) => s.over);
-  const save = useLimits((s) => s.save);
-  const rev = useLimits((s) => s.revisions);
-  const [key, setKey] = useState(props.key ?? LIMITS[0].key);
-  const l = LIMITS.find((x) => x.key === key) ?? LIMITS[0];
-  const cur = over[l.key] ?? { soft: l.soft, cap: l.cap };
-  const [soft, setSoft] = useState(cur.soft);
-  const [cap, setCap] = useState(props.cap ?? cur.cap);
-  const [scope, setScope] = useState('This month');
-  const [cons, setCons] = useState(l.consequence);
-  const [why, setWhy] = useState('');
-  const [t, setT] = useState(false);
-  const pick = (k: string) => { const x = LIMITS.find((y) => y.key === k)!; const c = over[k] ?? { soft: x.soft, cap: x.cap }; setKey(k); setSoft(c.soft); setCap(c.cap); setCons(x.consequence); };
-  const err = { soft: soft >= cap ? 'Soft cap must be below the hard cap' : soft <= 0 ? 'Must be positive' : '', cap: cap < l.used ? `Below current use (${l.used.toLocaleString()}): this would trigger the consequence immediately` : '', why: why.trim().length < 5 ? 'Add a short reason for the audit log' : '' };
-  const hard = !!err.soft || !!err.why; // cap<used is a warning that still allows save
-  const pctUsed = Math.min(100, (l.used / cap) * 100);
-  return (
-    <Modal title="Budget limit editor" icon={Wallet} help="usage.limits" dialogId="DL-51" onClose={close} sub={`Saving creates limit revision r${rev + 1}.`}
-      footer={<><button className="btn" onClick={close}>Cancel</button><button className="btn primary" onClick={() => { setT(true); if (hard) return; save(l.key, { soft, cap, note: why }); toast({ tone: 'success', title: `Limit revision r${rev + 1} saved (demo)`, body: `${l.key}: soft ${soft.toLocaleString()}, hard ${cap.toLocaleString()}. Logged for audit.` }); close(); }}>Save limit revision</button></>}>
-      <div className="col" style={{ gap: 12 }}>
-        <Field label="Limit"><select className="select" data-autofocus value={key} onChange={(e) => pick(e.target.value)}>{LIMITS.map((x) => <option key={x.key}>{x.key}</option>)}</select></Field>
-        <div className="grid g-2" style={{ gap: 10 }}>
-          <Field label={`Soft cap (warn)${l.unit === '$' ? ' $' : ''}`} error={t ? err.soft : undefined}><input className="input" type="number" value={soft} onChange={(e) => setSoft(+e.target.value)} /></Field>
-          <Field label={`Hard cap (enforce)${l.unit === '$' ? ' $' : ''}`} hint={err.cap ? undefined : undefined} error={err.cap || undefined}><input className="input" type="number" value={cap} onChange={(e) => setCap(+e.target.value)} /></Field>
-        </div>
-        <div><div className="row dim" style={{ fontSize: 12, marginBottom: 4 }}>Current use {l.used.toLocaleString()} ({Math.round(pctUsed)}% of hard cap)</div><div className={'bar ' + (l.used >= cap ? 'bad' : l.used >= soft ? 'warn' : 'good')} style={{ position: 'relative' }}><motion.i animate={{ width: `${pctUsed}%` }} /><span className="emu-soft" style={{ left: `${Math.min(100, (soft / cap) * 100)}%` }} /></div></div>
-        <div className="grid g-2" style={{ gap: 10 }}>
-          <Field label="Date scope"><select className="select" value={scope} onChange={(e) => setScope(e.target.value)}>{['This month', 'Rolling 30 days', 'Daily', 'Until changed'].map((x) => <option key={x}>{x}</option>)}</select></Field>
-          <Field label="Consequence at hard cap"><select className="select" value={cons} onChange={(e) => setCons(e.target.value)}>{Array.from(new Set([l.consequence, 'Pause non-critical missions', 'Fall back to local models', 'Queue new work'])).map((x) => <option key={x}>{x}</option>)}</select></Field>
-        </div>
-        <Field label="Reason" required error={t ? err.why : undefined}><input className="input" placeholder="e.g. Q4 launch needs more headroom" value={why} onChange={(e) => setWhy(e.target.value)} /></Field>
-      </div>
-    </Modal>
-  );
-}
-
-/* ------------------------------------------------------------------ DL-54 */
-function ExperimentDialog({ close, props }: DialogComponentProps<{ proposalId?: string }>) {
-  const open = PROPOSALS.filter((p) => !['promoted', 'rejected'].includes(p.status));
-  const [pid, setPid] = useState(props.proposalId ?? open[0].id);
-  const p = PROPOSALS.find((x) => x.id === pid) ?? open[0];
-  const [hyp, setHyp] = useState(p.hypothesis);
-  const [sets, setSets] = useState<Record<string, boolean>>({ fixed: true, fresh: true, regression: true, security: p.tier === 'L3' || p.tier === 'L4' });
-  const [evaluator, setEvaluator] = useState('Tester-01');
-  const [budget, setBudget] = useState(24);
-  const [t, setT] = useState(false);
-  const pick = (id: string) => { setPid(id); setHyp(PROPOSALS.find((x) => x.id === id)!.hypothesis); };
-  const tier = LADDER.find((l) => l.tier === p.tier)!;
-  const missing = tier.tests.filter((k) => !sets[k]);
-  const err = { eval: evaluator === p.author ? `The evaluator cannot be the author (${p.author})` : '', sets: missing.length ? `${p.tier} requires: ${missing.join(', ')}` : '', hyp: hyp.trim().length < 12 ? 'State a testable hypothesis' : '' };
-  const bad = Object.values(err).some(Boolean);
-  return (
-    <Modal title="Evolution experiment" icon={FlaskConical} help="evo.experiment" dialogId="DL-54" size="lg" onClose={close} sub="Baseline vs candidate, run in isolation."
-      footer={<><button className="btn" onClick={close}>Cancel</button><button className="btn primary" onClick={() => { setT(true); if (bad) return; toast({ tone: 'success', title: 'Isolated experiment started (demo)', body: `${p.id}: ${p.baseline} vs ${p.candidate}, evaluator ${evaluator}, cap $${budget}.` }); close(); }}>Start isolated experiment</button></>}>
-      <div className="col" style={{ gap: 12 }}>
-        <div className="grid g-2" style={{ gap: 10 }}>
-          <Field label="Proposal"><select className="select" data-autofocus value={pid} onChange={(e) => pick(e.target.value)}>{open.map((x) => <option key={x.id} value={x.id}>{x.id} · {x.title}</option>)}</select></Field>
-          <Field label="Risk tier"><div className="row" style={{ gap: 6 }}><Chip hue={tier.hue}>{tier.tier} {tier.name}</Chip><Chip hue={p.risk === 'high' ? 350 : p.risk === 'medium' ? 40 : 150}>{p.risk} risk</Chip>{tier.owner && <Chip hue={40} icon={Crown}>Owner gate</Chip>}</div></Field>
-        </div>
-        <Field label="Hypothesis" required error={t ? err.hyp : undefined}><textarea className="textarea" rows={2} value={hyp} onChange={(e) => setHyp(e.target.value)} /></Field>
-        <div className="grid g-2" style={{ gap: 10 }}>
-          <Field label="Baseline"><input className="input" value={p.baseline} readOnly /></Field>
-          <Field label="Candidate"><input className="input" value={p.candidate} readOnly /></Field>
-        </div>
-        <Field label="Datasets" error={t ? err.sets : undefined} hint={`${p.tier} requires ${tier.tests.join(', ')}. The fresh set is hidden from the author.`}>
-          <div className="row wrap" style={{ gap: 14 }}>{['fixed', 'fresh', 'regression', 'security'].map((k) => <label key={k} className="row" style={{ gap: 6, fontSize: 13, textTransform: 'capitalize' }}><input type="checkbox" checked={!!sets[k]} onChange={(e) => setSets((s) => ({ ...s, [k]: e.target.checked }))} />{k}</label>)}</div>
-        </Field>
-        <div className="grid g-2" style={{ gap: 10 }}>
-          <Field label="Independent evaluator" help="evo.independence" error={err.eval || undefined} hint={err.eval ? undefined : 'Cannot adjust thresholds after seeing results.'}><select className="select" value={evaluator} onChange={(e) => setEvaluator(e.target.value)}>{['Tester-01', 'Security-01', 'Auditor-01', p.author].filter((x, i, a) => a.indexOf(x) === i).map((x) => <option key={x}>{x}</option>)}</select></Field>
-          <Field label={`Resource cap: $${budget}`} hint="Run stops when the cap is reached."><input type="range" className="range" min={5} max={80} value={budget} onChange={(e) => setBudget(+e.target.value)} /></Field>
-        </div>
-        <div className="row emu-note"><ShieldCheck size={15} className="good" /><span style={{ fontSize: 12 }}>Risks: runs in <b>sandbox-3</b> with no production credentials or website grants. Source and org changes still need the Owner after the experiment.</span></div>
-      </div>
-    </Modal>
-  );
-}
-
-/* ------------------------------------------------------------------ DL-55 */
-function PromotionDialog({ close, props }: DialogComponentProps<{ id?: string; mode?: 'approve' | 'reject' }>) {
-  const p = PROMOTIONS.find((x) => x.id === props.id) ?? PROMOTIONS[0];
-  const decide = usePromos((s) => s.decide);
-  const reject = props.mode === 'reject';
-  const [comment, setComment] = useState('');
-  const [indep, setIndep] = useState(false);
-  const [ack, setAck] = useState(false);
-  const [t, setT] = useState(false);
-  const exp = EXPERIMENTS.find((e) => e.proposal === p.proposal);
-  const err = { comment: reject && comment.trim().length < 5 ? 'A reason is required to reject' : '', indep: !reject && !indep ? 'Confirm you are independent of the author' : '', ack: !reject && p.secRegressions > 0 && !ack ? 'Acknowledge the security regression' : '' };
-  const bad = Object.values(err).some(Boolean);
-  const go = () => { setT(true); if (bad) return; decide(p.id, { verdict: reject ? 'rejected' : 'approved', comment: comment.trim(), at: Date.now() }); toast({ tone: reject ? 'warning' : 'success', title: reject ? `${p.id} rejected (demo)` : `${p.id} approved (demo)`, body: reject ? `${p.from} remains stable. Decision logged.` : `Staged rollout ${p.rollout.join(' / ')}% started with rollback armed.` }); close(); };
-  return (
-    <Modal title={reject ? 'Reject promotion' : 'Owner approval'} icon={Trophy} tone={reject ? 'warn' : 'default'} help="evo.promotion" dialogId="DL-55" size="lg" onClose={close} sub={`${p.id} · ${p.title} · ${p.from} to ${p.to}`}
-      footer={<><button className="btn" data-autofocus onClick={close}>Cancel</button>{reject ? <button className="btn danger" onClick={go}><XCircle size={14} />Reject promotion</button> : <button className="btn good" onClick={go}><Crown size={14} />Approve and start rollout</button>}</>}>
-      <div className="col" style={{ gap: 12 }}>
-        <div className="grid g-3" style={{ gap: 8 }}>
-          <div className="emu-mini"><span className="dim">Metric delta</span><b className="good">{p.delta}</b></div>
-          <div className="emu-mini"><span className="dim">Confidence</span><b>{p.confidence}%{exp ? ` · n=${exp.baseline.n + exp.candidate.n}` : ''}</b></div>
-          <div className="emu-mini"><span className="dim">Security regressions</span><b className={p.secRegressions ? 'bad' : 'good'}>{p.secRegressions}</b></div>
-        </div>
-        <div><div className="section-label">Reviewers and independence</div>
-          <div className="col" style={{ gap: 5, marginTop: 6 }}>{p.reviewers.map((r) => <div key={r.name} className="emu-rev"><b style={{ fontSize: 12.5 }}>{r.name}</b><span className="dim" style={{ fontSize: 11.5 }}>{r.kind}</span><span className="spacer" />{r.kind === 'author' ? <Chip hue={30} size="sm" icon={Lock}>cannot approve own change</Chip> : <Chip hue={150} size="sm" icon={ShieldCheck}>independent</Chip>}{r.kind === 'owner' ? <Chip hue={40} size="sm">you</Chip> : r.done ? <CheckCircle2 size={14} className="good" /> : <AlertTriangle size={14} className="warn" />}</div>)}</div></div>
-        <div className="row emu-note"><RouteIcon size={15} className="info" /><span style={{ fontSize: 12 }}><b>Rollback:</b> {p.rollback}. New instances only; running missions stay pinned.</span></div>
-        {!reject && p.secRegressions > 0 && <label className="row warn" style={{ gap: 8, fontSize: 13 }}><input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} /> I reviewed the {p.secRegressions} security regression and accept the risk.</label>}
-        {t && err.ack && <span className="field-error" role="alert">{err.ack}</span>}
-        {!reject && <label className="row" style={{ gap: 8, fontSize: 13 }}><input type="checkbox" checked={indep} onChange={(e) => setIndep(e.target.checked)} /> I did not author or evaluate this candidate.</label>}
-        {t && err.indep && <span className="field-error" role="alert">{err.indep}</span>}
-        <Field label={reject ? 'Reason' : 'Comment (optional)'} required={reject} error={t ? err.comment : undefined}><textarea className="textarea" rows={2} value={comment} onChange={(e) => setComment(e.target.value)} placeholder={reject ? 'Why is this not ready?' : 'Anything to record with the decision'} /></Field>
-      </div>
-    </Modal>
-  );
-}
-
-/* ------------------------------------------------------------------ DL-41b */
 /** Model management window: characteristics, usage, local capacity and controls for one model. */
 function ModelManage({ close, props }: DialogComponentProps<{ id?: string }>) {
   const nav = useNavigate();
   const extra = useRoutes((s) => s.extra);
   const m = [...extra, ...MODELS].find((x) => x.id === props.id) ?? MODELS[1];
   const st = useModelState(m);
-  const { setOff, setQuota, setLoaded, remove, routes, setRoute } = useRoutes();
+  const { setOff, setLoaded, remove, routes, setRoute, extra: ex2 } = useRoutes();
   const K = KIND_ICON[m.kind];
   const R = RUNTIME[runtimeOf(m)];
-  const [quota, setQ] = useState(String(st.quota ?? ''));
   const [quant, setQuant] = useState(m.weights?.quant ?? 'Q4_K_M');
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmRm, setConfirmRm] = useState(false);
   const defaultFor = ROUTE_ROLES.filter((r) => routes[r.role]?.[0] === m.id).map((r) => r.role);
   const [role, setRole] = useState(ROUTE_ROLES.find((r) => !defaultFor.includes(r.role))?.role ?? ROUTE_ROLES[0].role);
-  const qNum = Number(quota);
-  const qErr = m.usage && (!quota.trim() || !Number.isFinite(qNum) || qNum <= 0) ? 'Enter a positive number' : m.usage && qNum < m.usage.used ? `Below current use (${m.usage.used} ${m.usage.unit}); new calls would stop now` : '';
   const act = async (key: string, ms: number, done: () => void) => { setBusy(key); await sleep(ms); setBusy(null); done(); };
   const spin = (k: string) => busy === k ? <RefreshCcw size={13} className="emu-spin" /> : null;
   return (
@@ -323,26 +201,22 @@ function ModelManage({ close, props }: DialogComponentProps<{ id?: string }>) {
             </>}
             <dl className="emu-spec" style={{ marginBottom: 0 }}>
               <div><dt>Context</dt><dd>{m.ctx}</dd></div><div><dt>Latency p50</dt><dd>{m.latencyMs} ms</dd></div>
-              <div><dt>Price</dt><dd>{m.costIn == null ? '-' : m.costIn === 0 ? 'free' : `$${m.costIn}${m.costOut != null ? `/$${m.costOut}` : ''}`}<span className="dim"> {m.costIn ? m.costUnit : ''}</span></dd></div>
+              <div><dt>Runs</dt><dd>{m.local ? 'on our host' : 'remote API'}</dd></div>
             </dl>
           </section>
 
           <section className="subpanel">
             <div className="row" style={{ gap: 6, marginBottom: 8 }}><b>Usage</b><HelpTrigger k="models.manage.usage" /></div>
-            {m.usage && st.quota ? <>
+            {m.usage ? <>
               <div className="row" style={{ gap: 16 }}>
-                <UseRing used={m.usage.used} total={st.quota} unit={m.usage.unit} caption="Used" size={104} stroke={9} />
+                <UseRing share used={m.usage.used} total={m.usage.used / Math.max(usageShare(m, [...ex2, ...MODELS]), 1e-9)} unit={m.usage.unit} size={104} stroke={9} />
                 <div className="col" style={{ gap: 4, fontSize: 12.5 }}>
                   <span><span className="dim">Period: </span>{m.usage.period}</span>
                   <span><span className="dim">Calls: </span><b className="tnum">{m.usage.calls.toLocaleString()}</b></span>
-                  <span><span className="dim">Left: </span><b className="tnum">{Math.max(0, st.quota - m.usage.used)} {m.usage.unit}</b></span>
+                  <span><span className="dim">Share: </span><b className="tnum">{Math.round(usageShare(m, [...ex2, ...MODELS]) * 100)}% of company use</b></span>
                 </div>
               </div>
-              <Field label={`Monthly limit (${m.usage.unit})`} help="models.manage.quota" error={qErr || undefined} hint="The gateway pauses new calls at the limit and switches to the role's fallback.">
-                <div className="row" style={{ gap: 8 }}><input className="input" inputMode="decimal" value={quota} onChange={(e) => setQ(e.target.value)} aria-label="Monthly limit" />
-                  <button className="btn" disabled={!!qErr || qNum === st.quota} onClick={() => { setQuota(m.id, qNum); toast({ tone: 'success', title: 'Limit saved (demo)', body: `${m.name}: ${qNum} ${m.usage!.unit} per month.` }); }}>Save</button></div>
-              </Field>
-            </> : <div className="row emu-note"><Ban size={15} className="dim" /><span style={{ fontSize: 12.5 }}>{m.status === 'disabled' ? 'Disabled models report no usage.' : 'This runtime does not report metered usage. Local cost is the capacity it occupies, shown below.'}</span></div>}
+            </> : <div className="row emu-note"><Ban size={15} className="dim" /><span style={{ fontSize: 12.5 }}>{m.status === 'disabled' ? 'Disabled models report no usage.' : 'This runtime does not report usage. What it occupies on the host is shown below.'}</span></div>}
             <Field label="Make default for a role" help="models.manage.default" hint={defaultFor.length ? `Already first choice for: ${defaultFor.join(', ')}` : 'Moves this model to the top of that role\'s fallback list.'}>
               <div className="row" style={{ gap: 8 }}>
                 <select className="select" value={role} onChange={(e) => setRole(e.target.value)} aria-label="Role">{ROUTE_ROLES.map((r) => <option key={r.role} value={r.role}>{r.role}</option>)}</select>
@@ -392,7 +266,4 @@ export const dialogs = {
   'model-route-editor': RouteEditor,
   'model-playground': PlaygroundDialog,
   'voice-settings': VoiceSettings,
-  'budget-limit': BudgetLimit,
-  'evolution-experiment': ExperimentDialog,
-  'evolution-promotion': PromotionDialog,
 };
