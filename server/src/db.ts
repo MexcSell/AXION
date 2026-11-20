@@ -3,7 +3,7 @@ import pg from 'pg';
 /** Postgres pool. search_path is set per connection (startup option) so every pooled client sees the same schema. */
 export function makePool(databaseUrl: string, schema?: string, max = 10): pg.Pool {
   if (schema && !/^[a-z_][a-z0-9_]*$/.test(schema)) throw new Error('bad schema name');
-  const pool = new pg.Pool({ connectionString: databaseUrl, max, ...(schema ? { options: `-c search_path=${schema}` } : {}) });
+  const pool = new pg.Pool({ connectionString: databaseUrl, max, connectionTimeoutMillis: 5000, idleTimeoutMillis: 30000, ...(schema ? { options: `-c search_path=${schema}` } : {}) });
   pool.on('error', () => { /* idle client died; the pool replaces it */ });
   return pool;
 }

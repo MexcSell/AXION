@@ -67,10 +67,10 @@ describe('event stream', () => {
     sa.close();
     for (const a of ['pause', 'resume', 'pause']) await mina.b.req('POST', `/missions/${m.id}/actions/${a}`, {}, { 'idempotency-key': a + n++ });
     const again = await openStream(base, mina.b, first!.id); streams.push(again);
-    await again.waitFor((e) => e.event === 'mission.stateChanged' && e.data.payload.to === 'paused' && e.data.payload.from === 'running');
+    await again.waitFor((e) => e.event === 'mission.stateChanged' && e.data.payload.to === 'paused' && e.data.payload.from === 'planning');
     await new Promise((r) => setTimeout(r, 200));
     const got = again.events.filter((e) => e.event.startsWith('mission.'));
-    expect(got.map((e) => e.data.payload.to)).toEqual(['paused', 'running', 'paused']);
+    expect(got.map((e) => e.data.payload.to)).toEqual(['paused', 'planning', 'paused']); // resume returns to where it was paused (review I4)
     const ids = got.map((e) => Number(e.id));
     expect([...ids].sort((x, y) => x - y)).toEqual(ids);
     expect(new Set(ids).size).toBe(ids.length);

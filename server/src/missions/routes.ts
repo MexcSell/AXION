@@ -39,8 +39,8 @@ export default async function missionRoutes(app: FastifyInstance) {
     const ctx = await requireUser(req);
     const b = parse(CreateIn, req.body);
     if (!b.text.trim() && !b.files.length) throw new ApiError('VALIDATION', 400, 'Describe the mission or attach a file.', { fieldErrors: { text: 'empty' } });
-    const out = await idempotent(app.db, req, ctx, async () => {
-      const m = await tx(app.db, async (c) => {
+    const out = await idempotent(app.db, req, ctx, async (c) => {
+      const m = await (async () => {
         const files = await filesFor(c, ctx, b.files);
         const id = await nextMissionId(c);
         const d = defaultPresentation(b.text, files, ctx.user.name);
@@ -55,7 +55,7 @@ export default async function missionRoutes(app: FastifyInstance) {
         await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'mission.create', subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { shared: b.shared, files: files.length } });
         await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'mission.created', subject: id, missionId: id, payload: { status } });
         return missionDto(await loadRow(c, id));
-      });
+      })();
       return { status: 201, body: { mission: m } };
     });
     if (out.status === 201) app.onMissionChanged?.((out.body as { mission: { id: string } }).mission.id, 'planning');
@@ -113,19 +113,25 @@ export default async function missionRoutes(app: FastifyInstance) {
     const { id, action } = req.params as { id: string; action: string };
     if (!(USER_ACTIONS as readonly string[]).includes(action)) throw new ApiError('ACTION_NOT_ALLOWED', 403, 'This action is not available to people.');
     const b = parse(z.object({ cancelFirst: z.boolean().optional() }), req.body);
-    const out = await idempotent(app.db, req, ctx, async () => {
-      const m = await tx(app.db, async (c) => {
+    const out = await idempotent(app.db, req, ctx, async (c) => {
+      const m = await (async () => {
         const r = await getVisibleRow(c, ctx, id, true);
         let from = r.status as MissionStatus;
         const steps: [MissionStatus, MissionAction, MissionStatus][] = [];
         if (action === 'archive' && b.cancelFirst && !['completed', 'canceled', 'failed'].includes(from)) {
           const to = transition(from, 'cancel'); steps.push([from, 'cancel', to]); from = to;
         }
-        const to = transition(from, action as MissionAction, { preArchive: r.presentation?.preArchive });
+        let to = transition(from, action as MissionAction, { preArchive: r.presentation?.preArchive, prePause: r.presentation?.prePause });
+        // paused while waiting for approval, and the last approval was decided meanwhile → the gate is open again
+        if (action === 'resume' && to === 'waiting_approval') {
+          const left = Number((await c.query(`select count(*) from approval_requests where mission_id=$1 and state='pending' and expires_at > now()`, [id])).rows[0].count);
+          if (left === 0) to = 'running';
+        }
         steps.push([from, action as MissionAction, to]);
         const label: Record<string, string> = { start: 'started', pause: 'paused', resume: 'resumed', cancel: 'canceled', retry: 'queued for retry', archive: 'archived', restore: 'restored' };
         const pres: Record<string, unknown> = { lastEvent: `${label[action] ? label[action][0].toUpperCase() + label[action].slice(1) : action} by ${ctx.user.name}`, lastEventAt: Date.now() };
         if (action === 'archive') pres.preArchive = from;
+        if (action === 'pause') pres.prePause = from;
         // compare-and-set on the status we read (axor pattern): a concurrent change makes this a conflict, never a silent overwrite
         const u = await c.query(`update missions set status=$2, row_version=row_version+1, updated_at=now(),
             archived_at = case when $2='archived' then now() when $4 = 'restore' then null else archived_at end,
@@ -142,9 +148,9 @@ export default async function missionRoutes(app: FastifyInstance) {
           await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'mission.stateChanged', subject: id, missionId: id, payload: { from: f, to: t2, action: a, by: ctx.user.name } });
         }
         return missionDto(await loadRow(c, id));
-      });
+      })();
       return { status: 200, body: { mission: m } };
-    });
+    }, async (c) => { await getVisibleRow(c, ctx, id); });
     const st = (out.body as { mission: { serverStatus: MissionStatus; id: string } }).mission;
     app.onMissionChanged?.(st.id, st.serverStatus);
     return reply.status(out.status).send(out.body);

@@ -70,6 +70,18 @@ let wrong = true;
 try { await D.p.getByRole('alert').filter({ hasText: 'Wrong password' }).waitFor({ timeout: 6000 }); } catch { wrong = false; }
 check('wrong password is refused', wrong);
 
+// review I3: a waiting user who is declined learns it (no endless waiting screen)
+const T = await browser('tomo');
+await T.p.goto(base + '/missions', { waitUntil: 'domcontentloaded' });
+await T.p.getByRole('heading', { name: 'Connect' }).waitFor({ timeout: 10000 });
+await connect(T.p, 'Tomo Ito', 'tomo-pass');
+await T.p.getByRole('heading', { name: 'Waiting for approval' }).waitFor({ timeout: 8000 });
+await A.p.goto(base + '/settings?tab=users', { waitUntil: 'domcontentloaded' });
+const treq = A.p.locator('.us-req', { hasText: 'Tomo Ito' });
+let declined = false;
+try { await treq.waitFor({ timeout: 10000 }); await treq.getByRole('button', { name: 'Decline Tomo Ito' }).click(); await T.p.getByRole('heading', { name: 'Request declined' }).waitFor({ timeout: 10000 }); declined = true; } catch { /* reported */ }
+check('a declined waiting user sees "Request declined"', declined);
+
 // Review Focus #1: disable Nova while signed in → back to Connect
 await A.p.reload({ waitUntil: 'domcontentloaded' });
 const row = A.p.locator('.us-user, .us-row, tr', { hasText: 'Nova Kim' }).first();

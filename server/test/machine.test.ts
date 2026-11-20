@@ -46,7 +46,9 @@ describe('mission state machine', () => {
   it('no action moves a failed or archived mission back to running directly', () => {
     for (const a of ALL_ACTIONS) {
       for (const from of ['failed', 'archived'] as const) {
-        try { expect(transition(from, a, { preArchive: 'canceled' })).not.toBe('running'); } catch { /* illegal is fine */ }
+        let to: string | undefined;
+        try { to = transition(from, a, { preArchive: 'canceled' }); } catch { continue; } // illegal is fine
+        expect(to, `${from} ${a}`).not.toBe('running'); // review M18: the assertion is no longer inside the try
       }
     }
   });

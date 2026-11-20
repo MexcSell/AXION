@@ -118,14 +118,16 @@ describe('connect', () => {
     expect(r.body.code).toBe('CSRF');
   });
 
-  it('the 11th failed connect for one name and IP within a minute is rate limited', async () => {
+  it('the 11th failed connect for one name within a minute is rate limited (per name, any address)', async () => {
     await withAdmin(t.app);
     const codes: number[] = [];
     for (let i = 0; i < 11; i++) codes.push((await new Browser(t.app, '10.0.0.9').connect('Luca', 'wrong-' + i)).status);
     expect(codes.slice(0, 10).every((c) => c === 401)).toBe(true);
     expect(codes[10]).toBe(429);
-    // another IP is not blocked
-    expect((await new Browser(t.app, '10.0.0.8').connect('Luca', 'wrong')).status).toBe(401);
+    // review I1: the client address can't be trusted behind the local proxy, so the limit is per name
+    expect((await new Browser(t.app, '10.0.0.8').connect('Luca', 'wrong')).status).toBe(429);
+    // another name is not affected
+    expect((await new Browser(t.app, '10.0.0.9').connect('Mina', 'minapass')).status).toBe(202);
   });
 
   it('a member cannot call admin routes', async () => {

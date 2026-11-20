@@ -5,14 +5,14 @@ import { audit } from '../audit.ts';
 import { ApiError, badRequest, notFound } from '../errors.ts';
 import { normalizeName } from './names.ts';
 import { DEV, SID, WAIT, clear, newSession, requireAdmin, requireUser, revokeDeviceSessions, revokeUserSessions, setSid, setWait, sha256, shortId, cookieOpts } from './session.ts';
-import { FailLimiter, accountDto, addDevice, checkPassword, createUser, hashPassword, listAccounts, loadAccount } from './service.ts';
+import { FailLimiter, addDevice, checkPassword, createUser, hashPassword, listAccounts, loadAccount } from './service.ts';
 import { NAME_MIN, NAME_MAX, PASSWORD_MIN, NEW_PASSWORD_MIN, PASSWORD_MAX } from '../../../shared/contracts/src/index.ts';
 import { emit } from '../events/hooks.ts';
 import { createNotification } from '../notifications/routes.ts';
 
 const DeviceIn = z.object({ name: z.string().max(80).default('Browser'), kind: z.enum(['desktop', 'laptop', 'phone', 'tablet']).default('desktop'), browser: z.string().max(40).default('Browser') });
 const ConnectIn = z.object({ name: z.string().max(200), password: z.string().max(PASSWORD_MAX), device: DeviceIn.default({ name: 'Browser', kind: 'desktop', browser: 'Browser' }) });
-const AvatarIn = z.object({ kind: z.enum(['initials', 'image', 'robot']), hue: z.number().min(0).max(360), image: z.string().max(400_000).optional(), robot: z.string().max(40).optional() });
+const AvatarIn = z.object({ kind: z.enum(['initials', 'image', 'robot']), hue: z.number().min(0).max(360), image: z.string().max(400_000).regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/, 'Use a PNG, JPEG or WebP image.').optional(), robot: z.string().max(40).optional() });
 
 export function parse<T extends z.ZodTypeAny>(schema: T, body: unknown): z.infer<T> {
   const r = schema.safeParse(body ?? {});
@@ -45,50 +45,63 @@ export default async function authRoutes(app: FastifyInstance) {
     const b = parse(ConnectIn, req.body);
     const n = checkName(b.name);
     if (b.password.length < PASSWORD_MIN) throw badRequest(`The password needs at least ${PASSWORD_MIN} characters.`, { password: 'too short' });
-    const lk = `${req.ip}|${n.key}`;
+    // I1: the limit is per name (every client reaches the API through the local proxy, so the address says nothing),
+    // and an attempt is reserved before any await, so a parallel burst can't get past it.
+    const lk = n.key;
     if (limiter.blocked(lk)) throw new ApiError('RATE_LIMITED', 429, 'Too many wrong passwords. Wait a minute and try again.', { retryable: true });
+    const attempt = limiter.reserve(lk);
     let clientId = req.cookies[DEV];
     if (!clientId || !/^[A-Za-z0-9_-]{8,64}$/.test(clientId)) clientId = shortId('c');
     reply.setCookie(DEV, clientId, cookieOpts(365 * 86400));
-    const passHashNew = await hashPassword(b.password); // hashed outside the lock; unused for existing names
+    const clientKey = sha256(clientId); // only a hash of the device cookie is stored
     const cid = String(req.id);
 
-    const out = await tx(app.db, async (c) => {
-      await c.query('select pg_advisory_xact_lock(1)');
-      const u = (await c.query('select * from users where tenant_id=$1 and name_key=$2', [tenantId, n.key])).rows[0];
-      if (!u) {
+    // I2: look the user up and check the password with no lock held; the registration lock is only for creating users.
+    let u = (await app.db.query('select * from users where tenant_id=$1 and name_key=$2', [tenantId, n.key])).rows[0];
+    let created: { kind: 'signedIn'; userId: string; deviceId: string; first: true } | { kind: 'waiting'; reason: 'user'; userId: string; deviceId: string } | null = null;
+    if (!u) {
+      const passHashNew = await hashPassword(b.password);
+      const r = await tx(app.db, async (c) => {
+        await c.query('select pg_advisory_xact_lock(1)');
+        const again = (await c.query('select * from users where tenant_id=$1 and name_key=$2', [tenantId, n.key])).rows[0];
+        if (again) return { existing: again };
         const first = Number((await c.query('select count(*) from users where tenant_id=$1', [tenantId])).rows[0].count) === 0;
         const userId = await createUser(c, { tenantId, name: n.display, key: n.key, passHash: passHashNew, role: first ? 'admin' : 'member', status: first ? 'approved' : 'pending' });
-        const deviceId = await addDevice(c, { tenantId, userId, clientId: clientId!, ...b.device, status: first ? 'approved' : 'pending' });
+        const deviceId = await addDevice(c, { tenantId, userId, clientId: clientKey, ...b.device, status: first ? 'approved' : 'pending' });
         await audit(c, { tenantId, actor: userId, action: first ? 'user.register.first-admin' : 'user.register', subject: userId, result: 'ok', correlationId: cid, detail: { device: deviceId } });
-        if (first) return { kind: 'signedIn' as const, userId, deviceId, first: true };
+        if (first) return { created: { kind: 'signedIn' as const, userId, deviceId, first: true as const } };
         await emit(c, { tenantId, type: 'user.requested', subject: userId, adminOnly: true, payload: { userId, name: n.display, device: b.device.name } });
         await createNotification(c, { tenantId, adminsOnly: true, severity: 'warning', category: 'approval', title: `${n.display} wants to join`, body: `New user on ${b.device.name}. Approve or decline in Settings › Users.`, route: '/settings?tab=users', actionable: true });
-        return { kind: 'waiting' as const, reason: 'user' as const, userId, deviceId };
-      }
-      if (!(await checkPassword(u.pass_hash, b.password))) {
-        await audit(c, { tenantId, actor: 'anonymous', action: 'auth.connect', subject: u.id, result: 'denied', correlationId: cid, detail: { reason: 'wrong password', ip: req.ip } });
-        return { kind: 'wrong' as const };
-      }
-      if (u.status === 'disabled') return { kind: 'denied' as const, code: 'USER_DISABLED' as const, msg: 'This user is disabled. Ask the administrator.' };
-      if (u.status === 'rejected') return { kind: 'denied' as const, code: 'USER_REJECTED' as const, msg: 'An administrator declined this user.' };
-      let d = (await c.query('select * from devices where user_id=$1 and client_id=$2', [u.id, clientId])).rows[0];
+        return { created: { kind: 'waiting' as const, reason: 'user' as const, userId, deviceId } };
+      });
+      if ('existing' in r) u = r.existing; else created = r.created;
+    }
+    if (!created && !(await checkPassword(u.pass_hash, b.password))) {
+      await audit(app.db, { tenantId, actor: 'anonymous', action: 'auth.connect', subject: u.id, result: 'denied', correlationId: cid, detail: { reason: 'wrong password' } });
+      throw new ApiError('WRONG_PASSWORD', 401, 'Wrong password for this name. A new name registers a new user.'); // the reserved attempt stays counted
+    }
+    limiter.release(lk, attempt);
+
+    const out = created ?? await tx(app.db, async (c) => {
+      const cur = (await c.query('select * from users where id=$1 and tenant_id=$2 for update', [u.id, tenantId])).rows[0];
+      if (cur.status === 'disabled') return { kind: 'denied' as const, code: 'USER_DISABLED' as const, msg: 'This user is disabled. Ask the administrator.' };
+      if (cur.status === 'rejected') return { kind: 'denied' as const, code: 'USER_REJECTED' as const, msg: 'An administrator declined this user.' };
+      let d = (await c.query('select * from devices where user_id=$1 and client_id=$2', [cur.id, clientKey])).rows[0];
       if (!d) {
-        const id = await addDevice(c, { tenantId, userId: u.id, clientId: clientId!, ...b.device, status: 'pending' });
+        const id = await addDevice(c, { tenantId, userId: cur.id, clientId: clientKey, ...b.device, status: 'pending' });
         d = { id, status: 'pending' };
-        if (u.status === 'approved') {
-          await emit(c, { tenantId, type: 'user.requested', subject: u.id, adminOnly: true, payload: { userId: u.id, name: u.name, device: b.device.name, deviceId: id } });
-          await createNotification(c, { tenantId, adminsOnly: true, severity: 'warning', category: 'approval', title: `New device for ${u.name}`, body: `${b.device.name} waits for approval in Settings › Users.`, route: '/settings?tab=users', actionable: true });
+        if (cur.status === 'approved') {
+          await emit(c, { tenantId, type: 'user.requested', subject: cur.id, adminOnly: true, payload: { userId: cur.id, name: cur.name, device: b.device.name, deviceId: id } });
+          await createNotification(c, { tenantId, adminsOnly: true, severity: 'warning', category: 'approval', title: `New device for ${cur.name}`, body: `${b.device.name} waits for approval in Settings › Users.`, route: '/settings?tab=users', actionable: true });
         }
       }
       if (d.status === 'blocked') return { kind: 'denied' as const, code: 'DEVICE_BLOCKED' as const, msg: 'This device is blocked for this user.' };
-      if (u.status === 'pending') return { kind: 'waiting' as const, reason: 'user' as const, userId: u.id, deviceId: d.id };
-      if (d.status === 'pending') return { kind: 'waiting' as const, reason: 'device' as const, userId: u.id, deviceId: d.id };
-      await audit(c, { tenantId, actor: u.id, action: 'auth.connect', subject: u.id, result: 'ok', correlationId: cid, detail: { device: d.id } });
-      return { kind: 'signedIn' as const, userId: u.id as string, deviceId: d.id as string, first: false };
+      if (cur.status === 'pending') return { kind: 'waiting' as const, reason: 'user' as const, userId: cur.id as string, deviceId: d.id as string };
+      if (d.status === 'pending') return { kind: 'waiting' as const, reason: 'device' as const, userId: cur.id as string, deviceId: d.id as string };
+      await audit(c, { tenantId, actor: cur.id, action: 'auth.connect', subject: cur.id, result: 'ok', correlationId: cid, detail: { device: d.id } });
+      return { kind: 'signedIn' as const, userId: cur.id as string, deviceId: d.id as string, first: false };
     });
 
-    if (out.kind === 'wrong') { limiter.fail(lk); throw new ApiError('WRONG_PASSWORD', 401, 'Wrong password for this name. A new name registers a new user.'); }
     if (out.kind === 'denied') throw new ApiError(out.code, 403, out.msg);
     if (out.kind === 'waiting') {
       const s = await newSession(app.db, { tenantId, userId: out.userId, deviceId: out.deviceId, kind: 'wait' });
@@ -108,13 +121,16 @@ export default async function authRoutes(app: FastifyInstance) {
     const raw = req.cookies[WAIT];
     if (!raw) throw new ApiError('UNAUTHENTICATED', 401, 'Sign in first.');
     const h = sha256(raw);
+    // I3: the ticket is read even when revoked, so a rejected / disabled / blocked waiting user learns why
     const r = (await app.db.query(
-      `select s.user_id, s.device_id, u.status, u.name, d.status as dev_status, d.name as dev_name from sessions s join users u on u.id=s.user_id left join devices d on d.id=s.device_id
-        where s.token_hash=$1 and s.kind='wait' and s.revoked_at is null and s.expires_at > now() and s.tenant_id=$2`, [h, tenantId])).rows[0];
+      `select s.user_id, s.device_id, s.revoked_at, s.expires_at < now() as expired, u.status, u.name, d.status as dev_status, d.name as dev_name
+         from sessions s join users u on u.id=s.user_id left join devices d on d.id=s.device_id
+        where s.token_hash=$1 and s.kind='wait' and s.tenant_id=$2`, [h, tenantId])).rows[0];
     if (!r) { clear(reply, WAIT); throw new ApiError('UNAUTHENTICATED', 401, 'Sign in again.'); }
     if (r.status === 'rejected') { clear(reply, WAIT); throw new ApiError('USER_REJECTED', 403, 'An administrator declined this user.'); }
     if (r.status === 'disabled') { clear(reply, WAIT); throw new ApiError('USER_DISABLED', 403, 'This user is disabled.'); }
     if (!r.dev_status || r.dev_status === 'blocked') { clear(reply, WAIT); throw new ApiError('DEVICE_BLOCKED', 403, 'This device is blocked for this user.'); }
+    if (r.revoked_at || r.expired) { clear(reply, WAIT); throw new ApiError('UNAUTHENTICATED', 401, 'This request ended. Connect again.'); }
     if (r.status === 'pending' || r.dev_status === 'pending') return reply.status(202).send({ state: 'waiting', reason: r.status === 'pending' ? 'user' : 'device', name: r.name, device: { name: r.dev_name } });
     // approved: rotate the wait ticket into a full session (axor: new token on every auth step)
     const s = await tx(app.db, async (c) => {
@@ -148,7 +164,8 @@ export default async function authRoutes(app: FastifyInstance) {
     const c = await requireUser(req);
     if (c.user.role === 'admin') return { people: await listAccounts(app.db, tenantId) };
     const us = (await app.db.query(`select * from users where tenant_id=$1 and status='approved' order by created_at`, [tenantId])).rows;
-    return { people: us.map((u) => accountDto(u, [])) };
+    // members see only what they need to show people: name, avatar, role (no approval or password metadata)
+    return { people: us.map((u) => ({ id: u.id, name: u.name, role: u.role, status: u.status, avatar: u.avatar, devices: [], createdAt: new Date(u.created_at).getTime() })) };
   });
 
   app.post('/auth/logout', async (req, reply) => {
@@ -189,6 +206,22 @@ export default async function authRoutes(app: FastifyInstance) {
       await revokeUserSessions(t, c.user.id, c.tokenHash);
       await emit(t, { tenantId, actor: c.user.id, correlationId: c.correlationId, type: 'user.changed', subject: c.user.id, payload: { userId: c.user.id, passwordChanged: true } });
       await audit(t, { tenantId, actor: c.user.id, action: 'user.password', subject: c.user.id, result: 'ok', correlationId: c.correlationId });
+    });
+    return { ok: true };
+  });
+
+  /** M7: a user removes one of their own other devices (it must be approved again next time). */
+  app.delete('/me/devices/:did', async (req) => {
+    const c = await requireUser(req);
+    const { did } = req.params as { did: string };
+    if (did === c.deviceId) throw new ApiError('FORBIDDEN', 403, "You can't remove the device you are using. Sign out instead.");
+    await tx(app.db, async (t) => {
+      const d = (await t.query('select id from devices where id=$1 and user_id=$2 and tenant_id=$3 for update', [did, c.user.id, tenantId])).rows[0];
+      if (!d) throw notFound('No such device.');
+      await revokeDeviceSessions(t, did);
+      await t.query('delete from devices where id=$1', [did]);
+      await audit(t, { tenantId, actor: c.user.id, action: 'device.remove.self', subject: did, result: 'ok', correlationId: c.correlationId });
+      await emit(t, { tenantId, actor: c.user.id, correlationId: c.correlationId, type: 'user.changed', subject: c.user.id, payload: { userId: c.user.id, deviceId: did } });
     });
     return { ok: true };
   });

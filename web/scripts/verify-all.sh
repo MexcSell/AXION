@@ -12,3 +12,4 @@ echo "== u1 flows";             node scripts/u1-flows.mjs | tail -9
 echo "== dialog smoke";         node scripts/dialog-smoke.mjs | tail -1
 echo "== dialog ids";           node scripts/check-dialogs.mjs | tail -2
 echo "== help keys";            node scripts/check-help.mjs | tail -1
+echo "== dev-server file guard"; node scripts/fs-guard.mjs | tail -1

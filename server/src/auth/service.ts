@@ -69,9 +69,13 @@ export async function approveNewestDevice(db: Db, tenantId: string, rawName: str
 
 /** Sliding-window failure counter per (ip, name). */
 export class FailLimiter {
-  private hits = new Map<string, number[]>();
+  private hits = new Map<string, { at: number }[]>();
   constructor(private max = 10, private windowMs = 60_000) {}
   blocked(k: string) { return this.recent(k).length >= this.max; }
-  fail(k: string) { const r = this.recent(k); r.push(Date.now()); this.hits.set(k, r); }
-  private recent(k: string) { const now = Date.now(); return (this.hits.get(k) ?? []).filter((t) => now - t < this.windowMs); }
+  /** Count an attempt now (synchronously, before any await); release() it when the password turned out right. */
+  reserve(k: string) { const r = this.recent(k); const tok = { at: Date.now() }; r.push(tok); this.hits.set(k, r); this.prune(); return tok; }
+  release(k: string, tok: { at: number }) { const r = this.hits.get(k); if (r) { const i = r.indexOf(tok); if (i >= 0) r.splice(i, 1); } }
+  fail(k: string) { this.reserve(k); }
+  private recent(k: string) { const now = Date.now(); const r = (this.hits.get(k) ?? []).filter((t) => now - t.at < this.windowMs); this.hits.set(k, r); return r; }
+  private prune() { if (this.hits.size < 5000) return; const now = Date.now(); for (const [k, r] of this.hits) if (!r.some((t) => now - t.at < this.windowMs)) this.hits.delete(k); }
 }

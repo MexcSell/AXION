@@ -21,7 +21,11 @@ const EDGES: Record<MissionStatus, Partial<Record<MissionAction, MissionStatus>>
 };
 const ARCHIVABLE: MissionStatus[] = ['completed', 'canceled', 'failed'];
 
-export function transition(from: MissionStatus, action: MissionAction, ctx: { preArchive?: MissionStatus } = {}): MissionStatus {
+const RESUMABLE: MissionStatus[] = ['planning', 'running', 'waiting_approval', 'verifying'];
+
+export function transition(from: MissionStatus, action: MissionAction, ctx: { preArchive?: MissionStatus; prePause?: MissionStatus } = {}): MissionStatus {
+  // review I4: resume returns to the state the mission was paused from (a pending approval gate stays closed)
+  if (from === 'paused' && action === 'resume') return ctx.prePause && RESUMABLE.includes(ctx.prePause) ? ctx.prePause : 'running';
   if (from === 'archived' && action === 'restore') {
     if (ctx.preArchive && ARCHIVABLE.includes(ctx.preArchive)) return ctx.preArchive;
     throw new ApiError('ILLEGAL_TRANSITION', 409, 'This mission has no state to restore to.');

@@ -25,7 +25,7 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
     logger: cfg.logger ? { level: 'info', redact: ['req.headers.cookie', 'req.headers["x-csrf"]', 'res.headers["set-cookie"]'] } : false,
     genReqId: () => randomUUID(),
     bodyLimit: 1_000_000,
-    trustProxy: '127.0.0.1',
+    trustProxy: false, // review I1: never take the client address from X-Forwarded-For
   });
   const db = makePool(cfg.databaseUrl, cfg.schema);
   app.decorate('db', db);

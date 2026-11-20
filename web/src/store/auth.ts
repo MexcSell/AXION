@@ -218,7 +218,7 @@ export const useAuth = create<AuthState>()(persist((set, get) => ({
   setStatus: (id, status) => isApi() ? void adminCall('PATCH', `/users/${id}`, { status }) : set((s) => ({ accounts: mapAcc(s.accounts, id, (a) => ({ ...a, status })) })),
   approveDevice: (uid, did) => isApi() ? void adminCall('POST', `/users/${uid}/devices/${did}/approve`) : set((s) => ({ accounts: mapAcc(s.accounts, uid, (a) => mapDev(a, did, (d) => ({ ...d, status: 'approved' }))) })),
   blockDevice: (uid, did) => isApi() ? void adminCall('POST', `/users/${uid}/devices/${did}/block`) : set((s) => ({ accounts: mapAcc(s.accounts, uid, (a) => mapDev(a, did, (d) => ({ ...d, status: 'blocked' }))) })),
-  removeDevice: (uid, did) => isApi() ? void adminCall('DELETE', `/users/${uid}/devices/${did}`) : set((s) => ({ accounts: mapAcc(s.accounts, uid, (a) => ({ ...a, devices: a.devices.filter((d) => d.id !== did) })) })),
+  removeDevice: (uid, did) => isApi() ? void adminCall('DELETE', uid === meId() ? `/me/devices/${did}` : `/users/${uid}/devices/${did}`) : set((s) => ({ accounts: mapAcc(s.accounts, uid, (a) => ({ ...a, devices: a.devices.filter((d) => d.id !== did) })) })),
   simulateNewDevice: (uid) => {
     const kinds: [string, DeviceKind][] = [['Safari on iOS', 'phone'], ['Chrome on Android', 'phone'], ['Firefox on Windows', 'laptop'], ['Safari on iPadOS', 'tablet']];
     const n = get().accounts.find((a) => a.id === uid)?.devices.length ?? 0;
@@ -259,6 +259,7 @@ export const useAuth = create<AuthState>()(persist((set, get) => ({
 }));
 
 /* ------------------------------------------------------------ api mode (Stage 5) */
+const meId = () => { const sv = useAuth.getState().server; return sv.phase === 'connected' ? sv.meId : ''; };
 const toAccount = (a: AccountDto): Account => ({ ...a, passHash: '', avatar: a.avatar as AvatarSpec });
 const patchServer = (p: ServerPhase) => useAuth.setState({ server: p });
 const msgOf = (e: unknown) => (e instanceof ApiFailure ? e.message : 'Something went wrong. Try again.');
@@ -293,7 +294,7 @@ async function apiBoot() {
     await apiRefresh();
     return;
   } catch (e) {
-    if (!(e instanceof ApiFailure) || e.code === 'NETWORK' || e.code === 'UNAVAILABLE') { patchServer({ phase: 'offline' }); return; }
+    if (!(e instanceof ApiFailure) || e.code === 'NETWORK' || e.code === 'UNAVAILABLE' || e.status >= 500) { patchServer({ phase: 'offline' }); return; } // review M9
     if (e.code === 'SESSION_REVOKED') { await toSignedOut(e.message); return; }
   }
   // not signed in: maybe this browser is waiting for an approval
@@ -322,7 +323,13 @@ async function apiPollWait(): Promise<boolean> {
     if (e.code === 'USER_REJECTED') { patchServer({ phase: 'denied', why: 'rejected', name }); return true; }
     if (e.code === 'USER_DISABLED') { patchServer({ phase: 'denied', why: 'disabled', name }); return true; }
     if (e.code === 'DEVICE_BLOCKED') { patchServer({ phase: 'denied', why: 'blocked', name, deviceName: prev.phase === 'waiting' ? prev.deviceName : undefined }); return true; }
-    if (e.code === 'NETWORK' || e.code === 'UNAVAILABLE') return prev.phase === 'waiting'; // keep waiting through a blip
+    if (e.code === 'NETWORK' || e.code === 'UNAVAILABLE' || e.status >= 500) return prev.phase === 'waiting'; // keep waiting through a blip
+    if (prev.phase === 'waiting' && e.status === 401) {
+      // review I3: the ticket is gone — another tab of this browser may already be signed in; otherwise start over
+      try { const { me } = await api<{ me: MeDto }>('GET', '/me', undefined, { quietAuth: true }); applyMe(me); await apiRefresh(); }
+      catch { await toSignedOut(e.message); }
+      return true;
+    }
     return false;
   }
 }
