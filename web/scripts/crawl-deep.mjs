@@ -12,13 +12,13 @@ p.on('console', (m) => { if (m.type() === 'error') problems.push(`${cur} ERROR $
 const go = async (path, dwell = 600) => { cur = path; await p.goto(base + path, { waitUntil: 'networkidle' }); await p.waitForTimeout(dwell); };
 await go('/overview');
 // edge-case missions created through the real store
-const created = await p.evaluate(() => {
+const created = await p.evaluate(async () => {
   const d = window.__axion.data.getState();
   // owner update u1: a mission is only content (text + files); the GM staffs it
   const owner = { id: 'u-1', name: 'Luca' };
-  const solo = d.addMission({ text: 'Edge case: single-agent team', files: [], shared: false }, owner);
+  const solo = await d.addMission({ text: 'Edge case: single-agent team', files: [], shared: false }, owner);
   d.updateMission(solo.id, { agentIds: ['gm'], staffing: undefined, status: 'running' });
-  const draft = d.addMission({ text: '', files: [{ id: 'f1', name: 'only-a-file.pdf', kind: 'pdf', size: 1200, mime: 'application/pdf' }], shared: true }, owner);
+  const draft = await d.addMission({ text: '', files: [{ id: 'f1', name: 'only-a-file.pdf', kind: 'pdf', size: 1200, mime: 'application/pdf' }], shared: true }, owner);
   return [solo.id, draft.id];
 });
 const ids = await p.evaluate(() => window.__axion.data.getState().missions.map((m) => m.id));
