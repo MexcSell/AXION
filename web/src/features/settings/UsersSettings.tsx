@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
+import { isApi } from '@/api/mode';
 import { useMemo, useRef, useState } from 'react';
 import {
   UserRound, KeyRound, MonitorSmartphone, ShieldCheck, Users as UsersIcon, Check, X, Trash2, Ban, Monitor, Laptop, Smartphone, Tablet,
@@ -47,8 +48,8 @@ function ProfilePanel({ me }: { me: Account }) {
   const [av, setAv] = useState<AvatarSpec>(me.avatar);
   const fileRef = useRef<HTMLInputElement>(null);
   const dirty = name.trim() !== me.name || JSON.stringify(av) !== JSON.stringify(me.avatar);
-  const save = () => {
-    const r = update(me.id, { name, avatar: av });
+  const save = async () => {
+    const r = await update(me.id, { name, avatar: av });
     if (!r.ok) { toast({ tone: 'error', title: 'Profile not saved', body: r.error }); return; }
     toast({ tone: 'success', title: 'Profile saved', body: 'Your name and avatar are updated everywhere.' });
   };
@@ -127,10 +128,10 @@ function PasswordPanel({ me }: { me: Account }) {
   const [err, setErr] = useState('');
   const st = strength(nx);
   const mismatch = cf.length > 0 && cf !== nx;
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (mismatch) { setErr('The two new passwords differ.'); return; }
-    const r = change(me.id, cur, nx);
+    const r = await change(me.id, cur, nx);
     if (!r.ok) { setErr(r.error ?? 'Not changed'); return; }
     setErr(''); setCur(''); setNx(''); setCf('');
     toast({ tone: 'success', title: 'Password changed', body: 'Use the new password the next time you connect.' });
@@ -175,7 +176,7 @@ function DevicesPanel({ me }: { me: Account }) {
   const { removeDevice, simulateNewDevice } = useAuth();
   return (
     <Panel icon={MonitorSmartphone} title="My devices" help="settings.users.devices" delay={.12}
-      actions={<Tip label="Demo: pretend you signed in from another device. It waits for an administrator."><button className="btn ghost sm" onClick={() => { const d = simulateNewDevice(me.id); toast({ tone: 'info', title: `${d.name} is waiting for approval`, body: isAdmin(me) ? 'Approve it in the Approvals queue.' : 'An administrator must approve it.' }); }}><Plus size={14} />New device</button></Tip>}>
+      actions={isApi() ? undefined : <Tip label="Demo: pretend you signed in from another device. It waits for an administrator."><button className="btn ghost sm" onClick={() => { const d = simulateNewDevice(me.id); toast({ tone: 'info', title: `${d.name} is waiting for approval`, body: isAdmin(me) ? 'Approve it in the Approvals queue.' : 'An administrator must approve it.' }); }}><Plus size={14} />New device</button></Tip>}>
       <div className="col" style={{ gap: 6 }}>
         <AnimatePresence initial={false}>
           {me.devices.map((d, i) => <DeviceRow key={d.id} d={d} i={i} current={d.id === session?.deviceId} onRemove={() => { removeDevice(me.id, d.id); toast({ tone: 'success', title: `${d.name} removed`, body: 'It must be approved again to connect.' }); }} />)}

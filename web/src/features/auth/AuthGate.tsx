@@ -7,6 +7,8 @@ import { UserAvatar } from '@/components/ui/UserAvatar';
 import { BRAND } from '@/config/brand';
 import { useApplyPreferences } from '@/components/layout/usePreferences';
 import { useAuth, useGate, useAuthPoll, type Gate } from '@/store/auth';
+import { isApi, switchMode } from '@/api/mode';
+import { WifiOff } from 'lucide-react';
 import { cx } from '@/lib/format';
 import '@/theme/pages/auth.css';
 
@@ -17,6 +19,15 @@ import '@/theme/pages/auth.css';
 export function AuthGate({ children }: { children: ReactNode }) {
   const { motionEff } = useApplyPreferences();
   const gate = useGate();
+  const server = useAuth((s) => s.server);
+  const boot = useAuth((s) => s.boot);
+  useEffect(() => { void boot(); }, [boot]);
+  // offline: retry every 3 s until the server answers
+  useEffect(() => {
+    if (!isApi() || server.phase !== 'offline') return;
+    const t = window.setInterval(() => { void boot(); }, 3000);
+    return () => window.clearInterval(t);
+  }, [server.phase, boot]);
   const waiting = gate.state === 'waiting-user' || gate.state === 'waiting-device';
   useAuthPoll(waiting);
   // Show a short "approved" moment when a waiting tab gets connected.
@@ -28,17 +39,20 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }, [gate.state, waiting]);
 
   if (gate.state === 'connected' && !celebrate) return <>{children}</>;
+  const apiPhase = isApi() ? server.phase : null;
   return (
     <div className="auth-screen">
       <div className="app-bg-grid" aria-hidden />
       {motionEff !== 'reduced' && <ParticleField />}
       <div className="auth-glow" aria-hidden />
       <AnimatePresence mode="wait">
-        {gate.state === 'signed-out' ? <ConnectCard key="connect" />
+        {apiPhase === 'booting' ? <BootCard key="boot" />
+          : apiPhase === 'offline' ? <OfflineCard key="off" />
+          : gate.state === 'signed-out' ? <ConnectCard key="connect" />
           : gate.state === 'connected' ? <ApprovedCard key="ok" gate={gate} />
           : <WaitCard key={gate.state} gate={gate} />}
       </AnimatePresence>
-      <div className="auth-foot dim">DEMO · accounts are kept in this browser only. Real sign-in arrives with the server (Stage 5).</div>
+      <div className="auth-foot dim">{isApi() ? 'Accounts are kept on the AXION server. Passwords are stored only as argon2id hashes.' : 'DEMO · accounts are kept in this browser only. Open without ?data=demo to use the server.'}</div>
     </div>
   );
 }
@@ -54,10 +68,34 @@ function Brand() {
   );
 }
 
+function BootCard() {
+  return (
+    <motion.div className="auth-card panel" {...cardMotion} role="status" aria-live="polite">
+      <Brand />
+      <p className="auth-sub dim"><Loader2 size={15} className="spin" /> Connecting to the AXION server…</p>
+    </motion.div>
+  );
+}
+
+/** The API can't be reached: keep retrying, and offer the offline demo (Stage 5 plan, "How the owner views it"). */
+function OfflineCard() {
+  return (
+    <motion.div className="auth-card panel" {...cardMotion} role="alert" aria-live="assertive" data-testid="server-offline">
+      <Brand />
+      <div className="auth-radar bad" aria-hidden><span className="auth-radar-ico"><WifiOff size={16} /></span></div>
+      <h1 className="auth-h bad">Server not reachable</h1>
+      <p className="auth-sub dim"><Loader2 size={14} className="spin" /> Retrying every 3 seconds. Start it with <span className="kbd">cd server &amp;&amp; npm run dev</span>.</p>
+      <button className="btn ghost block" onClick={() => switchMode('demo')}>Open the offline demo instead</button>
+    </motion.div>
+  );
+}
+
 function ConnectCard() {
   const connect = useAuth((s) => s.connect);
   const accounts = useAuth((s) => s.accounts);
-  const firstEver = accounts.filter((a) => !a.fixture).length === 0;
+  const server = useAuth((s) => s.server);
+  const firstEver = isApi() ? server.phase === 'signed-out' && server.firstEver === true : accounts.filter((a) => !a.fixture).length === 0;
+  const notice = isApi() && server.phase === 'signed-out' ? server.notice : undefined;
   const [name, setName] = useState('');
   const [pass, setPass] = useState('');
   const [show, setShow] = useState(false);
@@ -67,7 +105,7 @@ function ConnectCard() {
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true); setErr('');
-    window.setTimeout(() => { const r = connect(name, pass); setBusy(false); if (!r.ok) setErr(r.error); }, 650);
+    window.setTimeout(async () => { const r = await connect(name, pass); setBusy(false); if (!r.ok) setErr(r.error); }, isApi() ? 0 : 650);
   };
   return (
     <motion.form className="auth-card panel" onSubmit={submit} {...cardMotion} aria-label="Connect">
@@ -90,11 +128,12 @@ function ConnectCard() {
           <button type="button" className="icon-btn xs auth-eye" onClick={() => setShow(!show)} aria-label={show ? 'Hide password' : 'Show password'}>{show ? <EyeOff size={14} /> : <Eye size={14} />}</button>
         </div>
       </label>
+      {notice && !err && <div className="auth-err" role="status">{notice}</div>}
       <AnimatePresence>{err && <motion.div className="auth-err" role="alert" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>{err}</motion.div>}</AnimatePresence>
       <motion.button type="submit" className="btn primary lg block auth-go" disabled={busy || !name.trim() || !pass} whileTap={{ scale: .97 }}>
         {busy ? <><Loader2 size={17} className="spin" />Connecting…</> : <>Connect<ArrowRight size={17} /></>}
       </motion.button>
-      {!firstEver && <p className="dim auth-hint">Demo members (Mina Park, Kenji Sato, Sara Lind) use the password <span className="kbd">demo</span>.</p>}
+      {!firstEver && !isApi() && <p className="dim auth-hint">Demo members (Mina Park, Kenji Sato, Sara Lind) use the password <span className="kbd">demo</span>.</p>}
     </motion.form>
   );
 }

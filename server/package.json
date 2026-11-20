@@ -11,7 +11,8 @@
     "migrate": "tsx --env-file=.env src/migrate-cli.ts",
     "admin:approve-device": "tsx --env-file=.env src/cli/approve-device.ts",
     "demo:seed": "tsx --env-file=.env src/cli/demo.ts seed",
-    "demo:clear": "tsx --env-file=.env src/cli/demo.ts clear"
+    "demo:clear": "tsx --env-file=.env src/cli/demo.ts clear",
+    "e2e:serve": "tsx --env-file=.env src/cli/e2e-serve.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",

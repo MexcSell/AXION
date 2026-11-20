@@ -7,7 +7,7 @@ const walk = (d) => readdirSync(d).flatMap((f) => { const p = join(d, f); return
 const used = new Map();
 for (const f of walk('src').filter((f) => /\.tsx?$/.test(f))) for (const m of readFileSync(f, 'utf8').matchAll(/openDialog\(\s*['"]([\w-]+)['"]/g)) used.set(m[1], [...new Set([...(used.get(m[1]) ?? []), f])]);
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
-const p = await b.newPage(); await p.addInitScript(() => localStorage.setItem('axion.testhook', '1')); await p.goto(base + '/overview', { waitUntil: 'networkidle' });
+const p = await b.newPage(); await p.addInitScript(() => { localStorage.setItem('axion.testhook', '1'); localStorage.setItem('axion.data-mode', 'demo'); }); await p.goto(base + '/overview', { waitUntil: 'networkidle' });
 const defined = new Set(await p.evaluate(() => window.__axion.dialogIds()));
 await b.close();
 const missing = [...used.keys()].filter((k) => !defined.has(k));

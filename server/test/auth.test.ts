@@ -193,3 +193,34 @@ describe('connect', () => {
     expect((await admin.req('GET', '/me')).status).toBe(401);
   });
 });
+
+describe('directory and hello', () => {
+  it('hello tells whether the first account is still free', async () => {
+    expect((await new Browser(t.app).req('GET', '/auth/hello')).body.firstEver).toBe(true);
+    await withAdmin(t.app);
+    expect((await new Browser(t.app).req('GET', '/auth/hello')).body.firstEver).toBe(false);
+  });
+
+  it('members see approved people without devices; strangers get 401', async () => {
+    const { member } = await withAdmin(t.app);
+    const m = await member('Mina');
+    await new Browser(t.app).connect('Tomo', 'tomopass');
+    const r = await m.b.req('GET', '/people');
+    expect(r.status).toBe(200);
+    expect(r.body.people.map((p: any) => p.name).sort()).toEqual(['Luca', 'Mina']);
+    expect(r.body.people[0].devices).toEqual([]);
+    expect(JSON.stringify(r.body)).not.toMatch(/pass_hash|client_id/);
+    expect((await new Browser(t.app).req('GET', '/people')).status).toBe(401);
+  });
+});
+
+describe('cancel waiting', () => {
+  it('drops the waiting ticket', async () => {
+    await withAdmin(t.app);
+    const b = new Browser(t.app);
+    await b.connect('Tomo', 'tomopass');
+    expect((await b.req('GET', '/auth/wait')).status).toBe(202);
+    expect((await b.req('POST', '/auth/cancel', {})).status).toBe(200);
+    expect((await b.req('GET', '/auth/wait')).status).toBe(401);
+  });
+});

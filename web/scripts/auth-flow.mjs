@@ -1,9 +1,11 @@
 // Register → wait → admin approves in another tab → waiting tab connects automatically (owner update 2026-11-20 u1).
 // Usage: node scripts/auth-flow.mjs   (needs the dev server; BASE=... for preview)
 import { chromium } from 'playwright';
+import { demoMode } from './_session.mjs';
 const base = process.env.BASE || 'http://127.0.0.1:5190';
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
 const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } });
+await demoMode(ctx); // this script checks the in-browser DEMO accounts; scripts/api-auth-flow.mjs checks the server
 const errors = [];
 const results = [];
 const check = (name, ok, extra = '') => { results.push(`${ok ? 'PASS' : 'FAIL'} ${name}${extra ? ' — ' + extra : ''}`); };
@@ -75,6 +77,7 @@ const fixtures = await admin.evaluate(async () => (await import('/src/data/missi
 if (fixtures) {
   const legacy = fixtures.map((m, i) => { const { ownerId, shared, content, ...rest } = m; void ownerId; void shared; void content; return { ...rest, cost: 12.5, budget: 50, agentIds: i === 0 ? [...rest.agentIds, 'finance-01'] : rest.agentIds }; });
   const ctx2 = await b.newContext({ viewport: { width: 1440, height: 900 } });
+  await demoMode(ctx2);
   await ctx2.addInitScript((blob) => { if (!sessionStorage.getItem('seeded')) { localStorage.setItem('axion.demo-data.v1', blob); sessionStorage.setItem('seeded', '1'); } localStorage.setItem('axion.demo-autologin', 'Luca'); },
     JSON.stringify({ state: { missions: legacy, approvalDecisions: {}, readNotifications: {}, extraMessages: {} }, version: 1 }));
   const mp = await ctx2.newPage(); const merr = [];

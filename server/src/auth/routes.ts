@@ -5,7 +5,7 @@ import { audit } from '../audit.ts';
 import { ApiError, badRequest, notFound } from '../errors.ts';
 import { normalizeName } from './names.ts';
 import { DEV, SID, WAIT, clear, newSession, requireAdmin, requireUser, revokeDeviceSessions, revokeUserSessions, setSid, setWait, sha256, shortId, cookieOpts } from './session.ts';
-import { FailLimiter, addDevice, checkPassword, createUser, hashPassword, listAccounts, loadAccount } from './service.ts';
+import { FailLimiter, accountDto, addDevice, checkPassword, createUser, hashPassword, listAccounts, loadAccount } from './service.ts';
 import { NAME_MIN, NAME_MAX, PASSWORD_MIN, NEW_PASSWORD_MIN, PASSWORD_MAX } from '../../../shared/contracts/src/index.ts';
 import { emit } from '../events/hooks.ts';
 
@@ -123,6 +123,28 @@ export default async function authRoutes(app: FastifyInstance) {
   });
 
   app.get('/me', async (req) => ({ me: await meOf(req) }));
+
+  /** Leave the waiting screen: the ticket is revoked (the registration itself stays for the admin to decide). */
+  app.post('/auth/cancel', async (req, reply) => {
+    const raw = req.cookies[WAIT];
+    if (raw) await app.db.query(`update sessions set revoked_at=now() where token_hash=$1 and kind='wait'`, [sha256(raw)]);
+    clear(reply, WAIT);
+    return { ok: true };
+  });
+
+  /** Public: only whether the first (administrator) seat is still free, for the Connect screen's hint. */
+  app.get('/auth/hello', async () => {
+    const n = Number((await app.db.query('select count(*) from users where tenant_id=$1', [tenantId])).rows[0].count);
+    return { firstEver: n === 0 };
+  });
+
+  /** Every signed-in user: the approved people (names and avatars only), e.g. mission owners and chat. */
+  app.get('/people', async (req) => {
+    const c = await requireUser(req);
+    if (c.user.role === 'admin') return { people: await listAccounts(app.db, tenantId) };
+    const us = (await app.db.query(`select * from users where tenant_id=$1 and status='approved' order by created_at`, [tenantId])).rows;
+    return { people: us.map((u) => accountDto(u, [])) };
+  });
 
   app.post('/auth/logout', async (req, reply) => {
     const c = await requireUser(req);

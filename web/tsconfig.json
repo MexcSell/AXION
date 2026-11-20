@@ -14,7 +14,8 @@
     "resolveJsonModule": true,
     "noEmit": true,
     "types": ["vite/client"],
-    "paths": { "@/*": ["./src/*"] }
+    "allowImportingTsExtensions": true,
+    "paths": { "@/*": ["./src/*"], "@contracts": ["../shared/contracts/src/index.ts"] }
   },
-  "include": ["src"]
+  "include": ["src", "../shared/contracts/src"]
 }
