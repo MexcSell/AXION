@@ -102,7 +102,7 @@ function MissionCreate({ close, props }: DialogComponentProps<{ cloneFrom?: stri
   const dirty = !clone && !tpl && (title.trim() !== '' || objective.trim() !== '' || files.length > 0);
   const tryClose = () => (dirty && !confirmDiscard ? setConfirmDiscard(true) : close());
 
-  const steps = [{ k: 'Goal', i: Target }, { k: 'Resources', i: Paperclip }, { k: 'Team, policy & budget', i: Users }, { k: 'Review & create', i: ListChecks }];
+  const steps = [{ k: 'Goal', i: Target }, { k: 'Resources', i: Paperclip }, { k: 'Agents, policy & budget', i: Users }, { k: 'Review & create', i: ListChecks }];
   const validCriteria = criteria.filter((c) => c.trim());
   const errors = { team: team.length === 0 ? 'Pick at least one agent to lead the mission' : '', title: !title.trim() ? 'A title is required' : '', criteria: validCriteria.length === 0 ? 'At least one measurable success criterion is required' : '', objective: objective.trim().length < 10 ? 'Describe the outcome (10+ characters)' : '' };
   const goalOk = !errors.title && !errors.criteria && !errors.objective && !errors.team;
@@ -112,9 +112,9 @@ function MissionCreate({ close, props }: DialogComponentProps<{ cloneFrom?: stri
   const create = (start: boolean) => {
     if (!goalOk) { setTouched(true); setStep(0); return; }
     const m = add({ title: title.trim(), objective: objective.trim(), kind, priority, dueInDays: due, budget, agentIds: team, leadId: team[0] ?? 'gm', criteria: validCriteria.map((text) => ({ text, done: false })) }, start);
-    toast({ tone: 'success', title: start ? `${m.id} created and started` : `${m.id} saved as draft`, body: start ? 'GM is planning and staffing. External actions still require approval.' : 'Nothing is running yet.', action: { label: 'Open', run: () => nav(`/missions?m=${m.id}`) } });
+    toast({ tone: 'success', title: start ? `${m.id} created and started` : `${m.id} saved as draft`, body: start ? 'GM is planning and staffing. External actions still require approval.' : 'Nothing is running yet.', action: { label: 'Open', run: () => nav(`/missions/${m.id}`) } });
     close();
-    nav(`/missions?m=${m.id}`);
+    nav(`/missions/${m.id}`);
   };
 
   return (
@@ -221,9 +221,9 @@ function MissionCreate({ close, props }: DialogComponentProps<{ cloneFrom?: stri
             )}
             {step === 2 && (
               <>
-                <Field label="Proposed team" error={errors.team} hint="GM suggested this team from required skills. Click to toggle members. The first member leads.">
+                <Field label="Assigned agents" error={errors.team} hint="GM suggested these agents from required skills (one per role). Click to toggle members. The first member leads.">
                   <div className="row wrap" style={{ gap: 6 }}>
-                    {AGENTS.filter((a) => ['gm', 'planner-01', 'coder-01', 'coder-02', 'browser-01', 'browser-02', 'designer-01', 'tester-01', 'tester-02', 'security-01', 'researcher-01', 'writer-01', 'release-01', 'mentor-01'].includes(a.id)).map((a) => {
+                    {AGENTS.filter((a) => ['gm', 'planner-01', 'coder-01', 'browser-01', 'designer-01', 'tester-01', 'security-01', 'researcher-01', 'writer-01', 'release-01', 'mentor-01'].includes(a.id)).map((a) => {
                       const on = team.includes(a.id);
                       return (
                         <button key={a.id} className={cx('team-pick', on && 'on')} onClick={() => setTeam(on ? team.filter((x) => x !== a.id) : [...team, a.id])} aria-pressed={on}>
@@ -260,7 +260,7 @@ function MissionCreate({ close, props }: DialogComponentProps<{ cloneFrom?: stri
                     <div><div className="section-label">Grants</div>{origins.map((o) => <div key={o} className="row" style={{ gap: 6 }}><Globe size={13} className="info" />{o} · read + prepare</div>)}<div className="row" style={{ gap: 6 }}><Paperclip size={13} />{files.length} attachments</div></div>
                   </div>
                   <div className="divider" />
-                  <div className="section-label" style={{ marginBottom: 6 }}>Team preview</div>
+                  <div className="section-label" style={{ marginBottom: 6 }}>Hierarchy preview</div>
                   <div className="review-tree">
                     {team[0] && <div className="rt-lead"><RobotAvatar role={AGENT_BY_ID[team[0]]?.role ?? 'manager'} size={40} faceMode="face" /><b>{AGENT_BY_ID[team[0]]?.name}</b></div>}
                     <svg width="100%" height="18" aria-hidden><line x1="50%" y1="0" x2="50%" y2="18" stroke="var(--border-strong)" /></svg>
@@ -375,7 +375,7 @@ function Lifecycle({ close, props, kind }: DialogComponentProps<{ missionId: str
   const mc = getMissionControl(m);
   const go = () => {
     setStatus(m.id, cfg.next);
-    toast({ tone: kind === 'stop' ? 'warning' : 'success', title: `${cfg.btn}: ${m.id}`, body: kind === 'pause' ? 'Browsers pause before their next action; nothing is replayed on resume.' : kind === 'start' ? 'Pinned team and grants snapshot recorded.' : kind === 'retry' ? 'Restarting from the last verified checkpoint. Submits are never auto-replayed.' : 'In-flight actions finish safely; downstream tasks are canceled.' });
+    toast({ tone: kind === 'stop' ? 'warning' : 'success', title: `${cfg.btn}: ${m.id}`, body: kind === 'pause' ? 'Browsers pause before their next action; nothing is replayed on resume.' : kind === 'start' ? 'Pinned agents and grants snapshot recorded.' : kind === 'retry' ? 'Restarting from the last verified checkpoint. Submits are never auto-replayed.' : 'In-flight actions finish safely; downstream tasks are canceled.' });
     close();
   };
   return (
@@ -486,7 +486,7 @@ function AgentInspector({ close, props }: DialogComponentProps<{ missionId: stri
   const sup = n?.parent ? mc.nodes.find((x) => x.instanceId === n.parent) : undefined;
   return (
     <Modal title={`${a.name} · instance`} icon={Bot} help="agent.instance" dialogId="DL-11" onClose={close} drawer
-      footer={<><button className="btn" onClick={close}>Close</button><button className="btn primary" onClick={() => { close(); props.onOpenChat ? props.onOpenChat() : nav(`/control/${m.id}?tab=conversations&agent=${a.id}`); }}><MessageSquare size={15} />Open Conversation</button></>}>
+      footer={<><button className="btn" onClick={close}>Close</button><button className="btn primary" onClick={() => { close(); props.onOpenChat ? props.onOpenChat() : nav(`/missions/${m.id}?tab=conversations&agent=${a.id}`); }}><MessageSquare size={15} />Open Conversation</button></>}>
       <div className="row-3"><RobotAvatar role={a.role} size={84} faceMode="face" animated /><div className="col" style={{ gap: 4 }}><b style={{ fontSize: 18 }}>{a.name}</b><RoleChip role={a.role} />{n && <InstanceStateChip state={n.state} />}</div></div>
       <dl className="kv">
         <dt>Instance</dt><dd className="mono">{n?.instanceId}</dd>

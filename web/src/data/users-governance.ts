@@ -88,15 +88,15 @@ export const GOV_AUDIT: AuditRow[] = (() => {
   return Array.from({ length: 30 }, (_, i) => {
     const a = GACT[Math.floor(r() * GACT.length)];
     const hash = hex(r, 10);
-    const row: AuditRow = { id: `GA-${4410 - i}`, agoMin: Math.round(i * 23 + r() * 15), actor: r() > .45 ? 'GM' : r() > .5 ? 'Luca' : ['Browser-02', 'Release-01', 'Security-01'][Math.floor(r() * 3)], action: a, target: a.startsWith('secret') ? 'sec://deploy/token' : a.startsWith('origin') ? 'status.example.com' : `M-${126 + Math.floor(r() * 7)}`, result: r() > .88 ? 'denied' : r() > .85 ? 'review' : 'allowed', hash, trace: prev };
+    const row: AuditRow = { id: `GA-${4410 - i}`, agoMin: Math.round(i * 23 + r() * 15), actor: r() > .45 ? 'GM' : r() > .5 ? 'Luca' : ['Browser-01', 'Release-01', 'Security-01'][Math.floor(r() * 3)], action: a, target: a.startsWith('secret') ? 'sec://deploy/token' : a.startsWith('origin') ? 'status.example.com' : `M-${126 + Math.floor(r() * 7)}`, result: r() > .88 ? 'denied' : r() > .85 ? 'review' : 'allowed', hash, trace: prev };
     prev = hash;
     return row;
   });
 })();
 
 export const PERMISSION_GRANTS = [
-  { id: 'G-1', subject: 'Browser-02', kind: 'site', scope: 'status.example.com', level: 'read-only', mission: 'M-132', expiresH: 2, risk: 'R0' },
-  { id: 'G-2', subject: 'Browser-03', kind: 'site', scope: 'staging.example.com', level: 'forms (draft)', mission: 'M-127', expiresH: 11, risk: 'R1' },
+  { id: 'G-1', subject: 'Browser-01', kind: 'site', scope: 'status.example.com', level: 'read-only', mission: 'M-132', expiresH: 2, risk: 'R0' },
+  { id: 'G-2', subject: 'Browser-01', kind: 'site', scope: 'staging.example.com', level: 'forms (draft)', mission: 'M-127', expiresH: 11, risk: 'R1' },
   { id: 'G-3', subject: 'Release-01', kind: 'tool', scope: 'deploy.staging', level: 'execute', mission: 'M-128', expiresH: 6, risk: 'R3' },
   { id: 'G-4', subject: 'Coder-01', kind: 'tool', scope: 'repo.write (branch)', level: 'prepare', mission: 'M-126', expiresH: 48, risk: 'R1' },
   { id: 'G-5', subject: 'Mateo Silva', kind: 'mission', scope: 'M-126 · M-128', level: 'operate', mission: 'M-126', expiresH: 720, risk: 'R1' },

@@ -1,11 +1,12 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Boxes, Plus, Search, Brain, Eye, Binary, Mic, Volume2, Languages, Server, KeyRound, Lock, ShieldCheck, ArrowUp, ArrowDown, X, CheckCircle2, AlertTriangle, Play,
-  Activity, HeartPulse, Route, FlaskConical, BarChart3, Settings2, Cpu, Cloud, RefreshCcw, Braces, Wand2, Zap, Gauge, ArrowRight, Download, Sparkles, Waves, Layers,
+  Boxes, Plus, Search, Brain, Mic, Volume2, Languages, Server, KeyRound, Lock, ShieldCheck, ArrowUp, ArrowDown, X, CheckCircle2, AlertTriangle, Play,
+  Activity, HeartPulse, Route, FlaskConical, BarChart3, Settings2, Cpu, Cloud, RefreshCcw, Braces, Wand2, Zap, ArrowRight, Download, Sparkles, Waves, Layers,
+  SlidersHorizontal, MemoryStick, HardDrive, FileBox, ArrowUpDown, Ban, Ruler, Timer, ChevronRight,
 } from 'lucide-react';
-import { Panel, PageHeader } from '@/components/ui/Panel';
-import { Tabs } from '@/components/ui/Tabs';
+import { TopBoard, FrameBody } from '@/components/layout/PageFrame';
+import { useSearchParams } from 'react-router-dom';
 import { Chip, Dot } from '@/components/ui/Chips';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { IconButton } from '@/components/ui/IconButton';
@@ -16,104 +17,180 @@ import { useTab } from '@/hooks/useTab';
 import { toast, openDialog } from '@/store/ui';
 import { seeded } from '@/data/agents';
 import {
-  MODELS, MODEL_BY_ID, PROVIDERS, ROUTE_ROLES, HEALTH_LABELS, healthSeries, INCIDENTS, PLAY_SAMPLES, useRoutes, useVoice, validateRoute,
-  type ModelDef, type ModelKind,
+  MODELS, MODEL_BY_ID, PROVIDERS, LOCAL_HOST, localFootprint, useModelState, ROUTE_ROLES, HEALTH_LABELS, healthSeries, INCIDENTS, PLAY_SAMPLES, useRoutes, useVoice, validateRoute,
+  type ModelDef,
 } from '@/data/models';
-import { KpiStrip, Heartbeat } from './_emuShared';
+import { Heartbeat } from './_emuShared';
+import { KIND_ICON, RUNTIME, runtimeOf, UseRing, TraitBars, CapacityLine } from './_modelParts';
 
-const TAB_ICONS = [Boxes, Server, Route, FlaskConical, BarChart3, HeartPulse];
-const KIND_ICON = { LLM: Brain, Vision: Eye, Embeddings: Binary, STT: Mic, TTS: Volume2, Translation: Languages } as const;
+const TAB_ICONS = [SlidersHorizontal, Server, Route, FlaskConical, BarChart3, HeartPulse];
 const STATUS_HUE = { ready: 150, degraded: 40, disabled: 230, optional: 200 } as const;
+const TAB_SUB: Record<string, string> = { Manager: 'Characteristics, usage and local capacity per model.', Providers: 'Connections and encrypted credential status.', Routing: 'Role to model precedence with fallbacks.', Playground: 'Try prompts safely. No production routing.', Usage: 'Calls, tokens and speech by model.', Health: 'Latency, errors and incidents.' };
 
 export default function ModelsPage() {
   const [tab, setTab, tabs] = useTab('models');
   const [playModel, setPlayModel] = useState('claude-sonnet-5-5');
   const extra = useRoutes((s) => s.extra);
-  const all = useMemo(() => [...extra, ...MODELS], [extra]);
+  const removed = useRoutes((s) => s.removed);
+  const off = useRoutes((s) => s.off);
+  const all = useMemo(() => [...extra, ...MODELS].filter((m) => !removed[m.id]), [extra, removed]);
+  const ready = all.filter((m) => m.status === 'ready' && !off[m.id]).length;
+  const foot = localFootprint(all);
   return (
     <div className="page">
-      <PageHeader icon={Boxes} title="Models" help="models.page" sub="One gateway for every model. Roles are separate from providers, and secrets never leave the server."
-        actions={<div className="row" style={{ gap: 8 }}><button className="btn primary" onClick={() => openDialog('model-add')}><Plus size={16} />Add model / provider</button></div>} />
-      <KpiStrip items={[
-        { key: 'm', icon: Boxes, value: all.filter((m) => m.status === 'ready').length, label: 'Ready Models', color: '#22d3ee', foot: <div className="kpi-label" style={{ fontSize: 12 }}>of {all.length} in catalog</div>, help: 'models.kpi.ready', onClick: () => setTab('Catalog') },
-        { key: 'p', icon: Server, value: 3, label: 'Healthy Providers', color: '#2ee98a', foot: <div className="kpi-label" style={{ fontSize: 12 }}>1 degraded</div>, help: 'models.kpi.providers', onClick: () => setTab('Providers') },
-        { key: 'l', icon: Zap, value: 720, suffix: ' ms', label: 'p50 Latency', color: '#a78bfa', delta: '-8%', down: true, help: 'models.kpi.latency', onClick: () => setTab('Health') },
-        { key: 'e', icon: AlertTriangle, value: 0.4, decimals: 1, suffix: '%', label: 'Error Rate (24 h)', color: '#facc15', help: 'models.kpi.errors', onClick: () => setTab('Health') },
-        { key: 'c', icon: Gauge, value: 58, suffix: '%', label: 'Prompt Cache Hit', color: '#3b82f6', delta: '+17 pp', help: 'models.kpi.cache', onClick: () => setTab('Usage') },
-      ]} />
-      <Panel className="emu-main" icon={Layers} title={tab} titleSize="lg" help={`models.tab.${tab.toLowerCase()}`} delay={.1}
-        sub={<span className="muted">{{ Catalog: 'Every model by modality, with context and estimated cost.', Providers: 'Connections and encrypted credential status.', Routing: 'Role to model precedence with fallbacks.', Playground: 'Try prompts safely. No production routing.', Usage: 'Calls, tokens and speech by model.', Health: 'Latency, errors and incidents.' }[tab]}</span>}
-        actions={<Tabs size="sm" variant="underline" tabs={tabs.map((t, i) => ({ key: t, label: t, icon: TAB_ICONS[i] }))} value={tab} onChange={setTab} ariaLabel="Models views" />}>
-        <AnimatePresence mode="wait">
-          <motion.div key={tab} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: .2 }} role="tabpanel" aria-label={tab}>
-            {tab === 'Catalog' && <Catalog all={all} tryIt={(id) => { setPlayModel(id); setTab('Playground'); }} />}
-            {tab === 'Providers' && <Providers />}
-            {tab === 'Routing' && <Routing />}
-            {tab === 'Playground' && <Playground all={all} model={playModel} setModel={setPlayModel} />}
-            {tab === 'Usage' && <ModelUsage />}
-            {tab === 'Health' && <Health />}
-          </motion.div>
-        </AnimatePresence>
-      </Panel>
+      <TopBoard icon={Boxes} title="Models" help="models.page" sub="One gateway for every model: LLM, speech and local weights. Roles are separate from providers, and secrets never leave the server."
+        actions={<><button className="btn" onClick={() => openDialog('model-add', { provider: 'local-ollama' })}><Download size={15} />Pull / import local</button><button className="btn primary" onClick={() => openDialog('model-add')}><Plus size={16} />Add model / provider</button></>}
+        kpis={[
+          { key: 'm', icon: Boxes, value: ready, label: 'Ready Models', color: '#22d3ee', hint: `of ${all.length} in catalog`, help: 'models.kpi.ready', onClick: () => setTab('Manager') },
+          { key: 'p', icon: Server, value: PROVIDERS.filter((p) => p.health === 'healthy').length, label: 'Healthy Providers', color: '#2ee98a', hint: '1 degraded', help: 'models.kpi.providers', onClick: () => setTab('Providers') },
+          { key: 'v', icon: MemoryStick, value: foot.vramGB, decimals: 1, suffix: ' GB', label: 'Local VRAM in use', color: '#fb923c', hint: `of ${LOCAL_HOST.vramGB} GB on ${LOCAL_HOST.gpu}`, bar: Math.round((foot.vramGB / LOCAL_HOST.vramGB) * 100), help: 'models.kpi.vram', onClick: () => setTab('Manager') },
+          { key: 'l', icon: Zap, value: 720, suffix: ' ms', label: 'p50 Latency', color: '#a78bfa', delta: '-8%', down: true, help: 'models.kpi.latency', onClick: () => setTab('Health') },
+          { key: 'e', icon: AlertTriangle, value: 0.4, decimals: 1, suffix: '%', label: 'Error Rate (24 h)', color: '#facc15', help: 'models.kpi.errors', onClick: () => setTab('Health') },
+        ]}
+        tabs={{ tabs, value: tab, onChange: setTab, icons: TAB_ICONS, ariaLabel: 'Models views' }}
+        toolbar={<span className="row" style={{ gap: 6 }}>{TAB_SUB[tab]}<HelpTrigger k={`models.tab.${tab.toLowerCase()}`} /></span>}
+      />
+      <FrameBody tab={tab}>
+        {tab === 'Manager' && <Manager all={all} />}
+        {tab === 'Providers' && <Providers />}
+        {tab === 'Routing' && <Routing />}
+        {tab === 'Playground' && <Playground all={all} model={playModel} setModel={setPlayModel} />}
+        {tab === 'Usage' && <ModelUsage />}
+        {tab === 'Health' && <Health />}
+      </FrameBody>
     </div>
   );
 }
 
 /* ------------------------------------------------------------------ */
-function Catalog({ all, tryIt }: { all: ModelDef[]; tryIt: (id: string) => void }) {
-  const [kind, setKind] = useState<ModelKind | 'all'>('all');
+/* Manager — the model management window                               */
+/* ------------------------------------------------------------------ */
+type Cat = 'LLM' | 'TTS' | 'STT' | 'Local' | 'Other' | 'All';
+const CATS: { key: Cat; label: string; sub: string; icon: typeof Brain; hue: number; test: (m: ModelDef) => boolean }[] = [
+  { key: 'LLM', label: 'LLM', sub: 'Language models', icon: Brain, hue: 268, test: (m) => m.kind === 'LLM' },
+  { key: 'TTS', label: 'TTS', sub: 'Text to speech', icon: Volume2, hue: 330, test: (m) => m.kind === 'TTS' },
+  { key: 'STT', label: 'STT', sub: 'Speech to text', icon: Mic, hue: 40, test: (m) => m.kind === 'STT' },
+  { key: 'Local', label: 'Local', sub: 'Ollama · GGUF', icon: Cpu, hue: 150, test: (m) => m.local },
+  { key: 'Other', label: 'Other', sub: 'Vision · Embed · Translate', icon: Layers, hue: 200, test: (m) => ['Vision', 'Embeddings', 'Translation'].includes(m.kind) },
+  { key: 'All', label: 'All', sub: 'Whole catalog', icon: Boxes, hue: 215, test: () => true },
+];
+type Sort = 'usage' | 'quality' | 'speed' | 'name';
+
+function Manager({ all }: { all: ModelDef[] }) {
+  const [sp, setSp] = useSearchParams();
+  const cat = (CATS.find((c) => c.key.toLowerCase() === sp.get('cat'))?.key ?? 'LLM') as Cat;
+  const setCat = (c: Cat) => setSp((p) => { const n = new URLSearchParams(p); n.set('cat', c.toLowerCase()); return n; }, { replace: true });
   const [q, setQ] = useState('');
-  const [localOnly, setLocalOnly] = useState(false);
-  const [off, setOff] = useState<Record<string, boolean>>({});
-  const kinds: ModelKind[] = ['LLM', 'Vision', 'Embeddings', 'STT', 'TTS', 'Translation'];
-  const list = all.filter((m) => (kind === 'all' || m.kind === kind) && (!localOnly || m.local) && (m.id + m.name + m.provider).toLowerCase().includes(q.toLowerCase()));
+  const [rt, setRt] = useState<'all' | 'ollama' | 'gguf'>('all');
+  const [sort, setSort] = useState<Sort>('usage');
+  const C = CATS.find((c) => c.key === cat)!;
+  const pctOf = (m: ModelDef) => (m.usage ? m.usage.used / m.usage.quota : m.weights?.loaded ? m.weights.memGB / LOCAL_HOST.vramGB : m.weights ? -0.5 : -1);
+  const list = all.filter((m) => C.test(m) && (cat !== 'Local' || rt === 'all' || runtimeOf(m) === rt) && (m.id + m.name + m.provider + (m.traits?.strengths.join(' ') ?? '')).toLowerCase().includes(q.toLowerCase()))
+    .sort((a, b) => sort === 'name' ? a.name.localeCompare(b.name) : sort === 'quality' ? (b.traits?.quality ?? 0) - (a.traits?.quality ?? 0) : sort === 'speed' ? (b.traits?.speed ?? 0) - (a.traits?.speed ?? 0) : pctOf(b) - pctOf(a));
   return (
     <div className="col" style={{ gap: 12 }}>
-      <div className="row wrap" style={{ gap: 10 }}>
-        <Tabs tabs={[{ key: 'all' as const, label: 'All', count: all.length }, ...kinds.map((k) => ({ key: k, label: k, icon: KIND_ICON[k], count: all.filter((m) => m.kind === k).length }))]} value={kind} onChange={setKind} ariaLabel="Model type" className="status-chips" />
-        <span className="spacer" />
-        <label className="row" style={{ gap: 8, fontSize: 12.5 }}>Local only<Switch checked={localOnly} onChange={setLocalOnly} label="Local models only" /></label>
-        <div className="input-wrap" style={{ width: 220 }}><Search size={15} /><input className="input" placeholder="Search models..." value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search models" /></div>
+      <div className="mm-cats" role="tablist" aria-label="Model category">
+        {CATS.map((c, i) => {
+          const n = all.filter(c.test).length;
+          const on = c.key === cat;
+          return (
+            <motion.button key={c.key} type="button" role="tab" aria-selected={on} className={'mm-cat' + (on ? ' on' : '')} style={{ ['--h' as string]: c.hue }} onClick={() => setCat(c.key)}
+              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * .04 }} whileTap={{ scale: .97 }}>
+              {on && <motion.span layoutId="mm-cat-glow" className="mm-cat-glow" transition={{ type: 'spring', stiffness: 420, damping: 34 }} />}
+              <span className="mm-cat-ico"><c.icon size={19} /></span>
+              <span className="mm-cat-t"><b>{c.label}</b><small>{c.sub}</small></span>
+              <span className="mm-cat-n tnum">{n}</span>
+            </motion.button>
+          );
+        })}
+        <HelpTrigger k="models.manager.categories" />
       </div>
-      {list.length === 0 ? <EmptyState icon={Boxes} title="No models match" body="Change the type filter or add a model." action={<button className="btn" onClick={() => openDialog('model-add')}>Add model</button>} /> : (
-        <div className="emu-model-grid">
+      {cat === 'Local' && <HostCapacity all={all} />}
+      <div className="row wrap" style={{ gap: 10 }}>
+        {cat === 'Local' && <Segmented ariaLabel="Local runtime" size="sm" value={rt} onChange={setRt} options={[{ key: 'all', label: 'All local' }, { key: 'ollama', label: 'Ollama' }, { key: 'gguf', label: 'GGUF' }]} />}
+        <span className="dim" style={{ fontSize: 12.5 }}>{list.length} model{list.length === 1 ? '' : 's'} · click a card to manage it</span>
+        <span className="spacer" />
+        <label className="row" style={{ gap: 6, fontSize: 12.5 }}><ArrowUpDown size={14} className="dim" />
+          <select className="select" style={{ width: 150, height: 32 }} value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Sort models">
+            <option value="usage">Most used</option><option value="quality">Quality</option><option value="speed">Speed</option><option value="name">Name</option>
+          </select><HelpTrigger k="models.manager.sort" /></label>
+        <div className="input-wrap" style={{ width: 220 }}><Search size={15} /><input className="input" placeholder="Search models or strengths..." value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search models" /></div>
+      </div>
+      {list.length === 0 ? <EmptyState icon={Boxes} title="No models match" body="Change the category or search, or add a model." action={<button className="btn" onClick={() => openDialog('model-add')}>Add model</button>} /> : (
+        <motion.div className="mm-grid" layout>
           <AnimatePresence mode="popLayout">
-            {list.map((m, i) => {
-              const K = KIND_ICON[m.kind];
-              const disabled = off[m.id] ?? m.status === 'disabled';
-              return (
-                <motion.div key={m.id} layout className={'subpanel glass-card hoverable emu-model' + (disabled ? ' off' : '')} style={{ ['--h' as string]: m.hue }}
-                  initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: .95 }} transition={{ delay: Math.min(i, 10) * .035 }}>
-                  <div className="row" style={{ gap: 10 }}>
-                    <span className="emu-model-ico"><K size={22} strokeWidth={1.7} /></span>
-                    <div style={{ minWidth: 0, flex: 1 }}><b className="ellipsis" style={{ display: 'block' }}>{m.name}</b><span className="mono dim ellipsis" style={{ display: 'block', fontSize: 11 }}>{m.id}</span></div>
-                    <Switch checked={!disabled} onChange={(v) => { setOff((o) => ({ ...o, [m.id]: !v })); toast({ tone: v ? 'success' : 'warning', title: `${m.name} ${v ? 'enabled' : 'disabled'} (demo)`, body: v ? 'Available to routing again.' : 'Routing will skip it and use fallbacks.' }); }} label={`Enable ${m.name}`} />
-                  </div>
-                  <p className="muted" style={{ fontSize: 12.5, margin: '8px 0', minHeight: 32 }}>{m.blurb}</p>
-                  <div className="row wrap" style={{ gap: 5 }}>
-                    <Chip hue={m.hue} size="sm">{m.kind}</Chip>
-                    <Chip hue={STATUS_HUE[disabled ? 'disabled' : m.status]} size="sm">{disabled ? 'disabled' : m.status}</Chip>
-                    {m.local ? <Chip hue={150} size="sm" icon={Cpu}>local</Chip> : <Chip hue={215} size="sm" icon={Cloud}>remote</Chip>}
-                    {m.json && <Chip hue={165} size="sm" icon={Braces}>JSON</Chip>}
-                  </div>
-                  <dl className="emu-spec">
-                    <div><dt>Context</dt><dd>{m.ctx}</dd></div>
-                    <div><dt>Latency</dt><dd>{m.latencyMs} ms</dd></div>
-                    <div><dt>Cost</dt><dd>{m.costIn == null ? '-' : m.costIn === 0 ? 'free' : `$${m.costIn}${m.costOut != null ? `/$${m.costOut}` : ''}`}<span className="dim"> {m.costIn ? m.costUnit : ''}</span></dd></div>
-                  </dl>
-                  <div className="row" style={{ gap: 6 }}>
-                    <button className="btn sm" disabled={disabled} onClick={() => tryIt(m.id)}><Play size={13} />Try</button>
-                    <button className="btn sm ghost" onClick={() => toast({ tone: 'info', title: `${m.name} details (demo)`, body: `Modalities: ${m.modalities.join(', ')}. Provider: ${m.provider}.` })}>Details</button>
-                    <span className="spacer" />{m.modalities.map((x) => <span key={x} className="dim" style={{ fontSize: 10.5 }}>{x}</span>)}
-                  </div>
-                </motion.div>
-              );
-            })}
+            {list.map((m, i) => <ModelCard key={m.id} m={m} i={i} />)}
           </AnimatePresence>
-        </div>
+        </motion.div>
       )}
-      <VoicePipeline />
+      {(cat === 'STT' || cat === 'TTS') && <VoicePipeline />}
     </div>
+  );
+}
+
+function HostCapacity({ all }: { all: ModelDef[] }) {
+  const f = localFootprint(all);
+  return (
+    <motion.div className="subpanel mm-host" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+      <div className="mm-host-info">
+        <div className="row" style={{ gap: 8 }}><Server size={18} className="good" /><b>{LOCAL_HOST.name}</b><HelpTrigger k="models.manager.host" /></div>
+        <div className="dim" style={{ fontSize: 12 }}>{LOCAL_HOST.gpu} · {LOCAL_HOST.vramGB} GB VRAM · {LOCAL_HOST.ramGB} GB RAM</div>
+        <div className="row wrap" style={{ gap: 5, marginTop: 6 }}>
+          <Chip hue={150} size="sm" icon={Cpu}>Ollama {LOCAL_HOST.ollamaVersion}</Chip><Chip hue={28} size="sm" icon={FileBox}>llama.cpp {LOCAL_HOST.llamacppBuild}</Chip>
+        </div>
+        <div className="row" style={{ gap: 6, marginTop: 10 }}>
+          <button className="btn sm" onClick={() => openDialog('model-add', { provider: 'local-ollama' })}><Download size={13} />Pull from Ollama</button>
+          <button className="btn sm" onClick={() => openDialog('model-add', { provider: 'local-llamacpp' })}><FileBox size={13} />Import GGUF</button>
+        </div>
+      </div>
+      <UseRing used={f.diskGB} total={LOCAL_HOST.diskGB} unit="GB" caption="Disk" icon={HardDrive} size={78} />
+      <UseRing used={f.vramGB} total={LOCAL_HOST.vramGB} unit="GB" caption="VRAM" icon={MemoryStick} size={78} />
+      <UseRing used={f.ramGB} total={LOCAL_HOST.ramGB} unit="GB" caption="RAM" icon={MemoryStick} size={78} />
+    </motion.div>
+  );
+}
+
+function ModelCard({ m, i }: { m: ModelDef; i: number }) {
+  const st = useModelState(m);
+  const setOff = useRoutes((s) => s.setOff);
+  const K = KIND_ICON[m.kind];
+  const R = RUNTIME[runtimeOf(m)];
+  const open = () => openDialog('model-manage', { id: m.id });
+  const status = st.disabled ? 'disabled' : m.status;
+  return (
+    <motion.div layout className={'subpanel glass-card mm-card' + (st.disabled ? ' off' : '')} style={{ ['--h' as string]: m.hue }} role="button" tabIndex={0}
+      aria-label={`Manage ${m.name}`} onClick={open} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } }}
+      initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: .95 }} transition={{ delay: Math.min(i, 10) * .035 }} whileHover={{ y: -3 }}>
+      <div className="row" style={{ gap: 10 }}>
+        <span className="emu-model-ico"><K size={21} strokeWidth={1.7} /></span>
+        <div style={{ minWidth: 0, flex: 1 }}><b className="ellipsis" style={{ display: 'block' }}>{m.name}</b><span className="mono dim ellipsis" style={{ display: 'block', fontSize: 10.5 }}>{m.weights?.file ?? m.id}</span></div>
+        <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+          <Switch checked={!st.disabled} disabled={m.status === 'disabled'} onChange={(v) => { setOff(m.id, !v); toast({ tone: v ? 'success' : 'warning', title: `${m.name} ${v ? 'enabled' : 'disabled'} (demo)`, body: v ? 'Available to routing again.' : 'Routing will skip it and use fallbacks.' }); }} label={`Enable ${m.name}`} />
+        </span>
+      </div>
+      <div className="row wrap" style={{ gap: 4, margin: '8px 0 2px' }}>
+        <Chip hue={m.hue} size="sm">{m.kind}</Chip>
+        <Chip hue={R.hue} size="sm" icon={R.icon}>{R.label}</Chip>
+        {m.weights && <Chip hue={28} size="sm" title={`${m.weights.params} parameters, ${m.weights.quant} quantization`}>{m.weights.quant}</Chip>}
+        {m.weights && !st.disabled ? <Chip hue={st.loaded ? 150 : 225} size="sm">{st.loaded ? 'loaded' : 'on disk'}</Chip> : <Chip hue={STATUS_HUE[status]} size="sm">{status}</Chip>}
+      </div>
+      <p className="mm-best" title={m.traits?.bestFor ?? m.blurb}><Sparkles size={12} aria-hidden />{m.traits?.bestFor ?? m.blurb}</p>
+      <div className="mm-mid">
+        {m.usage && st.quota ? <UseRing used={m.usage.used} total={st.quota} unit={m.usage.unit} caption="Used" />
+          : m.weights ? <UseRing used={m.weights.memGB} ghost={!st.loaded} total={m.weights.memKind === 'VRAM' ? LOCAL_HOST.vramGB : LOCAL_HOST.ramGB} unit="GB" caption={m.weights.memKind} icon={MemoryStick} />
+          : <div className="mm-ring none" title="This provider does not report usage"><span className="mm-ring-none"><Ban size={18} /></span><span className="dim" style={{ fontSize: 10.5, textAlign: 'center' }}>No usage reported</span></div>}
+        <TraitBars m={m} compact />
+      </div>
+      {m.weights && <CapacityLine m={m} hostVram={LOCAL_HOST.vramGB} hostRam={LOCAL_HOST.ramGB} hostDisk={LOCAL_HOST.diskGB} loaded={st.loaded} />}
+      <div className="row wrap" style={{ gap: 4, margin: '8px 0' }}>{m.traits?.strengths.slice(0, 3).map((s) => <span key={s} className="mm-tag">{s}</span>)}</div>
+      <div className="mm-foot">
+        <span title="Context window"><Ruler size={12} />{m.ctx}</span>
+        <span title="Median latency"><Timer size={12} />{m.latencyMs} ms</span>
+        <span title="Price">{m.costIn == null ? '-' : m.costIn === 0 ? 'free · local' : `$${m.costIn}${m.costOut != null ? `/$${m.costOut}` : ''} ${m.costUnit}`}</span>
+        <span className="spacer" />
+        <span className="mm-manage">Manage<ChevronRight size={13} /></span>
+      </div>
+    </motion.div>
   );
 }
 
@@ -395,10 +472,10 @@ function ModelUsage() {
 /* ------------------------------------------------------------------ */
 function Health() {
   const [probe, setProbe] = useState<string | null>(null);
-  const lat = PROVIDERS.filter((p) => p.id !== 'local-speech').map((p, i) => ({ label: p.name.split(' ')[0], data: healthSeries(p.id).latency, color: ['var(--info)', 'var(--good)', 'var(--warn)'][i] }));
+  const lat = PROVIDERS.filter((p) => p.id !== 'local-speech').map((p, i) => ({ label: p.name.split(' ').slice(0, 2).join(' '), data: healthSeries(p.id).latency, color: ['var(--info)', 'var(--good)', 'var(--gold)', 'var(--warn)'][i] ?? 'var(--violet)' }));
   return (
     <div className="col" style={{ gap: 12 }}>
-      <div className="grid g-4">
+      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))' }}>
         {PROVIDERS.map((p, i) => {
           const h = healthSeries(p.id);
           const ok = p.health !== 'degraded';

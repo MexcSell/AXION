@@ -38,6 +38,8 @@ import { Menu } from '@/components/ui/Menu';                    // <Menu trigger
 import { Modal } from '@/components/ui/Modal';                  // <Modal title icon help sub size="sm|md|lg|xl" tone="danger|warn" onClose footer dialogId="DL-41" drawer>
 import { CountUp } from '@/components/ui/CountUp';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Splitter, usePaneWidth } from '@/components/ui/Splitter'; // const [w,setW,reset]=usePaneWidth('key',260); <aside style={{'--pane-w':w+'px'}}/><Splitter pane="prev|next" width={w} onChange={setW} onReset={reset} min={180} maxFrac={.4} label/>
+                                                                // pane CSS MUST match: width: clamp(<min>px, var(--pane-w), <maxFrac>%)
 import { RingGauge, Donut, Legend, Sparkline, AreaChart, ColumnBars, MeterRow, Radar } from '@/components/viz/Charts';
 import { RobotAvatar } from '@/components/art/RobotAvatar';     // <RobotAvatar role="dev" size={48} faceMode="face|emblem" animated status="good"/>
 import { CoreCube, LogoGlyph } from '@/components/art/CoreArt';

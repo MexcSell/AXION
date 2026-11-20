@@ -32,7 +32,7 @@ export function Rail() {
   const active = missions.filter((m) => ['running', 'planning', 'verifying', 'waiting'].includes(m.status)).length;
   const online = AGENTS.filter((a) => a.status !== 'offline').length;
 
-  const isActive = (path: string) => (path === '/control' ? loc.pathname.startsWith('/control') : loc.pathname.startsWith(path));
+  const isActive = (path: string) => loc.pathname.startsWith(path);
 
   const content = (
     <div className="rail-inner" data-collapsed={collapsed || undefined}>

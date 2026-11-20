@@ -27,7 +27,26 @@ export interface Agent {
   metrics: AgentMetrics;
   description: string;
   createdAgo: number; // days
+  /** Development — separate from operational status (an in-mission agent can also be learning). */
+  growth: GrowthState;
+  /** progress of the current learning plan / evolution candidate, 0–100 */
+  growthPct: number;
+  /** what is being learned or which candidate is being evolved */
+  growthNote: string;
+  /** development stage 1 Seed … 5 Master */
+  level: DevLevel;
+  /** progress toward the next development stage, 0–100 */
+  xp: number;
+  /** evolution stage: number of promoted generations */
+  generation: number;
+  /** where the evolution candidate is in the pipeline (only while evolving) */
+  evoPhase?: EvoPhase;
+  candidate?: string;
 }
+
+export type GrowthState = 'learning' | 'evolving' | 'stable';
+export type DevLevel = 1 | 2 | 3 | 4 | 5;
+export type EvoPhase = 'proposal' | 'experiment' | 'benchmark' | 'promotion';
 
 export type MissionStatus = 'draft' | 'planning' | 'running' | 'verifying' | 'waiting' | 'paused' | 'completed' | 'failed' | 'archived';
 export type Priority = 'low' | 'normal' | 'high' | 'critical';

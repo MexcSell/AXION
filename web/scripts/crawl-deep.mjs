@@ -18,9 +18,9 @@ const created = await p.evaluate(() => {
 });
 const ids = await p.evaluate(() => window.__axion.data.getState().missions.map((m) => m.id));
 for (const id of ids) {
-  await go(`/control/${id}?tab=hierarchy`, 4000);   // live simulator fires every 3.2 s
-  for (const t of ['overview', 'conversations', 'task-flow', 'results', 'approvals', 'reports', 'timeline', 'browser']) await go(`/control/${id}?tab=${t}`, 300);
-  await go(`/missions?m=${id}`, 300);
+  await go(`/missions/${id}?tab=hierarchy`, 4000);   // live simulator fires every 3.2 s
+  for (const t of ['overview', 'conversations', 'task-flow', 'results', 'approvals', 'reports', 'timeline', 'browser']) await go(`/missions/${id}?tab=${t}`, 300);
+  await go(`/control/${id}?tab=approvals`, 300);   // legacy link must still resolve;
 }
 const agents = await p.evaluate(async () => (await import('/src/data/agents.ts')).AGENTS.map((a) => a.id)).catch(() => null);
 for (const a of agents ?? ['gm', 'coder-01']) { await go(`/agents/${a}`, 250); await go(`/agents/${a}?tab=capabilities`, 250); }

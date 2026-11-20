@@ -5,6 +5,7 @@ import {
   Bell, AlertTriangle, Radio, Bot, Target, CheckCheck, Activity, Info, CheckCircle2, ArrowRight, Database, Workflow, GitMerge, BookOpen, ShieldCheck, Settings2, RefreshCw, Clock, XCircle,
   Plus, Inbox, Hourglass, Archive, SlidersHorizontal, Play, Pause, Layers, Cpu, Trash2,
 } from 'lucide-react';
+import { TopBoard, FrameBody } from '@/components/layout/PageFrame';
 import { Panel } from '@/components/ui/Panel';
 import { Tabs } from '@/components/ui/Tabs';
 import { Chip, DemoTag } from '@/components/ui/Chips';
@@ -47,19 +48,18 @@ export default function NotificationsPage() {
   const counts: Record<string, number | undefined> = { Inbox: unread, Pending: pendingNotices + pendingAppr };
   return (
     <div className="page ug-page">
-      <Panel icon={Bell} titleSize="lg" title="Notifications & Activity" help="nt.page" sub="Real-time alerts, system events, agent updates, and execution activity." delay={.05} className="nt-head"
-        actions={<div className="row" style={{ gap: 8 }}><DemoTag /></div>}>
+      <TopBoard icon={Bell} title="Notifications & Activity" help="nt.page" sub="Real-time alerts, system events, agent updates, and execution activity." className="nt-head"
+        actions={<DemoTag />}
+        tabs={{ tabs, value: tab, onChange: setTab, icons, ariaLabel: 'Notification views', counts }}
+        toolbar={<span>{{ Inbox: 'Everything new, newest first.', Pending: 'Items that need a decision from you.', Resolved: 'Handled items, kept for audit.', Rules: 'What notifies whom, and how.' }[tab]}</span>}>
         <div className="nt-hero" aria-hidden><CoreCube width={150} /></div>
-        <Tabs variant="underline" size="sm" tabs={tabs.map((t, i) => ({ key: t, label: t, icon: icons[i], count: counts[t] }))} value={tab} onChange={setTab} ariaLabel="Notification views" />
-      </Panel>
-      <AnimatePresence mode="wait">
-        <motion.div key={tab} className="col" style={{ gap: 'var(--gap)' }} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: .2 }} role="tabpanel" aria-label={tab}>
-          {tab === 'Inbox' && <InboxTab />}
-          {tab === 'Pending' && <PendingTab />}
-          {tab === 'Resolved' && <ResolvedTab />}
-          {tab === 'Rules' && <RulesTab />}
-        </motion.div>
-      </AnimatePresence>
+      </TopBoard>
+      <FrameBody tab={tab} panel={false} className="col fb-gap">
+        {tab === 'Inbox' && <InboxTab />}
+        {tab === 'Pending' && <PendingTab />}
+        {tab === 'Resolved' && <ResolvedTab />}
+        {tab === 'Rules' && <RulesTab />}
+      </FrameBody>
     </div>
   );
 }
@@ -142,7 +142,7 @@ function InboxTab() {
         </Panel>
         <Panel icon={Bot} title={<>Agent Updates <span className="dim" style={{ fontSize: 13, fontWeight: 500 }}>(24)</span></>} help="nt.agentUpdates" delay={.25}>
           <div className="col" style={{ gap: 8 }}>
-            {[['Researcher-01', 'v2.3.1', 'v2.4.0', '+18.6%', 'researcher-01'], ['Tester-02', 'v2.3.0', 'v2.4.0', '+12.9%', 'tester-02'], ['Release-01', 'v2.3.2', 'v2.4.0', '+15.4%', 'release-01']].map(([n, a, b, g, id]) => (
+            {[['Researcher-01', 'v2.3.1', 'v2.4.0', '+18.6%', 'researcher-01'], ['Tester-01', 'v2.3.0', 'v2.4.0', '+12.9%', 'tester-01'], ['Release-01', 'v2.3.2', 'v2.4.0', '+15.4%', 'release-01']].map(([n, a, b, g, id]) => (
               <div key={n} className="nt-agent-row"><span className="nt-mini-bot"><Bot size={18} /></span><b>{n}</b><span className="dim mono" style={{ fontSize: 11.5 }}>{a} → {b}</span><span className="spacer" /><b className="good tnum">{g}</b>
                 <IconButton icon={Play} label={`Open ${n} versions`} size="xs" variant="bordered" onClick={() => nav(`/agents/${id}?tab=versions`)} /></div>))}
           </div>
@@ -167,7 +167,7 @@ function MissionUpdates() {
   return (
     <Panel icon={Target} title={<>Mission Updates <span className="dim" style={{ fontSize: 13, fontWeight: 500 }}>(7)</span></>} help="nt.mission" delay={.35}>
       <div className="col" style={{ gap: 8 }}>
-        {rows.map(([id, t, st, tone, I]) => <button key={id} className="nt-sys-row nt-btn" onClick={() => nav(`/missions?m=${id}`)}><I size={17} className={tone} /><b className="mono" style={{ fontSize: 12 }}>{id}</b><span className="ellipsis">{t}</span><span className="spacer" /><span className={tone}>{st}</span></button>)}
+        {rows.map(([id, t, st, tone, I]) => <button key={id} className="nt-sys-row nt-btn" onClick={() => nav(`/missions/${id}`)}><I size={17} className={tone} /><b className="mono" style={{ fontSize: 12 }}>{id}</b><span className="ellipsis">{t}</span><span className="spacer" /><span className={tone}>{st}</span></button>)}
       </div>
       <button className="nt-more" onClick={() => nav('/missions')}>View all mission updates <ArrowRight size={15} /></button>
     </Panel>

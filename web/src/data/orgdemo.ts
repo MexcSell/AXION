@@ -74,12 +74,12 @@ export const POLICY_HISTORY = [
 export type ProposalStage = 'draft' | 'simulate' | 'evaluate' | 'approve' | 'applied';
 export interface OrgProposal { id: string; kind: 'split' | 'merge' | 'reassign' | 'create-role' | 'retire'; title: string; by: string; summary: string; stage: ProposalStage; impact: { coverage: number; latency: number; cost: number }; agentIds: string[]; agoD: number; }
 export const PROPOSALS: OrgProposal[] = [
-  { id: 'P-21', kind: 'split', title: 'Split Engineering into Web and Automation', by: 'GM', summary: 'Browser agents form an Automation team under Integrator-01 to shorten checkout-flow loops.', stage: 'simulate', impact: { coverage: 3, latency: -12, cost: 2 }, agentIds: ['browser-01', 'browser-02', 'browser-03', 'integrator-01'], agoD: 1 },
-  { id: 'P-20', kind: 'merge', title: 'Merge Knowledge into R&D', by: 'Planner-01', summary: 'Shared indexing work would overlap less. Risk: curation independence is reduced.', stage: 'evaluate', impact: { coverage: -2, latency: -5, cost: -4 }, agentIds: ['knowledge-01', 'knowledge-02', 'researcher-01'], agoD: 3 },
-  { id: 'P-19', kind: 'create-role', title: 'Create Growth department (marketing, analytics, writer)', by: 'GM', summary: 'Linked to mission M-134. Needs two writers and one analyst reassigned.', stage: 'approve', impact: { coverage: 9, latency: -3, cost: 6 }, agentIds: ['analyst-01', 'writer-01', 'writer-02'], agoD: 1 },
-  { id: 'P-18', kind: 'reassign', title: 'Move Tester-03 from QA to Mentor program', by: 'Mentor-01', summary: 'Tester-03 is below 90% verified; pair with Mentor-01 for 2 weeks.', stage: 'approve', impact: { coverage: 1, latency: 2, cost: 0 }, agentIds: ['tester-03', 'mentor-01'], agoD: 2 },
-  { id: 'P-17', kind: 'retire', title: 'Retire Analyst-03 (idle 12 days)', by: 'Finance-01', summary: 'No missions assigned. Skills are covered by Analyst-01 and 02.', stage: 'draft', impact: { coverage: 0, latency: 0, cost: -3 }, agentIds: ['analyst-03'], agoD: 0 },
-  { id: 'P-16', kind: 'reassign', title: 'Add Security-02 to M-132 audit', by: 'Security-01', summary: 'Applied to new instances only. Running instances stay pinned.', stage: 'applied', impact: { coverage: 4, latency: -9, cost: 1 }, agentIds: ['security-02'], agoD: 6 },
+  { id: 'P-21', kind: 'split', title: 'Split Engineering into Web and Automation', by: 'GM', summary: 'Browser-01 moves under Integrator-01 in a new Automation department to shorten checkout-flow loops.', stage: 'simulate', impact: { coverage: 3, latency: -12, cost: 2 }, agentIds: ['browser-01', 'integrator-01'], agoD: 1 },
+  { id: 'P-20', kind: 'merge', title: 'Merge Knowledge into R&D', by: 'Planner-01', summary: 'Knowledge-01 would report to Researcher-01. Risk: curation independence is reduced.', stage: 'evaluate', impact: { coverage: -2, latency: -5, cost: -4 }, agentIds: ['knowledge-01', 'researcher-01'], agoD: 3 },
+  { id: 'P-19', kind: 'create-role', title: 'Create a Marketing role (one new agent)', by: 'GM', summary: 'Linked to mission M-134. No current agent has the marketing skill set, so a new unique role is proposed instead of a copy of Writer-01.', stage: 'approve', impact: { coverage: 9, latency: -3, cost: 6 }, agentIds: ['analyst-01', 'writer-01'], agoD: 1 },
+  { id: 'P-18', kind: 'reassign', title: 'Put Browser-01 into the Mentor program', by: 'Mentor-01', summary: 'Browser-01 is below 92% verified on checkout flows; pair with Mentor-01 for 2 weeks.', stage: 'approve', impact: { coverage: 1, latency: 2, cost: 0 }, agentIds: ['browser-01', 'mentor-01'], agoD: 2 },
+  { id: 'P-17', kind: 'retire', title: 'Retire duplicate agents (Coder-02…04, Tester-02…03 …)', by: 'Finance-01', summary: 'One agent per role and skill set. 20 copies were folded into their original; their verified history was merged.', stage: 'applied', impact: { coverage: 0, latency: 0, cost: -9 }, agentIds: ['coder-01', 'tester-01'], agoD: 0 },
+  { id: 'P-16', kind: 'reassign', title: 'Add Security-01 to the M-132 audit', by: 'GM', summary: 'Applied to new instances only. Running instances stay pinned.', stage: 'applied', impact: { coverage: 4, latency: -9, cost: 1 }, agentIds: ['security-01'], agoD: 6 },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -166,7 +166,7 @@ export function evolutionFor(a: Agent) {
       { v: bump(a.version, 1), label: 'Candidate', note: 'Prompt revision: stricter verification checklist', gain: +(1 + r() * 4).toFixed(1), state: 'candidate' as const },
       { v: bump(a.version, 2), label: 'Proposed', note: 'Recipe change: cache tool results per scope', gain: +(0.5 + r() * 2).toFixed(1), state: 'proposed' as const },
     ],
-    experiment: { n: 60 + Math.round(r() * 80), baseline: a.success - 2, candidate: Math.min(99, a.success + 1 + Math.round(r() * 2)), reviewer: 'Tester-02', security: 'Security-01' },
+    experiment: { n: 60 + Math.round(r() * 80), baseline: a.success - 2, candidate: Math.min(99, a.success + 1 + Math.round(r() * 2)), reviewer: 'Tester-01', security: 'Security-01' },
   };
 }
 function bump(v: string, n: number) { const p = v.replace('v', '').split('.').map(Number); p[1] = (p[1] || 0) + n; p[2] = 0; return 'v' + p.join('.'); }

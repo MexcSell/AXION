@@ -12,6 +12,8 @@ import { useUI } from '@/store/ui';
 import { useMediaQuery } from '@/hooks/useTab';
 import { ParticleField } from '@/components/art/ParticleField';
 import { ErrorBoundary } from './ErrorBoundary';
+import { ChevronsDown } from 'lucide-react';
+import { Tip } from '@/components/ui/Tip';
 
 /** Applies theme / skin / motion / density preferences to <html> (spec §7–8). */
 function useApplyPreferences() {
@@ -70,6 +72,8 @@ export function AppShell() {
   const collapsed = useSettings((s) => s.railCollapsed);
   const skin = useSettings((s) => s.skin);
   const particles = useSettings((s) => s.particles);
+  const headerBanner = useSettings((s) => s.headerBanner);
+  const setSettings = useSettings((s) => s.set);
   const routeKey = loc.pathname.split('/')[1] || 'overview';
   const mainRef = useRef<HTMLElement>(null);
   const [scrolled, setScrolled] = useState(false);
@@ -78,17 +82,30 @@ export function AppShell() {
 
   return (
     <MotionConfig reducedMotion={motionEff === 'reduced' ? 'always' : 'never'} transition={motionEff === 'subtle' ? { duration: 0.15 } : undefined}>
-      <div className="app" data-rail={collapsed ? 'collapsed' : 'expanded'} data-route={routeKey} data-scrolled={scrolled || undefined}>
+      <div className="app" data-rail={collapsed ? 'collapsed' : 'expanded'} data-route={routeKey} data-scrolled={scrolled || undefined} data-header={headerBanner ? 'shown' : 'hidden'}>
         <div className="app-bg-grid" aria-hidden />
         {(skin === 'fancy' || skin === 'luminous') && particles && motionEff !== 'reduced' && <ParticleField />}
-        <div className="hero-layer" aria-hidden><HeroScene animated={motionEff !== 'reduced'} /></div>
+        {headerBanner && <div className="hero-layer" aria-hidden><HeroScene animated={motionEff !== 'reduced'} /></div>}
         <a href="#main" className="skip-link">Skip to content</a>
-        <TopBar />
+        <AnimatePresence initial={false}>
+          {headerBanner ? <TopBar key="topbar" /> : (
+            <motion.div key="header-restore" className="header-restore"
+              initial={{ y: -32, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -32, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 380, damping: 26 }}>
+              <Tip label="Show header banner (Settings › Appearance)" side="bottom">
+                <button type="button" aria-label="Show header banner" onClick={() => setSettings({ headerBanner: true })}>
+                  <ChevronsDown size={14} />
+                </button>
+              </Tip>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <Rail />
         <main id="main" className="main" ref={mainRef} tabIndex={-1} onScroll={(e) => { const v = e.currentTarget.scrollTop > 6; if (v !== scrolled) setScrolled(v); }}>
           <AnimatePresence mode="wait">
             <motion.div
               key={routeKey}
+              className="route-view"
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4, transition: { duration: 0.12 } }}

@@ -6,8 +6,10 @@ import { cx } from '@/lib/format';
 export interface TabDef<K extends string = string> { key: K; label: string; icon?: LucideIcon; count?: number | string; }
 
 /** Accessible tabs: roving focus, Home/End/arrows; shared animated pill/underline (AN-05). */
-export function Tabs<K extends string>({ tabs, value, onChange, variant = 'pill', className, ariaLabel, size }: {
+export function Tabs<K extends string>({ tabs, value, onChange, variant = 'pill', className, ariaLabel, size, collapse }: {
   tabs: TabDef<K>[]; value: K; onChange: (k: K) => void; variant?: 'pill' | 'underline'; className?: string; ariaLabel?: string; size?: 'sm';
+  /** icon-first: unselected tabs shrink to their icon (label kept as accessible name + tooltip) when the strip is narrow */
+  collapse?: boolean;
 }) {
   const id = useId();
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -20,7 +22,7 @@ export function Tabs<K extends string>({ tabs, value, onChange, variant = 'pill'
     if (n >= 0) { e.preventDefault(); refs.current[n]?.focus(); onChange(tabs[n].key); }
   };
   return (
-    <div role="tablist" aria-label={ariaLabel} className={cx('tabs', variant === 'underline' && 'underline', className)}>
+    <div role="tablist" aria-label={ariaLabel} className={cx('tabs', variant === 'underline' && 'underline', collapse && 'tabs-collapse', className)}>
       {tabs.map((t, i) => {
         const sel = t.key === value;
         const Icon = t.icon;
@@ -38,12 +40,13 @@ export function Tabs<K extends string>({ tabs, value, onChange, variant = 'pill'
             onClick={() => onChange(t.key)}
             onKeyDown={(e) => onKey(e, i)}
             data-tab={t.key}
+            title={collapse && !sel ? t.label : undefined}
           >
             {sel && <motion.span layoutId={`tabpill-${id}`} className="tab-pill" transition={{ type: 'spring', stiffness: 520, damping: 40 }} />}
             <span className="tab-label">
               {Icon && <Icon size={15} aria-hidden />}
-              {t.label}
-              {t.count != null && <span style={{ opacity: .8 }}>({t.count})</span>}
+              <span className="tab-text">{t.label}</span>
+              {t.count != null && <span className="tab-count" style={{ opacity: .8 }}>({t.count})</span>}
             </span>
           </button>
         );

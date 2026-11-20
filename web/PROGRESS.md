@@ -34,6 +34,59 @@ Autonomous build session started 2026-11-20. The owner was away for ~8h and said
 | Vitest | Playwright scripts (`crawl`, `crawl-deep`, `flows`, `dialog-smoke`, `check-help`, `check-dialogs`) | These verify the real rendered UI. Add Vitest when backend logic (state machines, policy) exists. |
 | Versions unpinned | React 19.3, Vite 8.3, TypeScript 7.0 (native), motion 14, react-router 7.18, zustand 5, lucide 1.76. Exact versions are locked in `package-lock.json`; there is no git repo yet. | — |
 
+## Deviation from spec §2 (route map): Missions + Mission Control merged (owner request, 2026-11-20)
+Spec §2 has two routes: `/missions` (list + progress) and `/control/:id` (Mission Control). They are now **one page, `/missions/:id`**:
+- left: mission list (5 status tiles = `?filter=`, search, type, sort, row ✎/🗑); the open mission unfolds its team tree (agent → `?agent=`).
+  ⇤ collapses the list to an icon rail (per-viewer, localStorage). The open mission stays pinned in the list even when outside the filter.
+- centre: compact mission header (identity, lead, budget, verified ring) + the 9 Mission Control tabs (`?tab=`, icon-first when narrow)
+  with the lifecycle toolbar (▶ ⏸ ⟳ ■ ⋯) at the right of the tab row.
+- ~~right: conversation inspector~~ — removed in revision (c) below.
+- The old progress panel's content (outcome, criteria, Plan/Now/Next, delegation strip, live events) moved into the Overview tab.
+- Legacy links still resolve: `/control[/:id]?…` → `/missions[/:id]?…`, `/missions?m=ID`, `/missions?tab=<filter>`.
+- `ROUTE_TABS.missions` now lists the workspace tabs; the list filters are `MISSION_FILTERS` in `config/nav.ts`.
+
+## Owner revision 2026-11-20 (c): Missions panes, no global conversation pane, draggable dividers
+- The mission list no longer unfolds anything below the selected mission (team tree and collapsed-rail avatars removed).
+- The page-wide right conversation inspector is gone on every tab. Clicking an agent no longer opens the conversation drawer.
+- The mission header folds to one 44px row (owner 2026-11-20 (e)). The folded row shows the kind icon, title, status, id, budget % and a small progress ring. The ⇕ button sits top-right, and the state is kept in localStorage `axion.missions.headerMin`. `ProgressRing` draws its SVG with `overflow: visible`, so the glow is no longer cut off at the box edge.
+- **Conversations** tab = mission agents (`features/mission/MissionAgents.tsx`) | conversation partners | thread. Picking an agent sets `?agent=`.
+  The agents pane has five views. **Graph** is the default (owner 2026-11-20 (e)): a compact node-link hierarchy (`features/mission/MiniHierarchy.tsx`) scaled to the pane width, with flowing delegation links, dotted consult/verify/mentor links, a progress bar on each node, and a ⤢ button that opens the Hierarchy tab for the same agent. The other views (owner 2026-11-20 (d)) are: Hierarchy tree with dashed guide lines and foldable branches (+N when folded, expand/collapse all), Levels (L0 lead / L1 managers / L2 specialists as avatar tiles), By status (blocked → done groups) and a flat A–Z list. The chosen view is kept in localStorage `axion.missions.agentsView`. Help: `mission.agentViews`.
+- Every conversation thread has a VS Code–style **minimap** beside the scroll (`features/mission/ThreadMinimap.tsx`, owner 2026-11-20 (d)). Each message is drawn as a mini block coloured by kind and sized like its bubble, with its time beside it and a dashed marker where a new day starts. Short threads stay at a fixed small scale; long threads fit the rail. The bright box shows the visible area: click or drag to jump, or use the keys ↑↓ PgUp PgDn Home End. While scrolling, a time chip floats beside the box; hovering shows a preview of the message. The map icon in the thread header toggles it (kept in localStorage `axion.thread.minimap`). It is hidden when the thread is narrower than 340px. Help: `thread.minimap`.
+- **Hierarchy** tab = graph | conversation of the selected agent (narrow Messenger). The graph refits on resize via its ResizeObserver.
+- Overview team dots (and the graph 💬) jump to Conversations with that agent.
+- **Draggable dividers** (`components/ui/Splitter.tsx`, `usePaneWidth`): mission list | main, agents | partners, partners | thread, graph | conversation.
+  Pointer drag (clamped to the live container), ←/→ (Shift = 64 px), Home/End, Enter or double-click resets. Widths are per-viewer in localStorage (`axion.split.*`).
+  CSS clamps too (e.g. `clamp(180px, var(--pane-w), 32%)`), so a width saved on a big screen can't crush neighbours on a small one. Below 1100 px the panes stack and the dividers hide.
+- `scripts/flows.mjs` covers this: hierarchy pane switch, no team tree / no global pane, agents pane switches the thread, and drag + clamp + persist for every divider.
+
+## Owner revision 2026-11-20 (b): shared frame, Agents + Organization, development stage, model manager
+**Shared page frame** (`components/layout/PageFrame.tsx`, `theme/frame.css`). The parts that are identical on every screen are now one component set:
+- `TopBoard`: icon · title · ? · subtitle · actions, then a row of `KpiTile` (one tile design everywhere), then the tab row with a per-tab note or toolbar on the right. An optional `aside` holds side boards such as Company Health on Overview.
+- `FrameBody`: the single scroll region per tab. It has an optional fixed `head` row and `scroll={false}` for canvases.
+- `BottomBoard`: a foldable row of summary boards, used on Agents, Browser Studio, Knowledge and Evolution (where it holds the Ladder). It starts folded when the viewport is under 880 px tall, unless the viewer chose otherwise (stored in localStorage).
+- `TopBoard` folds too, on every page that uses it. A small chevron pill hangs under the board's bottom edge. When folded, the board becomes one compact row of icon, title, ?, tabs, toolbar and actions, about 52 px tall. The subtitle, KPI tiles, extra children and the aside (Overview's Company Health) are hidden. The state is stored per page in localStorage as `axion.top.<id>`, where id defaults to the title slug, and the board starts open. On Agents and Overview, a folded board sends the hero art behind the page so the tabs stay legible.
+- Both legacy `KpiStrip` helpers now render `KpiBoard`. `CommandCenter.tsx` now exports `useCompanyKpis()` and `<CompanyHealth/>`.
+- Exceptions: Missions keeps its 3-column workspace and Agent Profile keeps its player-card hero, both by design. Results keeps its KPIs in the Summary tab (earlier owner rule).
+
+**Agents = Agents + Organization** (`/organization` → `/agents?view=hierarchy`, and `?tab=departments|assignments|policies|proposals` are kept).
+- Tabs: Directory · Development · Live Instances · Departments · Assignments · Policies · Proposals.
+- The Directory views are Cards, List and Hierarchy (`?view=`).
+- Hierarchy is `features/agents/AgentHierarchy.tsx`: GM → departments → every agent, with connecting lines and pulses. The mouse wheel zooms toward the pointer, the background can be dragged to pan, and there are zoom/fit/reset buttons and keyboard controls (+ - 0 Home, arrows). Filters dim agents that don't match.
+- **Teams concept removed** for agents: the Teams tab is gone, "Teams & Agents" is gone, and mission team wording now says agents. Users › "Teams & Access" is about humans and was left as is.
+- **No duplicate agents**: one agent per role and skill set, so the roster is 18 (GM + 17). The 20 copies (-02/-03/-04) were folded into their -01 original across all data, and mission agent lists were deduplicated. Create Agent now requires a *new* role and rejects a covered one.
+- **Development stage** (`features/agents/Growth.tsx`) is separate from operational status:
+  - growth: Learning / Evolving / Stable, with progress and a note;
+  - development stage 1–5: Seed, Apprentice, Practitioner, Expert, Master, with progress to the next stage;
+  - evolution stage: Gen N plus the candidate's phase (Proposal → Experiment → Benchmark → Promotion).
+  - It appears on cards, list rows, hierarchy nodes, the profile hero, the Development tab (stage ladder + 3 lanes) and the bottom boards.
+
+**Models › Manager** (model management window). It has categories LLM · TTS · STT · Local (Ollama · GGUF) · Other · All.
+- Each card shows characteristics (trait bars, strengths, best-for), a usage ring (only for models that report usage; amber ≥70%, red ≥90%) and local capacity (disk, VRAM/RAM), plus a host capacity strip.
+- Clicking a card opens the `model-manage` dialog (DL-41b): enable, monthly limit, default-for-role, load/unload/remove, Ollama pull and GGUF re-quantize.
+- New data fields: `runtime`, `traits`, `usage`, `weights`, and `LOCAL_HOST` in `data/models.ts`.
+
+Verification: fit-check ALL FIT at 1672×941. At 1280×760 every page fits except the Agent Profile hero, which overflowed before this revision too (now 166 px, was 247 px).
+
 ## Progress
 (updated as work proceeds)
 - [x] Scaffold (Vite 8 + React 19 + TS 7), tokens for 4 skins × light/dark, base and shell CSS.

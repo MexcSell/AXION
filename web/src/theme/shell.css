@@ -243,6 +243,33 @@ button.kpi:hover { transform: translateY(calc(-2px * var(--motion-scale))); box-
     -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent 100%); mask-image: linear-gradient(180deg, #000 72%, transparent 100%);
   }
 }
+/* a folded top board (one compact row of tabs) sits inside that strip: send the art back behind the page so tabs stay legible */
+.app.app:has(.tb-main.folded) .hero-layer { z-index: 1; }
 
 /* keep page titles legible over the hero art */
 [data-theme='dark'] .page-title, [data-theme='dark'] .page-sub, [data-theme='dark'] .brand-tag { text-shadow: 0 1px 2px rgba(0, 0, 0, .9), 0 0 12px rgba(0, 0, 0, .7); }
+
+/* ------------------------------------------------------------------ */
+/* Header banner hidden (Settings › Appearance › Header banner)        */
+/* ------------------------------------------------------------------ */
+.app[data-header='hidden'] { grid-template-rows: 0px minmax(0, 1fr); }
+.app[data-header='hidden'] .main { padding-top: 16px; }
+.app[data-header='hidden'] .rail { padding-top: 14px; }
+.header-restore {
+  position: fixed; top: 0; left: 50%; z-index: 30; translate: -50% 0;
+}
+.header-restore button {
+  display: grid; place-items: center; width: 54px; height: 16px;
+  border-radius: 0 0 12px 12px; border: 1px solid var(--border-strong); border-top: 0;
+  background: var(--panel); color: var(--text-2); backdrop-filter: blur(var(--blur));
+  box-shadow: 0 4px 14px rgba(var(--accent-rgb), .25);
+  opacity: .7; transition: height var(--dur-fast) var(--ease), opacity var(--dur-fast), color var(--dur-fast), box-shadow var(--dur-fast);
+}
+.header-restore button:hover, .header-restore button:focus-visible {
+  height: 24px; opacity: 1; color: var(--text); box-shadow: 0 6px 20px rgba(var(--accent-rgb), .5);
+}
+.header-restore button svg { animation: header-nudge 2.4s var(--ease) infinite; }
+.header-restore button:hover svg { animation: none; }
+@keyframes header-nudge { 0%, 70%, 100% { transform: translateY(0); } 80% { transform: translateY(2px); } 90% { transform: translateY(-1px); } }
+[data-motion='reduced'] .header-restore button svg { animation: none; }
+@media (max-width: 800px) { .header-restore button { width: 64px; height: 22px; opacity: 1; } }

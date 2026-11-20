@@ -21,7 +21,7 @@ export const WORKERS: Worker[] = [
   { id: 'mw-03', unit: 'mission-worker', agent: 'Researcher-01', job: 'M-129 · Competitor pricing scan', progress: 88, crashes: 1, restarts: 2, pinned: 'v2.2.0', state: 'running' },
   { id: 'mw-04', unit: 'mission-worker', agent: '-', job: 'No allocation', progress: 0, crashes: 0, restarts: 0, pinned: '-', state: 'idle' },
   { id: 'bw-01', unit: 'browser-worker', agent: 'Browser-01', job: 'M-129 · Collect public docs', progress: 57, crashes: 2, restarts: 3, pinned: 'v2.0.8', state: 'running' },
-  { id: 'bw-02', unit: 'browser-worker', agent: 'Browser-02', job: 'M-131 · Form dry-run (fixture)', progress: 100, crashes: 0, restarts: 0, pinned: 'v2.0.8', state: 'draining' },
+  { id: 'bw-02', unit: 'browser-worker', agent: 'Browser-01', job: 'M-131 · Form dry-run (fixture)', progress: 100, crashes: 0, restarts: 0, pinned: 'v2.0.8', state: 'draining' },
   { id: 'ev-01', unit: 'evaluator-worker', agent: 'Evaluator-01', job: 'M-126 · Verify checkout tests', progress: 63, crashes: 0, restarts: 0, pinned: 'v2.4.0', state: 'running' },
 ];
 

@@ -7,6 +7,7 @@ import { Menu } from '@/components/ui/Menu';
 import { openDialog, toast } from '@/store/ui';
 import type { Agent } from '@/data/types';
 import { AGENT_STATUS, ROLES } from '@/data/roles';
+import { DevStrip } from '@/features/agents/Growth';
 
 /** Player-card style agent tile (40-4 grid). */
 export function AgentCard({ agent, index = 0 }: { agent: Agent; index?: number }) {
@@ -21,11 +22,11 @@ export function AgentCard({ agent, index = 0 }: { agent: Agent; index?: number }
       exit={{ opacity: 0, scale: .95 }}
       transition={{ duration: .32, delay: Math.min(index, 14) * .035, layout: { type: 'spring', stiffness: 380, damping: 34 } }}
       style={{ ['--rh' as string]: ROLES[agent.role].hue }}
-      aria-label={`${agent.name}, ${AGENT_STATUS[agent.status].label}, success ${agent.success}%`}
+      aria-label={`${agent.name}, ${AGENT_STATUS[agent.status].label}, ${agent.growth}, success ${agent.success}%`}
     >
       <button className="agent-card-hit" onClick={open} aria-label={`Open ${agent.name} profile`} />
       <div className="agent-card-top">
-        <div className="agent-card-art"><RobotAvatar role={agent.role} size={80} title={`${agent.name} avatar`} /></div>
+        <div className="agent-card-art"><RobotAvatar role={agent.role} size={80} title={`${agent.name} avatar`} animated={agent.growth === 'evolving'} /></div>
         <div className="agent-card-info">
           <div className="agent-name ellipsis">{agent.name}</div>
           <RoleChip role={agent.role} />
@@ -48,6 +49,7 @@ export function AgentCard({ agent, index = 0 }: { agent: Agent; index?: number }
           />
         </div>
       </div>
+      <DevStrip agent={agent} />
       <div className="agent-card-stats">
         <span>Missions</span><b className="tnum">{agent.missions}</b>
         <span className="sep" />

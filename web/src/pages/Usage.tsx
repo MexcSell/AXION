@@ -2,11 +2,10 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  BarChart3, Database, Target, TrendingUp, Layers, Gauge, Bell, LineChart, Boxes, Target as MissionIcon, SlidersHorizontal, CheckCircle2, AlertTriangle, Info, XCircle, Download,
+  BarChart3, Database, Target, TrendingUp, Gauge, Bell, LineChart, Boxes, Target as MissionIcon, SlidersHorizontal, CheckCircle2, AlertTriangle, Info, XCircle, Download,
   ArrowRight, Eye, Settings2, Leaf, PiggyBank, RotateCcw, Check,
 } from 'lucide-react';
-import { Panel, PageHeader } from '@/components/ui/Panel';
-import { Tabs } from '@/components/ui/Tabs';
+import { TopBoard, FrameBody } from '@/components/layout/PageFrame';
 import { Chip } from '@/components/ui/Chips';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { RingGauge, Donut, Legend, AreaChart, ColumnBars, MeterRow } from '@/components/viz/Charts';
@@ -15,7 +14,6 @@ import { useData } from '@/store/data';
 import { toast, openDialog } from '@/store/ui';
 import { money, cx } from '@/lib/format';
 import { SPEND, BUDGET, DAYS, dailySpend, cumulative, BY_MODEL, BY_DEPT, LIMITS, ALERTS, DEFAULT_SCENARIO, project, useLimits, VERIFIED_OUTCOMES, type Scenario } from '@/data/usage';
-import { KpiStrip } from './_emuShared';
 
 const TAB_ICONS = [BarChart3, MissionIcon, Boxes, Gauge, Bell, LineChart];
 
@@ -26,31 +24,26 @@ export default function UsagePage() {
   const proj = useMemo(() => project(DEFAULT_SCENARIO), []);
   return (
     <div className="page">
-      <PageHeader icon={BarChart3} title="Usage & Budgets" help="usage.page" sub="What the company spends, what it gets for it, and how long the budget lasts. Cost is judged per verified outcome."
-        actions={<div className="row" style={{ gap: 8 }}><select className="select" style={{ width: 150 }} aria-label="Date range" defaultValue="mtd" onChange={() => toast({ tone: 'info', title: 'Range changed (demo)', body: 'Charts keep the demo month.' })}><option value="mtd">Month to date</option><option value="30">Last 30 days</option><option value="q">This quarter</option></select>
-          <button className="btn primary" onClick={() => openDialog('budget-limit', { key: 'Monthly spend' })}><Settings2 size={15} />Edit limits</button></div>} />
-      <KpiStrip items={[
-        { key: 'spend', icon: Database, value: SPEND, prefix: '$', label: 'This Month Spend', color: '#a78bfa', help: 'usage.kpi.spend', onClick: () => setTab('Overview'),
-          foot: <div style={{ marginTop: 2 }}><div className="kpi-label" style={{ fontSize: 12 }}>76% of {money(BUDGET, 0)} Budget</div><div className="bar thin good" style={{ marginTop: 3 }}><motion.i initial={{ width: 0 }} animate={{ width: '76%' }} transition={{ duration: 1.2, delay: .4 }} /></div></div> },
+      <TopBoard icon={BarChart3} title="Usage & Budgets" help="usage.page" sub="What the company spends, what it gets for it, and how long the budget lasts. Cost is judged per verified outcome."
+        actions={<><select className="select" style={{ width: 150 }} aria-label="Date range" defaultValue="mtd" onChange={() => toast({ tone: 'info', title: 'Range changed (demo)', body: 'Charts keep the demo month.' })}><option value="mtd">Month to date</option><option value="30">Last 30 days</option><option value="q">This quarter</option></select>
+          <button className="btn primary" onClick={() => openDialog('budget-limit', { key: 'Monthly spend' })}><Settings2 size={15} />Edit limits</button></>}
+        kpis={[
+        { key: 'spend', icon: Database, value: SPEND, prefix: '$', label: 'This Month Spend', color: '#a78bfa', help: 'usage.kpi.spend', onClick: () => setTab('Overview'), hint: `76% of ${money(BUDGET, 0)} Budget`, bar: 76 },
         { key: 'cpo', icon: Target, value: cpo, decimals: 2, prefix: '$', label: 'Cost / Verified Outcome', color: '#22d3ee', delta: '-11%', down: true, help: 'usage.kpi.cpo', onClick: () => setTab('Mission Costs') },
         { key: 'out', icon: CheckCircle2, value: VERIFIED_OUTCOMES, label: 'Verified Outcomes', color: '#2ee98a', delta: '+9.4%', help: 'usage.kpi.outcomes', onClick: () => setTab('Mission Costs') },
-        { key: 'fc', icon: TrendingUp, value: proj.end, prefix: '$', label: 'Projected Month End', color: '#facc15', foot: <div className="kpi-label" style={{ fontSize: 12 }}>{proj.end > BUDGET ? 'above budget' : 'within budget'}</div>, help: 'usage.kpi.forecast', onClick: () => setTab('Forecast') },
-        { key: 'al', icon: Bell, value: alertsOpen, label: 'Open Alerts', color: '#fbbf24', foot: <div className="kpi-label" style={{ fontSize: 12 }}>1 critical</div>, help: 'usage.kpi.alerts', onClick: () => setTab('Alerts') },
-      ]} />
-      <Panel className="emu-main" icon={Layers} title={tab} titleSize="lg" help={`usage.tab.${tab.toLowerCase().replace(/ /g, '')}`} delay={.1}
-        sub={<span className="muted">{{ Overview: 'Spend, mix and efficiency at a glance.', 'Mission Costs': 'Cost, budget burn and cost per verified task.', 'Model Usage': 'Where the money goes by model and department.', Limits: 'Soft and hard caps with their consequences.', Alerts: 'Quota, anomaly and provider notices.', Forecast: 'Scenario sliders with live projection.' }[tab]}</span>}
-        actions={<Tabs size="sm" variant="underline" tabs={tabs.map((t, i) => ({ key: t, label: t, icon: TAB_ICONS[i] }))} value={tab} onChange={setTab} ariaLabel="Usage views" />}>
-        <AnimatePresence mode="wait">
-          <motion.div key={tab} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: .2 }} role="tabpanel" aria-label={tab}>
-            {tab === 'Overview' && <Overview />}
-            {tab === 'Mission Costs' && <MissionCosts />}
-            {tab === 'Model Usage' && <ModelUsage />}
-            {tab === 'Limits' && <Limits />}
-            {tab === 'Alerts' && <Alerts />}
-            {tab === 'Forecast' && <Forecast />}
-          </motion.div>
-        </AnimatePresence>
-      </Panel>
+        { key: 'fc', icon: TrendingUp, value: proj.end, prefix: '$', label: 'Projected Month End', color: '#facc15', hint: proj.end > BUDGET ? 'above budget' : 'within budget', help: 'usage.kpi.forecast', onClick: () => setTab('Forecast') },
+        { key: 'al', icon: Bell, value: alertsOpen, label: 'Open Alerts', color: '#fbbf24', hint: '1 critical', help: 'usage.kpi.alerts', onClick: () => setTab('Alerts') },
+      ]}
+        tabs={{ tabs, value: tab, onChange: setTab, icons: TAB_ICONS, ariaLabel: 'Usage views' }}
+        toolbar={<span>{{ Overview: 'Spend, mix and efficiency at a glance.', 'Mission Costs': 'Cost, budget burn and cost per verified task.', 'Model Usage': 'Where the money goes by model and department.', Limits: 'Soft and hard caps with their consequences.', Alerts: 'Quota, anomaly and provider notices.', Forecast: 'Scenario sliders with live projection.' }[tab]}</span>} />
+      <FrameBody tab={tab}>
+        {tab === 'Overview' && <Overview />}
+        {tab === 'Mission Costs' && <MissionCosts />}
+        {tab === 'Model Usage' && <ModelUsage />}
+        {tab === 'Limits' && <Limits />}
+        {tab === 'Alerts' && <Alerts />}
+        {tab === 'Forecast' && <Forecast />}
+      </FrameBody>
     </div>
   );
 }
@@ -108,7 +101,7 @@ function MissionTable({ rows }: { rows: ReturnType<typeof useData.getState>['mis
             const burn = Math.min(100, (m.cost / m.budget) * 100);
             const per = m.tasksVerified ? m.cost / m.tasksVerified : null;
             return (
-              <motion.tr key={m.id} onClick={() => nav(`/control/${m.id}`)} style={{ cursor: 'pointer' }} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * .04 }}>
+              <motion.tr key={m.id} onClick={() => nav(`/missions/${m.id}`)} style={{ cursor: 'pointer' }} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * .04 }}>
                 <td><b>{m.title}</b> <span className="mono dim" style={{ fontSize: 11 }}>{m.id}</span></td>
                 <td><Chip hue={m.status === 'running' ? 150 : m.status === 'failed' ? 350 : 215} size="sm">{m.status}</Chip></td>
                 <td className="tnum"><b>{money(m.cost)}</b> <span className="dim">/ {money(m.budget, 0)}</span></td>

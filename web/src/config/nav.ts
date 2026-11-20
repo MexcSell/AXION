@@ -1,5 +1,5 @@
 import {
-  Home, Target, Radar, Bot, Network, Globe, Package, BookOpen, Dna, Boxes, Users, ShieldCheck,
+  Home, Target, Bot, Globe, Package, BookOpen, Dna, Boxes, Users, ShieldCheck,
   BarChart3, Bell, Settings, Activity, LifeBuoy, type LucideIcon,
 } from 'lucide-react';
 
@@ -9,9 +9,7 @@ export interface NavItem { key: string; label: string; path: string; icon: Lucid
 export const NAV: NavItem[] = [
   { key: 'overview', label: 'Overview', path: '/overview', icon: Home, group: 'workspace' },
   { key: 'missions', label: 'Missions', path: '/missions', icon: Target, group: 'workspace' },
-  { key: 'control', label: 'Mission Control', path: '/control', icon: Radar, group: 'workspace' },
   { key: 'agents', label: 'Agents', path: '/agents', icon: Bot, group: 'workspace' },
-  { key: 'organization', label: 'Organization', path: '/organization', icon: Network, group: 'workspace' },
   { key: 'browser', label: 'Browser Studio', path: '/browser', icon: Globe, group: 'workspace' },
   { key: 'results', label: 'Results & Versions', path: '/results', icon: Package, group: 'intelligence' },
   { key: 'knowledge', label: 'Knowledge', path: '/knowledge', icon: BookOpen, group: 'intelligence' },
@@ -29,16 +27,16 @@ export const NAV: NavItem[] = [
 /** Tabs per route (spec §2) — pages read these so the command palette can deep-link every tab. */
 export const ROUTE_TABS: Record<string, string[]> = {
   overview: ['Pulse', 'Portfolio', 'Activity', 'Health'],
-  missions: ['All', 'Active', 'Waiting', 'Completed', 'Archived'],
-  control: ['Overview', 'Hierarchy', 'Task Flow', 'Browser', 'Conversations', 'Results', 'Approvals', 'Reports', 'Timeline'],
-  agents: ['Directory', 'Live Instances', 'Teams', 'Coaching'],
+  /** Missions = list + Mission Control workspace merged into one page: these are the workspace tabs (?tab=). */
+  missions: ['Overview', 'Hierarchy', 'Task Flow', 'Browser', 'Conversations', 'Results', 'Approvals', 'Reports', 'Timeline'],
+  /** Agents + former Organization page merged (owner 2026-11-20). Directory has List / Cards / Hierarchy views (?view=). */
+  agents: ['Directory', 'Development', 'Live Instances', 'Departments', 'Assignments', 'Policies', 'Proposals'],
   agentProfile: ['Profile', 'Capabilities', 'Tools', 'Instances', 'Conversations', 'Memory', 'Performance', 'Mentoring', 'Evolution', 'Audit'],
-  organization: ['Org Chart', 'Departments', 'Assignments', 'Policies', 'Performance', 'Proposals'],
   browser: ['Sessions', 'Live View', 'Actions', 'Site Grants', 'Recipes', 'Replay'],
-  results: ['Library', 'Previews', 'Timeline', 'Branch Graph', 'Comparisons', 'Downloads', 'Releases'],
+  results: ['Summary', 'Library', 'Previews', 'Timeline', 'Branch Graph', 'Comparisons', 'Downloads', 'Releases'],
   knowledge: ['Library', 'Research', 'Sources', 'Citations', 'Learning Queue'],
   evolution: ['Proposals', 'Experiments', 'Benchmarks', 'Mentoring', 'Promotions', 'History'],
-  models: ['Catalog', 'Providers', 'Routing', 'Playground', 'Usage', 'Health'],
+  models: ['Manager', 'Providers', 'Routing', 'Playground', 'Usage', 'Health'],
   users: ['Members', 'Roles', 'Teams & Access', 'Invitations', 'Sessions', 'Audit'],
   governance: ['Approvals', 'Permissions', 'Autonomy', 'Policies', 'Secrets', 'Audit'],
   usage: ['Overview', 'Mission Costs', 'Model Usage', 'Limits', 'Alerts', 'Forecast'],
@@ -47,5 +45,8 @@ export const ROUTE_TABS: Record<string, string[]> = {
   operations: ['Services', 'Workers', 'Queues', 'Browser Hosts', 'Storage', 'Logs', 'Recovery'],
   help: ['Guides', 'Context Help', 'Shortcuts', 'Troubleshooting', 'Glossary'],
 };
+
+/** Mission list status filter (?filter=) on the Missions page — not a route, so kept out of ROUTE_TABS. */
+export const MISSION_FILTERS = ['All', 'Active', 'Waiting', 'Completed', 'Archived'];
 
 export const slug = (s: string) => s.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');

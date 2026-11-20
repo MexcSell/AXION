@@ -4,8 +4,8 @@ import {
   Dna, FlaskConical, GitBranch, GraduationCap, Trophy, History as HistoryIcon, Lightbulb, BarChart3, ShieldCheck, Plus, Search, CheckCircle2, XCircle, Crown,
   Layers, Rocket, RotateCcw, Users2, Eye, Lock, Gauge, AlertTriangle, Sparkles, ArrowRight, Undo2, BookOpen, Flag, Activity,
 } from 'lucide-react';
-import { Panel, PageHeader } from '@/components/ui/Panel';
-import { Tabs } from '@/components/ui/Tabs';
+import { TopBoard, FrameBody, BottomBoard } from '@/components/layout/PageFrame';
+import { Panel } from '@/components/ui/Panel';
 import { Chip, Dot } from '@/components/ui/Chips';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -20,7 +20,6 @@ import {
   LADDER, PROPOSALS, EXPERIMENTS, FAILURE_CLASSES, BENCH_LABELS, benchSeries, BENCH_SUITES, MENTORING, STAGES, PROMOTIONS, DAG_NODES, DAG_EDGES, HISTORY_LOG, usePromos,
   type Tier, type Proposal, type Experiment, type Promotion, type DagNode,
 } from '@/data/evolution';
-import { KpiStrip } from './_emuShared';
 
 const TAB_ICONS = [Lightbulb, FlaskConical, BarChart3, GraduationCap, Trophy, HistoryIcon];
 const RISK_HUE = { low: 150, medium: 40, high: 350 } as const;
@@ -35,30 +34,28 @@ export default function EvolutionPage() {
 
   return (
     <div className="page">
-      <PageHeader icon={Dna} title="Evolution Lab" help="evo.lab" sub="Agents propose improvements. Independent evaluators test them. Owners promote them. Nothing approves its own candidate."
-        actions={<div className="row" style={{ gap: 8 }}><button className="btn primary" onClick={() => openDialog('evolution-experiment')}><Plus size={16} />New experiment</button></div>} />
-      <KpiStrip items={[
+      <TopBoard icon={Dna} title="Evolution Lab" help="evo.lab" sub="Agents propose improvements. Independent evaluators test them. Owners promote them. Nothing approves its own candidate."
+        actions={<button className="btn primary" onClick={() => openDialog('evolution-experiment')}><Plus size={16} />New experiment</button>}
+        kpis={[
         { key: 'prop', icon: Lightbulb, value: PROPOSALS.filter((p) => !['promoted', 'rejected'].includes(p.status)).length, label: 'Open Proposals', color: '#a78bfa', delta: '+2 this week', help: 'evo.kpi.proposals', onClick: () => setTab('Proposals') },
         { key: 'exp', icon: FlaskConical, value: EXPERIMENTS.filter((e) => e.status === 'running').length, label: 'Running Experiments', color: '#22d3ee', help: 'evo.kpi.experiments', onClick: () => setTab('Experiments') },
         { key: 'gain', icon: Gauge, value: 3.7, decimals: 1, prefix: '+', suffix: ' pp', label: 'Verified Pass-rate Gain', color: '#2ee98a', delta: 'vs v2.3.0', help: 'evo.kpi.gain', onClick: () => setTab('Benchmarks') },
-        { key: 'sec', icon: ShieldCheck, value: 0, label: 'Security Regressions', color: '#facc15', foot: <div className="kpi-label" style={{ fontSize: 12 }}>in promoted candidates</div>, help: 'evo.kpi.security', onClick: () => setTab('Benchmarks') },
-        { key: 'pend', icon: Trophy, value: pending, label: 'Awaiting Promotion', color: '#fbbf24', foot: <div className="kpi-label" style={{ fontSize: 12 }}>2 need Owner</div>, help: 'evo.kpi.promotions', onClick: () => setTab('Promotions') },
-      ]} />
-      <Ladder tier={tier} setTier={(t) => { setTier(t); setTab('Proposals'); }} />
-      <Panel className="emu-main" icon={Layers} title={tab} help={`evo.tab.${tab.toLowerCase()}`} titleSize="lg" delay={.12}
-        sub={<span className="muted">{{ Proposals: 'Candidate improvements and their risk tier.', Experiments: 'Isolated baseline vs candidate runs.', Benchmarks: 'Pass rate, cost, latency and failure modes.', Mentoring: 'Coaching plans and verified skill growth.', Promotions: 'Staged pipeline with independent review.', History: 'Lineage of every agent version.' }[tab]}</span>}
-        actions={<Tabs size="sm" variant="underline" tabs={tabs.map((t, i) => ({ key: t, label: t, icon: TAB_ICONS[i] }))} value={tab} onChange={setTab} ariaLabel="Evolution views" />}>
-        <AnimatePresence mode="wait">
-          <motion.div key={tab} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: .2 }} role="tabpanel" aria-label={tab}>
-            {tab === 'Proposals' && <Proposals tier={tier} setTier={setTier} />}
-            {tab === 'Experiments' && <Experiments />}
-            {tab === 'Benchmarks' && <Benchmarks />}
-            {tab === 'Mentoring' && <Mentoring />}
-            {tab === 'Promotions' && <Promotions />}
-            {tab === 'History' && <History />}
-          </motion.div>
-        </AnimatePresence>
-      </Panel>
+        { key: 'sec', icon: ShieldCheck, value: 0, label: 'Security Regressions', color: '#facc15', hint: 'in promoted candidates', help: 'evo.kpi.security', onClick: () => setTab('Benchmarks') },
+        { key: 'pend', icon: Trophy, value: pending, label: 'Awaiting Promotion', color: '#fbbf24', hint: '2 need Owner', help: 'evo.kpi.promotions', onClick: () => setTab('Promotions') },
+      ]}
+        tabs={{ tabs, value: tab, onChange: setTab, icons: TAB_ICONS, ariaLabel: 'Evolution views' }}
+        toolbar={<span>{{ Proposals: 'Candidate improvements and their risk tier.', Experiments: 'Isolated baseline vs candidate runs.', Benchmarks: 'Pass rate, cost, latency and failure modes.', Mentoring: 'Coaching plans and verified skill growth.', Promotions: 'Staged pipeline with independent review.', History: 'Lineage of every agent version.' }[tab]}</span>} />
+      <FrameBody tab={tab}>
+        {tab === 'Proposals' && <Proposals tier={tier} setTier={setTier} />}
+        {tab === 'Experiments' && <Experiments />}
+        {tab === 'Benchmarks' && <Benchmarks />}
+        {tab === 'Mentoring' && <Mentoring />}
+        {tab === 'Promotions' && <Promotions />}
+        {tab === 'History' && <History />}
+      </FrameBody>
+      <BottomBoard id="evolution" title="Evolution boards" cols="minmax(0, 1fr)">
+        <Ladder tier={tier} setTier={(t) => { setTier(t); setTab('Proposals'); }} />
+      </BottomBoard>
     </div>
   );
 }

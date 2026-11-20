@@ -10,10 +10,10 @@ export interface BrowserSession {
 }
 export const SESSIONS: BrowserSession[] = [
   { id: 'BS-2041', missionId: 'M-132', agentId: 'browser-01', origin: 'https://status.example.com', path: '/incidents', state: 'awaiting-grant', tabs: 2, durationMin: 42, ttlMin: 78, memMb: 412, memCap: 1024, profile: 'ephemeral-audit', viewport: '1440x900', steps: 31, screenshotAgoSec: 4 },
-  { id: 'BS-2038', missionId: 'M-126', agentId: 'browser-02', origin: 'https://portal.example.com', path: '/checkout', state: 'active', tabs: 3, durationMin: 118, ttlMin: 62, memMb: 688, memCap: 1024, profile: 'staging-readonly', viewport: '1440x900', steps: 87, screenshotAgoSec: 2 },
+  { id: 'BS-2038', missionId: 'M-126', agentId: 'browser-01', origin: 'https://portal.example.com', path: '/checkout', state: 'active', tabs: 3, durationMin: 118, ttlMin: 62, memMb: 688, memCap: 1024, profile: 'staging-readonly', viewport: '1440x900', steps: 87, screenshotAgoSec: 2 },
   { id: 'BS-2036', missionId: 'M-127', agentId: 'browser-01', origin: 'https://shop.example.com', path: '/cart', state: 'takeover', tabs: 1, durationMin: 24, ttlMin: 36, memMb: 301, memCap: 768, profile: 'training-fixture', viewport: '1280x800', steps: 19, screenshotAgoSec: 1 },
   { id: 'BS-2033', missionId: 'M-130', agentId: 'researcher-01', origin: 'https://competitor-a.example.org', path: '/pricing', state: 'paused', tabs: 4, durationMin: 203, ttlMin: 17, memMb: 540, memCap: 1024, profile: 'research-public', viewport: '1440x900', steps: 142, screenshotAgoSec: 187 },
-  { id: 'BS-2029', missionId: 'M-128', agentId: 'browser-02', origin: 'https://preview.example.com', path: '/home', state: 'expired', tabs: 0, durationMin: 240, ttlMin: 0, memMb: 0, memCap: 1024, profile: 'ephemeral-preview', viewport: '1440x900', steps: 64, screenshotAgoSec: 5400 },
+  { id: 'BS-2029', missionId: 'M-128', agentId: 'browser-01', origin: 'https://preview.example.com', path: '/home', state: 'expired', tabs: 0, durationMin: 240, ttlMin: 0, memMb: 0, memCap: 1024, profile: 'ephemeral-preview', viewport: '1440x900', steps: 64, screenshotAgoSec: 5400 },
 ];
 
 export type Risk = 'low' | 'medium' | 'high' | 'critical';
@@ -62,7 +62,7 @@ export interface Recipe {
   id: string; name: string; version: string; owner: string; stability: number; runs: number; origin: string; steps: number; status: 'published' | 'candidate' | 'draft'; hue: number; trend: number[]; updatedMin: number;
 }
 export const RECIPES: Recipe[] = [
-  { id: 'RC-11', name: 'Checkout happy path', version: 'v2.3.1', owner: 'Browser-02', stability: 96, runs: 418, origin: 'portal.example.com', steps: 14, status: 'published', hue: 165, trend: [88, 91, 93, 92, 95, 96, 96], updatedMin: 600 },
+  { id: 'RC-11', name: 'Checkout happy path', version: 'v2.3.1', owner: 'Browser-01', stability: 96, runs: 418, origin: 'portal.example.com', steps: 14, status: 'published', hue: 165, trend: [88, 91, 93, 92, 95, 96, 96], updatedMin: 600 },
   { id: 'RC-12', name: 'Cookie banner dismiss', version: 'v1.8.0', owner: 'Browser-01', stability: 99, runs: 1204, origin: '*.example.com', steps: 3, status: 'published', hue: 190, trend: [97, 98, 98, 99, 99, 99, 99], updatedMin: 4200 },
   { id: 'RC-13', name: 'Pricing table extract', version: 'v1.2.0', owner: 'Researcher-01', stability: 84, runs: 133, origin: 'competitor-a.example.org', steps: 9, status: 'candidate', hue: 268, trend: [70, 74, 80, 78, 83, 84, 84], updatedMin: 140 },
   { id: 'RC-14', name: 'Status page audit', version: 'v0.9.0', owner: 'Browser-01', stability: 71, runs: 28, origin: 'status.example.com', steps: 11, status: 'draft', hue: 38, trend: [55, 60, 66, 64, 70, 71, 71], updatedMin: 35 },

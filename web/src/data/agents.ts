@@ -1,4 +1,4 @@
-import type { Agent, AgentMetrics, AgentStatus, RoleKey } from './types';
+import type { Agent, AgentMetrics, AgentStatus, DevLevel, EvoPhase, GrowthState, RoleKey } from './types';
 
 /** Deterministic PRNG so DEMO data is identical on every load. */
 export function seeded(seed: string) {
@@ -37,7 +37,7 @@ const SKILLS: Record<RoleKey, string[]> = {
 const MODELS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'local/llama-4-70b', 'claude-fable-5-2'];
 
 const DESCR: Record<RoleKey, string> = {
-  manager: 'Orchestrates the company: breaks missions into plans, staffs teams and reports outcomes to the Owner.',
+  manager: 'Orchestrates the company: breaks missions into plans, assigns agents and reports outcomes to the Owner.',
   research: 'Gathers sources, verifies claims and produces cited research briefs.',
   analytics: 'Turns raw data into insight: metrics, trends, forecasts and dashboards.',
   dev: 'Builds and maintains code: components, services and automated tests.',
@@ -57,48 +57,40 @@ const DESCR: Record<RoleKey, string> = {
   design: 'Designs interfaces, tokens and motion; keeps UI accessible.',
 };
 
-type Seed = [name: string, role: RoleKey, status: AgentStatus, version: string, missions: number, success: number, dept: string];
+type Seed = [name: string, role: RoleKey, status: AgentStatus, version: string, missions: number, success: number, dept: string,
+  growth: GrowthState, growthPct: number, growthNote: string, level: DevLevel, xp: number, generation: number, evoPhase?: EvoPhase, candidate?: string];
 
-/** First 12 match the 40-4 reference grid exactly. */
+/**
+ * One agent per role — no duplicates of a role or skill set (owner rule 2026-11-20).
+ * The former copies (Coder-02…04, Tester-02/03, Browser-02/03 …) were folded into their -01 original.
+ * First 12 keep the 40-4 reference grid order.
+ */
 const SEEDS: Seed[] = [
-  ['Researcher-01', 'research', 'active', 'v2.4.0', 5, 98, 'R&D'],
-  ['Analyst-01', 'analytics', 'active', 'v2.4.0', 4, 97, 'R&D'],
-  ['Coder-01', 'dev', 'in-mission', 'v2.4.0', 6, 96, 'Engineering'],
-  ['Ops-01', 'ops', 'active', 'v2.3.9', 6, 99, 'Operations'],
-  ['Security-01', 'security', 'active', 'v2.4.0', 4, 99, 'Governance'],
-  ['Comms-01', 'comms', 'active', 'v2.3.8', 3, 95, 'Operations'],
-  ['Planner-01', 'planning', 'active', 'v2.4.0', 5, 98, 'Operations'],
-  ['Finance-01', 'finance', 'active', 'v2.3.9', 4, 98, 'Finance'],
-  ['Knowledge-01', 'knowledge', 'active', 'v2.4.0', 6, 97, 'Knowledge'],
-  ['Optimizer-01', 'optimize', 'evolving', 'v2.4.0', 3, 96, 'R&D'],
-  ['Tester-01', 'qa', 'in-mission', 'v2.3.9', 4, 97, 'QA'],
-  ['Integrator-01', 'integration', 'active', 'v2.4.0', 4, 98, 'Engineering'],
-  // the rest of the 38-agent company
-  ['Browser-01', 'browser', 'in-mission', 'v2.4.0', 7, 95, 'Engineering'],
-  ['Browser-02', 'browser', 'in-mission', 'v2.3.9', 5, 93, 'Engineering'],
-  ['Coder-02', 'dev', 'in-mission', 'v2.4.0', 5, 95, 'Engineering'],
-  ['Coder-03', 'dev', 'active', 'v2.3.9', 4, 94, 'Engineering'],
-  ['Designer-01', 'design', 'in-mission', 'v2.4.0', 4, 96, 'Engineering'],
-  ['Writer-01', 'writer', 'in-mission', 'v2.3.8', 3, 97, 'Operations'],
-  ['Mentor-01', 'mentor', 'active', 'v2.4.0', 6, 98, 'QA'],
-  ['Release-01', 'release', 'active', 'v2.4.0', 5, 99, 'Operations'],
-  ['Researcher-02', 'research', 'in-mission', 'v2.4.0', 4, 96, 'R&D'],
-  ['Researcher-03', 'research', 'training', 'v2.3.7', 2, 91, 'R&D'],
-  ['Analyst-02', 'analytics', 'in-mission', 'v2.3.9', 3, 95, 'R&D'],
-  ['Tester-02', 'qa', 'in-mission', 'v2.4.0', 4, 98, 'QA'],
-  ['Tester-03', 'qa', 'training', 'v2.3.6', 1, 89, 'QA'],
-  ['Ops-02', 'ops', 'active', 'v2.3.9', 3, 97, 'Operations'],
-  ['Security-02', 'security', 'active', 'v2.3.9', 2, 98, 'Governance'],
-  ['Knowledge-02', 'knowledge', 'active', 'v2.3.9', 3, 96, 'Knowledge'],
-  ['Planner-02', 'planning', 'idle', 'v2.3.8', 1, 94, 'Operations'],
-  ['Comms-02', 'comms', 'active', 'v2.3.9', 2, 96, 'Operations'],
-  ['Integrator-02', 'integration', 'in-mission', 'v2.3.9', 3, 95, 'Engineering'],
-  ['Browser-03', 'browser', 'training', 'v2.3.5', 1, 88, 'Engineering'],
-  ['Optimizer-02', 'optimize', 'evolving', 'v2.3.9', 2, 94, 'R&D'],
-  ['Coder-04', 'dev', 'training', 'v2.3.4', 1, 90, 'Engineering'],
-  ['Designer-02', 'design', 'active', 'v2.3.9', 2, 95, 'Engineering'],
-  ['Analyst-03', 'analytics', 'idle', 'v2.3.8', 1, 93, 'R&D'],
-  ['Writer-02', 'writer', 'active', 'v2.3.9', 2, 96, 'Operations'],
+  ['Researcher-01', 'research', 'active', 'v2.4.0', 9, 98, 'R&D', 'stable', 100, 'No change in progress', 5, 64, 6],
+  ['Analyst-01', 'analytics', 'active', 'v2.4.0', 8, 96, 'R&D', 'learning', 45, 'Forecast calibration (Mentor-01, ex. 2 of 4)', 3, 72, 4],
+  ['Coder-01', 'dev', 'in-mission', 'v2.4.0', 14, 96, 'Engineering', 'evolving', 68, 'Candidate v2.5.0: test-first patch recipe', 4, 40, 5, 'benchmark', 'v2.5.0'],
+  ['Ops-01', 'ops', 'active', 'v2.3.9', 9, 99, 'Operations', 'stable', 100, 'No change in progress', 5, 22, 6],
+  ['Security-01', 'security', 'active', 'v2.4.0', 7, 99, 'Governance', 'stable', 100, 'No change in progress', 5, 81, 7],
+  ['Comms-01', 'comms', 'active', 'v2.3.8', 5, 95, 'Operations', 'learning', 30, 'Owner-facing tone rubric (ex. 1 of 3)', 3, 35, 3],
+  ['Planner-01', 'planning', 'active', 'v2.4.0', 6, 98, 'Operations', 'stable', 100, 'No change in progress', 4, 58, 5],
+  ['Finance-01', 'finance', 'active', 'v2.3.9', 4, 98, 'Finance', 'stable', 100, 'No change in progress', 4, 47, 4],
+  ['Knowledge-01', 'knowledge', 'active', 'v2.4.0', 9, 97, 'Knowledge', 'evolving', 40, 'Candidate v2.5.0: dedup-before-index', 4, 63, 5, 'experiment', 'v2.5.0'],
+  ['Optimizer-01', 'optimize', 'active', 'v2.4.0', 5, 96, 'R&D', 'evolving', 88, 'Candidate v2.5.0: prompt-cache aware routing', 4, 90, 5, 'promotion', 'v2.5.0'],
+  ['Tester-01', 'qa', 'in-mission', 'v2.3.9', 9, 97, 'QA', 'stable', 100, 'No change in progress', 5, 12, 6],
+  ['Integrator-01', 'integration', 'active', 'v2.4.0', 7, 98, 'Engineering', 'learning', 60, 'OAuth device-flow exercise (ex. 3 of 5)', 3, 84, 4],
+  ['Browser-01', 'browser', 'in-mission', 'v2.4.0', 12, 92, 'Engineering', 'learning', 52, 'Checkout-flow locators, M-127 (ex. 4 of 6)', 2, 66, 3],
+  ['Designer-01', 'design', 'in-mission', 'v2.4.0', 6, 96, 'Engineering', 'stable', 100, 'No change in progress', 3, 50, 3],
+  ['Writer-01', 'writer', 'in-mission', 'v2.3.9', 5, 97, 'Operations', 'evolving', 15, 'Proposal: release-note template v2', 3, 28, 3, 'proposal', 'v2.4.0'],
+  ['Mentor-01', 'mentor', 'active', 'v2.4.0', 6, 98, 'QA', 'stable', 100, 'No change in progress', 5, 70, 6],
+  ['Release-01', 'release', 'active', 'v2.4.0', 5, 99, 'Operations', 'stable', 100, 'No change in progress', 4, 33, 5],
+];
+
+/** Development stage names (level 1–5). */
+export const DEV_LEVELS = ['Seed', 'Apprentice', 'Practitioner', 'Expert', 'Master'] as const;
+export const devLevelName = (l: DevLevel) => DEV_LEVELS[l - 1];
+/** Evolution pipeline phases (mirrors Evolution Lab tabs). */
+export const EVO_PHASES: { key: EvoPhase; label: string }[] = [
+  { key: 'proposal', label: 'Proposal' }, { key: 'experiment', label: 'Experiment' }, { key: 'benchmark', label: 'Benchmark' }, { key: 'promotion', label: 'Promotion' },
 ];
 
 function metricsFor(name: string, role: RoleKey, success: number): AgentMetrics {
@@ -123,16 +115,17 @@ const gm: Agent = {
   id: 'gm', name: 'GM', role: 'manager', dept: 'Executive', version: 'v3.2.0', status: 'active', missions: 12, success: 98, sample: 412,
   grade: 'S', model: 'claude-opus-5-5', load: 72, skills: SKILLS.manager, metrics: metricsFor('GM', 'manager', 98),
   description: DESCR.manager, createdAgo: 92,
+  growth: 'stable', growthPct: 100, growthNote: 'No change in progress', level: 5, xp: 55, generation: 9,
 };
 
 export const AGENTS: Agent[] = [
   gm,
-  ...SEEDS.map(([name, role, status, version, missions, success, dept], i): Agent => {
+  ...SEEDS.map(([name, role, status, version, missions, success, dept, growth, growthPct, growthNote, level, xp, generation, evoPhase, candidate], i): Agent => {
     const r = seeded(name + 'x');
     return {
       id: name.toLowerCase(),
       name, role, status, version, missions, success, dept,
-      sample: 40 + Math.round(r() * 160),
+      sample: 120 + Math.round(r() * 260),
       grade: success >= 98 ? 'S' : success >= 95 ? 'A' : success >= 91 ? 'B' : 'C',
       model: MODELS[i % MODELS.length],
       managerId: 'gm',
@@ -141,6 +134,7 @@ export const AGENTS: Agent[] = [
       metrics: metricsFor(name, role, success),
       description: DESCR[role],
       createdAgo: 8 + Math.round(r() * 80),
+      growth, growthPct, growthNote, level, xp, generation, evoPhase, candidate,
     };
   }),
 ];

@@ -2,7 +2,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Search, CornerDownLeft, Plus, SunMoon, Palette, Bot, Target, Hash, Sparkles, UserPlus, Boxes, RotateCcw } from 'lucide-react';
+import { Search, CornerDownLeft, Plus, SunMoon, Palette, Bot, Target, Hash, Sparkles, UserPlus, Boxes, RotateCcw, PanelTop } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { NAV, ROUTE_TABS, slug } from '@/config/nav';
 import { useUI, openDialog, toast } from '@/store/ui';
@@ -35,14 +35,15 @@ export function CommandPalette() {
       { id: 'a-invite', group: 'Actions', label: 'Invite user', icon: UserPlus, run: act(() => openDialog('user-invite')) },
       { id: 'a-theme', group: 'Actions', label: 'Toggle light / dark', icon: SunMoon, run: act(() => { const s = useSettings.getState(); s.set({ themeMode: s.themeMode === 'light' ? 'dark' : 'light' }); }) },
       { id: 'a-appearance', group: 'Actions', label: 'Appearance studio', hint: 'Skins, motion, density', icon: Palette, run: act(() => openDialog('appearance')) },
+      { id: 'a-header', group: 'Actions', label: 'Show / hide header banner', hint: 'Top strip with logo and loop', icon: PanelTop, run: act(() => { const s = useSettings.getState(); s.set({ headerBanner: !s.headerBanner }); }) },
       { id: 'a-avatar', group: 'Actions', label: 'Customize agent faces', icon: Sparkles, run: act(() => openDialog('avatar-customizer')) },
       { id: 'a-reset', group: 'Actions', label: 'Reset DEMO data', hint: 'Restore fixture missions, chats and approvals', icon: RotateCcw, run: act(() => { useData.getState().resetDemo(); toast({ tone: 'success', title: 'DEMO data reset', body: 'Fixture missions, conversations and approvals restored.' }); }) },
     ];
     for (const n of NAV) {
       cmds.push({ id: 'n-' + n.key, group: 'Go to', label: n.label, icon: n.icon, run: go(n.path) });
-      for (const t of ROUTE_TABS[n.key] ?? []) cmds.push({ id: `t-${n.key}-${t}`, group: 'Tabs', label: `${n.label} › ${t}`, icon: Hash, run: go(`${n.path === '/control' ? '/control' : n.path}?tab=${slug(t)}`) });
+      for (const t of ROUTE_TABS[n.key] ?? []) cmds.push({ id: `t-${n.key}-${t}`, group: 'Tabs', label: `${n.label} › ${t}`, icon: Hash, run: go(`${n.path}?tab=${slug(t)}`) });
     }
-    for (const m of missions) cmds.push({ id: 'm-' + m.id, group: 'Missions', label: `${m.id} · ${m.title}`, hint: m.status, icon: Target, run: go(`/control/${m.id}`) });
+    for (const m of missions) cmds.push({ id: 'm-' + m.id, group: 'Missions', label: `${m.id} · ${m.title}`, hint: m.status, icon: Target, run: go(`/missions/${m.id}`) });
     for (const a of AGENTS) cmds.push({ id: 'g-' + a.id, group: 'Agents', label: a.name, hint: a.dept, icon: Bot, run: go(`/agents/${a.id}`) });
     return cmds;
   }, [missions, nav, setOpen]);

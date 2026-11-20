@@ -10,7 +10,7 @@ const tabsBlock = nav.slice(nav.indexOf('ROUTE_TABS'));
 const tabs = {};
 for (const m of tabsBlock.matchAll(/^\s+(\w+): \[(.*?)\],?$/gm)) tabs[m[1]] = [...m[2].matchAll(/'([^']+)'/g)].map((x) => x[1]);
 const slug = (s) => s.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-const routes = Object.entries({ overview: '/overview', missions: '/missions', control: '/control/M-126', agents: '/agents', agentProfile: '/agents/coder-01', organization: '/organization', browser: '/browser', results: '/results', knowledge: '/knowledge', evolution: '/evolution', models: '/models', users: '/users', governance: '/governance', usage: '/usage', notifications: '/notifications', settings: '/settings', operations: '/operations', help: '/help' });
+const routes = Object.entries({ overview: '/overview', missions: '/missions/M-126', agents: '/agents', agentProfile: '/agents/coder-01', browser: '/browser', results: '/results', knowledge: '/knowledge', evolution: '/evolution', models: '/models', users: '/users', governance: '/governance', usage: '/usage', notifications: '/notifications', settings: '/settings', operations: '/operations', help: '/help' });
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
 const ctx = await b.newContext({ viewport: { width: +w, height: +h } });
 await ctx.addInitScript(([theme, skin]) => { localStorage.setItem('axion.settings.v1', JSON.stringify({ state: { themeMode: theme, skin, motion: 'reduced' }, version: 0 })); }, [theme, skin]);

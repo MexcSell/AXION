@@ -2,12 +2,11 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ShieldCheck, ClipboardList, KeyRound, Gauge, ScrollText, FileText, Lock, Timer, AlertTriangle, CheckCircle2, XCircle, Eye, Search, Download, RotateCw, Ban, Plus, Link2, Hash, GitBranch, ArrowRight, Check, Shield } from 'lucide-react';
-import { Panel } from '@/components/ui/Panel';
+import { TopBoard, FrameBody, type KpiItem } from '@/components/layout/PageFrame';
 import { Tabs } from '@/components/ui/Tabs';
 import { Chip, DemoTag } from '@/components/ui/Chips';
 import { IconButton } from '@/components/ui/IconButton';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { CountUp } from '@/components/ui/CountUp';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { RobotAvatar } from '@/components/art/RobotAvatar';
 import { useTab } from '@/hooks/useTab';
@@ -28,38 +27,27 @@ export default function GovernancePage() {
   const all = useMemo(() => allApprovals(missions, decisions), [missions, decisions]);
   const pending = all.filter((a) => a.status === 'pending');
   const secrets = useUG((s) => s.secrets);
-  const kpis = [
-    { icon: ClipboardList, v: pending.length, label: 'Pending approvals', hint: 'across missions', c: '#fbbf24' },
-    { icon: AlertTriangle, v: pending.filter((a) => a.risk === 'high' || a.risk === 'critical').length, label: 'High risk (R3+)', hint: 'Admin / Owner gate', c: '#fb7185' },
-    { icon: Timer, v: pending.filter((a) => a.expiresMin <= 45).length, label: 'Expiring soon', hint: 'under 45 min', c: '#22d3ee' },
-    { icon: KeyRound, v: secrets.filter((s) => s.state === 'due' || s.state === 'overdue').length, label: 'Rotations due', hint: 'secret references', c: '#a78bfa' },
+  const kpis: KpiItem[] = [
+    { key: 'pend', icon: ClipboardList, value: pending.length, label: 'Pending approvals', hint: 'across missions', color: '#fbbf24', help: 'gv.kpi.pending', onClick: () => setTab('Approvals') },
+    { key: 'risk', icon: AlertTriangle, value: pending.filter((a) => a.risk === 'high' || a.risk === 'critical').length, label: 'High risk (R3+)', hint: 'Admin / Owner gate', color: '#fb7185', help: 'gv.kpi.risk', onClick: () => setTab('Approvals') },
+    { key: 'exp', icon: Timer, value: pending.filter((a) => a.expiresMin <= 45).length, label: 'Expiring soon', hint: 'under 45 min', color: '#22d3ee', help: 'gv.kpi.expiring', onClick: () => setTab('Approvals') },
+    { key: 'rot', icon: KeyRound, value: secrets.filter((s) => s.state === 'due' || s.state === 'overdue').length, label: 'Rotations due', hint: 'secret references', color: '#a78bfa', help: 'gv.kpi.rotations', onClick: () => setTab('Secrets') },
   ];
   return (
     <div className="page ug-page">
-      <Panel icon={ShieldCheck} titleSize="lg" title="Governance" help="gv.page" sub="Exact-action approvals, grants, autonomy limits and the company constitution." delay={.05}
-        actions={<div className="row" style={{ gap: 8 }}><DemoTag /><span className="ug-chain"><Lock size={13} />Audit chain verified</span></div>}>
-        <div className="ug-kpis">
-          {kpis.map((k, i) => (
-            <motion.div key={k.label} className="kpi" style={{ ['--kc' as string]: k.c }} initial={{ opacity: 0, y: 12, scale: .97 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ delay: .08 + i * .06 }}>
-              <k.icon size={34} strokeWidth={1.6} className="kpi-ico" aria-hidden />
-              <div style={{ minWidth: 0 }}><div className="kpi-val"><CountUp value={k.v} /></div><div className="kpi-label">{k.label}</div><div className="dim" style={{ fontSize: 12 }}>{k.hint}</div></div>
-            </motion.div>
-          ))}
-        </div>
-        <div className="row wrap" style={{ margin: '14px 0 12px' }}>
-          <Tabs size="sm" variant="underline" tabs={tabs.map((t, i) => ({ key: t, label: t, icon: icons[i], count: t === 'Approvals' ? pending.length : undefined }))} value={tab} onChange={setTab} ariaLabel="Governance views" />
-        </div>
-        <AnimatePresence mode="wait">
-          <motion.div key={tab} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: .2 }} role="tabpanel" aria-label={tab}>
-            {tab === 'Approvals' && <Approvals all={all} />}
-            {tab === 'Permissions' && <Permissions />}
-            {tab === 'Autonomy' && <Autonomy />}
-            {tab === 'Policies' && <Policies />}
-            {tab === 'Secrets' && <Secrets />}
-            {tab === 'Audit' && <AuditTab />}
-          </motion.div>
-        </AnimatePresence>
-      </Panel>
+      <TopBoard icon={ShieldCheck} title="Governance" help="gv.page" sub="Exact-action approvals, grants, autonomy limits and the company constitution."
+        actions={<><DemoTag /><span className="ug-chain"><Lock size={13} />Audit chain verified</span></>}
+        kpis={kpis}
+        tabs={{ tabs, value: tab, onChange: setTab, icons, ariaLabel: 'Governance views', counts: { Approvals: pending.length } }}
+        toolbar={<span>{{ Approvals: 'Exact actions waiting for a human decision.', Permissions: 'Grants per agent, site and tool, with expiry.', Autonomy: 'How far each risk tier may act alone.', Policies: 'Company rules agents cannot change.', Secrets: 'Secret references and rotation.', Audit: 'Hash-chained record of every decision.' }[tab]}</span>} />
+      <FrameBody tab={tab}>
+        {tab === 'Approvals' && <Approvals all={all} />}
+        {tab === 'Permissions' && <Permissions />}
+        {tab === 'Autonomy' && <Autonomy />}
+        {tab === 'Policies' && <Policies />}
+        {tab === 'Secrets' && <Secrets />}
+        {tab === 'Audit' && <AuditTab />}
+      </FrameBody>
     </div>
   );
 }
@@ -96,7 +84,7 @@ function Approvals({ all }: { all: Approval[] }) {
                     <div style={{ minWidth: 0, flex: 1 }}>
                       <div className="row wrap" style={{ gap: 6 }}>
                         <Chip hue={r.hue} solid size="sm">{r.tier} · {r.label}</Chip><Chip hue={225} size="sm">{a.kind}</Chip>
-                        <button className="ug-link mono" onClick={() => nav(`/control/${a.missionId}?tab=approvals`)}>{a.missionId}</button>
+                        <button className="ug-link mono" onClick={() => nav(`/missions/${a.missionId}?tab=approvals`)}>{a.missionId}</button>
                         <span className="spacer" /><span className={cx('ug-expiry', a.expiresMin <= 30 && 'hot')}><Timer size={13} />expires in {a.expiresMin} min</span>
                       </div>
                       <h3 className="ug-appr-title">{a.title}</h3>

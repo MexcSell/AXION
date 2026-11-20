@@ -5,7 +5,7 @@ import {
   Rocket, Download, Lock, CheckCircle2, ShieldAlert, Cpu, Activity, KeyRound, Ban, Timer, RotateCcw, MessageSquareQuote, CircleDot, ScanEye,
 } from 'lucide-react';
 import { Panel } from '@/components/ui/Panel';
-import { Tabs } from '@/components/ui/Tabs';
+import { TopBoard, FrameBody, BottomBoard } from '@/components/layout/PageFrame';
 import { Modal } from '@/components/ui/Modal';
 import { IconButton } from '@/components/ui/IconButton';
 import { Chip, DemoTag, Dot } from '@/components/ui/Chips';
@@ -17,7 +17,7 @@ import { RobotAvatar } from '@/components/art/RobotAvatar';
 import { AGENT_BY_ID } from '@/data/agents';
 import { MISSIONS } from '@/data/missions';
 import { REPLAY, REPLAY_LEN, RECIPES, STEPS, useBrowser, type BrowserSession, type BrowserStep, type SessionState, type SiteGrant } from '@/data/browser';
-import { FakeBrowser, KpiStrip, RiskMeter, type ViewState } from '@/dialogs/defs/browser-results';
+import { FakeBrowser, RiskMeter, type ViewState } from '@/dialogs/defs/browser-results';
 import { useTab } from '@/hooks/useTab';
 import { openDialog, toast } from '@/store/ui';
 import { downloadText } from '@/data/results';
@@ -41,41 +41,33 @@ export default function BrowserStudioPage() {
   const live = sessions.filter((s) => s.state === 'active' || s.state === 'takeover').length;
   const pendingGates = STEPS.filter((s) => s.consequential && !resolved[s.id]).length + grants.filter((g) => g.status === 'pending').length;
   const kpis = [
-    { icon: Globe, value: live, label: 'Live Sessions', color: '#22d3ee', delta: '+1' },
-    { icon: GlobeLock, value: grants.filter((g) => g.status === 'active' || g.status === 'expiring').length, label: 'Active Origin Grants', color: '#3b82f6' },
-    { icon: ShieldAlert, value: pendingGates, label: 'Pending Gates', color: '#fbbf24' },
-    { icon: Workflow, value: RECIPES.filter((r) => r.status === 'published').length, label: 'Published Recipes', color: '#a78bfa' },
-    { icon: ScanEye, value: 99.2, decimals: 1, suffix: '%', label: 'Redaction Coverage', color: '#2ee98a', delta: '+0.3%' },
+    { key: 'live', icon: Globe, value: live, label: 'Live Sessions', color: '#22d3ee', delta: '+1', help: 'browser.kpi.live', onClick: () => setTab('Sessions') },
+    { key: 'grants', icon: GlobeLock, value: grants.filter((g) => g.status === 'active' || g.status === 'expiring').length, label: 'Active Origin Grants', color: '#3b82f6', help: 'browser.kpi.grants', onClick: () => setTab('Site Grants') },
+    { key: 'gates', icon: ShieldAlert, value: pendingGates, label: 'Pending Gates', color: '#fbbf24', help: 'browser.kpi.gates', onClick: () => setTab('Actions') },
+    { key: 'recipes', icon: Workflow, value: RECIPES.filter((r) => r.status === 'published').length, label: 'Published Recipes', color: '#a78bfa', help: 'browser.kpi.recipes', onClick: () => setTab('Recipes') },
+    { key: 'redact', icon: ScanEye, value: 99.2, decimals: 1, suffix: '%', label: 'Redaction Coverage', color: '#2ee98a', delta: '+0.3%', help: 'browser.kpi.redaction', onClick: () => setTab('Replay') },
   ];
   const inspect = (id: string) => { setSid(id); setTab('Live View'); };
   return (
     <div className="page">
-      <Panel icon={Globe} titleSize="lg" title="Browser Studio" help="browser.sessions" sub="Playwright-managed Chromium on your VPS: scoped, redacted, human-gated." delay={.02} className="brk-head-glow"
-        actions={<div className="row" style={{ gap: 10 }}><DemoTag /><button className="btn primary" onClick={() => openDialog('browser-session-create')}><Plus size={16} />New Session</button></div>}>
-        <KpiStrip items={kpis} />
-      </Panel>
-      <Panel delay={.1} tight>
-        <div className="row wrap" style={{ gap: 10, marginBottom: 12 }}>
-          <Tabs size="sm" variant="underline" tabs={tabs.map((t, i) => ({ key: t, label: t, icon: ICONS[i], count: t === 'Sessions' ? sessions.length : t === 'Site Grants' ? grants.length : t === 'Recipes' ? RECIPES.length : undefined }))} value={tab} onChange={setTab} ariaLabel="Browser Studio views" />
-          <span className="spacer" />
-          <span className="muted" style={{ fontSize: 12.5 }}>{{ Sessions: 'Allocated managed browser contexts, scoped per mission.', 'Live View': 'Redacted frames from the isolated VPS browser.', Actions: 'Every step passes proposal, policy, execution, observation.', 'Site Grants': 'Origin allowlist with expiry and risk tier.', Recipes: 'Vetted, versioned site workflows.', Replay: 'Deterministic trace with policy decisions.' }[tab]}</span>
-        </div>
-        <AnimatePresence mode="wait">
-          <motion.div key={tab} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: .2 }} role="tabpanel" aria-label={tab}>
-            {tab === 'Sessions' && <Sessions onInspect={inspect} />}
-            {tab === 'Live View' && <LiveView sid={sid} setSid={setSid} />}
-            {tab === 'Actions' && <Actions />}
-            {tab === 'Site Grants' && <Grants />}
-            {tab === 'Recipes' && <Recipes />}
-            {tab === 'Replay' && <Replay />}
-          </motion.div>
-        </AnimatePresence>
-      </Panel>
-      <div className="brk-bottom">
+      <TopBoard icon={Globe} title="Browser Studio" help="browser.sessions" sub="Playwright-managed Chromium on your VPS: scoped, redacted, human-gated."
+        actions={<><DemoTag /><button className="btn primary" onClick={() => openDialog('browser-session-create')}><Plus size={16} />New Session</button></>}
+        kpis={kpis}
+        tabs={{ tabs, value: tab, onChange: setTab, icons: ICONS, ariaLabel: 'Browser Studio views', counts: { Sessions: sessions.length, 'Site Grants': grants.length, Recipes: RECIPES.length } }}
+        toolbar={<span>{{ Sessions: 'Allocated managed browser contexts, scoped per mission.', 'Live View': 'Redacted frames from the isolated VPS browser.', Actions: 'Every step passes proposal, policy, execution, observation.', 'Site Grants': 'Origin allowlist with expiry and risk tier.', Recipes: 'Vetted, versioned site workflows.', Replay: 'Deterministic trace with policy decisions.' }[tab]}</span>} />
+      <FrameBody tab={tab}>
+        {tab === 'Sessions' && <Sessions onInspect={inspect} />}
+        {tab === 'Live View' && <LiveView sid={sid} setSid={setSid} />}
+        {tab === 'Actions' && <Actions />}
+        {tab === 'Site Grants' && <Grants />}
+        {tab === 'Recipes' && <Recipes />}
+        {tab === 'Replay' && <Replay />}
+      </FrameBody>
+      <BottomBoard id="browser" title="Browser boards" cols="repeat(3, minmax(0, 1fr))">
         <Boundary />
         <GatesPanel />
         <Resources />
-      </div>
+      </BottomBoard>
     </div>
   );
 }

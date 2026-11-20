@@ -1,6 +1,6 @@
 import { motion, useReducedMotion } from 'motion/react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ZoomIn, ZoomOut, Maximize2, Network, List, Radio, MessageSquare } from 'lucide-react';
+import { ZoomIn, ZoomOut, Maximize2, Network, List, Radio, MessageSquare, Move } from 'lucide-react';
 import { RobotAvatar } from '@/components/art/RobotAvatar';
 import { IconButton } from '@/components/ui/IconButton';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
@@ -15,12 +15,13 @@ import { cx, clock } from '@/lib/format';
 
 const NODE_W = 172, NODE_H = 128, GAP_X = 26, GAP_Y = 96;
 
-const EDGE_STYLE: Record<EdgeKind, { color: string; dash?: string; width: number; opacity: number; label: string }> = {
-  delegated: { color: 'var(--accent-2)', width: 2.2, opacity: .95, label: 'delegated' },
-  reports: { color: 'var(--violet)', width: 1.6, opacity: .55, dash: '1 0', label: 'reports to' },
-  consults: { color: 'var(--info)', width: 1.5, opacity: .7, dash: '6 6', label: 'consults' },
-  verifies: { color: 'var(--good)', width: 1.6, opacity: .75, dash: '3 5', label: 'verifies' },
-  mentors: { color: 'var(--gold)', width: 1.6, opacity: .75, dash: '2 4', label: 'mentors' },
+/** Links are dotted lines: dead black when idle, colored + flowing (source → target) while data is transmitted. */
+const EDGE_STYLE: Record<EdgeKind, { color: string; label: string }> = {
+  delegated: { color: 'var(--accent-2)', label: 'delegated' },
+  reports: { color: 'var(--violet)', label: 'reports to' },
+  consults: { color: 'var(--info)', label: 'consults' },
+  verifies: { color: 'var(--good)', label: 'verifies' },
+  mentors: { color: 'var(--gold)', label: 'mentors' },
 };
 
 interface Pos { x: number; y: number; depth: number; }
@@ -113,11 +114,28 @@ export function HierarchyGraph({ mission, selected, onSelect, onOpenChat }: { mi
     return () => window.clearInterval(t);
   }, [simulate, active, mission.id, mc.edges, mc.nodes, emit]);
 
-  const zoom = (f: number) => setView((v) => {
-    const el = wrap.current!; const cx = el.clientWidth / 2, cy = el.clientHeight / 2;
+  /* zoom by factor f toward a point in canvas coordinates (default: center) */
+  const zoomAt = (f: number, px?: number, py?: number) => setView((v) => {
+    const el = wrap.current; if (!el) return v;
+    const cx = px ?? el.clientWidth / 2, cy = py ?? el.clientHeight / 2;
     const k = Math.max(.35, Math.min(2.2, v.k * f));
     return { k, x: cx - ((cx - v.x) * k) / v.k, y: cy - ((cy - v.y) * k) / v.k };
   });
+  const zoom = (f: number) => zoomAt(f);
+
+  /* mouse-wheel zoom toward the pointer — native non-passive listener so the page never scrolls */
+  useEffect(() => {
+    const el = wrap.current; if (!el || mode !== 'graph') return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const b = el.getBoundingClientRect();
+      const d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * el.clientHeight : e.deltaY;
+      // trackpad pinch arrives as ctrl+wheel with small deltas → boost its sensitivity
+      zoomAt(Math.exp(-d * (e.ctrlKey ? 0.01 : 0.0016)), e.clientX - b.left, e.clientY - b.top);
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedInst = mc.nodes.find((n) => n.agentId === selected)?.instanceId;
   const nodeMap = Object.fromEntries(mc.nodes.map((n) => [n.instanceId, n]));
@@ -159,50 +177,31 @@ export function HierarchyGraph({ mission, selected, onSelect, onOpenChat }: { mi
         <div
           ref={wrap}
           className="hgraph-canvas"
-          onWheel={(e) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); zoom(e.deltaY < 0 ? 1.1 : 1 / 1.1); } }}
           onPointerDown={(e) => { if ((e.target as HTMLElement).closest('.hnode')) return; drag.current = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y }; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); }}
           onPointerMove={(e) => { const d = drag.current; if (d) setView((v) => ({ ...v, x: d.vx + e.clientX - d.x, y: d.vy + e.clientY - d.y })); }}
           onPointerUp={() => { drag.current = null; }}
         >
+          <div className="hg-hint" aria-hidden><Move size={12} />Scroll to zoom · drag to pan · {Math.round(view.k * 100)}%</div>
           <div className="hgraph-world" style={{ width: vw, height: vh, transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})` }}>
             <svg width={vw} height={vh} className="hgraph-svg" aria-hidden>
               <defs>
-                {(Object.keys(EDGE_STYLE) as EdgeKind[]).map((k) => (
-                  <marker key={k} id={`arrow-${k}`} viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-                    <path d="M0 0 L10 5 L0 10 z" fill={EDGE_STYLE[k].color} />
-                  </marker>
-                ))}
-                <filter id="hg-glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
+                <filter id="hg-glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.4" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
               </defs>
               <g transform={`translate(${pad} ${pad})`}>
                 {mc.edges.map((e, i) => {
                   const st = EDGE_STYLE[e.kind];
                   const d = edgePath(e, pos);
                   const hot = pulses.some((p) => p.from === e.from && p.to === e.to && p.kind === e.kind);
-                  const touchesSel = selectedInst && (e.from === selectedInst || e.to === selectedInst);
+                  const touchesSel = !!selectedInst && (e.from === selectedInst || e.to === selectedInst);
                   return (
-                    <g key={i}>
-                      <motion.path d={d} fill="none" stroke={st.color} strokeWidth={hot ? st.width + 1.6 : touchesSel ? st.width + .6 : st.width}
-                        strokeOpacity={hot ? 1 : touchesSel ? Math.min(1, st.opacity + .25) : st.opacity} strokeDasharray={st.dash}
-                        markerEnd={`url(#arrow-${e.kind})`} filter={hot || touchesSel ? 'url(#hg-glow)' : undefined}
-                        initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: .9, delay: .2 + i * .04 }} />
+                    <motion.g key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: .6, delay: .2 + i * .04 }}>
+                      {/* idle: dead black dotted line */}
+                      <path d={d} className={cx('hg-edge', touchesSel && 'sel')} />
+                      {/* transmitting: colored dots flowing from source to target */}
+                      <motion.path d={d} className={cx('hg-edge-flow', !reduce && 'run')} stroke={st.color} filter="url(#hg-glow)"
+                        initial={false} animate={{ opacity: hot ? 1 : 0 }} transition={{ duration: hot ? .25 : .6 }} />
                       {e.kind === 'delegated' && <EdgeLabel d={d} text={`${nodeMap[e.to]?.tasks ?? 1} tasks`} />}
-                    </g>
-                  );
-                })}
-                {pulses.map((p) => {
-                  const e = mc.edges.find((x) => x.from === p.from && x.to === p.to && x.kind === p.kind);
-                  if (!e || reduce) return null;
-                  const d = edgePath(e, pos);
-                  return (
-                    <g key={p.id} filter="url(#hg-glow)">
-                      <circle r="6" fill={EDGE_STYLE[p.kind].color}>
-                        <animateMotion dur="1.3s" repeatCount="1" fill="freeze" path={d} keyPoints="0;1" keyTimes="0;1" calcMode="spline" keySplines=".4 0 .2 1" />
-                      </circle>
-                      <circle r="12" fill={EDGE_STYLE[p.kind].color} opacity=".25">
-                        <animateMotion dur="1.3s" repeatCount="1" fill="freeze" path={d} keyPoints="0;1" keyTimes="0;1" calcMode="spline" keySplines=".4 0 .2 1" />
-                      </circle>
-                    </g>
+                    </motion.g>
                   );
                 })}
               </g>
@@ -249,9 +248,12 @@ export function HierarchyGraph({ mission, selected, onSelect, onOpenChat }: { mi
             })}
           </div>
           <div className="hgraph-legend">
+            <span className="row" style={{ gap: 5 }}>
+              <svg width="26" height="8"><line x1="2" y1="4" x2="24" y2="4" className="hg-edge" /></svg>idle
+            </span>
             {(Object.keys(EDGE_STYLE) as EdgeKind[]).map((k) => (
               <span key={k} className="row" style={{ gap: 5 }}>
-                <svg width="26" height="8"><line x1="0" y1="4" x2="20" y2="4" stroke={EDGE_STYLE[k].color} strokeWidth="2" strokeDasharray={EDGE_STYLE[k].dash} /><path d="M18 0 L26 4 L18 8z" fill={EDGE_STYLE[k].color} /></svg>
+                <svg width="26" height="8"><line x1="2" y1="4" x2="24" y2="4" className={cx('hg-edge-flow', !reduce && 'run')} stroke={EDGE_STYLE[k].color} /></svg>
                 {EDGE_STYLE[k].label}
               </span>
             ))}

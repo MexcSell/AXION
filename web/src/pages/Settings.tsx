@@ -1,12 +1,12 @@
-import { AnimatePresence, motion } from 'motion/react';
+import { motion } from 'motion/react';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Settings as SettingsIcon, SlidersHorizontal, Palette, ScanFace, Accessibility, Globe, Plug, HardDrive, ShieldCheck, DatabaseBackup,
   Building2, Languages, Check, Keyboard, GitBranch, AppWindow, Mic, Cpu, KeyRound, Lock, Download, Play, Eye, RotateCcw, CircleCheck, Scale, Clock3, History,
 } from 'lucide-react';
-import { PageHeader, Panel } from '@/components/ui/Panel';
-import { Tabs } from '@/components/ui/Tabs';
+import { TopBoard, FrameBody } from '@/components/layout/PageFrame';
+import { Panel } from '@/components/ui/Panel';
 import { Field, Segmented, Switch, SwitchRow } from '@/components/ui/Form';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { Chip, DemoTag } from '@/components/ui/Chips';
@@ -37,24 +37,20 @@ export default function SettingsPage() {
   };
   return (
     <div className="page">
-      <PageHeader icon={SettingsIcon} title="Settings" help="settings.general" sub="Configure your workspace, appearance, avatars, accessibility, browser, integrations and security.">
-        <div style={{ marginTop: 12, overflowX: 'auto' }}>
-          <Tabs tabs={tabs.map((t, i) => ({ key: t, label: t, icon: ICONS[i] }))} value={tab} onChange={change} ariaLabel="Settings sections" />
-        </div>
-      </PageHeader>
-      <AnimatePresence mode="wait">
-        <motion.div key={tab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: .2 }} role="tabpanel" aria-label={tab}>
-          {tab === 'General' && <General setDirty={setDirty} />}
-          {tab === 'Appearance' && <Appearance />}
-          {tab === 'Avatars & Faces' && <Avatars />}
-          {tab === 'Accessibility' && <A11y />}
-          {tab === 'Browser' && <BrowserTab />}
-          {tab === 'Integrations' && <Integrations />}
-          {tab === 'Storage' && <StorageTab />}
-          {tab === 'Security' && <Security />}
-          {tab === 'Backups' && <Backups />}
-        </motion.div>
-      </AnimatePresence>
+      <TopBoard icon={SettingsIcon} title="Settings" help="settings.general" sub="Configure your workspace, appearance, avatars, accessibility, browser, integrations and security."
+        tabs={{ tabs, value: tab, onChange: change, icons: ICONS, ariaLabel: 'Settings sections' }}
+        toolbar={dirty.length ? <span className="warn">{dirty.length} unsaved change{dirty.length > 1 ? 's' : ''}</span> : undefined} />
+      <FrameBody tab={tab} panel={false}>
+        {tab === 'General' && <General setDirty={setDirty} />}
+        {tab === 'Appearance' && <Appearance />}
+        {tab === 'Avatars & Faces' && <Avatars />}
+        {tab === 'Accessibility' && <A11y />}
+        {tab === 'Browser' && <BrowserTab />}
+        {tab === 'Integrations' && <Integrations />}
+        {tab === 'Storage' && <StorageTab />}
+        {tab === 'Security' && <Security />}
+        {tab === 'Backups' && <Backups />}
+      </FrameBody>
     </div>
   );
 }

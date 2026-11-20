@@ -11,6 +11,7 @@ import { Tabs } from '@/components/ui/Tabs';
 import { Chip, AgentStatusChip, RoleChip, InstanceStateChip, DemoTag } from '@/components/ui/Chips';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { GrowthBadge, LevelPips, EvoTrack } from '@/features/agents/Growth';
 import { Menu } from '@/components/ui/Menu';
 import { Segmented } from '@/components/ui/Form';
 import { CountUp } from '@/components/ui/CountUp';
@@ -82,6 +83,13 @@ function Profile({ agent }: { agent: Agent }) {
               <RoleChip role={agent.role} /><AgentStatusChip status={agent.status} /><Chip hue={225} className="mono">{agent.version}</Chip><Chip hue={R.hue2}>{agent.dept}</Chip>
               <span className="dim" style={{ fontSize: 12.5 }}>{agent.model}</span>
             </div>
+            <div className="oa-dev row wrap" style={{ gap: 12, marginTop: 10 }}>
+              <GrowthBadge agent={agent} />
+              <LevelPips level={agent.level} xp={agent.xp} />
+              <EvoTrack agent={agent} />
+              {agent.growth !== 'stable' && <span className="dim ellipsis" style={{ fontSize: 12, maxWidth: 360 }}>{agent.growthNote}</span>}
+              <HelpTrigger k="agents.devStages" />
+            </div>
             <p className="muted" style={{ maxWidth: 560, margin: '10px 0 14px', fontSize: 13.5 }}>{agent.description}</p>
             <div className="oa-stats">
               {top.map((k, i) => (
@@ -99,7 +107,7 @@ function Profile({ agent }: { agent: Agent }) {
               <button className="btn" onClick={() => openDialog('mentoring-session', { agentId: agent.id })}><GraduationCap size={15} />Mentor</button>
               <button className="btn" onClick={() => openDialog('agent-edit', { agentId: agent.id })}><PencilLine size={15} />Edit</button>
               <Menu trigger={<button className="icon-btn" aria-label="More actions"><MoreHorizontal size={16} /></button>} items={[
-                { label: 'Open org chart', icon: Crown, onSelect: () => nav('/organization') },
+                { label: 'Open org chart', icon: Crown, onSelect: () => nav('/agents?view=hierarchy') },
                 { label: 'Request tool grant', icon: KeyRound, onSelect: () => openDialog('tools-permission', { agentId: agent.id }) },
                 { label: 'Pause new instances', icon: Clock, onSelect: () => toast({ tone: 'warning', title: `${agent.name}: new instances paused (demo)`, body: 'Running instances continue on their pinned version.' }) },
               ]} />
@@ -113,7 +121,7 @@ function Profile({ agent }: { agent: Agent }) {
         <Tabs tabs={tabs.map((t, i) => ({ key: t, label: t, icon: ICONS[i] }))} value={tab} onChange={setTab} ariaLabel="Agent profile sections" />
       </motion.div>
       <AnimatePresence mode="wait">
-        <motion.div key={tab} className="col" style={{ gap: 'var(--gap)' }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: .2 }} role="tabpanel" aria-label={tab}>
+        <motion.div key={tab} className="fit-scroll col" style={{ gap: 'var(--gap)' }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: .2 }} role="tabpanel" aria-label={tab}>
           {tab === 'Profile' && <ProfileTab a={agent} />}
           {tab === 'Capabilities' && <CapabilitiesTab a={agent} />}
           {tab === 'Tools' && <ToolsTab a={agent} />}
@@ -171,7 +179,7 @@ function ProfileTab({ a }: { a: Agent }) {
         {ms.length === 0 ? <EmptyState icon={Boxes} title="No missions yet" body="Assign this agent to a mission to create its first instance." action={<button className="btn primary" onClick={() => openDialog('agent-assign', { agentId: a.id })}>Assign to mission</button>} /> : (
           <div className="oa-mission-chips">
             {ms.slice(0, 6).map((m, i) => (
-              <motion.button key={m.id} className="subpanel glass-card hoverable oa-mchip" onClick={() => nav(`/control/${m.id}`)} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .2 + i * .05 }}>
+              <motion.button key={m.id} className="subpanel glass-card hoverable oa-mchip" onClick={() => nav(`/missions/${m.id}`)} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .2 + i * .05 }}>
                 <div className="row" style={{ gap: 6 }}><span className="mono dim" style={{ fontSize: 11 }}>{m.id}</span><span className="spacer" />{m.leadId === a.id && <Chip hue={46} size="sm"><Crown size={10} />Lead</Chip>}</div>
                 <div className="clamp-2" style={{ fontWeight: 600, fontSize: 13, textAlign: 'left', margin: '4px 0 8px' }}>{m.title}</div>
                 <div className="row" style={{ gap: 6 }}><div className="bar thin good" style={{ flex: 1 }}><i style={{ width: `${m.progress}%` }} /></div><b className="tnum" style={{ fontSize: 12 }}>{m.progress}%</b></div>
@@ -258,7 +266,7 @@ function InstancesTab({ a }: { a: Agent }) {
               <div className="dim ellipsis" style={{ fontSize: 12 }}>{n.task}</div>
               <div className="row" style={{ gap: 6, margin: '10px 0' }}><div className="bar thin good" style={{ flex: 1 }}><motion.i initial={{ width: 0 }} animate={{ width: `${n.progress}%` }} transition={{ duration: .8, delay: .1 + i * .04 }} /></div><b className="tnum" style={{ fontSize: 12 }}>{n.progress}%</b></div>
               <dl className="kv oa-kv sm"><dt>Pinned</dt><dd className="mono">{a.version}</dd><dt>Memory</dt><dd>scope {m.id} (isolated)</dd><dt>Budget</dt><dd>{money(Math.round(m.budget / m.agentIds.length), 0)}</dd><dt>Tasks</dt><dd>{n.tasks} · {n.pending} pending</dd></dl>
-              <div className="row" style={{ gap: 6, marginTop: 8 }}><button className="btn sm" onClick={() => nav(`/control/${m.id}?tab=hierarchy&agent=${a.id}`)}>Open in mission</button><button className="btn sm ghost" onClick={() => toast({ tone: 'info', title: 'Migration is a controlled change (demo)', body: 'Running instances stay pinned unless a migration is approved.' })}>Migrate version</button></div>
+              <div className="row" style={{ gap: 6, marginTop: 8 }}><button className="btn sm" onClick={() => nav(`/missions/${m.id}?tab=hierarchy&agent=${a.id}`)}>Open in mission</button><button className="btn sm ghost" onClick={() => toast({ tone: 'info', title: 'Migration is a controlled change (demo)', body: 'Running instances stay pinned unless a migration is approved.' })}>Migrate version</button></div>
             </motion.div>
           ))}
         </div>
@@ -281,7 +289,7 @@ function ConversationsTab({ a }: { a: Agent }) {
             const o = AGENT_BY_ID[t.other];
             return (
               <motion.div key={t.m.id + t.k} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * .03 }}>
-                <Link to={`/control/${t.m.id}?tab=conversations&agent=${a.id}`} className="oa-thread">
+                <Link to={`/missions/${t.m.id}?tab=conversations&agent=${a.id}`} className="oa-thread">
                   {o ? <RobotAvatar role={o.role} size={36} /> : <span className="oa-ev-sys lg"><UserRound size={16} /></span>}
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div className="row" style={{ gap: 8 }}><b style={{ fontSize: 13.5 }}>{o?.name ?? 'Owner'}</b><Chip hue={225} size="sm">{t.m.id}</Chip><Chip hue={t.last.kind === 'question' ? 38 : 205} size="sm">{t.last.kind}</Chip></div>

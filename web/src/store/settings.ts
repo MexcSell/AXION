@@ -28,6 +28,8 @@ export interface SettingsState {
   accent: Accent;
   railCollapsed: boolean;
   particles: boolean;
+  /** Show the top header banner (brand, hero art, Plan→Sustain loop, actions). */
+  headerBanner: boolean;
   language: 'en' | 'ja';
   timezone: string;
   companyName: string;
@@ -47,6 +49,7 @@ const DEFAULTS = {
   accent: 'default' as Accent,
   railCollapsed: false,
   particles: true,
+  headerBanner: true,
   language: 'en' as const,
   timezone: 'UTC',
   companyName: 'AXION AI Company',

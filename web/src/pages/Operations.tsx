@@ -1,16 +1,15 @@
-import { AnimatePresence, motion } from 'motion/react';
+import { motion } from 'motion/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, Server, Cpu, ListChecks, Globe, HardDrive, ScrollText, LifeBuoy, RotateCw, Pause, Play, Download, Search, Trash2, CircleCheck, CircleX,
-  ShieldCheck, Undo2, FlaskConical, GitBranch, Lock,
+  ShieldCheck, Undo2, FlaskConical, GitBranch, Lock, ListOrdered, MemoryStick,
 } from 'lucide-react';
-import { PageHeader, Panel } from '@/components/ui/Panel';
-import { Tabs } from '@/components/ui/Tabs';
+import { TopBoard, FrameBody } from '@/components/layout/PageFrame';
+import { Panel } from '@/components/ui/Panel';
 import { Chip, DemoTag, Dot } from '@/components/ui/Chips';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { IconButton } from '@/components/ui/IconButton';
 import { Sparkline, RingGauge } from '@/components/viz/Charts';
-import { MiniStat } from '@/components/settings/bits';
 import { useTab } from '@/hooks/useTab';
 import { openDialog, toast } from '@/store/ui';
 import {
@@ -27,28 +26,23 @@ export default function OperationsPage() {
   const up = SERVICES.filter((s) => s.health === 'good').length;
   return (
     <div className="page">
-      <PageHeader icon={Activity} title="System Operations" help="ops.services" sub="systemd units, workers, queues, browser hosts, logs and recovery. Read-only by default." actions={<DemoTag />}>
-        <div className="grid g-4" style={{ marginTop: 12 }}>
-          <MiniStat label="Services healthy" value={`${up}/${SERVICES.length}`} tone={up === SERVICES.length ? 'good' : 'warn'} sub="1 warning: browser-worker" />
-          <MiniStat label="Jobs in queues" value={QUEUES.reduce((a, q) => a + q.pending + q.running, 0)} tone="info" sub={`${QUEUES.reduce((a, q) => a + q.failed, 0)} failed`} />
-          <MiniStat label="Browser memory" value="1.3 GB" tone="violet" sub="1 orphan context" />
-          <MiniStat label="Rollback readiness" value="4/5" tone="warn" sub="dry-run is stale" />
-        </div>
-        <div style={{ marginTop: 12, overflowX: 'auto' }}>
-          <Tabs tabs={tabs.map((t, i) => ({ key: t, label: t, icon: ICONS[i] }))} value={tab} onChange={setTab} ariaLabel="Operations sections" />
-        </div>
-      </PageHeader>
-      <AnimatePresence mode="wait">
-        <motion.div key={tab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: .2 }} role="tabpanel" aria-label={tab}>
-          {tab === 'Services' && <Services />}
-          {tab === 'Workers' && <Workers />}
-          {tab === 'Queues' && <Queues />}
-          {tab === 'Browser Hosts' && <Hosts />}
-          {tab === 'Storage' && <StorageOps />}
-          {tab === 'Logs' && <Logs />}
-          {tab === 'Recovery' && <Recovery />}
-        </motion.div>
-      </AnimatePresence>
+      <TopBoard icon={Activity} title="System Operations" help="ops.services" sub="systemd units, workers, queues, browser hosts, logs and recovery. Read-only by default." actions={<DemoTag />}
+        kpis={[
+          { key: 'svc', icon: Server, value: up, suffix: `/${SERVICES.length}`, label: 'Services healthy', hint: '1 warning: browser-worker', color: up === SERVICES.length ? '#2ee98a' : '#fbbf24', help: 'ops.kpi.services', onClick: () => setTab('Services') },
+          { key: 'q', icon: ListOrdered, value: QUEUES.reduce((a, q) => a + q.pending + q.running, 0), label: 'Jobs in queues', hint: `${QUEUES.reduce((a, q) => a + q.failed, 0)} failed`, color: '#22d3ee', help: 'ops.kpi.queues', onClick: () => setTab('Queues') },
+          { key: 'mem', icon: MemoryStick, value: 1.3, decimals: 1, suffix: ' GB', label: 'Browser memory', hint: '1 orphan context', color: '#a78bfa', help: 'ops.kpi.memory', onClick: () => setTab('Browser Hosts') },
+          { key: 'rb', icon: LifeBuoy, value: 4, suffix: '/5', label: 'Rollback readiness', hint: 'dry-run is stale', color: '#fbbf24', help: 'ops.kpi.rollback', onClick: () => setTab('Recovery') },
+        ]}
+        tabs={{ tabs, value: tab, onChange: setTab, icons: ICONS, ariaLabel: 'Operations sections' }} />
+      <FrameBody tab={tab} panel={false}>
+        {tab === 'Services' && <Services />}
+        {tab === 'Workers' && <Workers />}
+        {tab === 'Queues' && <Queues />}
+        {tab === 'Browser Hosts' && <Hosts />}
+        {tab === 'Storage' && <StorageOps />}
+        {tab === 'Logs' && <Logs />}
+        {tab === 'Recovery' && <Recovery />}
+      </FrameBody>
     </div>
   );
 }

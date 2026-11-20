@@ -1,0 +1,1 @@
+export{p as downloadText}from"./browser-results-BnwmjokG.js";

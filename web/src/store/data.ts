@@ -43,7 +43,7 @@ export const useData = create<DataState>()(persist((set, get) => ({
     const m: Mission = {
       id, kind: 'website', priority: 'normal', owner: 'Luca', criteria: [], progress: 0, tasksVerified: 0, tasksTotal: 6, blocked: 0,
       agentIds: ['gm', 'planner-01', 'coder-01', 'tester-01'], leadId: 'gm',
-      summary: start ? 'GM is drafting the plan and staffing the team. The first summary arrives after the first verified checkpoint.' : 'Draft saved. Nothing is running yet.',
+      summary: start ? 'GM is drafting the plan and assigning agents. The first summary arrives after the first verified checkpoint.' : 'Draft saved. Nothing is running yet.',
       summaryAgoMin: 0, lastEvent: start ? 'Mission started · GM planning' : 'Draft created', lastEventAgoMin: 0,
       cost: 0, budget: 50, elapsedH: 0, dueInDays: 7, revision: 1, version: 'v0.1.0',
       phases: ['Plan', 'Design', 'Build', 'Verify', 'Deliver', 'Learn'].map((label, i) => ({ key: label.toLowerCase(), label, date: '—', state: i === 0 && start ? 'active' : 'next' })),

@@ -90,6 +90,8 @@ PASS  mission-templates          no-props DL-08
 PASS  mission-templates          props    DL-08   
 PASS  model-add                  no-props DL-41   
 PASS  model-add                  props    DL-41   
+PASS  model-manage               no-props DL-41b  
+PASS  model-manage               props    DL-41b  
 PASS  model-playground           no-props DL-43   
 PASS  model-playground           props    DL-43   
 PASS  model-route-editor         no-props DL-42   

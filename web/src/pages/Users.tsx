@@ -1,14 +1,13 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { useMemo, useState } from 'react';
 import { Users as UsersIcon, UserPlus, Search, LayoutGrid, List, ShieldCheck, Mail, Monitor, Smartphone, Laptop, Tablet, KeyRound, Download, Ban, RotateCw, Trash2, MoreHorizontal, Crown, Lock, Check, Minus, UserCheck, Fingerprint, Network, ScrollText, Plus } from 'lucide-react';
-import { Panel } from '@/components/ui/Panel';
+import { TopBoard, FrameBody, type KpiItem } from '@/components/layout/PageFrame';
 import { Tabs } from '@/components/ui/Tabs';
 import { Chip, DemoTag, Dot } from '@/components/ui/Chips';
 import { IconButton } from '@/components/ui/IconButton';
 import { Menu } from '@/components/ui/Menu';
 import { Tip } from '@/components/ui/Tip';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { CountUp } from '@/components/ui/CountUp';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { Donut } from '@/components/viz/Charts';
 import { useTab } from '@/hooks/useTab';
@@ -43,38 +42,27 @@ export default function UsersPage() {
   const revoked = useUG((s) => s.revokedSessions);
   const liveSessions = SESSIONS.filter((s) => !revoked[s.id]).length;
   const pending = INVITES.filter((i) => i.state === 'pending').length + extra.length;
-  const kpis = [
-    { icon: UsersIcon, v: members.length, label: 'Members', hint: `${members.filter((m) => m.status === 'active').length} active now`, c: '#22d3ee' },
-    { icon: UserCheck, v: members.filter((m) => m.mfa).length, label: 'MFA enabled', hint: `of ${members.length}`, c: '#2ee98a' },
-    { icon: Mail, v: pending, label: 'Pending invites', hint: 'masked contacts', c: '#fbbf24' },
-    { icon: Monitor, v: liveSessions, label: 'Live sessions', hint: `${SESSIONS.length - liveSessions} revoked`, c: '#a78bfa' },
+  const kpis: KpiItem[] = [
+    { key: 'members', icon: UsersIcon, value: members.length, label: 'Members', hint: `${members.filter((m) => m.status === 'active').length} active now`, color: '#22d3ee', help: 'ug.kpi.members', onClick: () => setTab('Members') },
+    { key: 'mfa', icon: UserCheck, value: members.filter((m) => m.mfa).length, label: 'MFA enabled', hint: `of ${members.length}`, color: '#2ee98a', help: 'ug.kpi.mfa', onClick: () => setTab('Members') },
+    { key: 'inv', icon: Mail, value: pending, label: 'Pending invites', hint: 'masked contacts', color: '#fbbf24', help: 'ug.kpi.invites', onClick: () => setTab('Invitations') },
+    { key: 'sess', icon: Monitor, value: liveSessions, label: 'Live sessions', hint: `${SESSIONS.length - liveSessions} revoked`, color: '#a78bfa', help: 'ug.kpi.sessions', onClick: () => setTab('Sessions') },
   ];
   return (
     <div className="page ug-page">
-      <Panel icon={UsersIcon} titleSize="lg" title="Users" help="ug.users" sub="Humans, roles and access. Agents are managed in Agents, not here." delay={.05}
-        actions={<div className="row" style={{ gap: 8 }}><DemoTag /><button className="btn primary" onClick={() => openDialog('user-invite')}><UserPlus size={16} />Invite user</button></div>}>
-        <div className="ug-kpis">
-          {kpis.map((k, i) => (
-            <motion.div key={k.label} className="kpi" style={{ ['--kc' as string]: k.c }} initial={{ opacity: 0, y: 12, scale: .97 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ delay: .08 + i * .06 }}>
-              <k.icon size={34} strokeWidth={1.6} className="kpi-ico" aria-hidden />
-              <div style={{ minWidth: 0 }}><div className="kpi-val"><CountUp value={k.v} /></div><div className="kpi-label">{k.label}</div><div className="dim" style={{ fontSize: 12 }}>{k.hint}</div></div>
-            </motion.div>
-          ))}
-        </div>
-        <div className="row wrap" style={{ margin: '14px 0 12px' }}>
-          <Tabs size="sm" variant="underline" tabs={tabs.map((t, i) => ({ key: t, label: t, icon: icons[i] }))} value={tab} onChange={setTab} ariaLabel="Users views" />
-        </div>
-        <AnimatePresence mode="wait">
-          <motion.div key={tab} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: .2 }} role="tabpanel" aria-label={tab}>
-            {tab === 'Members' && <Members members={members} />}
-            {tab === 'Roles' && <Roles />}
-            {tab === 'Teams & Access' && <Teams members={members} />}
-            {tab === 'Invitations' && <Invitations />}
-            {tab === 'Sessions' && <Sessions members={members} />}
-            {tab === 'Audit' && <Audit />}
-          </motion.div>
-        </AnimatePresence>
-      </Panel>
+      <TopBoard icon={UsersIcon} title="Users" help="ug.users" sub="Humans, roles and access. Agents are managed in Agents, not here."
+        actions={<><DemoTag /><button className="btn primary" onClick={() => openDialog('user-invite')}><UserPlus size={16} />Invite user</button></>}
+        kpis={kpis}
+        tabs={{ tabs, value: tab, onChange: setTab, icons, ariaLabel: 'Users views' }}
+        toolbar={<span>{{ Members: 'People with access to this workspace.', Roles: 'What each human role may do.', 'Teams & Access': 'Human groups and what they can reach.', Invitations: 'Pending and expired invitations.', Sessions: 'Signed-in devices; revoke any.', Audit: 'Who changed access, and when.' }[tab]}</span>} />
+      <FrameBody tab={tab}>
+        {tab === 'Members' && <Members members={members} />}
+        {tab === 'Roles' && <Roles />}
+        {tab === 'Teams & Access' && <Teams members={members} />}
+        {tab === 'Invitations' && <Invitations />}
+        {tab === 'Sessions' && <Sessions members={members} />}
+        {tab === 'Audit' && <Audit />}
+      </FrameBody>
     </div>
   );
 }

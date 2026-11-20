@@ -2,10 +2,10 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useMemo, useState } from 'react';
 import {
   Package, LayoutGrid, MonitorPlay, History, GitBranch, GitCompare, Download, Rocket, Search, Eye, Play, RotateCcw, ShieldCheck, Clock, GitMerge, Lock,
-  CheckCircle2, XCircle, FileCheck2, Copy, Layers, TrendingUp, Undo2, FlaskConical, BadgeCheck, ArrowRight, ScrollText,
+  CheckCircle2, XCircle, FileCheck2, Copy, Layers, TrendingUp, Undo2, FlaskConical, BadgeCheck, ArrowRight, ScrollText, LayoutDashboard, Shapes,
 } from 'lucide-react';
 import { Panel } from '@/components/ui/Panel';
-import { Tabs } from '@/components/ui/Tabs';
+import { TopBoard, FrameBody } from '@/components/layout/PageFrame';
 import { Chip, DemoTag, Dot } from '@/components/ui/Chips';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
@@ -26,7 +26,7 @@ const LANES = [190, 275, 150, 40];
 
 export default function ResultsPage() {
   const [tab, setTab, tabs] = useTab('results');
-  const ICONS = [LayoutGrid, MonitorPlay, History, GitBranch, GitCompare, Download, Rocket];
+  const ICONS = [LayoutDashboard, LayoutGrid, MonitorPlay, History, GitBranch, GitCompare, Download, Rocket];
   const missions = useData((s) => s.missions);
   const stageMap = useResults((s) => s.stage);
   const refs = useMemo(() => allArtifacts(missions), [missions]);
@@ -43,32 +43,62 @@ export default function ResultsPage() {
   ];
   return (
     <div className="page">
-      <Panel icon={Package} titleSize="lg" title="Results & Versions" help="results.library" sub="Every artifact is immutable, hash-addressed and traceable to a mission." delay={.02} className="brk-head-glow"
-        actions={<div className="row" style={{ gap: 10 }}><DemoTag /><button className="btn" onClick={() => openDialog('download-bundle', { missionId: refs[0]?.mission.id })}><Download size={15} />Download bundle</button></div>}>
-        <KpiStrip items={kpis} />
-      </Panel>
-      <Panel delay={.1} tight>
-        <div className="row wrap" style={{ gap: 10, marginBottom: 12 }}>
-          <Tabs size="sm" variant="underline" tabs={tabs.map((t, i) => ({ key: t, label: t, icon: ICONS[i] }))} value={tab} onChange={setTab} ariaLabel="Results views" />
-          <span className="spacer" />
-          <span className="muted" style={{ fontSize: 12.5 }}>{{ Library: 'Mission folders, type filters, provenance and verification.', Previews: 'Isolated sandbox renderers. Nothing runs on the host.', Timeline: 'Immutable versions, newest first, grouped by mission.', 'Branch Graph': 'Baseline, mission lines and protected merges.', Comparisons: 'Structured diff with benchmark deltas.', Downloads: 'Any retained version, with checksum and manifest.', Releases: 'candidate, tested, approved, deployed, rolled back.' }[tab]}</span>
-        </div>
-        <AnimatePresence mode="wait">
-          <motion.div key={tab} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: .2 }} role="tabpanel" aria-label={tab}>
-            {tab === 'Library' && <Library refs={refs} />}
-            {tab === 'Previews' && <Previews refs={refs} />}
-            {tab === 'Timeline' && <Timeline refs={refs} sel={sel} setSel={setSel} />}
-            {tab === 'Branch Graph' && <BranchGraph refs={refs} />}
-            {tab === 'Comparisons' && <Comparisons refs={refs} />}
-            {tab === 'Downloads' && <Downloads refs={refs} />}
-            {tab === 'Releases' && <Releases refs={refs} />}
-          </motion.div>
-        </AnimatePresence>
-      </Panel>
+      <TopBoard icon={Package} title="Results & Versions" help="results.library" sub="Every artifact is immutable, hash-addressed and traceable to a mission."
+        actions={<><DemoTag /><button className="btn" onClick={() => openDialog('download-bundle', { missionId: refs[0]?.mission.id })}><Download size={15} />Download bundle</button></>}
+        tabs={{ tabs, value: tab, onChange: setTab, icons: ICONS, ariaLabel: 'Results views' }}
+        toolbar={<span>{{ Summary: 'Totals, verification, latest versions and protected main.', Library: 'Mission folders, type filters, provenance and verification.', Previews: 'Isolated sandbox renderers. Nothing runs on the host.', Timeline: 'Immutable versions, newest first, grouped by mission.', 'Branch Graph': 'Baseline, mission lines and protected merges.', Comparisons: 'Structured diff with benchmark deltas.', Downloads: 'Any retained version, with checksum and manifest.', Releases: 'candidate, tested, approved, deployed, rolled back.' }[tab]}</span>} />
+      <FrameBody tab={tab}>
+        {tab === 'Summary' && <Summary refs={refs} kpis={kpis} verified={verified} pending={versions - verified} />}
+        {tab === 'Library' && <Library refs={refs} />}
+        {tab === 'Previews' && <Previews refs={refs} />}
+        {tab === 'Timeline' && <Timeline refs={refs} sel={sel} setSel={setSel} />}
+        {tab === 'Branch Graph' && <BranchGraph refs={refs} />}
+        {tab === 'Comparisons' && <Comparisons refs={refs} />}
+        {tab === 'Downloads' && <Downloads refs={refs} />}
+        {tab === 'Releases' && <Releases refs={refs} />}
+      </FrameBody>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- */
+/** Page-wide totals live here only, instead of framing every tab. */
+function Summary({ refs, kpis, verified, pending }: { refs: ArtRef[]; kpis: Parameters<typeof KpiStrip>[0]['items']; verified: number; pending: number }) {
+  const stageMap = useResults((s) => s.stage);
+  const byType = ALL_TYPES.map((t) => ({ t, n: refs.filter((r) => r.artifact.type === t).length })).filter((x) => x.n).sort((a, b) => b.n - a.n);
+  const maxT = Math.max(1, ...byType.map((x) => x.n));
+  const stages = RELEASE_STAGES.map((st) => ({ st, n: refs.filter((r, i) => (stageMap[r.artifact.id] ?? defaultStage(r.artifact, i)) === st).length }));
+  return (
+    <div className="col rs-summary" style={{ gap: 'var(--gap)' }}>
+      <KpiStrip items={kpis} />
       <div className="brk-bottom">
-        <VerifPanel verified={verified} pending={versions - verified} />
+        <VerifPanel verified={verified} pending={pending} />
         <RecentPanel refs={refs} />
         <ProtectedPanel />
+      </div>
+      <div className="grid g-2">
+        <Panel icon={Shapes} title="Artifacts by Type" help="results.library" delay={.35} className="bottom-panel">
+          <div className="col" style={{ gap: 8 }}>
+            {byType.map(({ t, n }, i) => (
+              <div key={t} className="row" style={{ gap: 10, fontSize: 12.5 }}>
+                <TypeIcon type={t} size={15} /><span style={{ width: 86, textTransform: 'capitalize' }}>{t}</span>
+                <div className="grow" style={{ height: 8, borderRadius: 99, background: 'var(--panel-2)', overflow: 'hidden' }}>
+                  <motion.div style={{ height: '100%', borderRadius: 99, background: `hsl(${TYPE_HUE[t]} 85% 58%)`, boxShadow: `0 0 10px hsl(${TYPE_HUE[t]} 90% 60% / .6)` }} initial={{ width: 0 }} animate={{ width: `${(n / maxT) * 100}%` }} transition={{ delay: .4 + i * .05, duration: .6 }} />
+                </div>
+                <b className="tnum" style={{ width: 24, textAlign: 'right' }}>{n}</b>
+              </div>
+            ))}
+          </div>
+        </Panel>
+        <Panel icon={Rocket} title="Release Pipeline" help="results.release" delay={.4} className="bottom-panel">
+          <div className="rs-stages">
+            {stages.map(({ st, n }, i) => (
+              <motion.div key={st} className="rs-stage" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .45 + i * .06 }}>
+                <b className="tnum">{n}</b><span>{st}</span>
+              </motion.div>
+            ))}
+          </div>
+        </Panel>
       </div>
     </div>
   );
@@ -221,15 +251,21 @@ function BranchGraph({ refs }: { refs: ArtRef[] }) {
   const arts = refs.filter((r) => r.mission.id === mid).slice(0, 4);
   const W = 880, H = 90 + arts.length * 78, X0 = 90;
   const maxAge = Math.max(...arts.flatMap((r) => r.artifact.versions.map((v) => v.agoMin)), 1);
-  const xOf = (age: number) => X0 + 70 + ((maxAge - age) / maxAge) * (W - X0 - 70 - 300);
+  const xOf = (age: number) => X0 + 160 + ((maxAge - age) / maxAge) * (W - X0 - 160 - 300);
   const mainY = 50;
   const nodes: GNode[] = [{ key: 'base', x: X0, y: mainY, lane: -1, label: 'baseline', kind: 'base' }];
   const edges: { d: string; c: number; dashed?: boolean; key: string; delay: number }[] = [];
+  const forks: { key: string; x: number; c: number; delay: number }[] = [];
   arts.forEach((r, li) => {
     const y = mainY + 78 * (li + 1);
     const vs = [...r.artifact.versions].reverse();
-    const startX = xOf(vs[0].agoMin) - 50;
-    edges.push({ key: `b${li}`, d: `M${startX - 30},${mainY} C${startX},${mainY} ${startX - 30},${y} ${startX + 20},${y}`, c: LANES[li], delay: .2 + li * .2 });
+    const firstX = xOf(vs[0].agoMin);
+    // fork junction on main: deeper lanes fork nearer the baseline (nested arcs), so no
+    // branch-off curve ever crosses another lane's line, label or commit
+    const fx = X0 + 40 + (arts.length - 1 - li) * 28;
+    forks.push({ key: `f${li}`, x: fx, c: LANES[li], delay: .2 + li * .2 });
+    // curve drops from the junction to the lane, then runs straight into the first commit's centre
+    edges.push({ key: `b${li}`, d: `M${fx},${mainY} C${fx + 30},${mainY} ${fx + 4},${y} ${fx + 40},${y} L${firstX},${y}`, c: LANES[li], delay: .2 + li * .2 });
     vs.forEach((v) => nodes.push({ key: `${r.artifact.id}${v.v}`, x: xOf(v.agoMin), y, lane: li, label: v.v, kind: 'commit', r, v }));
     for (let k = 0; k < vs.length - 1; k++) edges.push({ key: `l${li}${k}`, d: `M${xOf(vs[k].agoMin)},${y} L${xOf(vs[k + 1].agoMin)},${y}`, c: LANES[li], delay: .4 + li * .2 + k * .1 });
     const last = vs[vs.length - 1];
@@ -261,6 +297,12 @@ function BranchGraph({ refs }: { refs: ArtRef[] }) {
             {edges.map((e) => <motion.path key={mid + e.key} d={e.d} fill="none" stroke={`hsl(${e.c} 90% 62%)`} strokeWidth="3" strokeLinecap="round" strokeDasharray={e.dashed ? '7 6' : undefined} filter="url(#rvg)" initial={{ pathLength: 0, opacity: 0 }} animate={{ pathLength: 1, opacity: 1 }} transition={{ duration: .8, delay: e.delay }} />)}
             <circle r="5" fill="#fff" filter="url(#rvg)"><animateMotion dur="5s" repeatCount="indefinite" path={`M${X0},${mainY} L${W - 60},${mainY}`} /></circle>
             {mergeXs.length > 0 && edges.filter((e) => !e.dashed && e.key.startsWith('e')).map((e) => <circle key={'p' + e.key} r="4" fill={`hsl(${e.c} 95% 70%)`} filter="url(#rvg)"><animateMotion dur="3.4s" repeatCount="indefinite" path={e.d} /></circle>)}
+            {forks.map((f) => (
+              <motion.g key={mid + f.key} initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ delay: f.delay, type: 'spring', stiffness: 380, damping: 16 }} style={{ transformOrigin: `${f.x}px ${mainY}px`, pointerEvents: 'none' }}>
+                <circle cx={f.x} cy={mainY} r="6" fill="none" stroke={`hsl(${f.c} 95% 70%)`} strokeWidth="1.5" opacity=".5"><animate attributeName="r" values="6;11;6" dur="2.4s" repeatCount="indefinite" /><animate attributeName="opacity" values=".55;0;.55" dur="2.4s" repeatCount="indefinite" /></circle>
+                <circle cx={f.x} cy={mainY} r="6" fill={`hsl(${f.c} 90% 58%)`} stroke="#fff" strokeWidth="2" filter="url(#rvg)" />
+              </motion.g>
+            ))}
             {nodes.map((n, i) => {
               const c = n.kind === 'base' ? 260 : LANES[n.lane];
               const on = sel?.key === n.key;

@@ -10,7 +10,7 @@ import type { DialogComponentProps } from '@/dialogs/DialogHost';
 import { Modal } from '@/components/ui/Modal';
 import { Field, Segmented, SwitchRow } from '@/components/ui/Form';
 import { Chip } from '@/components/ui/Chips';
-import { CountUp } from '@/components/ui/CountUp';
+import { KpiBoard } from '@/components/layout/PageFrame';
 import { toast } from '@/store/ui';
 import { useData } from '@/store/data';
 import { getMissionControl } from '@/data/missions';
@@ -40,21 +40,9 @@ export function VerifyBadge({ verified, compact }: { verified: boolean; compact?
 }
 
 export interface KpiDef { icon: LucideIcon; value: number; label: string; color: string; delta?: string; decimals?: number; suffix?: string; prefix?: string }
+/** Legacy helper: renders the shared KPI tile design (components/layout/PageFrame). */
 export function KpiStrip({ items }: { items: KpiDef[] }) {
-  return (
-    <div className="brk-kpis">
-      {items.map((k, i) => (
-        <motion.div key={k.label} className="kpi" style={{ ['--kc' as string]: k.color }} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .05 + i * .06 }}>
-          <k.icon size={32} strokeWidth={1.6} className="kpi-ico" aria-hidden />
-          <div style={{ minWidth: 0 }}>
-            <div className="kpi-val"><CountUp value={k.value} decimals={k.decimals} suffix={k.suffix} prefix={k.prefix} /></div>
-            <div className="kpi-label">{k.label}</div>
-            {k.delta && <div className="kpi-delta"><ArrowUp size={13} strokeWidth={3} />{k.delta}</div>}
-          </div>
-        </motion.div>
-      ))}
-    </div>
-  );
+  return <KpiBoard items={items.map((k) => ({ ...k, key: k.label }))} />;
 }
 
 export function RiskMeter({ risk }: { risk: Risk }) {
@@ -669,7 +657,7 @@ function KnowledgeIngest({ close, props }: DialogComponentProps<{ kind?: 'domain
       <Field label="Source" required error={touched ? err : ''} help="knowledge.sources"><input className="input mono" data-autofocus value={src} onChange={(e) => { setSrc(e.target.value); setScan(0); }} placeholder={kind === 'repo' ? 'github.com/org/repo' : kind === 'file' ? 'handbook.pdf' : 'docs.example.com'} aria-label="Source" /></Field>
       <div className="brk-dlg-grid">
         <Field label="Retention"><select className="select" value={ret} onChange={(e) => setRet(e.target.value)} aria-label="Retention"><option value="30d">30 days</option><option value="90d">90 days</option><option value="365d">1 year</option></select></Field>
-        <Field label="Access"><select className="select" value={scope} onChange={(e) => setScope(e.target.value)} aria-label="Access scope"><option value="team">Mission team</option><option value="dept">Department</option><option value="all">All agents</option></select></Field>
+        <Field label="Access"><select className="select" value={scope} onChange={(e) => setScope(e.target.value)} aria-label="Access scope"><option value="team">Mission agents</option><option value="dept">Department</option><option value="all">All agents</option></select></Field>
       </div>
       <Field label="Trust label" help="knowledge.trust"><Segmented ariaLabel="Trust" size="sm" value={trust} onChange={setTrust} options={[{ key: 'untrusted', label: 'Untrusted' }, { key: 'reviewed', label: 'Reviewed' }]} /></Field>
       {scan > 0 && <div className="col" style={{ gap: 6 }}>{steps.map((s, i) => <motion.div key={s} className="row" initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * .05 }} style={{ fontSize: 12.5 }}>{scan > i ? <CheckCircle2 size={15} className="good" /> : <ScanSearch size={15} className="info" />}<span className={scan > i ? '' : 'muted'}>{s}</span></motion.div>)}</div>}
@@ -694,7 +682,7 @@ function ExperiencePromotion({ close, props }: DialogComponentProps<{ itemId?: s
       {it.conflict && <Notice tone="warn">Possible contradiction: {it.conflict}</Notice>}
       {it.dup && <Notice tone="info">Similar entry exists: {it.dup}. Accepting merges them.</Notice>}
       <div className="subpanel"><div className="section-label">Allowed applicability</div>
-        <SwitchRow label="This mission team" checked={apply.team} onChange={(v) => setApply({ ...apply, team: v })} />
+        <SwitchRow label="This mission's agents" checked={apply.team} onChange={(v) => setApply({ ...apply, team: v })} />
         <SwitchRow label="All Browser agents" checked={apply.browser} onChange={(v) => setApply({ ...apply, browser: v })} />
         <SwitchRow label="Company-wide" desc="Requires a second reviewer." checked={apply.all} onChange={(v) => setApply({ ...apply, all: v })} /></div>
     </Modal>

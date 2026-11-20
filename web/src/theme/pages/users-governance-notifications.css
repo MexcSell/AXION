@@ -124,7 +124,9 @@
 
 /* notifications */
 .nt-head { position: relative; overflow: hidden; }
-.nt-hero { position: absolute; right: 8px; top: -14px; opacity: .85; pointer-events: none; }
+.nt-hero { position: absolute; right: 120px; top: -18px; opacity: .8; pointer-events: none; z-index: 0; }
+.nt-head .topboard > * { position: relative; z-index: 1; }
+.nt-head .topboard > .nt-hero { position: absolute; }
 @media (max-width: 900px) { .nt-hero { display: none; } }
 .nt-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 @media (max-width: 900px) { .nt-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

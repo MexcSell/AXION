@@ -228,7 +228,7 @@ function PolicyRevision({ close, props }: DialogComponentProps<{ clause?: string
           </div>
           <div className="subpanel" style={{ fontSize: 12.5 }}>
             <b>Impacted</b>
-            <div className="dim" style={{ marginTop: 4 }}>9 running missions · 3 pending approvals would be re-timed · Browser-02 and Release-01 grants renewed.</div>
+            <div className="dim" style={{ marginTop: 4 }}>9 running missions · 3 pending approvals would be re-timed · Browser-01 and Release-01 grants renewed.</div>
           </div>
         </div>
       </div>

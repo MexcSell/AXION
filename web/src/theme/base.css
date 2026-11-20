@@ -58,7 +58,7 @@ h1, h2, h3, h4, p { margin: 0; }
   grid-template-rows: var(--topbar-h) minmax(0, 1fr);
   height: 100vh;
   height: 100dvh;
-  transition: grid-template-columns var(--dur-panel) var(--ease);
+  transition: grid-template-columns var(--dur-panel) var(--ease), grid-template-rows var(--dur-panel) var(--ease);
 }
 .app[data-rail='collapsed'] { grid-template-columns: var(--rail-w-collapsed) minmax(0, 1fr); }
 .app-bg-canvas { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
@@ -121,6 +121,24 @@ h1, h2, h3, h4, p { margin: 0; }
 
 /* page grid helpers */
 .page { display: flex; flex-direction: column; gap: var(--gap); min-width: 0; padding-top: 2px; }
+
+/* Desktop fit-to-screen: on a large viewport the page never scrolls as a whole. It fills exactly
+   one screen and only its marked content region (.fit-scroll, normally the tabpanel) scrolls.
+   Each page marks the chain .page > .fit-fill [> .fit-fill …] > .fit-scroll. Below the gate the
+   page scrolls like before. .main keeps overflow:auto as a safety net. */
+@media (min-width: 1280px) and (min-height: 760px) {
+  .route-view { height: 100%; }
+  .page { height: 100%; }
+  .page > *, .fit-fill > * { flex: none; }
+  .page > .fit-fill, .fit-fill > .fit-fill { flex: 1 1 0; min-height: var(--fit-min, 300px); display: flex; flex-direction: column; }
+  .fit-scroll { flex: 1 1 0; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+  .page > .fit-scroll { min-height: var(--fit-min, 300px); }
+  .fit-scroll.col > *, .fit-scroll > .col > * { flex-shrink: 0; }
+  /* inner fixed-height scrollers would leave dead space under them; the region scrolls instead */
+  .fit-scroll .brk-scroll { max-height: none !important; }
+  /* room for card glows / hover lift so they are not shaved off by the scroller edge */
+  .fit-scroll { padding: 4px 6px 6px; margin: -4px -6px -6px; scrollbar-gutter: stable; }
+}
 .grid { display: grid; gap: var(--gap); min-width: 0; }
 .g-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .g-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -395,3 +413,30 @@ h1, h2, h3, h4, p { margin: 0; }
 /* KPI tiles that are divs (contain nested buttons) get the same hover */
 div.kpi[role='button'], div.kpi.hoverable { cursor: pointer; }
 div.kpi[role='button']:hover, div.kpi.hoverable:hover { transform: translateY(calc(-2px * var(--motion-scale))); box-shadow: 0 0 26px color-mix(in srgb, var(--kc) 40%, transparent), inset 0 0 22px color-mix(in srgb, var(--kc) 12%, transparent); }
+
+/* icon-first tabs (Tabs collapse prop): in a narrow strip unselected tabs show only their icon */
+.tabs-collapse { container-type: inline-size; flex: 1 1 0; width: 100%; min-width: 0; }
+.tabs-collapse .tab .tab-text, .tabs-collapse .tab .tab-count { white-space: nowrap; }
+.tabs-collapse .tab:not([aria-selected='true']) .tab-text { display: none; }
+.tabs-collapse { gap: 4px; }
+.tabs-collapse .tab:not([aria-selected='true']) { padding: 0 9px; }
+.tabs-collapse .tab:not([aria-selected='true']) .tab-count { position: absolute; top: -3px; right: -3px; opacity: 1 !important; font-size: 0; min-width: 8px; height: 8px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+@container (min-width: 980px) {
+  .tabs-collapse .tab:not([aria-selected='true']) .tab-text { display: inline; }
+  .tabs-collapse .tab:not([aria-selected='true']) { padding: 0 14px; }
+  .tabs-collapse .tab:not([aria-selected='true']) .tab-count { position: static; font-size: inherit; min-width: 0; height: auto; background: none; box-shadow: none; opacity: .8 !important; }
+}
+
+/* ---- draggable pane divider (components/ui/Splitter.tsx) ---- */
+.splitter { position: relative; flex: none; align-self: stretch; width: 12px; margin: 0 -2px; cursor: col-resize; touch-action: none; z-index: 2; display: grid; place-items: center; outline: none; }
+.splitter-line { position: absolute; top: 10px; bottom: 10px; left: 50%; width: 2px; transform: translateX(-50%); border-radius: 2px; background: linear-gradient(180deg, transparent, var(--border-soft) 15%, var(--border-soft) 85%, transparent); transition: background var(--dur-fast), box-shadow var(--dur-fast), width var(--dur-fast); }
+.splitter-grip { position: relative; display: flex; flex-direction: column; gap: 3px; padding: 6px 3px; border-radius: 999px; background: var(--panel-solid); border: 1px solid var(--border-soft); opacity: .55; transition: opacity var(--dur-fast), border-color var(--dur-fast), box-shadow var(--dur-fast), transform var(--dur-fast); }
+.splitter-grip i { width: 3px; height: 3px; border-radius: 50%; background: var(--text-muted); transition: background var(--dur-fast); }
+.splitter:hover .splitter-line, .splitter:focus-visible .splitter-line, .splitter.active .splitter-line { width: 3px; background: linear-gradient(180deg, transparent, var(--accent-2) 12%, var(--accent) 88%, transparent); box-shadow: 0 0 10px rgba(var(--accent-2-rgb), .7); }
+.splitter:hover .splitter-grip, .splitter:focus-visible .splitter-grip, .splitter.active .splitter-grip { opacity: 1; border-color: rgba(var(--accent-2-rgb), .7); box-shadow: 0 0 12px rgba(var(--accent-2-rgb), .45); transform: scaleY(1.15); }
+.splitter:hover .splitter-grip i, .splitter.active .splitter-grip i { background: var(--accent-2); }
+.splitter.active .splitter-line { animation: splitter-flow 1.2s linear infinite; background-size: 100% 200%; }
+@keyframes splitter-flow { from { background-position: 0 0; } to { background-position: 0 200%; } }
+body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-select: none !important; }
+body.is-resizing iframe { pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .splitter.active .splitter-line { animation: none; } }

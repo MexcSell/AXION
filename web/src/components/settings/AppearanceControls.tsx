@@ -133,6 +133,8 @@ export function AppearanceControls({ compact }: { compact?: boolean }) {
         </div>
         <div className="subpanel" style={{ padding: '4px 12px' }}>
           <SwitchRow label="Particles" help="settings.particles" desc="Ambient particle field that reacts to real events" checked={s.particles} onChange={(v) => s.set({ particles: v })} />
+          <SwitchRow label="Header banner" help="settings.headerBanner" desc="Top strip with logo, skyline art, Plan → Sustain loop and quick actions" checked={s.headerBanner}
+            onChange={(v) => { s.set({ headerBanner: v }); toast({ tone: 'info', title: v ? 'Header banner shown' : 'Header banner hidden', body: v ? undefined : 'Restore it from the tab at the top, Ctrl K, or here.' }); }} />
         </div>
       </div>
       <div className="row wrap" style={{ gap: 8 }}>

@@ -6,7 +6,7 @@ import {
   GitMerge, Clock, FileText, Globe, GitBranch, Lightbulb, Wrench, BadgeCheck, RefreshCw, ExternalLink, Save,
 } from 'lucide-react';
 import { Panel } from '@/components/ui/Panel';
-import { Tabs } from '@/components/ui/Tabs';
+import { TopBoard, FrameBody, BottomBoard, type KpiItem } from '@/components/layout/PageFrame';
 import { Modal } from '@/components/ui/Modal';
 import { Chip, DemoTag, Dot } from '@/components/ui/Chips';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -17,7 +17,6 @@ import { Donut, Legend } from '@/components/viz/Charts';
 import { RobotAvatar } from '@/components/art/RobotAvatar';
 import { AGENT_BY_ID } from '@/data/agents';
 import { CITATIONS, useKnowledge, type KnowItem, type KnowType, type ResearchReq } from '@/data/knowledge';
-import { KpiStrip } from '@/dialogs/defs/browser-results';
 import { useData } from '@/store/data';
 import { useTab } from '@/hooks/useTab';
 import { openDialog, toast } from '@/store/ui';
@@ -35,40 +34,32 @@ export default function KnowledgePage() {
   const queue = useKnowledge((s) => s.queue);
   const sources = useKnowledge((s) => s.sources);
   const unsupported = CITATIONS.filter((c) => !c.supported).length;
-  const kpis = [
-    { icon: BookOpen, value: items.length, label: 'Knowledge Items', color: '#22d3ee', delta: '+4' },
-    { icon: Inbox, value: queue.length, label: 'In Learning Queue', color: '#fbbf24' },
-    { icon: Globe, value: sources.filter((s) => s.trust !== 'untrusted').length, label: 'Trusted Sources', color: '#3b82f6' },
-    { icon: AlertTriangle, value: unsupported, label: 'Unsupported Claims', color: '#fb5a78' },
-    { icon: BadgeCheck, value: Math.round(items.reduce((n, i) => n + i.trust, 0) / Math.max(1, items.length)), suffix: '%', label: 'Average Trust', color: '#2ee98a', delta: '+1.2%' },
+  const kpis: KpiItem[] = [
+    { key: 'items', icon: BookOpen, value: items.length, label: 'Knowledge Items', color: '#22d3ee', delta: '+4', help: 'knowledge.kpi.items', onClick: () => setTab('Library') },
+    { key: 'queue', icon: Inbox, value: queue.length, label: 'In Learning Queue', color: '#fbbf24', help: 'knowledge.kpi.queue', onClick: () => setTab('Learning Queue') },
+    { key: 'sources', icon: Globe, value: sources.filter((s) => s.trust !== 'untrusted').length, label: 'Trusted Sources', color: '#3b82f6', help: 'knowledge.kpi.sources', onClick: () => setTab('Sources') },
+    { key: 'claims', icon: AlertTriangle, value: unsupported, label: 'Unsupported Claims', color: '#fb5a78', help: 'knowledge.kpi.claims', onClick: () => setTab('Citations') },
+    { key: 'trust', icon: BadgeCheck, value: Math.round(items.reduce((n, i) => n + i.trust, 0) / Math.max(1, items.length)), suffix: '%', label: 'Average Trust', color: '#2ee98a', delta: '+1.2%', help: 'knowledge.kpi.trust', onClick: () => setTab('Library') },
   ];
   return (
     <div className="page">
-      <Panel icon={BookOpen} titleSize="lg" title="Knowledge" help="knowledge.library" sub="Verified lessons, sources and citations. Website text stays evidence, never instructions." delay={.02} className="brk-head-glow"
-        actions={<div className="row" style={{ gap: 10 }}><DemoTag /><button className="btn primary" onClick={() => openDialog('knowledge-ingest')}><Plus size={16} />Ingest Source</button></div>}>
-        <KpiStrip items={kpis} />
-      </Panel>
-      <Panel delay={.1} tight>
-        <div className="row wrap" style={{ gap: 10, marginBottom: 12 }}>
-          <Tabs size="sm" variant="underline" tabs={tabs.map((t, i) => ({ key: t, label: t, icon: ICONS[i], count: t === 'Learning Queue' ? queue.length : undefined }))} value={tab} onChange={setTab} ariaLabel="Knowledge views" />
-          <span className="spacer" />
-          <span className="muted" style={{ fontSize: 12.5 }}>{{ Library: 'Guides, lessons, facts and skills with expiry and scope.', Research: 'Research requests and agent findings.', Sources: 'Approved domains, repositories and files.', Citations: 'Statement, source span, content hash, retrieval date.', 'Learning Queue': 'A reviewer accepts, edits or rejects proposed memory.' }[tab]}</span>
-        </div>
-        <AnimatePresence mode="wait">
-          <motion.div key={tab} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: .2 }} role="tabpanel" aria-label={tab}>
-            {tab === 'Library' && <LibraryTab />}
-            {tab === 'Research' && <ResearchTab />}
-            {tab === 'Sources' && <SourcesTab />}
-            {tab === 'Citations' && <CitationsTab />}
-            {tab === 'Learning Queue' && <QueueTab />}
-          </motion.div>
-        </AnimatePresence>
-      </Panel>
-      <div className="brk-bottom">
+      <TopBoard icon={BookOpen} title="Knowledge" help="knowledge.library" sub="Verified lessons, sources and citations. Website text stays evidence, never instructions."
+        actions={<><DemoTag /><button className="btn primary" onClick={() => openDialog('knowledge-ingest')}><Plus size={16} />Ingest Source</button></>}
+        kpis={kpis}
+        tabs={{ tabs, value: tab, onChange: setTab, icons: ICONS, ariaLabel: 'Knowledge views', counts: { 'Learning Queue': queue.length } }}
+        toolbar={<span>{{ Library: 'Guides, lessons, facts and skills with expiry and scope.', Research: 'Research requests and agent findings.', Sources: 'Approved domains, repositories and files.', Citations: 'Statement, source span, content hash, retrieval date.', 'Learning Queue': 'A reviewer accepts, edits or rejects proposed memory.' }[tab]}</span>} />
+      <FrameBody tab={tab}>
+        {tab === 'Library' && <LibraryTab />}
+        {tab === 'Research' && <ResearchTab />}
+        {tab === 'Sources' && <SourcesTab />}
+        {tab === 'Citations' && <CitationsTab />}
+        {tab === 'Learning Queue' && <QueueTab />}
+      </FrameBody>
+      <BottomBoard id="knowledge" title="Knowledge boards" cols="repeat(3, minmax(0, 1fr))">
         <ScopePanel />
         <FreshPanel />
         <PolicyPanel />
-      </div>
+      </BottomBoard>
     </div>
   );
 }

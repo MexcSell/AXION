@@ -4,8 +4,8 @@ import { Link } from 'react-router-dom';
 import {
   LifeBuoy, BookOpen, Lightbulb, Keyboard, Wrench, BookMarked, Search, Rocket, MessagesSquare, Globe, GitCompareArrows, Check, ChevronDown, Play, RotateCcw, SearchX,
 } from 'lucide-react';
-import { PageHeader, Panel } from '@/components/ui/Panel';
-import { Tabs } from '@/components/ui/Tabs';
+import { TopBoard, FrameBody } from '@/components/layout/PageFrame';
+import { Panel } from '@/components/ui/Panel';
 import { HelpBody, HelpTrigger } from '@/components/ui/HelpTrigger';
 import { Chip } from '@/components/ui/Chips';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -22,27 +22,22 @@ export default function HelpPage() {
   const [tab, setTab, tabs] = useTab('help');
   return (
     <div className="page">
-      <PageHeader icon={LifeBuoy} title="Help Center" help="help.center" sub="Guides, every ? explanation, shortcuts, troubleshooting and a glossary.">
-        <div style={{ marginTop: 12, overflowX: 'auto' }}>
-          <Tabs tabs={tabs.map((t, i) => ({ key: t, label: t, icon: ICONS[i] }))} value={tab} onChange={setTab} ariaLabel="Help sections" />
-        </div>
-      </PageHeader>
-      <AnimatePresence mode="wait">
-        <motion.div key={tab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: .2 }} role="tabpanel" aria-label={tab}>
-          {tab === 'Guides' && <Guides />}
-          {tab === 'Context Help' && <Context />}
-          {tab === 'Shortcuts' && <Shortcuts />}
-          {tab === 'Troubleshooting' && <Trouble />}
-          {tab === 'Glossary' && <Glossary />}
-        </motion.div>
-      </AnimatePresence>
+      <TopBoard icon={LifeBuoy} title="Help Center" help="help.center" sub="Guides, every ? explanation, shortcuts, troubleshooting and a glossary."
+        tabs={{ tabs, value: tab, onChange: setTab, icons: ICONS, ariaLabel: 'Help sections' }} />
+      <FrameBody tab={tab} panel={false}>
+        {tab === 'Guides' && <Guides />}
+        {tab === 'Context Help' && <Context />}
+        {tab === 'Shortcuts' && <Shortcuts />}
+        {tab === 'Troubleshooting' && <Trouble />}
+        {tab === 'Glossary' && <Glossary />}
+      </FrameBody>
     </div>
   );
 }
 
 const GUIDES = [
-  { k: 'mission', icon: Rocket, hue: 268, title: 'Run your first mission', time: '4 min', route: '/missions', steps: ['Open Missions and press New Mission', 'Write the goal and the success criteria', 'Review the proposed team and budget', 'Start, then watch verified progress rise'] },
-  { k: 'chat', icon: MessagesSquare, hue: 195, title: 'Talk to an agent', time: '2 min', route: '/missions', steps: ['Open a mission in Mission Control', 'Select an agent in the hierarchy', 'Type a command and press Ctrl + Enter', 'Read the reply and its attached evidence'] },
+  { k: 'mission', icon: Rocket, hue: 268, title: 'Run your first mission', time: '4 min', route: '/missions', steps: ['Open Missions and press New Mission', 'Write the goal and the success criteria', 'Review the assigned agents and budget', 'Start, then watch verified progress rise'] },
+  { k: 'chat', icon: MessagesSquare, hue: 195, title: 'Talk to an agent', time: '2 min', route: '/missions', steps: ['Open a mission in Missions', 'Select an agent in the hierarchy', 'Type a command and press Ctrl + Enter', 'Read the reply and its attached evidence'] },
   { k: 'grants', icon: Globe, hue: 148, title: 'Grant browser access', time: '3 min', route: '/browser', steps: ['Open Browser Studio, then Grants', 'Add the website origin and allowed actions', 'Choose how long the grant lasts', 'Approve it. Agents can use only that origin'] },
   { k: 'results', icon: GitCompareArrows, hue: 38, title: 'Read versioned results', time: '3 min', route: '/results', steps: ['Open Results and pick a deliverable', 'Compare versions side by side', 'Check the evidence and verification state', 'Promote or request changes'] },
 ];
@@ -139,9 +134,9 @@ function Shortcuts() {
 }
 
 const ISSUES = [
-  { code: 'AX-101', sym: 'A mission does not start', cause: 'The pinned team has an agent that is still training, or the budget is empty.', fix: 'Open Start Mission, read the policy review and swap the agent or raise the budget.', perm: 'Mission owner' },
+  { code: 'AX-101', sym: 'A mission does not start', cause: 'An assigned agent is still learning on an older pinned version, or the budget is empty.', fix: 'Open Start Mission, read the policy review and swap the agent or raise the budget.', perm: 'Mission owner' },
   { code: 'AX-204', sym: 'Browser agent stops at a new website', cause: 'The origin has no grant. New sites always need separate permission.', fix: 'Approve a grant in Browser Studio, Grants. Pick the shortest duration that works.', perm: 'Approver' },
-  { code: 'AX-312', sym: 'Progress seems stuck at 76%', cause: 'Remaining tasks wait for verification. Unverified work is not counted.', fix: 'Open Mission Control, Tasks, and look for tasks in Verifying or Rejected.', perm: 'Anyone' },
+  { code: 'AX-312', sym: 'Progress seems stuck at 76%', cause: 'Remaining tasks wait for verification. Unverified work is not counted.', fix: 'Open the mission in Missions › Task Flow, and look for tasks in Verifying or Rejected.', perm: 'Anyone' },
   { code: 'AX-408', sym: 'Model call fails or is slow', cause: 'The primary model timed out and a fallback route is used.', fix: 'Check Models, Routing. If a provider is down, the fallback keeps work going.', perm: 'Admin to change routes' },
   { code: 'AX-503', sym: 'A service shows a warning in System Operations', cause: 'High memory or a recent restart by the watchdog.', fix: 'Request a restart in Operations, Services. An Admin approves it after the impact preview.', perm: 'Admin' },
   { code: 'AX-611', sym: 'Restore request is blocked', cause: 'The restore dry-run is older than 7 days.', fix: 'Run a restore dry-run in Operations, Recovery, then request again.', perm: 'Owner' },
@@ -182,7 +177,7 @@ function Trouble() {
 }
 
 const TERMS: [string, string][] = [
-  ['Mission', 'A goal with success criteria, a team, a budget and a timeline. It is finished only when its results are verified.'],
+  ['Mission', 'A goal with success criteria, assigned agents, a budget and a timeline. It is finished only when its results are verified.'],
   ['Task', 'One unit of work inside a mission, with required evidence. Tasks count toward progress only after verification.'],
   ['Agent definition', 'A reusable agent type with a role, skills and a version. Think of it as the job description.'],
   ['Agent instance', 'A mission-specific run of an agent definition, with its own memory, access and pinned version.'],

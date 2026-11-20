@@ -1,15 +1,13 @@
 import { lazy } from 'react';
-import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
 import { TipProvider } from '@/components/ui/Tip';
 import NotFound from '@/pages/NotFound';
 
 const Overview = lazy(() => import('@/pages/Overview'));
 const Missions = lazy(() => import('@/pages/Missions'));
-const MissionControl = lazy(() => import('@/pages/MissionControl'));
 const Agents = lazy(() => import('@/pages/Agents'));
 const AgentProfile = lazy(() => import('@/pages/AgentProfile'));
-const Organization = lazy(() => import('@/pages/Organization'));
 const BrowserStudio = lazy(() => import('@/pages/BrowserStudio'));
 const Results = lazy(() => import('@/pages/Results'));
 const Knowledge = lazy(() => import('@/pages/Knowledge'));
@@ -23,9 +21,19 @@ const Settings = lazy(() => import('@/pages/Settings'));
 const Operations = lazy(() => import('@/pages/Operations'));
 const Help = lazy(() => import('@/pages/Help'));
 
+/** Old Mission Control links (/control[/:id]) land on the merged Missions page, keeping ?tab=&agent=. */
 function ControlRedirect() {
   const { id } = useParams();
-  return <Navigate to={id ? `/control/${id}` : '/control/M-126'} replace />;
+  const { search } = useLocation();
+  return <Navigate to={`/missions${id ? `/${id}` : ''}${search}`} replace />;
+}
+
+/** The Organization page was merged into Agents: the org chart is the Directory's Hierarchy view. */
+function OrgRedirect() {
+  const { search } = useLocation();
+  const tab = new URLSearchParams(search).get('tab');
+  const keep = ['departments', 'assignments', 'policies', 'proposals'];
+  return <Navigate to={tab && keep.includes(tab) ? `/agents?tab=${tab}` : '/agents?tab=directory&view=hierarchy'} replace />;
 }
 
 export default function App() {
@@ -36,13 +44,12 @@ export default function App() {
           <Route element={<AppShell />}>
             <Route index element={<Navigate to="/overview" replace />} />
             <Route path="/overview" element={<Overview />} />
-            <Route path="/missions" element={<Missions />} />
-            <Route path="/missions/:id" element={<ControlRedirect />} />
+            <Route path="/missions/:id?" element={<Missions />} />
             <Route path="/control" element={<ControlRedirect />} />
-            <Route path="/control/:id" element={<MissionControl />} />
+            <Route path="/control/:id" element={<ControlRedirect />} />
             <Route path="/agents" element={<Agents />} />
             <Route path="/agents/:id" element={<AgentProfile />} />
-            <Route path="/organization" element={<Organization />} />
+            <Route path="/organization" element={<OrgRedirect />} />
             <Route path="/browser" element={<BrowserStudio />} />
             <Route path="/results" element={<Results />} />
             <Route path="/knowledge" element={<Knowledge />} />

@@ -1,12 +1,16 @@
 import { motion } from 'motion/react';
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Power, Trash2, SlidersHorizontal, Ban, Download } from 'lucide-react';
 import { Plug, Route as RouteIcon, FlaskConical, Mic, Wallet, Trophy, ArrowUp, ArrowDown, X, ShieldCheck, Crown, Lock, AlertTriangle, CheckCircle2, XCircle, Play, RefreshCcw, KeyRound } from 'lucide-react';
 import type { DialogComponentProps } from '@/dialogs/DialogHost';
 import { Modal } from '@/components/ui/Modal';
-import { Field, SwitchRow, Segmented } from '@/components/ui/Form';
+import { Field, SwitchRow, Segmented, Switch } from '@/components/ui/Form';
+import { HelpTrigger } from '@/components/ui/HelpTrigger';
+import { KIND_ICON, RUNTIME, runtimeOf, UseRing, TraitBars, CapacityLine } from '@/pages/_modelParts';
 import { Chip } from '@/components/ui/Chips';
 import { toast } from '@/store/ui';
-import { MODELS, MODEL_BY_ID, PROVIDERS, ROUTE_ROLES, useRoutes, useVoice, validateRoute, type ModelKind } from '@/data/models';
+import { MODELS, MODEL_BY_ID, PROVIDERS, ROUTE_ROLES, LOCAL_HOST, useRoutes, useModelState, useVoice, validateRoute, type ModelKind } from '@/data/models';
 import { PROPOSALS, EXPERIMENTS, PROMOTIONS, usePromos, LADDER } from '@/data/evolution';
 import { LIMITS, useLimits } from '@/data/usage';
 import { money } from '@/lib/format';
@@ -273,8 +277,118 @@ function PromotionDialog({ close, props }: DialogComponentProps<{ id?: string; m
   );
 }
 
+/* ------------------------------------------------------------------ DL-41b */
+/** Model management window: characteristics, usage, local capacity and controls for one model. */
+function ModelManage({ close, props }: DialogComponentProps<{ id?: string }>) {
+  const nav = useNavigate();
+  const extra = useRoutes((s) => s.extra);
+  const m = [...extra, ...MODELS].find((x) => x.id === props.id) ?? MODELS[1];
+  const st = useModelState(m);
+  const { setOff, setQuota, setLoaded, remove, routes, setRoute } = useRoutes();
+  const K = KIND_ICON[m.kind];
+  const R = RUNTIME[runtimeOf(m)];
+  const [quota, setQ] = useState(String(st.quota ?? ''));
+  const [quant, setQuant] = useState(m.weights?.quant ?? 'Q4_K_M');
+  const [busy, setBusy] = useState<string | null>(null);
+  const [confirmRm, setConfirmRm] = useState(false);
+  const defaultFor = ROUTE_ROLES.filter((r) => routes[r.role]?.[0] === m.id).map((r) => r.role);
+  const [role, setRole] = useState(ROUTE_ROLES.find((r) => !defaultFor.includes(r.role))?.role ?? ROUTE_ROLES[0].role);
+  const qNum = Number(quota);
+  const qErr = m.usage && (!quota.trim() || !Number.isFinite(qNum) || qNum <= 0) ? 'Enter a positive number' : m.usage && qNum < m.usage.used ? `Below current use (${m.usage.used} ${m.usage.unit}); new calls would stop now` : '';
+  const act = async (key: string, ms: number, done: () => void) => { setBusy(key); await sleep(ms); setBusy(null); done(); };
+  const spin = (k: string) => busy === k ? <RefreshCcw size={13} className="emu-spin" /> : null;
+  return (
+    <Modal title={m.name} icon={K} help="models.manage" dialogId="DL-41b" size="lg" onClose={close} sub={<span className="mono">{m.weights?.file ?? m.id}</span>}
+      footer={<><button className="btn" onClick={() => { close(); nav('/models?tab=playground'); }} disabled={st.disabled}><Play size={14} />Try in Playground</button><span className="spacer" /><button className="btn primary" onClick={close}>Done</button></>}>
+      <div className="col" style={{ gap: 14 }}>
+        <div className="row wrap" style={{ gap: 6 }}>
+          <Chip hue={m.hue} size="sm">{m.kind}</Chip><Chip hue={R.hue} size="sm" icon={R.icon}>{R.label}</Chip>
+          <Chip hue={st.disabled ? 230 : m.status === 'degraded' ? 40 : 150} size="sm">{st.disabled ? 'disabled' : m.status}</Chip>
+          {m.json && <Chip hue={165} size="sm">JSON</Chip>}{m.modalities.map((x) => <Chip key={x} hue={225} size="sm">{x}</Chip>)}
+          <span className="spacer" />
+          <label className="row" style={{ gap: 8, fontSize: 13 }}>Enabled<Switch checked={!st.disabled} disabled={m.status === 'disabled'} label={`Enable ${m.name}`}
+            onChange={(v) => { setOff(m.id, !v); toast({ tone: v ? 'success' : 'warning', title: `${m.name} ${v ? 'enabled' : 'disabled'} (demo)`, body: v ? 'Routing can use it again.' : 'Routing skips it and uses fallbacks.' }); }} /></label>
+        </div>
+        {m.status === 'disabled' && <div className="row emu-note"><Lock size={14} className="warn" /><span style={{ fontSize: 12 }}>{m.traits?.limits ?? 'Disabled by policy.'} It cannot be enabled until that is resolved.</span></div>}
+
+        <div className="mm-dlg-grid">
+          <section className="subpanel">
+            <div className="row" style={{ gap: 6, marginBottom: 8 }}><b>Characteristics</b><HelpTrigger k="models.manage.traits" /></div>
+            <p style={{ fontSize: 13, margin: '0 0 10px' }}>{m.blurb}.</p>
+            <TraitBars m={m} />
+            {m.traits && <>
+              <div className="row wrap" style={{ gap: 4, margin: '10px 0 6px' }}>{m.traits.strengths.map((s) => <span key={s} className="mm-tag">{s}</span>)}</div>
+              <div style={{ fontSize: 12.5 }}><span className="dim">Best for: </span>{m.traits.bestFor}</div>
+              {m.traits.limits && <div style={{ fontSize: 12.5, marginTop: 3 }}><span className="dim">Limits: </span>{m.traits.limits}</div>}
+            </>}
+            <dl className="emu-spec" style={{ marginBottom: 0 }}>
+              <div><dt>Context</dt><dd>{m.ctx}</dd></div><div><dt>Latency p50</dt><dd>{m.latencyMs} ms</dd></div>
+              <div><dt>Price</dt><dd>{m.costIn == null ? '-' : m.costIn === 0 ? 'free' : `$${m.costIn}${m.costOut != null ? `/$${m.costOut}` : ''}`}<span className="dim"> {m.costIn ? m.costUnit : ''}</span></dd></div>
+            </dl>
+          </section>
+
+          <section className="subpanel">
+            <div className="row" style={{ gap: 6, marginBottom: 8 }}><b>Usage</b><HelpTrigger k="models.manage.usage" /></div>
+            {m.usage && st.quota ? <>
+              <div className="row" style={{ gap: 16 }}>
+                <UseRing used={m.usage.used} total={st.quota} unit={m.usage.unit} caption="Used" size={104} stroke={9} />
+                <div className="col" style={{ gap: 4, fontSize: 12.5 }}>
+                  <span><span className="dim">Period: </span>{m.usage.period}</span>
+                  <span><span className="dim">Calls: </span><b className="tnum">{m.usage.calls.toLocaleString()}</b></span>
+                  <span><span className="dim">Left: </span><b className="tnum">{Math.max(0, st.quota - m.usage.used)} {m.usage.unit}</b></span>
+                </div>
+              </div>
+              <Field label={`Monthly limit (${m.usage.unit})`} help="models.manage.quota" error={qErr || undefined} hint="The gateway pauses new calls at the limit and switches to the role's fallback.">
+                <div className="row" style={{ gap: 8 }}><input className="input" inputMode="decimal" value={quota} onChange={(e) => setQ(e.target.value)} aria-label="Monthly limit" />
+                  <button className="btn" disabled={!!qErr || qNum === st.quota} onClick={() => { setQuota(m.id, qNum); toast({ tone: 'success', title: 'Limit saved (demo)', body: `${m.name}: ${qNum} ${m.usage!.unit} per month.` }); }}>Save</button></div>
+              </Field>
+            </> : <div className="row emu-note"><Ban size={15} className="dim" /><span style={{ fontSize: 12.5 }}>{m.status === 'disabled' ? 'Disabled models report no usage.' : 'This runtime does not report metered usage. Local cost is the capacity it occupies, shown below.'}</span></div>}
+            <Field label="Make default for a role" help="models.manage.default" hint={defaultFor.length ? `Already first choice for: ${defaultFor.join(', ')}` : 'Moves this model to the top of that role\'s fallback list.'}>
+              <div className="row" style={{ gap: 8 }}>
+                <select className="select" value={role} onChange={(e) => setRole(e.target.value)} aria-label="Role">{ROUTE_ROLES.map((r) => <option key={r.role} value={r.role}>{r.role}</option>)}</select>
+                <button className="btn" disabled={st.disabled || routes[role]?.[0] === m.id} onClick={() => { const cur = routes[role] ?? []; setRoute(role, [m.id, ...cur.filter((x) => x !== m.id)]); const p = validateRoute(role, [m.id, ...cur.filter((x) => x !== m.id)]); toast({ tone: p.length ? 'warning' : 'success', title: `${m.name} is now first for ${role} (demo)`, body: p.length ? `Check: ${p[0]}` : 'Previous models stay as fallbacks.' }); }}><Crown size={14} />Set default</button>
+              </div>
+            </Field>
+          </section>
+        </div>
+
+        {m.weights && (
+          <section className="subpanel">
+            <div className="row" style={{ gap: 6, marginBottom: 10 }}><b>Local weights and capacity</b><HelpTrigger k="models.manage.capacity" /><span className="spacer" /><Chip hue={st.loaded ? 150 : 225} size="sm">{st.loaded ? `loaded in ${m.weights.memKind}` : 'on disk, not loaded'}</Chip></div>
+            <div className="mm-local">
+              <UseRing used={m.weights.memGB} ghost={!st.loaded} total={m.weights.memKind === 'VRAM' ? LOCAL_HOST.vramGB : LOCAL_HOST.ramGB} unit="GB" caption={m.weights.memKind} size={96} stroke={9} />
+              <dl className="mm-kv">
+                <div><dt>File</dt><dd className="mono">{m.weights.file}</dd></div>
+                <div><dt>Parameters</dt><dd>{m.weights.params}</dd></div><div><dt>Quantization</dt><dd>{m.weights.quant}</dd></div>
+                <div><dt>Size on disk</dt><dd>{m.weights.sizeGB} GB of {LOCAL_HOST.diskGB} GB</dd></div><div><dt>Memory when loaded</dt><dd>{m.weights.memGB} GB {m.weights.memKind}</dd></div>
+                {m.weights.tokPerSec && <div><dt>Throughput</dt><dd>{m.weights.tokPerSec} tok/s</dd></div>}
+              </dl>
+            </div>
+            <CapacityLine m={m} hostVram={LOCAL_HOST.vramGB} hostRam={LOCAL_HOST.ramGB} hostDisk={LOCAL_HOST.diskGB} loaded={st.loaded} />
+            <div className="row wrap" style={{ gap: 8, marginTop: 12 }}>
+              <button className="btn sm" disabled={!!busy} onClick={() => act('load', 1200, () => { setLoaded(m.id, !st.loaded); toast({ tone: 'success', title: `${m.name} ${st.loaded ? 'unloaded' : 'loaded'} (demo)`, body: st.loaded ? `${m.weights!.memGB} GB ${m.weights!.memKind} freed.` : `Uses ${m.weights!.memGB} GB ${m.weights!.memKind}.` }); })}>{spin('load') ?? <Power size={13} />}{st.loaded ? 'Unload' : 'Load'}</button>
+              {runtimeOf(m) === 'ollama' && <button className="btn sm" disabled={!!busy} onClick={() => act('pull', 1600, () => toast({ tone: 'success', title: 'Already up to date (demo)', body: `ollama pull ${m.weights!.file}: digest unchanged.` }))}>{spin('pull') ?? <Download size={13} />}Pull update</button>}
+              {runtimeOf(m) === 'gguf' && <>
+                <select className="select" style={{ width: 120, height: 30 }} value={quant} onChange={(e) => setQuant(e.target.value)} aria-label="Quantization">{['Q4_K_M', 'Q5_K_M', 'Q6_K', 'Q8_0', 'F16'].map((q) => <option key={q}>{q}</option>)}</select>
+                <button className="btn sm" disabled={!!busy || quant === m.weights.quant} onClick={() => act('quant', 1800, () => toast({ tone: 'info', title: `Re-quantize to ${quant} queued (demo)`, body: 'llama-quantize runs as a background job; the current file stays in use until it passes a smoke test.' }))}>{spin('quant') ?? <SlidersHorizontal size={13} />}Re-quantize</button>
+              </>}
+              <span className="spacer" />
+              {!confirmRm ? <button className="btn sm ghost danger" onClick={() => setConfirmRm(true)}><Trash2 size={13} />Remove weights</button> : <>
+                <span className="warn" style={{ fontSize: 12 }}>Delete {m.weights.sizeGB} GB?</span>
+                <button className="btn sm" onClick={() => setConfirmRm(false)}>Keep</button>
+                <button className="btn sm danger" onClick={() => { remove(m.id); toast({ tone: 'warning', title: `${m.name} removed (demo)`, body: `${m.weights!.sizeGB} GB freed. Routes using it fall back to the next model.` }); close(); }}><Trash2 size={13} />Delete</button>
+              </>}
+            </div>
+          </section>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 export const dialogs = {
   'model-add': ModelAdd,
+  'model-manage': ModelManage,
   'model-route-editor': RouteEditor,
   'model-playground': PlaygroundDialog,
   'voice-settings': VoiceSettings,

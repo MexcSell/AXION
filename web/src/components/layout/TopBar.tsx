@@ -16,11 +16,13 @@ import { ALL_NOTICES as NOTIFICATIONS } from '@/data/notifications-extra';
 
 const PIPELINE = [
   { key: 'plan', label: 'Plan', icon: ClipboardList, path: '/missions', color: '#38bdf8', tip: 'Plan — define missions & success criteria' },
-  { key: 'execute', label: 'Execute', icon: Zap, path: '/control', color: '#22d3ee', tip: 'Execute — watch agents work in Mission Control' },
+  { key: 'execute', label: 'Execute', icon: Zap, path: '/missions?tab=hierarchy', color: '#22d3ee', tip: 'Execute — watch agents work in the mission hierarchy' },
   { key: 'verify', label: 'Verify', icon: ShieldCheck, path: '/results', color: '#60a5fa', tip: 'Verify — inspect verified results & versions' },
   { key: 'evolve', label: 'Evolve', icon: Dna, path: '/evolution', color: '#a78bfa', tip: 'Evolve — proposals, experiments, promotions' },
   { key: 'sustain', label: 'Sustain', icon: Sparkles, path: '/operations', color: '#fbbf24', tip: 'Sustain — health, recovery and operations' },
 ];
+
+const EXEC_TABS = ['hierarchy', 'task-flow', 'browser', 'conversations'];
 
 export function TopBar() {
   const nav = useNavigate();
@@ -38,7 +40,9 @@ export function TopBar() {
   const ThemeIcon = themeMode === 'dark' ? Moon : themeMode === 'light' ? Sun : Monitor;
 
   return (
-    <header className="topbar topbar-inner" role="banner">
+    <motion.header className="topbar topbar-inner" role="banner"
+      initial={{ opacity: 0, y: -24 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -28, transition: { duration: .2 } }}
+      transition={{ duration: .3, ease: [0.2, 0.8, 0.2, 1] }}>
       <button className="icon-btn mobile-only" aria-label="Open navigation" onClick={() => setMobileNav(true)}><MenuIcon size={20} /></button>
       <button className="brand" onClick={() => nav('/overview')} aria-label={`${BRAND.name} home`}>
         <motion.span initial={{ rotate: -12, scale: .7, opacity: 0 }} animate={{ rotate: 0, scale: 1, opacity: 1 }} transition={{ type: 'spring', stiffness: 260, damping: 18 }}>
@@ -56,13 +60,17 @@ export function TopBar() {
 
       <nav className="pipeline" aria-label="Company loop">
         {PIPELINE.map((p, i) => {
-          const active = loc.pathname.startsWith(p.path);
+          // Plan and Execute both live on the merged Missions page: Execute = the live-work tabs of the open mission
+          const onMissions = loc.pathname.startsWith('/missions');
+          const execTab = EXEC_TABS.includes(new URLSearchParams(loc.search).get('tab') ?? '');
+          const active = p.key === 'plan' ? onMissions && !execTab : p.key === 'execute' ? onMissions && execTab : loc.pathname.startsWith(p.path);
+          const target = p.key === 'execute' && onMissions ? `${loc.pathname}?tab=hierarchy` : p.key === 'plan' && onMissions ? `${loc.pathname}?tab=overview` : p.path;
           return (
             <Tip key={p.key} label={p.tip} side="bottom">
               <motion.button
                 className={'pipe-btn' + (active ? ' active' : '')}
                 style={{ ['--pc' as string]: p.color }}
-                onClick={() => nav(p.path)}
+                onClick={() => nav(target)}
                 initial={{ opacity: 0, y: -8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.1 + i * 0.05 }}
@@ -93,6 +101,6 @@ export function TopBar() {
           ]}
         />
       </div>
-    </header>
+    </motion.header>
   );
 }

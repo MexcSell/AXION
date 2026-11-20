@@ -22,7 +22,7 @@ export const useLive = create<LiveState>()((set, get) => ({
   emit: (missionId, from, to, kind, text) => {
     const p: Pulse = { id: n++, from, to, kind, at: Date.now() };
     set((s) => ({ pulses: [...s.pulses.slice(-12), p] }));
-    window.setTimeout(() => set((s) => ({ pulses: s.pulses.filter((x) => x.id !== p.id) })), 1700);
+    window.setTimeout(() => set((s) => ({ pulses: s.pulses.filter((x) => x.id !== p.id) })), 2600);
     if (text) get().log(missionId, text, kind);
   },
   log: (missionId, text, kind) => set((s) => ({ lines: [{ id: n++, at: Date.now(), text, kind, missionId }, ...s.lines].slice(0, 40) })),

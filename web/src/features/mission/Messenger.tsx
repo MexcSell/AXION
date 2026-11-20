@@ -2,7 +2,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Send, Paperclip, Image as ImageIcon, AtSign, X, CheckCheck, Check, Clock, ArrowDown, MoreHorizontal, Info, UserRound,
-  ChevronUp, ChevronDown, Crown, Users, ArrowLeftRight, CornerDownRight, Rows3, Rows2, FileText, ShieldAlert,
+  ChevronUp, ChevronDown, Crown, Users, ArrowLeftRight, CornerDownRight, Rows3, Rows2, FileText, ShieldAlert, Map as MapIcon,
 } from 'lucide-react';
 import { RobotAvatar } from '@/components/art/RobotAvatar';
 import { IconButton } from '@/components/ui/IconButton';
@@ -10,6 +10,7 @@ import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { Segmented } from '@/components/ui/Form';
 import { Chip, InstanceStateChip } from '@/components/ui/Chips';
 import { Tip } from '@/components/ui/Tip';
+import { Splitter, usePaneWidth } from '@/components/ui/Splitter';
 import { AGENT_BY_ID } from '@/data/agents';
 import { ROLES } from '@/data/roles';
 import { getMissionControl, threadKey } from '@/data/missions';
@@ -20,6 +21,11 @@ import { useLive } from './live';
 import { clock, cx, dateLabel } from '@/lib/format';
 import { filesFrom, type LocalFile } from './files';
 import { EvidenceThumb } from './EvidenceThumb';
+import { ThreadMinimap } from './ThreadMinimap';
+
+const MINIMAP_KEY = 'axion.thread.minimap';
+const readMinimap = () => { try { return localStorage.getItem(MINIMAP_KEY) !== '0'; } catch { return true; } };
+const writeMinimap = (v: boolean) => { try { localStorage.setItem(MINIMAP_KEY, v ? '1' : '0'); } catch { /* per-viewer convenience only */ } };
 
 const HUMAN = 'human:owner';
 type Relation = 'superior' | 'subordinate' | 'peer' | 'owner';
@@ -65,6 +71,7 @@ export function Messenger({ mission, agentId, layout = 'narrow', onCounterpartCh
   const [listOpen, setListOpen] = useState(true);
   useEffect(() => { if (!cps.some((c) => c.id === cp)) setCp(cps[0]?.id ?? HUMAN); }, [agentId]); // eslint-disable-line react-hooks/exhaustive-deps
   const choose = (id: string) => { setCp(id); onCounterpartChange?.(id); };
+  const [cpW, setCpW, resetCpW] = usePaneWidth('conv.partners', 270);
   if (!a) return null;
 
   const directory = (
@@ -78,7 +85,7 @@ export function Messenger({ mission, agentId, layout = 'narrow', onCounterpartCh
       <header className="msg-head">
         <RobotAvatar role={a.role} size={42} faceMode="face" animated status={node?.state === 'working' ? 'good' : node?.state === 'waiting' ? 'warn' : 'info'} />
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div className="row" style={{ gap: 6 }}><b className="ellipsis">{a.name}</b>{node && <InstanceStateChip state={node.state} size="sm" />}</div>
+          <div className="row" style={{ gap: 6, minWidth: 0 }}><b className="nowrap" style={{ flex: 'none' }}>{a.name}</b>{node && <span className="msg-head-state" style={{ minWidth: 0, overflow: 'hidden' }}><InstanceStateChip state={node.state} size="sm" /></span>}</div>
           <div className="dim ellipsis" style={{ fontSize: 11.5 }}>{ROLES[a.role].label} · instance {mission.id}:{a.id} · {a.version}</div>
         </div>
         <HelpTrigger k="agent.instance" />
@@ -96,7 +103,10 @@ export function Messenger({ mission, agentId, layout = 'narrow', onCounterpartCh
         </div>
       ) : null}
       <div className={cx('msg-main', layout)}>
-        {layout === 'wide' && <div className="cp-col"><div className="section-label" style={{ padding: '4px 8px 8px' }}>Conversation partners</div>{directory}</div>}
+        {layout === 'wide' && <>
+          <div className="cp-col" style={{ ['--cp-w' as string]: `${cpW}px` }}><div className="section-label" style={{ padding: '4px 8px 8px' }}>Conversation partners</div>{directory}</div>
+          <Splitter pane="prev" width={cpW} onChange={setCpW} onReset={resetCpW} min={170} maxFrac={.4} label="Resize conversation partners" />
+        </>}
         <Thread key={agentId + '|' + cp} mission={mission} me={agentId} other={cp} relation={cps.find((c) => c.id === cp)?.relation ?? 'owner'} />
       </div>
     </div>
@@ -123,7 +133,7 @@ function CounterpartItem({ mission, me, c, selected, onClick, index, compact }: 
         </div>
         {!compact && <div className="dim ellipsis" style={{ fontSize: 11.5 }}>{last ? `${last.from === me ? 'You: ' : ''}${last.text}` : 'No messages yet'}</div>}
       </div>
-      {last && !compact && <span className="dim" style={{ fontSize: 10.5, position: 'relative' }}>{clock(last.agoMin, last.ts)}</span>}
+      {last && !compact && <span className="dim cp-time" style={{ fontSize: 10.5, position: 'relative' }}>{clock(last.agoMin, last.ts)}</span>}
       {unread > 0 && <span className="badge" style={{ position: 'relative' }}>{unread}</span>}
     </motion.button>
   );
@@ -137,6 +147,8 @@ function Thread({ mission, me, other, relation }: { mission: Mission; me: string
   const emit = useLive((s) => s.emit);
   const log = useLive((s) => s.log);
   const [view, setView] = useState<'full' | 'compact'>('full');
+  const [minimap, setMinimapState] = useState(readMinimap);
+  const setMinimap = (v: boolean) => { setMinimapState(v); writeMinimap(v); };
   const [typing, setTyping] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -192,12 +204,15 @@ function Thread({ mission, me, other, relation }: { mission: Mission; me: string
       <div className="thread-head">
         <span className="row" style={{ gap: 6, minWidth: 0 }}>
           <b className="ellipsis">{a?.name} ↔ {o?.name ?? 'You'}</b>
-          <Chip hue={REL_META[relation].hue} size="sm">{REL_META[relation].label}</Chip>
+          <span className="thread-rel"><Chip hue={REL_META[relation].hue} size="sm">{REL_META[relation].label}</Chip></span>
         </span>
         <span className="spacer" />
-        <span className="dim" style={{ fontSize: 11 }}>{msgs.length} msgs</span>
+        <span className="dim thread-count nowrap" style={{ fontSize: 11 }}>{msgs.length} msgs</span>
+        <IconButton size="sm" icon={MapIcon} variant={minimap ? 'active' : 'default'} label={minimap ? 'Hide minimap (times beside the scroll)' : 'Show minimap (times beside the scroll)'} onClick={() => setMinimap(!minimap)} aria-pressed={minimap} className="thread-mm-toggle" />
+        <span className="thread-mm-toggle"><HelpTrigger k="thread.minimap" /></span>
         <Segmented ariaLabel="Thread view" size="sm" value={view} onChange={setView} options={[{ key: 'full', label: <><Rows3 size={12} />Full</>, title: 'Verbatim events' }, { key: 'compact', label: <><Rows2 size={12} />Compact</>, title: 'Assignment → report → outcome' }]} />
       </div>
+      <div className={cx('thread-scroll', minimap && 'with-minimap')}>
       <div className="thread-body" ref={scroller} onScroll={(e) => { const el = e.currentTarget; const b = el.scrollHeight - el.scrollTop - el.clientHeight < 40; setAtBottom(b); if (b) setNewCount(0); }} role="log" aria-label="Conversation" aria-live="polite">
         {shown.length === 0 && <div className="empty" style={{ padding: 30 }}><div className="empty-icon"><Send size={22} /></div><h4>No messages yet</h4><p>Send a command to start this conversation.</p></div>}
         <AnimatePresence initial={false}>
@@ -205,7 +220,7 @@ function Thread({ mission, me, other, relation }: { mission: Mission; me: string
             const day = dateLabel(m.agoMin, m.ts);
             const sep = day !== lastDay ? (lastDay = day) : null;
             return (
-              <div key={m.id}>
+              <div key={m.id} data-mid={m.id}>
                 {sep && <div className="day-sep"><span>{sep}</span></div>}
                 <Bubble m={m} me={me} compact={view === 'compact'} missionId={mission.id} />
               </div>
@@ -219,6 +234,8 @@ function Thread({ mission, me, other, relation }: { mission: Mission; me: string
             </motion.div>
           )}
         </AnimatePresence>
+      </div>
+      {minimap && <ThreadMinimap scroller={scroller} msgs={shown} me={me} kindHue={KIND_HUE} deps={`${shown.length}:${view}:${typing}:${other}`} />}
       </div>
       <AnimatePresence>
         {newCount > 0 && (

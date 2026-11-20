@@ -29,7 +29,7 @@ const CORE: Record<string, HelpEntry> = {
     title: 'Agent instance',
     what: 'A mission-specific run of a reusable agent. Its state, memory and access are separate from the same agent in other missions.',
     why: 'One agent can work on two missions without leaking data between them.',
-    example: 'Coder-01 in M-126 and Coder-01 in M-129 are two instances, each with its own pinned version.',
+    example: 'Coder-01 in M-126 and Coder-01 in M-129 are two instances of the same agent, each with its own pinned version.',
   },
   'agent.capabilities': {
     title: 'Capability scores',
@@ -40,7 +40,7 @@ const CORE: Record<string, HelpEntry> = {
   'hierarchy.delegation': {
     title: 'Hierarchy arrows',
     what: 'Solid downward arrows point from a manager to the agent that received work. Light upward arrows mean a report was sent. Dashed side arrows mean consultation.',
-    how: 'A glowing pulse travels along an arrow when a real delegation or report event arrives.',
+    how: 'A glowing pulse travels along an arrow when a real delegation or report event arrives. Scroll the mouse wheel over the graph to zoom toward the pointer, drag the background to pan, or use the zoom / fit buttons.',
     example: 'GM ⟶ Coder-01 (delegated "Migrate checkout"). Coder-01 ⇢ GM (report with evidence).',
   },
   'conversation.command': {
@@ -108,12 +108,12 @@ const CORE: Record<string, HelpEntry> = {
   'kpi.approvals': { title: 'Pending approvals', what: 'Exact actions waiting for a human decision: risky browser actions, origin grants, releases, promotions.' },
   'kpi.success': { title: 'Mission success', what: 'Verified completed missions ÷ eligible finished missions over the last 30 days.', example: '96.4% = 54 of 56.' },
   'kpi.spend': { title: 'This month spend', what: 'Model, browser and compute cost this calendar month and the share of the monthly budget used.' },
-  'agents.directory': { title: 'Agent directory', what: 'Every reusable agent definition in the company with its role, version, status and verified success rate.', how: 'Filter by status chips or role. Click a card to open the agent profile.' },
-  'agents.lifecycle': { title: 'Agent lifecycle', what: 'Create → Train → Deploy → Evolve. A new version is trained and evaluated before it is deployed to future instances.' },
+  'agents.directory': { title: 'Agents', what: 'Every agent in the company — exactly one per role and skill set — with its department, status, development stage and verified success. This page also holds the former Organization views: hierarchy, departments, assignments, policies and proposals.', how: 'Filter by status or development chips, department or search. Switch Cards / List / Hierarchy on the right. Click an agent to open its profile.' },
+  'agents.lifecycle': { title: 'Agent lifecycle', what: 'Create → Learn → Deploy → Evolve, with the number of agents in each step now. A new version is trained and evaluated before it is deployed to future instances.' },
   'agents.performance': { title: 'Top performers', what: 'Agents ranked by verified success over the last 30 days. Each one needs at least 30 evaluated tasks.' },
-  'agents.evolution': { title: 'Evolution pipeline', what: 'Current stable version → candidate under evaluation → next proposal. Only verified candidates are promoted.' },
+  'agents.evolution': { title: 'Evolution pipeline', what: 'Which agents have a candidate version in each phase: Proposal → Experiment → Benchmark → Promotion. Only verified candidates are promoted; click a phase to open it in the Evolution Lab.' },
   'agents.organization': { title: 'Agent organization', what: 'Departments under the General Manager with the number of agents in each.' },
-  'missions.list': { title: 'Mission list', what: 'All missions you can see. ✎ beside a title edits it; 🗑 at the far right archives or deletes it. The line under the title is the current status; the text below is the AI summary.' },
+  'missions.list': { title: 'Missions', what: 'One workspace for all missions. Left: the mission list. The five tiles filter by status, ✎ beside a title edits it and 🗑 at the far right archives or deletes it. The line under the title is the current status; the text below is the AI summary. Right: the open mission\'s Mission Control tabs (Overview, Hierarchy, Task Flow, Browser, Conversations, Results, Approvals, Reports, Timeline). Conversations lists the mission\'s agents on the left — pick one to see its conversation partners and threads. Hierarchy shows the selected agent\'s conversation beside the graph. Drag any divider between panes to resize them (double-click resets). ⇤ collapses the list to an icon rail for more room.' },
   'theme.skin': { title: 'Visual skin', what: 'Flat, Luminous, Pretty and Fancy change how things look only: colors, glow, roundness. Logic and permissions stay the same.' },
   'motion.pref': { title: 'Motion', what: 'Full, Subtle or Reduced animation. Reduced removes movement, scaling and loops but keeps color/opacity state changes. System follows your OS setting.' },
 };

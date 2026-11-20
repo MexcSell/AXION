@@ -61,13 +61,15 @@ await step('Delete (archive) from the far-right trash icon', async () => {
   await p.waitForSelector('[data-dialog="DL-03"]');
   await p.locator('[data-dialog="DL-03"] .modal-foot .btn.danger').click();
   await p.waitForTimeout(600);
-  await expect((await p.locator('.mission-row', { hasText: 'pricing page v2' }).count()) === 0, 'still in All tab after archive');
-  await p.goto(base + '/missions?tab=archived', { waitUntil: 'networkidle' });
+  // the open mission stays visible but pinned (outside the filter); any other archived row disappears
+  const left = p.locator('.mission-row', { hasText: 'pricing page v2' });
+  await expect((await left.count()) === 0 || (await left.locator('.mw-pin').count()) === 1, 'still in All tab after archive (and not pinned)');
+  await p.goto(base + '/missions?filter=archived', { waitUntil: 'networkidle' });
   await expect(p.locator('.mission-row', { hasText: 'pricing page v2' }).count(), 'not in Archived');
 });
 
 await step('Approve a pending decision updates the governance badge', async () => {
-  await p.goto(base + '/control/M-126?tab=approvals', { waitUntil: 'networkidle' });
+  await p.goto(base + '/missions/M-126?tab=approvals', { waitUntil: 'networkidle' });
   const badge = async () => Number((await p.locator('.nav-item', { hasText: 'Governance' }).locator('.badge').textContent().catch(() => '0')) || 0);
   const before = await badge();
   await p.getByRole('button', { name: 'Approve once' }).first().click();
@@ -75,17 +77,71 @@ await step('Approve a pending decision updates the governance badge', async () =
   await expect((await badge()) === before - 1, `badge ${before} -> ${await badge()}`);
 });
 
-await step('Hierarchy: click agent → inspector shows its counterparts', async () => {
-  await p.goto(base + '/control/M-126?tab=hierarchy', { waitUntil: 'networkidle' });
+await step('Hierarchy: click agent → conversation pane beside the graph shows its counterparts', async () => {
+  await p.goto(base + '/missions/M-126?tab=hierarchy', { waitUntil: 'networkidle' });
   await p.waitForTimeout(800);
   await p.locator('.hnode', { hasText: 'Tester-01' }).click();
   await p.waitForTimeout(500);
-  await expect(p.locator('.mc-inspector .msg-head', { hasText: 'Tester-01' }).count(), 'inspector did not switch');
-  await expect(p.locator('.mc-inspector .cp-item', { hasText: 'Superior' }).count(), 'superior counterpart missing');
+  await expect(p.locator('.hier-conv .msg-head', { hasText: 'Tester-01' }).count(), 'hierarchy conversation pane did not switch');
+  await expect(p.locator('.hier-conv .cp-item', { hasText: 'Superior' }).count(), 'superior counterpart missing');
+  await expect((await p.locator('.modal, [role=dialog]').count()) === 0, 'a conversation drawer opened on node click');
+});
+
+await step('Missions: no team tree under the mission, no page-wide conversation pane', async () => {
+  await p.goto(base + '/missions/M-126?tab=overview', { waitUntil: 'networkidle' });
+  await p.waitForTimeout(600);
+  await expect((await p.locator('.mw-list .team-row').count()) === 0, 'agents still unfold below the mission');
+  await expect((await p.locator('.hier-conv, .mc-inspector').count()) === 0, 'conversation pane shown outside Hierarchy');
+});
+
+await step('Conversations: mission agents pane on the left switches the thread', async () => {
+  await p.goto(base + '/missions/M-126?tab=conversations', { waitUntil: 'networkidle' });
+  await p.waitForTimeout(600);
+  await p.locator('.conv-agents .team-row', { hasText: 'Planner-01' }).click();
+  await p.waitForTimeout(500);
+  await expect(p.locator('.conv-main .msg-head', { hasText: 'Planner-01' }).count(), 'thread did not switch to Planner-01');
+  await expect(/agent=planner-01/.test(p.url()), 'agent not in URL');
+});
+
+await step('Dividers: drag resizes panes, clamps, and persists across reload', async () => {
+  const drag = async (sel, dx) => {
+    const b = await p.locator(sel).first().boundingBox();
+    await p.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+    await p.mouse.down();
+    await p.mouse.move(b.x + b.width / 2 + dx / 2, b.y + b.height / 2, { steps: 4 });
+    await p.mouse.move(b.x + b.width / 2 + dx, b.y + b.height / 2, { steps: 4 });
+    await p.mouse.up();
+    await p.waitForTimeout(150);
+  };
+  const w = async (sel) => (await p.locator(sel).first().boundingBox()).width;
+  await p.goto(base + '/missions/M-126?tab=conversations', { waitUntil: 'networkidle' });
+  await p.waitForTimeout(600);
+  for (const [pane, sep] of [['.conv-agents', '.conv-split > .splitter'], ['.cp-col', '.msg-main.wide > .splitter'], ['.mw-list', '.mw-split']]) {
+    const before = await w(pane);
+    await drag(sep, 30);
+    const after = await w(pane);
+    await expect(Math.abs(after - before - 30) <= 3, `${pane} ${before} -> ${after} (wanted +30)`);
+    await drag(sep, 4000);
+    const big = await w(pane), parent = (await p.locator(sep).first().evaluate((e) => e.parentElement.clientWidth));
+    await expect(big <= parent * .6, `${pane} not clamped at max (${big} of ${parent})`);
+    await drag(sep, -4000);
+    await expect((await w(pane)) >= 165, `${pane} not clamped at min`);
+    await drag(sep, 40);
+  }
+  const keep = await w('.conv-agents');
+  await p.reload({ waitUntil: 'networkidle' });
+  await p.waitForTimeout(600);
+  await expect(Math.abs((await w('.conv-agents')) - keep) <= 2, 'agents pane width not persisted');
+  await p.goto(base + '/missions/M-126?tab=hierarchy', { waitUntil: 'networkidle' });
+  await p.waitForTimeout(800);
+  const hb = await w('.hier-conv');
+  await drag('.hier-split > .splitter', -100);
+  await expect(Math.abs((await w('.hier-conv')) - hb - 100) <= 3, `hierarchy conversation ${hb} -> ${await w('.hier-conv')} (wanted +100)`);
+  await p.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('axion.split.')).forEach((k) => localStorage.removeItem(k)));
 });
 
 await step('Conversation: send command with image → ack → report upward', async () => {
-  await p.goto(base + '/control/M-126?tab=conversations&agent=coder-01', { waitUntil: 'networkidle' });
+  await p.goto(base + '/missions/M-126?tab=conversations&agent=coder-01', { waitUntil: 'networkidle' });
   writeFileSync('/tmp/claude-0/-home-luca-AXION/a648e987-ffdb-49cc-888b-0956d510792d/scratchpad/e2e.png', Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c6360f8cfc0f01f0005000201f4a1d10d0000000049454e44ae426082', 'hex'));
   await p.locator('.composer input[type=file][accept="image/*"]').setInputFiles('/tmp/claude-0/-home-luca-AXION/a648e987-ffdb-49cc-888b-0956d510792d/scratchpad/e2e.png');
   await p.locator('.composer textarea').fill('E2E: re-run checkout visual diff');

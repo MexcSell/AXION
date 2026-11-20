@@ -45,7 +45,7 @@ The test hook `window.__axion` is always on in dev. In production builds it is o
 | Area | Route | Highlights |
 |---|---|---|
 | Overview | `/overview` | Command-center KPIs and health ring. Tabs: pulse, portfolio, live activity, health |
-| **Missions** | `/missions` | **List on the left and progress on the right.** Each row has ✎ edit beside the title, 🗑 at the far right, the status under the name and an AI summary. 4-step create wizard with image/file attach, revisions, archive/purge |
+| **Missions** | `/missions` | **List on the left, Mission Control tabs on the right.** Conversations = mission agents · partners · thread; Hierarchy = graph · conversation. Every divider is draggable. Each row has ✎ edit beside the title, 🗑 at the far right, the status under the name and an AI summary. 4-step create wizard with image/file attach, revisions, archive/purge |
 | **Mission Control** | `/control/:id` | 9 tabs. Animated hierarchy graph with directional arrows (delegated ↓, reports ↑, consults, verifies, mentors). **Click an agent to see its partners (superior, subordinates, peers, you), then the messenger thread.** Command/Reply composer accepts images by paste, drop or file. The agent acknowledges, then reports upward. Also: task DAG, managed-browser view with approval gate, versioned results with per-version download, approvals, reports, immutable timeline |
 | Agents | `/agents`, `/agents/:id` | The 40-4 page: agent cards, organization, lifecycle, top performers, evolution pipeline. Profile: player card, capability radar, tools, instances, memory, mentoring, audit |
 | Organization | `/organization` | Org chart (tree/graph/matrix). Drag to *propose* a reorg and see a before/after diff. Departments, assignments heatmap, policies, proposals |

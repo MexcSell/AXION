@@ -1,0 +1,100 @@
+/* ================================================================== */
+/* Overview: one screen, no scrolling at all (not even inside a tab).  */
+/* Every tab fills the frame body exactly; panels share the height and */
+/* lists / card grids show only the items that fit whole (useFitCount, */
+/* which counts only when its box is overflow:hidden). The gate reaches */
+/* lower than the global fit gate (760px) so short laptops fit too.     */
+/* ================================================================== */
+@media (min-width: 1280px) and (min-height: 640px) {
+  .route-view:has(> .ov-page) { height: 100%; }
+  .page.ov-page { height: 100%; --fit-min: 0px; }
+  .ov-page > * { flex: none; }
+  .ov-page > .ov-body {
+    flex: 1 1 0; min-height: 0; display: flex; flex-direction: column;
+    overflow: hidden; padding: 4px 6px 6px; margin: -4px -6px -6px; scrollbar-gutter: auto;
+  }
+  .ov-body.col > * { flex-shrink: 1; }
+
+  /* rows share the body height */
+  .ov-body > .ov-row { flex: 1 1 0; min-height: 0; }
+  .ov-body > .ov-row.r-big { flex-grow: 1.18; }
+  .ov-body > .ov-row.r-fixed { flex: none; }
+  .ov-row { display: grid; grid-auto-rows: minmax(0, 1fr); }
+  .ov-row.oa-grid-4 { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1.1fr) minmax(0, 1.1fr) minmax(0, .85fr); }
+  .ov-row.oa-grid-2 { grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); }
+  .ov-row.oa-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ov-row.oa-grid-act { grid-template-columns: minmax(0, 2.2fr) minmax(280px, 1fr); }
+
+  /* panels: head + elastic content */
+  .ov-body .panel { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .ov-body .panel > * { flex: none; }
+  .ov-body .panel > .btn { align-self: flex-start; }
+  .ov-body .panel > .ov-fill, .ov-body .ov-fill { flex: 1 1 0; min-height: 0; overflow: hidden; }
+  .ov-side { display: flex; flex-direction: column; gap: var(--gap); min-height: 0; }
+  .ov-side > .panel { flex: 1 1 0; }
+  .ov-side > .panel.ov-auto { flex: none; }
+  .ov-body > .panel { flex: 1 1 0; }
+
+  /* Pulse */
+  .ov-body .ov-strip-box { container: ovstrip / size; }
+  .ov-body .ov-strip-box > .oa-strip { height: 100%; overflow: hidden; padding: 2px; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); align-content: start; }
+  .ov-body .ov-fill.ov-chart { overflow: visible; }
+  .ov-body .oa-quick { height: 100%; grid-template-rows: repeat(2, minmax(0, 1fr)); }
+  .ov-body .oa-quick-btn { padding: 6px 4px; min-height: 0; }
+  .ov-body .ov-fill.col { padding: 2px; margin: -2px; }
+  /* items keep their natural size; the fit hook decides how many are rendered */
+  .ov-body .ov-fill > * { flex-shrink: 0; }
+  .ov-body .oa-strip { grid-auto-rows: max-content; }
+  .ov-body .ov-pipe-cap { display: none; }
+  .ov-body .oa-quick-btn { container-type: size; }
+  .ov-body .oa-quick-btn span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+
+  /* Portfolio: table fills the panel; rows are paged, never scrolled */
+  .ov-body .table-wrap.ov-fill { overflow: hidden; }
+  .ov-body .oa-table td.mono { white-space: nowrap; }
+  .ov-pager { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; }
+
+  /* Activity */
+  .ov-body .oa-stream { max-height: none; overflow: hidden; padding-right: 0; }
+
+  /* Health: two service rows share the panel; cards adapt to their own height */
+  .ov-body .oa-svc-grid { height: 100%; grid-template-rows: repeat(2, minmax(0, 1fr)); }
+  .ov-body .oa-svc { container-type: size; padding: 10px 12px; display: flex; flex-direction: column; justify-content: space-between; min-height: 0; }
+  .ov-body .oa-svc .ov-svc-meta { margin-top: 0; }
+}
+
+/* card height breakpoints (container queries on .oa-svc) */
+.ov-svc-inline { display: none; font-size: 15px; white-space: nowrap; }
+@container (max-height: 74px) {
+  .ov-svc-meta { display: none !important; }
+  .ov-svc-inline { display: inline; }
+  .oa-svc > .row:first-child { flex: 1; }
+}
+@container (max-height: 88px) {
+  .ov-svc-detail, .ov-svc-sub { display: none; }
+}
+@container (max-height: 60px) {
+  .ov-svc-spark { display: none; }
+}
+/* agent cards: when two rows of tall cards do not fit, switch to compact side-by-side cards */
+@container ovstrip (max-height: 290px) {
+  .oa-strip { grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)) !important; gap: 8px !important; }
+  .oa-agent { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto auto; column-gap: 9px; row-gap: 0; align-items: center; justify-items: start; text-align: left; padding: 7px 10px; }
+  .oa-agent > svg:first-child { grid-row: 1 / span 3; width: 44px; height: 44px; }
+  .oa-agent b { font-size: 13px; }
+}
+
+/* quick action tiles: icon only when short (label stays as tooltip + accessible name) */
+@container (max-height: 58px) {
+  .oa-quick-btn span { display: none; }
+}
+
+/* short desktop screens: denser Pulse */
+@media (min-width: 1280px) and (min-height: 640px) and (max-height: 860px) {
+  .ov-body .oa-agent { padding: 6px 4px; }
+  .ov-body .oa-pipe { padding: 0 0 6px; }
+  .ov-body .oa-pipe-ico { width: 42px; height: 42px; }
+  .ov-body .ov-pipe-cap { display: none; }
+  .ov-body .panel-head { margin-bottom: 8px; }
+  .ov-body .panel:not(.tight):not(.flush) { padding: 12px 14px; }
+}

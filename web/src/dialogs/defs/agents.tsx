@@ -23,32 +23,37 @@ const Footer = ({ close, label, onOk, disabled, tone }: { close: () => void; lab
 /* DL-34 ------------------------------------------------------------ */
 function AgentCreate({ close }: DialogComponentProps) {
   const [name, setName] = useState('');
-  const [role, setRole] = useState<RoleKey>('dev');
+  /** One agent per role: existing roles are taken, so a new agent defines a new, unique role. */
+  const [roleName, setRoleName] = useState('');
   const [spec, setSpec] = useState('');
+  const holder = (label: string) => AGENTS.find((a) => ROLES[a.role].label.toLowerCase() === label.trim().toLowerCase() || ROLES[a.role].key === label.trim().toLowerCase());
+  const role: RoleKey = 'optimize';
   const [desc, setDesc] = useState('');
   const [model, setModel] = useState('claude-sonnet-5-5');
   const [tools, setTools] = useState<string[]>(['Mission messaging']);
   const [touched, setTouched] = useState(false);
   const err = !name.trim() ? 'Name is required' : AGENTS.some((a) => a.name.toLowerCase() === name.trim().toLowerCase()) ? 'An agent with this name exists' : '';
+  const roleErr = !roleName.trim() ? 'Name the new role' : holder(roleName) ? `${ROLES[holder(roleName)!.role].label} is already covered by ${holder(roleName)!.name}. No duplicate agents: assign ${holder(roleName)!.name} to more missions instead.` : '';
   const toolList = ['Mission messaging', 'Test runner', 'Managed browser', 'Web search', 'Git branch', 'Knowledge read'];
   const submit = () => {
     setTouched(true);
-    if (err) return;
-    toast({ tone: 'success', title: `Draft agent "${name.trim()}" saved (demo)`, body: 'It is a draft: no grants, no instances. Run its evaluation before assigning it.' });
+    if (err || roleErr) return;
+    toast({ tone: 'success', title: `Draft agent "${name.trim()}" (${roleName.trim()}) saved (demo)`, body: 'It is a draft: no grants, no instances. Run its evaluation before assigning it.' });
     close();
   };
   return (
     <Modal title="Create agent" icon={Bot} help="dialog.agentCreate" dialogId="DL-34" size="lg" onClose={close} sub="Saves a draft. Nothing runs until it is evaluated and staffed." footer={<Footer close={close} label="Save draft agent" onOk={submit} />}>
       <div className="oa-form-grid">
         <div className="col" style={{ gap: 12 }}>
-          <Field label="Name" required error={touched ? err : undefined} hint="Convention: Role-NN, for example Coder-05" help="dialog.agentName"><input data-autofocus className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Coder-05" /></Field>
-          <Field label="Role" help="dialog.agentRole"><select className="select" value={role} onChange={(e) => setRole(e.target.value as RoleKey)}>{Object.values(ROLES).filter((r) => r.key !== 'manager').map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}</select></Field>
+          <Field label="Name" required error={touched ? err : undefined} hint="Convention: Role-01, for example Marketer-01" help="dialog.agentName"><input data-autofocus className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Marketer-01" /></Field>
+          <Field label="New role" required error={touched || roleName ? roleErr || undefined : undefined} hint="Every agent owns a unique role and skill set." help="dialog.agentRole"><input className="input" value={roleName} onChange={(e) => setRoleName(e.target.value)} placeholder="e.g. Marketing" /></Field>
+          <div className="dim" style={{ fontSize: 11.5, marginTop: -6 }}>Taken: {Object.values(ROLES).map((r) => r.label).join(' · ')}</div>
           <Field label="Specialty"><input className="input" value={spec} onChange={(e) => setSpec(e.target.value)} placeholder="e.g. Checkout-flow forms" /></Field>
           <Field label="Description"><textarea className="textarea" rows={3} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="What should this agent be trusted to do?" /></Field>
           <Field label="Model route" help="models.route"><select className="select" value={model} onChange={(e) => setModel(e.target.value)}>{['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'local/llama-4-70b'].map((m) => <option key={m}>{m}</option>)}</select></Field>
         </div>
         <div className="col" style={{ gap: 12 }}>
-          <div className="oa-preview"><RobotAvatar role={role} size={120} faceMode="face" animated /><b className="display">{name || 'New agent'}</b><Chip hue={ROLES[role].hue}>{ROLES[role].label}</Chip><span className="dim" style={{ fontSize: 12 }}>Owner: Luca · v0.1.0 draft</span></div>
+          <div className="oa-preview"><RobotAvatar role={role} size={120} faceMode="face" animated /><b className="display">{name || 'New agent'}</b><Chip hue={ROLES[role].hue}>{roleName.trim() || 'New role'}</Chip><span className="dim" style={{ fontSize: 12 }}>Owner: Luca · v0.1.0 draft</span></div>
           <Field label="Bounded tools" help="agent.tools" hint="Capabilities only. Grants are requested separately.">
             <div className="row wrap" style={{ gap: 6 }}>{toolList.map((t) => { const on = tools.includes(t); return <button key={t} type="button" className={cx('oa-filter', on && 'on')} aria-pressed={on} onClick={() => setTools(on ? tools.filter((x) => x !== t) : [...tools, t])}>{t}</button>; })}</div>
           </Field>
@@ -123,7 +128,7 @@ function MentoringSession({ close, props }: DialogComponentProps<{ agentId?: str
   const err = exercise.trim().length < 4 ? 'Name the exercise' : n < 10 ? 'Checkpoint needs at least 10 evaluated tasks' : '';
   const [touched, setTouched] = useState(false);
   return (
-    <Modal title="Mentoring session" icon={GraduationCap} help="agent.mentoring" dialogId="DL-38" onClose={close} sub="A coaching exercise with independent before/after evidence." footer={<Footer close={close} label="Schedule exercise" onOk={() => { setTouched(true); if (err) return; toast({ tone: 'success', title: 'Exercise scheduled (demo)', body: `${l.name}: "${exercise}". Mentor-01 coaches; Tester-02 verifies independently.` }); close(); }} />}>
+    <Modal title="Mentoring session" icon={GraduationCap} help="agent.mentoring" dialogId="DL-38" onClose={close} sub="A coaching exercise with independent before/after evidence." footer={<Footer close={close} label="Schedule exercise" onOk={() => { setTouched(true); if (err) return; toast({ tone: 'success', title: 'Exercise scheduled (demo)', body: `${l.name}: "${exercise}". Mentor-01 coaches; Tester-01 verifies independently.` }); close(); }} />}>
       <div className="row" style={{ gap: 10, marginBottom: 12 }}><RobotAvatar role="mentor" size={44} /><ArrowRight size={16} className="dim" /><RobotAvatar role={l.role} size={44} /><div><b>Mentor-01 coaching {l.name}</b><div className="dim" style={{ fontSize: 12 }}>current {METRIC_LABELS[metric]}: {l.metrics[metric]}</div></div></div>
       <div className="col" style={{ gap: 12 }}>
         <div className="grid g-2">
@@ -200,7 +205,7 @@ function ToolsPermission({ close, props }: DialogComponentProps<{ agentId?: stri
 interface Move { agentId: string; from: string; to: string; }
 function OrgReorg({ close, props }: DialogComponentProps<{ moves?: Move[]; readOnly?: boolean; title?: string; rebalance?: string }>) {
   const missions = useData((s) => s.missions);
-  const initial: Move[] = props.moves?.length ? props.moves : props.rebalance ? [{ agentId: props.rebalance, from: AGENT_BY_ID[props.rebalance].dept, to: 'QA' }] : [{ agentId: 'browser-03', from: 'Engineering', to: 'QA' }];
+  const initial: Move[] = props.moves?.length ? props.moves : props.rebalance ? [{ agentId: props.rebalance, from: AGENT_BY_ID[props.rebalance].dept, to: 'QA' }] : [{ agentId: 'browser-01', from: 'Engineering', to: 'QA' }];
   const [moves, setMoves] = useState<Move[]>(initial);
   const [reason, setReason] = useState(props.title ?? '');
   const ro = !!props.readOnly;
@@ -224,7 +229,7 @@ function OrgReorg({ close, props }: DialogComponentProps<{ moves?: Move[]; readO
               {!ro && <button className="icon-btn" aria-label="Remove change" onClick={() => setMoves(moves.filter((_, k) => k !== i))}><Minus size={14} /></button>}
             </div>
           ))}
-          {!ro && <button className="btn sm" onClick={() => setMoves([...moves, { agentId: 'coder-04', from: AGENT_BY_ID['coder-04'].dept, to: 'QA' }])}><Plus size={14} />Add change</button>}
+          {!ro && <button className="btn sm" onClick={() => setMoves([...moves, { agentId: 'coder-01', from: AGENT_BY_ID['coder-01'].dept, to: 'QA' }])}><Plus size={14} />Add change</button>}
           {!ro && <Field label="Reason" required error={reason && err ? err : undefined}><input data-autofocus className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why is this better?" /></Field>}
           <div className="section-label" style={{ marginTop: 4 }}>Affected active missions ({affected.length})</div>
           <div className="col" style={{ gap: 4 }}>{affected.length === 0 ? <span className="dim" style={{ fontSize: 12.5 }}>None. Safe to apply to new missions.</span> : affected.map((m) => <div key={m.id} className="row" style={{ gap: 8, fontSize: 12.5 }}><span className="mono dim">{m.id}</span><span className="ellipsis">{m.title}</span></div>)}</div>

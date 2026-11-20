@@ -53,7 +53,7 @@ export function ProgressRing({ value, size = 52, stroke = 5, tone = 'var(--accen
   const c = 2 * Math.PI * r;
   return (
     <div style={{ position: 'relative', width: size, height: size, flex: 'none' }} role="img" aria-label={`${value}% verified`}>
-      <svg width={size} height={size}>
+      <svg width={size} height={size} style={{ overflow: 'visible' }}>{/* the glow must not be clipped to the svg box */}
         <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--panel-3)" strokeWidth={stroke} />
         <motion.circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={tone} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={c}
           transform={`rotate(-90 ${size / 2} ${size / 2})`} initial={{ strokeDashoffset: c }} animate={{ strokeDashoffset: c * (1 - value / 100) }}
