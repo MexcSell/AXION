@@ -27,3 +27,14 @@ describe('migrations', () => {
     await expect(s.pool.query(`delete from audit_events`)).rejects.toThrow(/audit_events is append-only/);
   });
 });
+
+describe('mission tables', () => {
+  it('exist after migrating up', async () => {
+    const s2 = await makeSchema();
+    const ts = await tables(s2.pool, s2.schema);
+    for (const t of ['missions', 'mission_revisions', 'mission_runs', 'tasks', 'task_dependencies', 'uploads', 'idempotency_keys']) expect(ts).toContain(t);
+    const n = (await s2.pool.query(`select nextval('mission_seq')::int n`)).rows[0].n;
+    expect(n).toBeGreaterThan(136);
+    await s2.drop();
+  });
+});
