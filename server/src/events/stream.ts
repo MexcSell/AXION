@@ -97,7 +97,8 @@ export default async function streamRoutes(app: FastifyInstance) {
       } finally { busy = false; }
     }
 
-    const hb = setInterval(() => { if (open) res.write(': heartbeat\n\n'); }, HEARTBEAT_MS);
+    // a real (named) event, so browsers can tell a live link from a dead one; comments are invisible to EventSource
+    const hb = setInterval(() => { if (open) res.write(`event: ping\ndata: {"t":${Date.now()}}\n\n`); }, app.cfg.sseHeartbeatMs ?? HEARTBEAT_MS);
     const poll = setInterval(() => void pump(), SAFETY_POLL_MS);
     app.eventBus.on('wake', pump);
     app.eventBus.on('close', end);

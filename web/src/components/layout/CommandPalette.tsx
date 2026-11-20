@@ -8,6 +8,7 @@ import { NAV, ROUTE_TABS, slug } from '@/config/nav';
 import { PLUGINS } from '@/config/plugins';
 import { useUI, openDialog, toast } from '@/store/ui';
 import { useData, useVisibleMissions } from '@/store/data';
+import { isApi } from '@/api/mode';
 import { useAuth, useMe, isAdmin } from '@/store/auth';
 import { channelId, useChat, parseChannel } from '@/store/chat';
 import { useNews, domainOf } from '@/store/news';
@@ -67,7 +68,7 @@ export function CommandPalette() {
       { id: 'a-header', group: 'Actions', label: 'Show / hide header banner', hint: 'Top strip with logo and loop', icon: PanelTop, run: act(() => { const s = useSettings.getState(); s.set({ headerBanner: !s.headerBanner }); }) },
       { id: 'a-avatar', group: 'Actions', label: 'Customize agent faces', icon: Sparkles, run: act(() => openDialog('avatar-customizer')) },
       { id: 'a-signout', group: 'Actions', label: 'Sign out', icon: LogOut, run: act(() => useAuth.getState().signOut()) },
-      { id: 'a-reset', group: 'Actions', label: 'Reset DEMO data', hint: 'Restore fixture missions, chats and approvals', icon: RotateCcw, run: act(() => { useData.getState().resetDemo(); toast({ tone: 'success', title: 'DEMO data reset', body: 'Fixture missions, conversations and approvals restored.' }); }) },
+      ...(isApi() ? [] : [{ id: 'a-reset', group: 'Actions', label: 'Reset DEMO data', hint: 'Restore fixture missions, chats and approvals', icon: RotateCcw, run: act(() => { useData.getState().resetDemo(); toast({ tone: 'success', title: 'DEMO data reset', body: 'Fixture missions, conversations and approvals restored.' }); }) }]),
     ];
     // every screen (hidden ones too), every tab, every sub-tab
     for (const n of NAV) {

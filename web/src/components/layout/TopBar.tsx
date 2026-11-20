@@ -1,5 +1,7 @@
 import { motion } from 'motion/react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { Wifi, WifiOff, RefreshCw } from 'lucide-react';
+import { isApi } from '@/api/mode';
 import { ClipboardList, MessagesSquare, Zap, ShieldCheck, Dna, Sparkles, Bell, Search, Sun, Moon, Monitor, Menu as MenuIcon, LogOut, UserCog, Palette, Keyboard } from 'lucide-react';
 import { LogoGlyph } from '@/components/art/CoreArt';
 import { BRAND } from '@/config/brand';
@@ -26,6 +28,25 @@ const PIPELINE = [
 ];
 
 const EXEC_TABS = ['hierarchy', 'task-flow', 'browser', 'conversations'];
+
+const CONN = {
+  live: { label: 'Live', hint: 'Live updates from the AXION server', icon: Wifi, cls: 'good' },
+  reconnecting: { label: 'Reconnecting', hint: 'The live link dropped. Retrying…', icon: RefreshCw, cls: 'warn' },
+  stale: { label: 'Stale', hint: 'No live updates for 30 s. What you see may be out of date.', icon: WifiOff, cls: 'bad' },
+  off: { label: 'Connecting', hint: 'Connecting to the AXION server…', icon: RefreshCw, cls: 'dim' },
+} as const;
+
+/** Stage 5: live / reconnecting / stale (spec §12.2). */
+function ConnectionBadge() {
+  const c = useData((s) => s.connection);
+  const m = CONN[c];
+  return (
+    <span className={`conn-badge ${m.cls}`} data-conn={c} role="status" aria-live="polite">
+      <Tip label={m.hint}><span className="conn-badge-in"><m.icon size={13} className={c === 'reconnecting' || c === 'off' ? 'spin' : undefined} />{m.label}</span></Tip>
+      <HelpTrigger k="app.connection" />
+    </span>
+  );
+}
 
 export function TopBar() {
   const nav = useNavigate();
@@ -98,7 +119,7 @@ export function TopBar() {
       </nav>
 
       <div className="top-actions">
-        <DemoTag title="Prototype: all data is deterministic DEMO data. No backend or real browser automation is connected." />
+        {isApi() ? <ConnectionBadge /> : <DemoTag title="Prototype: all data is deterministic DEMO data, kept in this browser. Open without ?data=demo to use the AXION server." />}
         <IconButton icon={Search} label="Search & commands" shortcut="Ctrl K" onClick={() => setPalette(true)} tipSide="bottom" />
         <IconButton icon={ThemeIcon} label={`Theme: ${themeMode} (switch to ${nextTheme})`} tipSide="bottom"
           onClick={() => { set({ themeMode: nextTheme }); toast({ tone: 'info', title: `Theme: ${nextTheme}` }); }} />

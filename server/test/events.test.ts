@@ -139,3 +139,15 @@ describe('event log', () => {
     expect(seqs).toEqual(seqs.map((_, i) => i + 1));
   });
 });
+
+describe('heartbeat', () => {
+  it('sends a named ping event that browsers can see', async () => {
+    const t2 = await makeTestApp({ sseHeartbeatMs: 100 });
+    await t2.app.listen({ host: '127.0.0.1', port: 0 });
+    const { admin } = await withAdmin(t2.app);
+    const s = await openStream(`http://127.0.0.1:${(t2.app.server.address() as { port: number }).port}`, admin);
+    expect(await s.waitFor((e) => e.event === 'ping', 2000)).toBeTruthy();
+    s.close();
+    await t2.close();
+  });
+});

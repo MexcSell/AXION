@@ -13,6 +13,7 @@ import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { RobotAvatar } from '@/components/art/RobotAvatar';
 import { useData, useMission } from '@/store/data';
 import { useMe } from '@/store/auth';
+import { isApi } from '@/api/mode';
 import { toast } from '@/store/ui';
 import { AGENT_BY_ID } from '@/data/agents';
 import type { MissionFile, MissionFileKind } from '@/data/types';
@@ -56,7 +57,7 @@ function MissionAdd({ close, props }: DialogComponentProps<{ text?: string; clon
   const addFiles = (list: FileList | File[]) => {
     const arr = Array.from(list).map((f): MissionFile => {
       const kind = fileKind(f.name, f.type);
-      const mf: MissionFile = { id: 'mf' + seq++, name: f.name, kind, size: f.size, mime: f.type, url: ['image', 'audio', 'video'].includes(kind) ? URL.createObjectURL(f) : undefined };
+      const mf: MissionFile = { id: 'mf' + seq++, name: f.name, kind, size: f.size, mime: f.type, url: ['image', 'audio', 'video'].includes(kind) ? URL.createObjectURL(f) : undefined, blob: f };
       if (kind === 'txt' && f.size < 2_000_000) f.text().then((t) => setFiles((cur) => cur.map((x) => (x.id === mf.id ? { ...x, excerpt: t.slice(0, 240) } : x)))).catch(() => undefined);
       return mf;
     });
@@ -72,12 +73,17 @@ function MissionAdd({ close, props }: DialogComponentProps<{ text?: string; clon
   const submit = () => {
     if (empty || !me || busy) return;
     setBusy(true);
-    window.setTimeout(() => {
-      const m = add({ text, files, shared }, me);
-      toast({ tone: 'success', title: `${m.id} added`, body: `The General Manager is appointing ${exec?.name ?? 'an executor'}, who will bring the agents.` });
-      close();
-      nav(`/missions/${m.id}?tab=overview`);
-    }, 450);
+    window.setTimeout(async () => {
+      try {
+        const m = await add({ text, files, shared }, me);
+        toast({ tone: 'success', title: `${m.id} added`, body: `The General Manager is appointing ${exec?.name ?? 'an executor'}, who will bring the agents.` });
+        close();
+        nav(`/missions/${m.id}?tab=overview`);
+      } catch (e) {
+        setBusy(false);
+        toast({ tone: 'error', title: 'Mission not added', body: e instanceof Error ? e.message : 'Try again.' });
+      }
+    }, isApi() ? 0 : 450);
   };
 
   return (

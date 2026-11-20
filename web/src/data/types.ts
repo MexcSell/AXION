@@ -54,7 +54,7 @@ export type GrowthState = 'learning' | 'evolving' | 'stable';
 export type DevLevel = 1 | 2 | 3 | 4 | 5;
 export type EvoPhase = 'proposal' | 'experiment' | 'benchmark' | 'promotion';
 
-export type MissionStatus = 'draft' | 'planning' | 'running' | 'verifying' | 'waiting' | 'paused' | 'completed' | 'failed' | 'archived';
+export type MissionStatus = 'draft' | 'queued' | 'planning' | 'running' | 'verifying' | 'waiting' | 'paused' | 'completed' | 'failed' | 'canceled' | 'archived';
 export type Priority = 'low' | 'normal' | 'high' | 'critical';
 
 export interface MissionPhase { key: string; label: string; state: 'done' | 'active' | 'next' | 'blocked'; date: string; }
@@ -97,10 +97,15 @@ export interface Mission {
   pendingApprovals: number;
   unread: number;
   createdAgoDays: number;
+  /** api mode (Stage 5): the server's version for If-Match, its exact state name, and the DEMO flag of seeded fixtures */
+  rowVersion?: number;
+  serverStatus?: string;
+  demo?: boolean;
+  archivedAt?: number;
 }
 
 export type MissionFileKind = 'image' | 'audio' | 'video' | 'doc' | 'pdf' | 'txt' | 'file';
-export interface MissionFile { id: string; name: string; kind: MissionFileKind; size: number; mime: string; url?: string; /** first lines of a text file */ excerpt?: string }
+export interface MissionFile { id: string; name: string; kind: MissionFileKind; size: number; mime: string; url?: string; /** first lines of a text file */ excerpt?: string; /** api mode: the picked file, uploaded when the mission is added (never persisted) */ blob?: File }
 
 export type InstanceState = 'working' | 'waiting' | 'blocked' | 'idle' | 'verifying' | 'done' | 'reporting';
 export type EdgeKind = 'delegated' | 'reports' | 'consults' | 'verifies' | 'mentors';

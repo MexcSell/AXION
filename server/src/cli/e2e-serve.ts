@@ -13,7 +13,24 @@ const pool = makePool(url, undefined, 1);
 await migrate(pool, 'down', 0);
 await migrate(pool, 'up');
 await pool.end();
-const app = await buildApp({ databaseUrl: url, logger: false, staffingStepMs: Number(process.env.STAFFING_STEP_MS || 600), demoSeed: process.env.DEMO_SEED !== '0' });
-await app.listen({ host: '127.0.0.1', port: Number(process.env.E2E_PORT || 5192) });
-console.log('e2e API on 127.0.0.1:' + (process.env.E2E_PORT || 5192));
+const port = Number(process.env.E2E_PORT || 5192);
+const start = async () => {
+  const a = await buildApp({ databaseUrl: url, logger: false, staffingStepMs: Number(process.env.STAFFING_STEP_MS || 600), demoSeed: process.env.DEMO_SEED !== '0' });
+  await a.listen({ host: '127.0.0.1', port });
+  return a;
+};
+let app = await start();
+console.log('e2e API on 127.0.0.1:' + port);
 for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => { void app.close().then(() => process.exit(0)); });
+// SIGUSR2 = simulated server restart for the browser checks: every connection drops, the port is down
+// for RESTART_DOWN_MS, then a fresh app starts on the same database (nothing is reset).
+process.on('SIGUSR2', () => {
+  void (async () => {
+    console.log('restart: closing');
+    app.server.closeAllConnections?.();
+    await app.close();
+    await new Promise((r) => setTimeout(r, Number(process.env.RESTART_DOWN_MS || 3000)));
+    app = await start();
+    console.log('restart: listening again');
+  })();
+});

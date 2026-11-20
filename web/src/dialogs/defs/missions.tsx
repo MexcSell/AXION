@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
+import { isApi } from '@/api/mode';
 import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -127,8 +128,8 @@ function MissionDelete({ close, props }: DialogComponentProps<{ missionId: strin
   const versions = mc.artifacts.reduce((s, a) => s + a.versions.length, 0);
   const ok = mode === 'archive' || typed.trim() === m.id;
   const run = () => {
-    if (mode === 'archive') { archive(m.id); toast({ tone: 'success', title: `${m.id} archived`, body: 'Recoverable from the Archived tab until 2027-05-20.', action: { label: 'Undo', run: () => useData.getState().setMissionStatus(m.id, 'paused') } }); }
-    else { purge(m.id); toast({ tone: 'warning', title: `Purge requested for ${m.id}`, body: 'DEMO: removed from this session. In production this needs Owner re-auth and a retention check.' }); }
+    if (mode === 'archive') { archive(m.id); toast({ tone: 'success', title: `${m.id} archived`, body: isApi() && !['completed', 'canceled', 'failed'].includes(m.status) ? 'It was canceled first, then archived. Restore brings it back as canceled.' : 'Recoverable from the Archived tab until 2027-05-20.', action: { label: 'Undo', run: () => useData.getState().restoreMission(m.id) } }); }
+    else { purge(m.id); toast({ tone: 'warning', title: isApi() ? `${m.id} deleted` : `Purge requested for ${m.id}`, body: isApi() ? 'Removed for everyone. The server keeps the record and its audit trail.' : 'DEMO: removed from this session. In production this needs Owner re-auth and a retention check.' }); }
     close();
   };
   return (

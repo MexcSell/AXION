@@ -7,6 +7,8 @@ export interface Config {
   uploadDir?: string;
   /** staffing simulation step in ms (tests shorten it) */
   staffingStepMs?: number;
+  /** SSE ping interval (tests shorten it) */
+  sseHeartbeatMs?: number;
   /** seed demo missions when the first admin appears */
   demoSeed?: boolean;
   /** hook for tests: add routes before ready */

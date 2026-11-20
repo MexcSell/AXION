@@ -16,6 +16,7 @@ import { MissionStatusChip, Chip, Dot } from '@/components/ui/Chips';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { CountUp } from '@/components/ui/CountUp';
 import { useData, allApprovals, useVisibleMissions } from '@/store/data';
+import { DemoTag } from '@/components/ui/Chips';
 import { useAuth, useMe, isAdmin } from '@/store/auth';
 import { UserAvatar } from '@/components/ui/UserAvatar';
 import { executorOf } from '@/features/mission/staffing';
@@ -116,6 +117,18 @@ export default function MissionsPage() {
     const qs = n.toString();
     nav(`/missions/${id}${qs ? `?${qs}` : ''}`);
   };
+
+  // Stage 5 (Review Focus #2): the open mission was made private or deleted by someone else → leave it with a toast
+  useEffect(() => {
+    const on = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      if (id !== wantedId) return;
+      toast({ tone: 'warning', title: `${id} is no longer available`, body: 'Its owner made it private, or it was deleted.' });
+      nav('/missions', { replace: true });
+    };
+    window.addEventListener('axion:mission-gone', on);
+    return () => window.removeEventListener('axion:mission-gone', on);
+  }, [wantedId, nav]);
 
   const mc = m ? getMissionControl(m) : null;
   const agentParam = sp.get('agent');
@@ -343,6 +356,7 @@ function MissionRow({ m, selected, pinned, onSelect, index }: {
           <div className="mission-row-body">
             <div className="mission-title-line">
               <span className="mission-title ellipsis" title={m.title}>{m.title}</span>
+              {m.demo && <DemoTag title="Sample mission from the prototype (DEMO). npm run demo:clear removes them." />}
               <Tip label="Edit mission">
                 <button className="icon-btn xs edit-btn" aria-label={`Edit ${m.title}`} onClick={(e) => { e.stopPropagation(); openDialog('mission-edit', { missionId: m.id }); }}><Pencil size={13} /></button>
               </Tip>
@@ -393,7 +407,7 @@ function OwnerBadge({ m, size = 18 }: { m: Mission; size?: number }) {
 function MissionControls({ m }: { m: Mission }) {
   const setStatus = useData((s) => s.setMissionStatus);
   const running = ['running', 'planning', 'verifying'].includes(m.status);
-  const closed = ['completed', 'archived'].includes(m.status);
+  const closed = ['completed', 'archived', 'canceled'].includes(m.status);
   return (
     <div className="mc-controls mw-controls" role="toolbar" aria-label="Mission controls">
       <IconButton icon={Play} label={m.status === 'draft' ? 'Start' : 'Resume'} variant="bordered" disabled={running || closed} onClick={() => openDialog('mission-start', { missionId: m.id })} />

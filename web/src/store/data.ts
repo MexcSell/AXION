@@ -5,19 +5,32 @@ import { MISSIONS, FIXTURE_OWNERS, getMissionControl, threadKey } from '@/data/m
 import { useMe, isAdmin, type Account } from '@/store/auth';
 import type { Approval, Attachment, Message, MessageKind, Mission, MissionFile, MissionStatus } from '@/data/types';
 import { deriveTitle, guessKind, staffingPlan } from '@/features/mission/staffing';
+import { isApi } from '@/api/mode';
+import { api, newKey, ApiFailure } from '@/api/client';
+import type { Notice } from '@/data/notifications';
+import { actionForUiStatus, type UiMissionStatus } from '@contracts';
 
 /**
- * DEMO data store. Every mutation here is local to the browser session —
- * nothing is sent to a backend (Stage 5+ replaces this with the real API + SSE).
+ * Mission data. In 'demo' mode every mutation stays in this browser (the prototype).
+ * In 'api' mode (Stage 5) missions, approvals and notification read state come from the server: actions call the API,
+ * apply the change optimistically and roll back with a toast on error; the event stream (api/events.ts) keeps it current.
+ * Conversations (extraMessages) stay DEMO until Stage 6.
  */
+export type Connection = 'off' | 'live' | 'reconnecting' | 'stale';
 interface DataState {
   missions: Mission[];
+  /** api mode: approvals of visible missions (server) */
+  approvals: Approval[];
+  /** api mode: server notifications (shown before the DEMO fixture notices) */
+  serverNotices: Notice[];
+  connection: Connection;
+  loaded: boolean;
   extraMessages: Record<string, Message[]>; // key: missionId + '::' + threadKey
   approvalDecisions: Record<string, 'approved' | 'denied'>;
   readNotifications: Record<string, true>;
   lastEventAt: number;
   /** Owner update u1: a mission is only its content (text + files); the GM staffs it. */
-  addMission: (input: { text: string; files: MissionFile[]; shared: boolean }, owner: { id: string; name: string }) => Mission;
+  addMission: (input: { text: string; files: MissionFile[]; shared: boolean }, owner: { id: string; name: string }) => Promise<Mission>;
   updateMission: (id: string, patch: Partial<Mission>) => void;
   setMissionStatus: (id: string, status: MissionStatus) => void;
   archiveMission: (id: string) => void;
@@ -35,13 +48,18 @@ interface DataState {
 let msgSeq = 1;
 
 export const useData = create<DataState>()(persist((set, get) => ({
-  missions: MISSIONS,
+  missions: isApi() ? [] : MISSIONS,
+  approvals: [],
+  serverNotices: [],
+  connection: 'off',
+  loaded: !isApi(),
   extraMessages: {},
   approvalDecisions: {},
   readNotifications: {},
   lastEventAt: Date.now(),
 
-  addMission: (input, owner) => {
+  addMission: async (input, owner) => {
+    if (isApi()) return apiAddMission(input);
     const nums = get().missions.map((m) => Number(m.id.slice(2))).filter(Number.isFinite);
     const id = `M-${Math.max(...nums) + 1}`;
     const kind = guessKind(input.text, input.files);
@@ -49,7 +67,7 @@ export const useData = create<DataState>()(persist((set, get) => ({
     const now = Date.now();
     const m: Mission = {
       id, kind, title: deriveTitle(input.text, input.files), objective: input.text.trim() || 'See the attached files.',
-      content: { text: input.text.trim(), files: input.files },
+      content: { text: input.text.trim(), files: input.files.map(({ blob: _b, ...f }) => { void _b; return f; }) },
       owner: owner.name, ownerId: owner.id, shared: input.shared,
       status: 'planning', priority: 'normal', criteria: [], progress: 0, tasksVerified: 0, tasksTotal: plan.length + 2, blocked: 0,
       agentIds: ['gm'], leadId: 'gm', executorId,
@@ -63,14 +81,14 @@ export const useData = create<DataState>()(persist((set, get) => ({
     set((s) => ({ missions: [m, ...s.missions], lastEventAt: Date.now() }));
     return m;
   },
-  updateMission: (id, patch) => set((s) => ({ missions: s.missions.map((m) => (m.id === id ? { ...m, ...patch } : m)), lastEventAt: Date.now() })),
-  setMissionStatus: (id, status) => set((s) => ({
+  updateMission: (id, patch) => { if (isApi()) { void apiUpdateMission(id, patch); return; } set((s) => ({ missions: s.missions.map((m) => (m.id === id ? { ...m, ...patch } : m)), lastEventAt: Date.now() })); },
+  setMissionStatus: (id, status) => isApi() ? void apiSetStatus(id, status) : set((s) => ({
     missions: s.missions.map((m) => (m.id === id ? { ...m, status, lastEvent: `Status changed to ${status} by Luca`, lastEventAgoMin: 0 } : m)),
     lastEventAt: Date.now(),
   })),
-  archiveMission: (id) => get().setMissionStatus(id, 'archived'),
-  restoreMission: (id) => get().setMissionStatus(id, 'paused'),
-  purgeMission: (id) => set((s) => ({ missions: s.missions.filter((m) => m.id !== id) })),
+  archiveMission: (id) => isApi() ? void apiAction(id, 'archive', { cancelFirst: true }) : get().setMissionStatus(id, 'archived'),
+  restoreMission: (id) => isApi() ? void apiAction(id, 'restore') : get().setMissionStatus(id, 'paused'),
+  purgeMission: (id) => isApi() ? void apiDelete(id) : set((s) => ({ missions: s.missions.filter((m) => m.id !== id) })),
 
   sendMessage: (missionId, a, b, msg) => {
     const key = `${missionId}::${threadKey(a, b)}`;
@@ -82,14 +100,14 @@ export const useData = create<DataState>()(persist((set, get) => ({
     const key = `${missionId}::${threadKey(a, b)}`;
     set((s) => ({ extraMessages: { ...s.extraMessages, [key]: (s.extraMessages[key] ?? []).map((x) => (x.id === id ? { ...x, ...patch } : x)) } }));
   },
-  decideApproval: (id, decision) => set((s) => ({ approvalDecisions: { ...s.approvalDecisions, [id]: decision }, lastEventAt: Date.now() })),
-  markRead: (id) => set((s) => ({ readNotifications: { ...s.readNotifications, [id]: true } })),
-  markAllRead: (ids) => set((s) => ({ readNotifications: { ...s.readNotifications, ...Object.fromEntries(ids.map((i) => [i, true as const])) } })),
+  decideApproval: (id, decision) => { if (isApi()) { void apiDecide(id, decision); return; } set((s) => ({ approvalDecisions: { ...s.approvalDecisions, [id]: decision }, lastEventAt: Date.now() })); },
+  markRead: (id) => { set((s) => ({ readNotifications: { ...s.readNotifications, [id]: true } })); if (isApi()) void api('POST', `/notifications/${encodeURIComponent(id)}/ack`, {}).catch(() => undefined); },
+  markAllRead: (ids) => { set((s) => ({ readNotifications: { ...s.readNotifications, ...Object.fromEntries(ids.map((i) => [i, true as const])) } })); if (isApi() && ids.length) void api('POST', '/notifications/ack-all', { ids }).catch(() => undefined); },
   touch: () => set({ lastEventAt: Date.now() }),
-  resetDemo: () => set({ missions: MISSIONS, extraMessages: {}, approvalDecisions: {}, readNotifications: {}, lastEventAt: Date.now() }),
+  resetDemo: () => isApi() ? undefined : set({ missions: MISSIONS, extraMessages: {}, approvalDecisions: {}, readNotifications: {}, lastEventAt: Date.now() }),
 }), {
-  // DEMO state survives reloads in this browser only (Stage 5 replaces it with the real API).
-  name: 'axion.demo-data.v1',
+  // DEMO state survives reloads in this browser only; api mode keeps only the DEMO conversations locally.
+  name: isApi() ? 'axion.api-data.v1' : 'axion.demo-data.v1',
   // v2 (owner update 2026-11-20 u1): missions lose budget/cost, gain ownerId/shared/content; finance-01 became loader-01.
   version: 2,
   migrate: (persisted, from) => {
@@ -111,7 +129,9 @@ export const useData = create<DataState>()(persist((set, get) => ({
   },
   storage: createJSONStorage(() => { try { localStorage.setItem('__d', '1'); localStorage.removeItem('__d'); return localStorage; } catch { const m = new Map<string, string>(); return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k) }; } }),
   // blob: URLs die with the page, so attachments keep only their metadata
-  partialize: (s) => ({
+  partialize: (s) => (isApi() ? {
+    extraMessages: Object.fromEntries(Object.entries(s.extraMessages).map(([k, v]) => [k, v.map((m) => ({ ...m, attachments: m.attachments?.map((a) => ({ ...a, url: undefined })) }))])),
+  } : {
     missions: s.missions.map((m) => (m.content?.files.some((f) => f.url) ? { ...m, content: { ...m.content, files: m.content.files.map((f) => ({ ...f, url: undefined })) } } : m)), approvalDecisions: s.approvalDecisions, readNotifications: s.readNotifications,
     extraMessages: Object.fromEntries(Object.entries(s.extraMessages).map(([k, v]) => [k, v.map((m) => ({ ...m, attachments: m.attachments?.map((a) => ({ ...a, url: undefined })) }))])),
   }) as unknown as DataState,
@@ -129,12 +149,128 @@ export function threadMessages(missionId: string, a: string, b: string, extra: R
 }
 
 export function allApprovals(missions: Mission[], decisions: Record<string, 'approved' | 'denied'>): Approval[] {
+  if (isApi()) {
+    // server approvals; `decisions` changes whenever they reload, so callers' memos stay fresh
+    const ids = new Set(missions.map((m) => m.id));
+    return useData.getState().approvals.filter((a) => ids.has(a.missionId)).map((a) => (decisions[a.id] && a.status === 'pending' ? { ...a, status: decisions[a.id] } : a));
+  }
   return missions.flatMap((m) => getMissionControl(m).approvals).map((a) => (decisions[a.id] ? { ...a, status: decisions[a.id] } : a));
 }
 
 /* Cross-tab sync (owner update u1): two tabs can be two users, so a mission added or shared in one tab must reach the other. */
-if (typeof window !== 'undefined') {
+if (typeof window !== 'undefined' && !isApi()) {
   window.addEventListener('storage', (e) => { if (e.key === 'axion.demo-data.v1') void useData.persist.rehydrate(); });
+}
+
+/* ------------------------------------------------------------ api mode (Stage 5) */
+type ServerMission = Mission & { rowVersion: number; serverStatus: string };
+type ServerApproval = Approval & { digest: string; state: string };
+const say = async (title: string, e: unknown) => { const { toast } = await import('@/store/ui'); toast({ tone: 'error', title, body: e instanceof ApiFailure ? e.message : 'Something went wrong. Try again.' }); };
+const put = (m: Mission) => useData.setState((s) => {
+  const i = s.missions.findIndex((x) => x.id === m.id);
+  const missions = i < 0 ? [m, ...s.missions] : s.missions.map((x) => (x.id === m.id ? m : x));
+  return { missions, lastEventAt: Date.now() };
+});
+const drop = (id: string) => useData.setState((s) => ({ missions: s.missions.filter((m) => m.id !== id), lastEventAt: Date.now() }));
+
+/** Full snapshot: after sign-in, after every (re)connect of the event stream, or after a gap. */
+export async function loadSnapshot() {
+  const [ms, ap, nt] = await Promise.all([
+    api<{ missions: ServerMission[] }>('GET', '/missions'),
+    api<{ approvals: ServerApproval[] }>('GET', '/approvals'),
+    api<{ notifications: Notice[]; read: string[] }>('GET', '/notifications'),
+  ]);
+  useData.setState((s) => ({
+    missions: ms.missions, loaded: true, lastEventAt: Date.now(),
+    ...approvalsState(ap.approvals),
+    serverNotices: nt.notifications,
+    readNotifications: { ...s.readNotifications, ...Object.fromEntries(nt.read.map((i) => [i, true as const])) },
+  }));
+}
+function approvalsState(list: ServerApproval[]) {
+  return { approvals: list as Approval[], approvalDecisions: Object.fromEntries(list.filter((a) => a.status !== 'pending').map((a) => [a.id, a.status as 'approved' | 'denied'])) };
+}
+export async function refreshMission(id: string): Promise<'ok' | 'gone'> {
+  try { put((await api<{ mission: ServerMission }>('GET', `/missions/${id}`)).mission); return 'ok'; }
+  catch (e) { if (e instanceof ApiFailure && e.status === 404) { drop(id); return 'gone'; } throw e; }
+}
+export async function refreshApprovals() { useData.setState(approvalsState((await api<{ approvals: ServerApproval[] }>('GET', '/approvals')).approvals)); }
+export async function refreshNotices() {
+  const nt = await api<{ notifications: Notice[]; read: string[] }>('GET', '/notifications');
+  useData.setState((s) => ({ serverNotices: nt.notifications, readNotifications: { ...s.readNotifications, ...Object.fromEntries(nt.read.map((i) => [i, true as const])) } }));
+}
+export function clearServerData() { useData.setState({ missions: [], approvals: [], serverNotices: [], approvalDecisions: {}, readNotifications: {}, loaded: false, connection: 'off' }); }
+
+async function apiAddMission(input: { text: string; files: MissionFile[]; shared: boolean }): Promise<Mission> {
+  const ids: string[] = [];
+  for (const f of input.files) {
+    if (!f.blob) continue;
+    const fd = new FormData();
+    fd.append('file', f.blob, f.name);
+    ids.push((await api<{ id: string }>('POST', '/uploads', fd)).id);
+  }
+  const r = await api<{ mission: ServerMission }>('POST', '/missions', { text: input.text, files: ids, shared: input.shared }, { idempotencyKey: newKey() });
+  put(r.mission);
+  return r.mission;
+}
+
+const EDITABLE = ['title', 'kind', 'priority', 'criteria'] as const;
+async function apiUpdateMission(id: string, patch: Partial<Mission>) {
+  const before = useData.getState().missions.find((m) => m.id === id);
+  if (!before) return;
+  put({ ...before, ...patch });
+  try {
+    if (patch.shared !== undefined && patch.shared !== before.shared) put((await api<{ mission: ServerMission }>('POST', `/missions/${id}/share`, { shared: patch.shared })).mission);
+    const body: Record<string, unknown> = {};
+    for (const k of EDITABLE) if (patch[k] !== undefined) body[k] = patch[k];
+    if (patch.content?.text !== undefined && patch.content.text !== before.content.text) body.text = patch.content.text;
+    if (patch.objective !== undefined && body.text === undefined && patch.objective !== before.objective) body.text = patch.objective;
+    if (Object.keys(body).length) {
+      const cur = useData.getState().missions.find((m) => m.id === id);
+      put((await api<{ mission: ServerMission }>('PATCH', `/missions/${id}`, body, { ifMatch: cur?.rowVersion ?? before.rowVersion })).mission);
+    }
+  } catch (e) {
+    put(before);
+    await refreshMission(id).catch(() => undefined);
+    await say('Not saved', e);
+  }
+}
+
+async function apiAction(id: string, action: string, body: Record<string, unknown> = {}) {
+  const before = useData.getState().missions.find((m) => m.id === id);
+  try { put((await api<{ mission: ServerMission }>('POST', `/missions/${id}/actions/${action}`, body, { idempotencyKey: newKey() })).mission); }
+  catch (e) { if (before) put(before); await say('Not changed', e); }
+}
+
+async function apiSetStatus(id: string, status: MissionStatus) {
+  const m = useData.getState().missions.find((x) => x.id === id);
+  if (!m) return;
+  if (status === 'archived') return apiAction(id, 'archive', { cancelFirst: true });
+  if (m.status === 'archived') return apiAction(id, 'restore');
+  const action = actionForUiStatus(m.status as UiMissionStatus, status as UiMissionStatus);
+  if (!action) { await say('Not changed', new ApiFailure('ILLEGAL_TRANSITION', 409, `The server decides when a mission becomes ${status}.`)); return; }
+  put({ ...m, status });
+  await apiAction(id, action);
+}
+
+async function apiDelete(id: string) {
+  const before = useData.getState().missions.find((m) => m.id === id);
+  drop(id);
+  try { await api('DELETE', `/missions/${id}`); }
+  catch (e) { if (before) put(before); await say('Not deleted', e); }
+}
+
+async function apiDecide(id: string, decision: 'approved' | 'denied') {
+  const a = useData.getState().approvals.find((x) => x.id === id) as ServerApproval | undefined;
+  if (!a) return;
+  useData.setState((s) => ({ approvalDecisions: { ...s.approvalDecisions, [id]: decision }, lastEventAt: Date.now() }));
+  try {
+    await api('POST', `/approvals/${id}/decision`, { decision, digest: a.digest });
+  } catch (e) {
+    useData.setState((s) => { const d = { ...s.approvalDecisions }; delete d[id]; return { approvalDecisions: d }; });
+    await say('Decision not recorded', e);
+  }
+  await Promise.all([refreshApprovals(), refreshMission(a.missionId)]).catch(() => undefined);
 }
 
 /** Can this account see the mission? Owners see theirs, everyone sees shared ones, administrators see all (owner update u1). */

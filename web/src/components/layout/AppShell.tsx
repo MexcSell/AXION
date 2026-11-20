@@ -3,6 +3,8 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useData } from '@/store/data';
 import { useMe } from '@/store/auth';
 import { useStaffingDriver } from '@/features/mission/staffing';
+import { isApi } from '@/api/mode';
+import { useServerSync } from '@/api/events';
 import { ChatDock } from '@/features/chat/ChatDock';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { TopBar } from './TopBar';
@@ -47,6 +49,9 @@ function StaffingDriver() {
   useStaffingDriver(staffing, update);
   return null;
 }
+
+/** api mode: the server runs staffing; this tab follows its events (Stage 5). */
+function ServerSync() { useServerSync(); return null; }
 
 export function AppShell() {
   const motionEff = useMotionEff();
@@ -117,7 +122,7 @@ export function AppShell() {
         <ToastStack />
         <DialogHost />
         <CommandPalette />
-        <StaffingDriver />
+        {isApi() ? <ServerSync /> : <StaffingDriver />}
         <ChatDock />
       </div>
     </MotionConfig>

@@ -42,6 +42,7 @@ export const AGENT_STATUS: Record<AgentStatus, StatusMeta> = {
 
 export const MISSION_STATUS: Record<MissionStatus, StatusMeta> = {
   draft:     { label: 'Draft', hue: 225, tone: 'neutral' },
+  queued:    { label: 'Queued', hue: 210, tone: 'info' },
   planning:  { label: 'Planning', hue: 200, tone: 'info' },
   running:   { label: 'In Progress', hue: 145, tone: 'good' },
   verifying: { label: 'Verifying', hue: 180, tone: 'info' },
@@ -49,6 +50,7 @@ export const MISSION_STATUS: Record<MissionStatus, StatusMeta> = {
   paused:    { label: 'Paused', hue: 225, tone: 'neutral' },
   completed: { label: 'Completed', hue: 268, tone: 'violet' },
   failed:    { label: 'Failed', hue: 350, tone: 'bad' },
+  canceled:  { label: 'Canceled', hue: 0, tone: 'neutral' },
   archived:  { label: 'Archived', hue: 225, tone: 'neutral' },
 };
 

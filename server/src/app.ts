@@ -12,6 +12,7 @@ import streamRoutes, { startListener } from './events/stream.ts';
 import approvalRoutes from './approvals/routes.ts';
 import notificationRoutes from './notifications/routes.ts';
 import { startStaffingSim } from './missions/staffing-sim.ts';
+import { seedDemo } from './seed/demo.ts';
 import { checkOrigin } from './auth/session.ts';
 
 declare module 'fastify' {
@@ -70,6 +71,7 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   });
 
   startStaffingSim(app, cfg.staffingStepMs ?? 1500);
+  if (cfg.demoSeed) app.onFirstAdmin = async (adminId) => { try { await seedDemo(db, app.cfg.tenantId, adminId); } catch (e) { app.log.error({ err: e }, 'demo seed failed'); } };
   cfg.configure?.(app);
   await app.ready();
   return app;
