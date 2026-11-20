@@ -9,6 +9,9 @@ import missionRoutes from './missions/routes.ts';
 import uploadRoutes from './missions/uploads.ts';
 import multipart from '@fastify/multipart';
 import streamRoutes, { startListener } from './events/stream.ts';
+import approvalRoutes from './approvals/routes.ts';
+import notificationRoutes from './notifications/routes.ts';
+import { startStaffingSim } from './missions/staffing-sim.ts';
 import { checkOrigin } from './auth/session.ts';
 
 declare module 'fastify' {
@@ -57,6 +60,8 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   await app.register(uploadRoutes, { prefix: '/api/v1' });
   app.decorate('eventBus', startListener(app, cfg.databaseUrl));
   await app.register(streamRoutes, { prefix: '/api/v1' });
+  await app.register(approvalRoutes, { prefix: '/api/v1' });
+  await app.register(notificationRoutes, { prefix: '/api/v1' });
 
   app.get('/api/v1/health', async () => {
     let up = false;
@@ -64,6 +69,7 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
     return { ok: up, db: up ? 'up' : 'down', version: VERSION };
   });
 
+  startStaffingSim(app, cfg.staffingStepMs ?? 1500);
   cfg.configure?.(app);
   await app.ready();
   return app;

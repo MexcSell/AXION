@@ -8,6 +8,7 @@ import { DEV, SID, WAIT, clear, newSession, requireAdmin, requireUser, revokeDev
 import { FailLimiter, accountDto, addDevice, checkPassword, createUser, hashPassword, listAccounts, loadAccount } from './service.ts';
 import { NAME_MIN, NAME_MAX, PASSWORD_MIN, NEW_PASSWORD_MIN, PASSWORD_MAX } from '../../../shared/contracts/src/index.ts';
 import { emit } from '../events/hooks.ts';
+import { createNotification } from '../notifications/routes.ts';
 
 const DeviceIn = z.object({ name: z.string().max(80).default('Browser'), kind: z.enum(['desktop', 'laptop', 'phone', 'tablet']).default('desktop'), browser: z.string().max(40).default('Browser') });
 const ConnectIn = z.object({ name: z.string().max(200), password: z.string().max(PASSWORD_MAX), device: DeviceIn.default({ name: 'Browser', kind: 'desktop', browser: 'Browser' }) });
@@ -62,6 +63,7 @@ export default async function authRoutes(app: FastifyInstance) {
         await audit(c, { tenantId, actor: userId, action: first ? 'user.register.first-admin' : 'user.register', subject: userId, result: 'ok', correlationId: cid, detail: { device: deviceId } });
         if (first) return { kind: 'signedIn' as const, userId, deviceId, first: true };
         await emit(c, { tenantId, type: 'user.requested', subject: userId, adminOnly: true, payload: { userId, name: n.display, device: b.device.name } });
+        await createNotification(c, { tenantId, adminsOnly: true, severity: 'warning', category: 'approval', title: `${n.display} wants to join`, body: `New user on ${b.device.name}. Approve or decline in Settings › Users.`, route: '/settings?tab=users', actionable: true });
         return { kind: 'waiting' as const, reason: 'user' as const, userId, deviceId };
       }
       if (!(await checkPassword(u.pass_hash, b.password))) {
@@ -74,7 +76,10 @@ export default async function authRoutes(app: FastifyInstance) {
       if (!d) {
         const id = await addDevice(c, { tenantId, userId: u.id, clientId: clientId!, ...b.device, status: 'pending' });
         d = { id, status: 'pending' };
-        if (u.status === 'approved') await emit(c, { tenantId, type: 'user.requested', subject: u.id, adminOnly: true, payload: { userId: u.id, name: u.name, device: b.device.name, deviceId: id } });
+        if (u.status === 'approved') {
+          await emit(c, { tenantId, type: 'user.requested', subject: u.id, adminOnly: true, payload: { userId: u.id, name: u.name, device: b.device.name, deviceId: id } });
+          await createNotification(c, { tenantId, adminsOnly: true, severity: 'warning', category: 'approval', title: `New device for ${u.name}`, body: `${b.device.name} waits for approval in Settings › Users.`, route: '/settings?tab=users', actionable: true });
+        }
       }
       if (d.status === 'blocked') return { kind: 'denied' as const, code: 'DEVICE_BLOCKED' as const, msg: 'This device is blocked for this user.' };
       if (u.status === 'pending') return { kind: 'waiting' as const, reason: 'user' as const, userId: u.id, deviceId: d.id };
