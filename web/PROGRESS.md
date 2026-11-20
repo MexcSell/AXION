@@ -274,7 +274,7 @@ has the same address); `flows.mjs`/crawls stay demo-mode suites — api mode has
   revoked while offline left the tab "stale" forever; re-login in another tab could leave this tab syncing as nobody; a slow
   refresh could re-add a mission that had just become private. Backups are now consistent (dump + row-count manifest from one
   snapshot, uploads archived).
-- Deferred minors are listed in the ledger (`.superpowers/sdd/plan-2026-11-20_stage5/progress.md`, lines "minor (deferred)").
+- Deferred minors are listed in the ledger (`docs/stage5-ledger.md`, lines "minor (deferred)"; every decision I made for you is a "Ruling:" line there).
 
 **Evidence (2026-11-20, final run).**
 - `cd server && npm test` → **127/127** (migrations up/down/up, append-only audit/events/decisions, sign-in and approvals of
