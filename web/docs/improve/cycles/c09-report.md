@@ -56,3 +56,4 @@ server: `src/conversations/post.ts` (new), `routes.ts`, `direct.ts`, `src/instan
 | `api-c09` | 6/6 PASS |
 | `api-flows` | 23/23 PASS |
 | `api-stage6` | FAIL in this round: stops at step 35 with `page.reload: Timeout 30000ms` (the reload after 130 parallel message posts). It failed the same way three times on the fix round, and also on the pre-fix-round commit f344340 (34/35), so it is not caused by this round. It passed 94/94 earlier on f344340 and on the first review round. Machine load average was about 27 to 30 with 30 queued heavy runs. NOT MET in this round, honest: not re-confirmed green. |
+| verify-all (demo suite, lane dev server 5790) | all steps PASS, including `fs-guard` ("fs guard OK" with the corrected override config) |
