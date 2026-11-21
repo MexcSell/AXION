@@ -164,3 +164,31 @@ Integrator log: one entry per merge request. Times are UTC.
 - **a11y-check (demo):** 50 views, 55 dialogs, 0 violations (131.4 s).
 
 **Follow-up commits:** none.
+
+## Batch 3: c10, c12, c19
+
+- **Merged:** 2026-11-21 ~23:11–23:14 UTC. Pre-batch commit `8e59afa`.
+- **Merge commits (`--no-ff`):**
+  - `6a92798` c10-db-indexes-scale (56125ef): migration 0017 scale indexes, scale benchmark.
+  - `b8666c8` c12-throughput-trend (8d6da53): previous-period trend per scorecard row, weekly throughput route and chart (review I fix on the branch).
+  - `0a0b270` c19-mentoring-plans (6838952): mentoring plans, migration 0023 (review I1/I2 fixed on the branch).
+- **Conflicts:**
+  - c10 `server/test/proposals.test.ts`: migration 0013 up/down/up; the same assertion on both sides, kept HEAD's line and comment.
+  - c12 `web/src/components/layout/CommandCenter.tsx`: c12's weekly throughput block added; c23's `LiveStatus` loading/error line kept instead of c12's plain-div copy of the old line.
+  - c19 `server/src/app.ts`: c04 `historyRoutes` and c19 `mentoringRoutes` both registered.
+  - c19 `shared/contracts/src/agents.ts`: org-history and mentoring DTOs both kept.
+  - c19 `shared/contracts/src/errors.ts`: `NOTHING_TO_ROLL_BACK` and `MENTORING_ACTIVE`, `PLAN_CLOSED`, `MILESTONE_DONE` all kept.
+  - c19 `web/src/api/events.ts`: reconnect re-read and sign-out cancel; c06 `departments` and c19 `mentoring` both kept.
+- **Per-merge checks:** server tsc OK after each. vitest: after c10 31 files 474/474; after c12 33 files 491/491; after c19 34 files 504/504. web tsc OK.
+
+**Batch checks on `0a0b270`:**
+- **api-e2e (exit 0):** api-auth-flow 15/15; api-flows 23/23; api-stage6 94/94; api-improve 107/107; api-c12 ALL PASS (11 checks); api-c19 30/30; **ov-fit (api mode) 32/32, no scroll anywhere.**
+- **verify-all:** exit 1, "1 of 10 STEPS FAILED" (flows). FAIL lines:
+  - `FAIL  Command palette navigates (Ctrl+K): page.waitForURL: Timeout 30000ms exceeded.`
+  - `FAIL  Theme toggle switches html data-theme: locator.click: Timeout 30000ms exceeded.`
+  - **This is the second occurrence; the same pair failed in batch 1 on `b36a414`, before any batch 2/3 merge, so it predates this batch.** No queued lane (c25, c08, c27) touches the palette or this step.
+  - Likely cause, from reading `CommandPalette.tsx` (not proven): opening the palette also starts `loadHelp()` (c07's lazy registry, line 34) and resets the query in a `useEffect` (line 51). Under load, the help entries can arrive between `fill` and `Enter`, so `results[0]` changes. Alternatively the reset can land after `fill` and clear it. Either way Enter does not open Settings › Navigation, and the palette stays open over the top bar, so the theme toggle click then times out.
+  - `flows.mjs` rerun alone (load ~6.7): exit 0, 21/21 PASS, no console errors. All other verify-all steps PASS.
+- **fit-check:** 77/77 ALL FIT. **ov-fit (demo):** 32/32, no scroll anywhere.
+
+**Follow-up commits:** none.

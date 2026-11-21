@@ -193,3 +193,7 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
 
 ### Live update (23:00Z)
 - Backup axion-20261121T230013Z.dump; restore check PASS; API 5191 restarted on a67d2dd (cycles 1–7, 11, 13, 16, 18, 6, 21, 23, 22). Migrations 1–13 and 15 (14 unused). New routes answer 401 when signed out; health OK.
+
+### Cycle 27: sweep of merged minors (lane w25)
+- Fixed with RED/GREEN: c05 m7 (rollback reason removed from the public event), c05 m6 (refused rollback audited as denied), c11 m3 (help generated from KIND_DEPT), c06 DEMO tags on Operations tiles, ?chat=admin keeps the URL. Listed: c05 m8, c04 m6, c22 M2 (files owned by unmerged branches). Server 475; stage6 94/94; verify-all all 10 steps pass.
+- Review: PASS/PASS, minors only. Cleared (batch 5d).

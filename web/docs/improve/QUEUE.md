@@ -16,6 +16,7 @@ Integration tree: `/home/luca/AXION`, branch `improve-30h`. Merged so far: cycle
 | 5 | c20-org-coverage, c09-server-minors, c15-contract-tests | api-c20, api-c09. After c15: tighten its "// remove after c09 merge" tolerances (truncated + decidedByName required, drop the 2 old task.delegated variants) in a follow-up commit, with contract tests green. |
 | 5b | c25-test-hygiene (CLEARED at 1d0fd4a), then c08-flaky-checks (CLEARED at 60ee4b7) | c08 after c25: c25 fixes the flows Hierarchy step, c08 reverted its own copy of that fix. Run api-c08.mjs. Re-run the full verify-all on the merged tree. |
 | 5c | c24-mobile-fit (CLEARED at bb0551b) | Phone-only CSS (touch.css, every rule inside a ≤900/800/440 px media query) plus api-mobile.mjs (run it; it exits 1 on a FAIL). Desktop fit-check must be unchanged. |
+| 5d | c27-merged-minors (CLEARED at 69019e2) | Merge-tree is clean against improve-30h. Run api-c27.mjs plus the standard set. |
 | 6 | c17-owner-guide | Last (needs c04, c05, c06). Run api-c17 and confirm its 3 "runs after merge" checks now RUN and PASS (not SKIP). |
 
 ## Standard checks (every batch)
