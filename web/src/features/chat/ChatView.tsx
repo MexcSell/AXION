@@ -8,6 +8,7 @@ import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { Segmented } from '@/components/ui/Form';
 import { Tip } from '@/components/ui/Tip';
 import { AGENT_BY_ID } from '@/data/agents';
+import { useAgentsCatalog } from '@/api/agents';
 import type { Attachment, Message, MessageKind } from '@/data/types';
 import { useAuth } from '@/store/auth';
 import { openDialog } from '@/store/ui';
@@ -30,6 +31,8 @@ const writeMinimap = (v: boolean) => { try { localStorage.setItem(MINIMAP_KEY, v
 
 /** Who wrote it: an agent, a human account, or the system. `fallback` is the server's author name (api mode). */
 function useAuthor(id: string, fallback?: string) {
+  // the agent catalog is updated in place (api mode): a memoised bubble re-renders when it changes (rename, new avatar)
+  useAgentsCatalog();
   const acc = useAuth((s) => (id.startsWith('human:') ? s.accounts.find((a) => a.id === id.slice(6)) : undefined));
   if (id.startsWith('human:')) return { kind: 'human' as const, name: acc?.name ?? fallback ?? (id === 'human:owner' ? 'Owner' : 'User'), account: acc };
   const ag = AGENT_BY_ID[id];
