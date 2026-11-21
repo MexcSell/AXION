@@ -54,6 +54,9 @@ beforeAll(async () => {
   await mission('H5', aId, { shared: true, deleted: true }); await instance('H5', 'gm'); await instance('H5', 'coder-01');
   await mission('H6', aId, { shared: true }); await instance('H6', 'gm'); await instance('H6', 'writer-01');
   await mission('H7', mId); await instance('H7', 'gm'); await instance('H7', 'coder-01'); // the member's own private mission
+  // review m2: every final status is excluded, one fixture each (H3 completed, H4 archived above)
+  await mission('H8', aId, { shared: true, status: 'canceled' }); await instance('H8', 'gm'); await instance('H8', 'coder-01');
+  await mission('H9', aId, { shared: true, status: 'failed' }); await instance('H9', 'gm'); await instance('H9', 'coder-01');
   await q(`insert into tenants(id,name) values ('t-2','Other')`);
   await q(`insert into users(id,tenant_id,name,name_key,pass_hash,role,status) values ('u-x','t-2','X','x','h','admin','approved')`);
   await mission('O1', 'u-x', { shared: true, tenant: 't-2' }); await instance('O1', 'gm', 't-2'); await instance('O1', 'coder-01', 't-2');
@@ -110,7 +113,7 @@ describe('revisions and diff', () => {
     const r = await diff(A, 2);
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ seq: 2, against: 1, added: [], removed: [], moved: [{ subordinate: 'coder-01', from: 'gm', to: 'ops-01' }] });
-    // H3 completed, H4 archived, H5 deleted, H6 no Coder-01, O1 another tenant; an administrator sees every mission (H7 too)
+    // H3 completed, H4 archived, H8 canceled, H9 failed, H5 deleted, H6 no Coder-01, O1 another tenant; an administrator sees every mission (H7 too)
     expect(r.body.impact.map((x: { instanceId: string }) => x.instanceId)).toEqual(['H1:coder-01', 'H2:coder-01', 'H7:coder-01']);
     expect(r.body.impact[0]).toEqual({ missionId: 'H1', title: 'Mission H1', agentId: 'coder-01', instanceId: 'H1:coder-01', demo: false });
   });
@@ -124,7 +127,7 @@ describe('revisions and diff', () => {
 
   it('?against: any revision, 0 = before any revision; revision 1 by default against 0', async () => {
     const r1 = await diff(M, 1);
-    expect(r1.body).toMatchObject({ seq: 1, against: 0, removed: [], moved: [] });
+    expect(r1.body).toMatchObject({ seq: 1, against: 0, removed: [], moved: [], impact: [] }); // review m1: no manager changed
     expect(r1.body.added.length).toBe(rev1.length);
     const back = await diff(M, 1, '?against=2');
     expect(back.body).toMatchObject({ seq: 1, against: 2, added: [], removed: [], moved: [{ subordinate: 'coder-01', from: 'ops-01', to: 'gm' }] });

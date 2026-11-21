@@ -1,9 +1,9 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  GitPullRequest, Plus, Minus, ArrowRight, Check, X, Undo2, Clock, CheckCircle2, XCircle, Hourglass, AlertOctagon, AlertTriangle, ShieldCheck, Lock, Lightbulb, History,
+  GitPullRequest, Plus, Check, X, Undo2, Clock, CheckCircle2, XCircle, Hourglass, AlertOctagon, AlertTriangle, ShieldCheck, Lock, Lightbulb, History,
 } from 'lucide-react';
-import type { OrgDryRun, OrgEdgeDto, OrgProposalDto, OrgProposalStatus } from '@contracts';
+import type { OrgDryRun, OrgProposalDto, OrgProposalStatus } from '@contracts';
 import { Panel } from '@/components/ui/Panel';
 import { Segmented } from '@/components/ui/Form';
 import { Chip } from '@/components/ui/Chips';
@@ -11,17 +11,16 @@ import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useAgentsCatalog } from '@/api/agents';
 import { useOrgProposals, decideProposal, withdrawProposal } from '@/api/orgProposals';
-import { AGENT_BY_ID } from '@/data/agents';
 import { isAdmin, useMe } from '@/store/auth';
 import { openDialog, toast } from '@/store/ui';
 import { ago, cx } from '@/lib/format';
 import { OrgHistory } from './OrgHistory';
+import { Line } from './OrgLine';
 import '@/theme/pages/overview-org-agent.css';
 
 /* Improvement cycle 1 (api mode): the server's organisation proposals. Only stored facts are shown: the lines a
    proposal adds and removes, the dry-run errors and warnings, its base revision and its status. No estimates. */
 
-const name = (id: string) => AGENT_BY_ID[id]?.name ?? id;
 const STATUS: Record<OrgProposalStatus, { label: string; hue: number; icon: typeof Clock }> = {
   pending: { label: 'Pending', hue: 38, icon: Clock },
   approved: { label: 'Approved', hue: 145, icon: CheckCircle2 },
@@ -31,15 +30,6 @@ const STATUS: Record<OrgProposalStatus, { label: string; hue: number; icon: type
   expired: { label: 'Expired', hue: 225, icon: Hourglass },
   withdrawn: { label: 'Withdrawn', hue: 225, icon: Undo2 },
 };
-
-export function Line({ e, kind }: { e: OrgEdgeDto; kind: 'add' | 'rm' }) {
-  return (
-    <span className={cx('oa-line', kind)} data-line={kind} data-from={e.supervisorId} data-to={e.subordinateId}>
-      {kind === 'add' ? <Plus size={11} aria-label="added" /> : <Minus size={11} aria-label="removed" />}
-      <b>{name(e.supervisorId)}</b><ArrowRight size={11} aria-hidden /><b>{name(e.subordinateId)}</b>
-    </span>
-  );
-}
 
 /** The server's dry run: errors (red), warnings (amber), and the reporting lines added and removed as "A → B". */
 export function DryRunView({ r, max = 6 }: { r: OrgDryRun; max?: number }) {

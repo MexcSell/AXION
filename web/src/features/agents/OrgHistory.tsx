@@ -15,7 +15,7 @@ import { AGENT_BY_ID } from '@/data/agents';
 import { isAdmin, useMe } from '@/store/auth';
 import { toast } from '@/store/ui';
 import { ago, cx } from '@/lib/format';
-import { Line } from './ServerProposals';
+import { Line } from './OrgLine';
 import '@/theme/pages/overview-org-agent.css';
 
 /* Improvement cycle 4 (api mode): the organisation's history. One card per stored revision (newest first) with who made it
@@ -89,7 +89,7 @@ function DiffView({ d }: { d: OrgDiffDto }) {
         )}
       </Section>
       <Section title="Active missions affected" help="org.history.impact" count={d.impact.length}>
-        {d.impact.length === 0 ? <div className="dim" style={{ fontSize: 12.5 }} data-impact="none">No active mission you can see has an agent whose manager changed.</div> : (
+        {d.impact.length === 0 ? <div className="dim" style={{ fontSize: 12.5 }} data-impact="none">{d.against === 0 ? 'The first revision: every line is new, so no agent\'s manager changed.' : 'No active mission you can see has an agent whose manager changed.'}</div> : (
           <ul className="oa-impact" data-impact={d.impact.length}>
             {d.impact.map((x) => (
               <li key={x.instanceId} data-impact-mission={x.missionId} data-impact-agent={x.agentId}>
@@ -158,7 +158,7 @@ export function OrgHistory({ switcher, onRolledBack }: { switcher: ReactNode; on
         : revs.length === 0 ? <EmptyState icon={History} title="No revisions yet" body="The organisation chart has no stored revision." />
         : (
           <div className="oa-hist">
-            <div className="oa-timeline" role="list" aria-label="Org revisions">
+            <div className="oa-htimeline" role="list" aria-label="Org revisions">
               <AnimatePresence initial={false}>
                 {revs.map((r, i) => <div role="listitem" key={r.seq}><RevisionCard r={r} latest={r.seq === latest} selected={r.seq === seq} onSelect={() => setPicked(r.seq)} index={i} /></div>)}
               </AnimatePresence>

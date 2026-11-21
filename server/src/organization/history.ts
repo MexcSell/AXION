@@ -32,7 +32,7 @@ const REVISIONS = `select r.*, u.name as created_by_name, p.id as proposal_id, p
   left join users u on u.id = r.created_by and u.tenant_id = r.tenant_id
   left join org_proposals p on p.tenant_id = r.tenant_id and p.applied_revision = r.seq
   left join lateral (select subject from audit_events x where x.tenant_id = r.tenant_id and x.action = 'agent.create' and x.result = 'ok'
-                       and jsonb_typeof(x.detail->'revision') = 'number' and (x.detail->>'revision')::int = r.seq order by x.id limit 1) a on true
+                       and case when jsonb_typeof(x.detail->'revision') = 'number' then (x.detail->>'revision')::int end = r.seq order by x.id limit 1) a on true
   where r.tenant_id = $1`;
 
 const sourceOf = (r: Row): OrgRevisionSource =>
@@ -113,7 +113,8 @@ export default async function historyRoutes(app: FastifyInstance) {
     if (!before) throw notFound(`No organisation revision ${against} to compare with.`);
     const d = diffLines(before, after);
     const changed = [...new Set([...d.moved.map((m) => m.subordinate), ...d.added.map((e) => e.subordinateId), ...d.removed.map((e) => e.subordinateId)])];
-    const impact = await impactOf(app.db, { tenantId: ctx.tenantId, admin: ctx.user.role === 'admin', userId: ctx.user.id }, changed);
+    // against 0 (before any revision): every line is new, no agent's manager changed, so nothing is affected (review m1)
+    const impact = against === 0 ? [] : await impactOf(app.db, { tenantId: ctx.tenantId, admin: ctx.user.role === 'admin', userId: ctx.user.id }, changed);
     return { seq, against, ...d, impact };
   });
 

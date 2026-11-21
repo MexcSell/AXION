@@ -312,8 +312,8 @@
 /* Improvement cycle 4: organisation history (api mode) — timeline of revisions, selected revision's diff, rollback */
 .oa-hist { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: var(--gap); align-items: start; }
 @media (max-width: 1000px) { .oa-hist { grid-template-columns: minmax(0, 1fr); } }
-.oa-timeline { position: relative; display: flex; flex-direction: column; gap: 6px; max-height: min(60vh, 520px); overflow-y: auto; padding: 2px 4px 2px 0; }
-.oa-timeline::before { content: ''; position: absolute; left: 17px; top: 14px; bottom: 14px; width: 2px; border-radius: 2px; background: linear-gradient(var(--accent), transparent); opacity: .35; }
+.oa-htimeline { position: relative; display: flex; flex-direction: column; gap: 6px; max-height: min(60vh, 520px); overflow-y: auto; padding: 2px 4px 2px 0; }
+.oa-htimeline::before { content: ''; position: absolute; left: 17px; top: 14px; bottom: 14px; width: 2px; border-radius: 2px; background: linear-gradient(var(--accent), transparent); opacity: .35; }
 .oa-rev { position: relative; width: 100%; display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px 8px 6px; border-radius: 12px; text-align: left; color: var(--text); background: var(--panel-2); border: 1px solid var(--border-soft); cursor: pointer; transition: border-color .2s, background .2s, transform .2s; }
 .oa-rev:hover { border-color: var(--border-strong); transform: translateX(2px); }
 .oa-rev.on { border-color: rgba(var(--accent-rgb), .75); background: rgba(var(--accent-rgb), .12); box-shadow: 0 0 0 1px rgba(var(--accent-rgb), .25), 0 6px 18px rgba(var(--accent-rgb), .15); }

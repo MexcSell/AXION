@@ -252,11 +252,6 @@ try {
   await diffBox(A.p, 1).waitFor({ timeout: 8000 });
   const rb = () => diffBox(A.p, 1).getByRole('button', { name: 'Propose rollback to this revision' });
   check('c04 A selects revision 1: compared with no revision (all lines new), and A gets "Propose rollback to this revision"', (await diffBox(A.p, 1).locator('[data-line="add"]').count()) === rev1.edges.length && (await rb().count()) === 1);
-  // 422: the server refuses a rollback to the active revision; its message shows inline (the request is pointed at revision 2)
-  await A.ctx.route(/\/organization\/revisions\/1\/rollback-proposal$/, (route) => route.continue({ url: route.request().url().replace('/revisions/1/', '/revisions/2/') }));
-  await rb().click();
-  check('c04 422 NOTHING_TO_ROLL_BACK: the server message shows inline', await until(async () => /nothing to roll back/.test(await diffBox(A.p, 1).locator('[role="alert"]').innerText()), 8000));
-  await A.ctx.unroute(/\/organization\/revisions\/1\/rollback-proposal$/);
   // instances of running missions, read before the rollback (SELECT only)
   const pg4 = createRequire(new URL('../../server/package.json', import.meta.url))('pg');
   const managers = async () => { const db = new pg4.Client({ connectionString: e2eUrl }); await db.connect(); try { return (await db.query('select id, manager_instance_id from agent_instances order by id')).rows; } finally { await db.end(); } };
@@ -293,6 +288,12 @@ try {
   check('c04 A\'s History shows revision 3 live (newest first), from "Roll back to revision 1", with the reverse move',
     await until(async () => (await A.p.locator('[data-org-history] [data-revision]').first().getAttribute('data-revision')) === '3' && (await A.p.locator('[data-history-latest="3"]').count()) === 1, 10000)
       && (await revCard(A.p, 3).innerText()).includes('Roll back to revision 1'));
+  // 422, the natural way (review m4): revision 1 now has the same lines as the active revision 3, so there is nothing to roll back
+  await revCard(A.p, 1).click();
+  await diffBox(A.p, 1).waitFor({ timeout: 8000 });
+  await rb().click();
+  check('c04 422 NOTHING_TO_ROLL_BACK: revision 1 equals the active revision 3; the server message shows inline', await until(async () => /same reporting lines as the active revision 3: there is nothing to roll back/.test(await diffBox(A.p, 1).locator('[role="alert"]').innerText()), 8000));
+  check('c04 revision 1 (the first) lists no affected mission: every line was new, nobody\'s manager changed', (await diffBox(A.p, 1).locator('[data-impact="none"]').innerText()).includes('The first revision'));
   await revCard(A.p, 3).click();
   check('c04 the diff of revision 3: Coder-01: Ops-01 → GM, and the same affected missions', await until(async () => (await diffBox(A.p, 3).locator('[data-moved="coder-01"][data-from="ops-01"][data-to="gm"]').count()) === 1, 8000)
     && (await diffBox(A.p, 3).locator('[data-impact-mission]').count()) === d2.impact.length);
@@ -327,11 +328,12 @@ try {
   await C.p.goto(base + PROPOSALS, { waitUntil: 'domcontentloaded' });
   await C.p.getByRole('radio', { name: 'History', exact: true }).click();
   await C.p.locator('[data-org-history]').waitFor({ timeout: 10000 });
-  await revCard(C.p, 1).click();
-  const dC = (await apiOf(C.p)('GET', '/organization/revisions/1/diff')).body;
-  check('c04 member C: History is read only (Read only chip, no rollback button on revision 1), the diff shows her own visible missions',
-    await until(async () => (await diffBox(C.p, 1).count()) === 1, 8000) && (await C.p.locator('[data-org-history]').getByText('Read only', { exact: true }).count()) === 1
-      && (await C.p.getByRole('button', { name: 'Propose rollback to this revision' }).count()) === 0 && (await diffBox(C.p, 1).locator('[data-impact-mission]').count()) === dC.impact.length);
+  await revCard(C.p, 2).click();
+  const dC = (await apiOf(C.p)('GET', '/organization/revisions/2/diff')).body;
+  check('c04 member C: History is read only (Read only chip, no rollback button on the earlier revision 2), the diff shows the missions she can see',
+    await until(async () => (await diffBox(C.p, 2).count()) === 1, 8000) && (await C.p.locator('[data-org-history]').getByText('Read only', { exact: true }).count()) === 1
+      && (await C.p.getByRole('button', { name: 'Propose rollback to this revision' }).count()) === 0
+      && JSON.stringify(await diffBox(C.p, 2).locator('[data-impact-mission]').evaluateAll((els) => els.map((e) => e.getAttribute('data-impact-mission')))) === JSON.stringify(dC.impact.map((x) => x.missionId)), `${dC.impact.length} visible to C`);
 
   // ------------------------------------------------------------ expiry: the server's message stays on the card after its status changes
   // Only the e2e database (axion_e2e, emptied on every API start) is touched, to move one proposal's expiry into the past.
