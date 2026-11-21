@@ -47,6 +47,10 @@ export default function OperationsPage() {
     { key: 'q', icon: ListOrdered, value: QUEUES.reduce((a, q) => a + q.pending + q.running, 0), label: 'Jobs in queues', hint: `${QUEUES.reduce((a, q) => a + q.failed, 0)} failed`, color: '#38bdf8', help: 'ops.kpi.queues', onClick: () => setTab('Queues') },
     { key: 'rb', icon: LifeBuoy, value: 4, suffix: '/5', label: 'Rollback readiness', hint: 'dry-run is stale', color: '#fbbf24', help: 'ops.kpi.rollback', onClick: () => setTab('Recovery') },
   ];
+  // review c06 m10: Working / Learning / Evolving come from the fixture growth and status fields, so in api mode they carry DEMO
+  const agentKpis = tab === 'Agents' && isApi() && section
+    ? section.kpis.map((k) => (['work', 'learn', 'evo'].includes(k.key) ? { ...k, foot: <DemoTag title="Prototype figure: no agent runs work or learns yet" /> } : k))
+    : null;
   const SUB: Record<string, string> = {
     Agents: 'Every agent, its duty, lineage and live instances — managed next to the machines they run on.',
     Models: 'The model gateway. The Model Loader agent picks a fitting model for every agent.',
@@ -56,7 +60,7 @@ export default function OperationsPage() {
       <TopBoard id="operations" icon={Activity} title="System Operations" help="ops.services"
         sub={SUB[tab] ?? 'Services, virtual machines, agents, models, queues, logs and recovery. Read-only by default.'}
         actions={section ? section.actions : <DemoTag />}
-        kpis={section ? section.kpis : opsKpis}
+        kpis={agentKpis ?? (section ? section.kpis : opsKpis)}
         tabs={{ tabs, value: tab, onChange: setTab, icons: ICONS, ariaLabel: 'Operations sections' }}
         toolbar={section?.toolbar} />
       {section ? (
