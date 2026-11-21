@@ -71,6 +71,7 @@ try {
   await B.p.goto(base + '/operations?tab=agents&sub=proposals', { waitUntil: 'domcontentloaded' });
   const card = B.p.locator(`[data-proposal="${P.id}"]`);
   await card.getByRole('button', { name: 'Approve', exact: true }).waitFor({ timeout: 15000 });
+  await B.p.getByRole('radio', { name: 'All', exact: true }).click(); // the decided card stays in view
   await card.getByRole('button', { name: 'Approve', exact: true }).click();
   check('B approves in Agents › Proposals: applied as rev 2', await until(async () => (await B.p.locator(`[data-proposal="${P.id}"][data-status="applied"]`).getByText('applied as rev 2').count()) === 1, 10000));
   const g1 = (await apiA('GET', '/organization/graph')).body;
