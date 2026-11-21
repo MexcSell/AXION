@@ -1,18 +1,17 @@
 import { AnimatePresence, MotionConfig, motion } from 'motion/react';
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useData } from '@/store/data';
 import { useMe } from '@/store/auth';
+import { channelId } from '@/store/chat';
 import { useStaffingDriver } from '@/features/mission/staffing';
 import { isApi } from '@/api/mode';
 import { useServerSync } from '@/api/events';
-import { ChatDock } from '@/features/chat/ChatDock';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { TopBar } from './TopBar';
 import { Rail } from './Rail';
 import { HeroScene } from '@/components/art/HeroScene';
 import { ToastStack } from '@/components/ui/Toasts';
 import { DialogHost } from '@/dialogs/DialogHost';
-import { CommandPalette } from './CommandPalette';
 import { useSettings } from '@/store/settings';
 import { useMotionEff } from './usePreferences';
 import { useUI } from '@/store/ui';
@@ -20,6 +19,16 @@ import { ParticleField } from '@/components/art/ParticleField';
 import { ErrorBoundary } from './ErrorBoundary';
 import { ChevronsDown } from 'lucide-react';
 import { Tip } from '@/components/ui/Tip';
+
+// The command palette and the chat window are not part of the first screen: their chunks load when first wanted
+// (and are fetched when idle, see App's preloader), then stay mounted so their exit animations still play.
+const loadPalette = () => import('./CommandPalette').then((m) => ({ default: m.CommandPalette }));
+const loadChat = () => import('@/features/chat/ChatDock').then((m) => ({ default: m.ChatDock }));
+export const lazyShellParts = [loadPalette, loadChat];
+const CommandPalette = lazy(loadPalette);
+const ChatDock = lazy(loadChat);
+/** True from the first moment `on` is true, for the rest of the component's life. */
+function useEverTrue(on: boolean) { const r = useRef(false); if (on) r.current = true; return r.current; }
 
 function useGlobalShortcuts() {
   const setPalette = useUI((s) => s.setPalette);
@@ -57,6 +66,8 @@ export function AppShell() {
   const motionEff = useMotionEff();
   useGlobalShortcuts();
   const loc = useLocation();
+  const me = useMe();
+  const nav = useNavigate();
   const collapsed = useSettings((s) => s.railCollapsed);
   const skin = useSettings((s) => s.skin);
   const particles = useSettings((s) => s.particles);
@@ -66,6 +77,18 @@ export function AppShell() {
   const setSettings = useSettings((s) => s.set);
   const routeKey = loc.pathname.split('/')[1] || 'overview';
   const mainRef = useRef<HTMLElement>(null);
+  const paletteOpen = useUI((s) => s.paletteOpen);
+  const chatOpen = useUI((s) => s.chat.open);
+  const showPalette = useEverTrue(paletteOpen);
+  const showChat = useEverTrue(chatOpen);
+  // a notification's route (/?chat=admin) opens the line to the administrators (handled here, so the chat chunk need not be loaded to see it)
+  const openChat = useUI((s) => s.openChat);
+  const wantsAdminChat = new URLSearchParams(loc.search).get('chat') === 'admin';
+  useEffect(() => {
+    if (!me || !wantsAdminChat) return;
+    openChat(channelId.admin(me.id));
+    nav(loc.pathname, { replace: true });
+  }, [me, wantsAdminChat, loc.pathname, openChat, nav]);
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => { mainRef.current?.scrollTo({ top: 0 }); setScrolled(false); }, [routeKey]);
@@ -121,9 +144,9 @@ export function AppShell() {
         </main>
         <ToastStack />
         <DialogHost />
-        <CommandPalette />
+        {showPalette && <Suspense fallback={null}><CommandPalette /></Suspense>}
         {isApi() ? <ServerSync /> : <StaffingDriver />}
-        <ChatDock />
+        {showChat && <Suspense fallback={null}><ChatDock /></Suspense>}
       </div>
     </MotionConfig>
   );

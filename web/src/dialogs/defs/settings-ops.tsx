@@ -8,7 +8,7 @@ import { HelpBody } from '@/components/ui/HelpTrigger';
 import { Chip } from '@/components/ui/Chips';
 import { AppearanceControls } from '@/components/settings/AppearanceControls';
 import { FaceControls, FacePreview, RoleGallery, SynthNote } from '@/components/settings/FaceEditor';
-import { getHelp } from '@/help/registry';
+import { LOADING_HELP, loadHelp, useHelpRegistry } from '@/help/load';
 import { SERVICES, SNAPSHOTS } from '@/data/operations';
 import { useSettings, type TextScale } from '@/store/settings';
 import { toast } from '@/store/ui';
@@ -146,7 +146,9 @@ function ServiceRestart({ close, props }: DialogComponentProps<{ unit?: string }
 
 /* DL-62 */
 function HelpDrawer({ close, props }: DialogComponentProps<{ k?: string }>) {
-  const e = getHelp(props.k ?? '');
+  const reg = useHelpRegistry();
+  if (!reg) void loadHelp();
+  const e = reg ? reg.getHelp(props.k ?? '') : LOADING_HELP;
   return (
     <Modal drawer title={e.title} icon={LifeBuoy} size="md" dialogId="DL-62" sub={props.k ? <span className="mono">{props.k}</span> : undefined} onClose={close}
       footer={<><button className="btn" data-autofocus onClick={close}>Dismiss</button><Link className="btn primary" to="/help?tab=guides" onClick={close}><BookOpen size={14} />Open guides</Link></>}>

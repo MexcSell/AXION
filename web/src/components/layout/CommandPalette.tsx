@@ -18,7 +18,7 @@ import { useVms } from '@/features/ops/VMs';
 import { useLineage } from '@/data/lineage';
 import { MODELS, useRoutes } from '@/data/models';
 import { useVisibleNotices } from '@/data/useNotices';
-import { HELP } from '@/help/registry';
+import { loadHelp, useHelpRegistry } from '@/help/load';
 import { useSettings } from '@/store/settings';
 import { AGENTS, AGENT_BY_ID } from '@/data/agents';
 
@@ -30,6 +30,8 @@ export function CommandPalette() {
   const open = useUI((s) => s.paletteOpen);
   const setOpen = useUI((s) => s.setPalette);
   const nav = useNavigate();
+  const helpReg = useHelpRegistry();
+  useEffect(() => { if (open) void loadHelp(); }, [open]);
   const missions = useVisibleMissions();
   const me = useMe();
   const accounts = useAuth((s) => s.accounts);
@@ -102,9 +104,9 @@ export function CommandPalette() {
     for (const n of news) cmds.push({ id: 'nw-' + n.id, group: 'News', label: n.title, hint: domainOf(n.url) || 'news', body: n.content + ' ' + n.tags.join(' '), icon: Newspaper, run: go('/notifications?tab=news') });
     for (const n of notices) cmds.push({ id: 'nt-' + n.id, group: 'Notifications', label: n.title, hint: n.severity, body: n.body, icon: Bell, run: go(n.route ?? '/notifications') });
     for (const l of lessons) cmds.push({ id: 'kn-' + l.id, group: 'Knowledge', label: l.title, hint: `${AGENT_BY_ID[l.agentId]?.name} · ${l.scope === 'own' ? 'kept' : 'shared up'}`, icon: BookOpen, run: go('/operations?tab=agents&sub=lineage') });
-    for (const [k, e] of Object.entries(HELP)) cmds.push({ id: 'h-' + k, group: 'Help', label: e.title, hint: 'help', body: e.what, icon: LifeBuoy, run: go(`/help?tab=context-help&k=${encodeURIComponent(k)}`) });
+    for (const [k, e] of Object.entries(helpReg?.HELP ?? {})) cmds.push({ id: 'h-' + k, group: 'Help', label: e.title, hint: 'help', body: e.what, icon: LifeBuoy, run: go(`/help?tab=context-help&k=${encodeURIComponent(k)}`) });
     return cmds;
-  }, [missions, nav, setOpen, me, accounts, vms, sites, jobs, news, lessons, extraModels, chats, notices, catalog]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [missions, nav, setOpen, me, accounts, vms, sites, jobs, news, lessons, extraModels, chats, notices, catalog, helpReg]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Every word must match; rank label hits above hint/body hits; keep each group short so all kinds of elements show. */
   const results = useMemo(() => {

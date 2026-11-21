@@ -2,17 +2,20 @@ import * as P from '@radix-ui/react-popover';
 import { BookOpen, Lightbulb, Lock, Sparkles, Keyboard, Cog, X, PanelRightOpen } from 'lucide-react';
 import { openDialog } from '@/store/ui';
 import { Link } from 'react-router-dom';
-import { getHelp, type HelpEntry } from '@/help/registry';
+import type { HelpEntry } from '@/help/registry';
+import { LOADING_HELP, loadHelp, useHelpRegistry } from '@/help/load';
 import { Tip } from './Tip';
 
 /** The universal "?" (spec §9.1). Opens an anchored popover with What / Why / How / Example / Permission. */
 export function HelpTrigger({ k, entry, label }: { k?: string; entry?: HelpEntry; label?: string }) {
-  const e = entry ?? getHelp(k ?? '');
+  const reg = useHelpRegistry();
+  const e = entry ?? (reg ? reg.getHelp(k ?? '') : LOADING_HELP);
+  const warm = () => { void loadHelp(); };
   return (
     <P.Root>
       <Tip label={label ?? `Help: ${e.title}`}>
         <P.Trigger asChild>
-          <button type="button" className="help-btn" aria-label={`Help: ${e.title}`} data-help-key={k}>?</button>
+          <button type="button" className="help-btn" aria-label={`Help: ${e.title}`} data-help-key={k} onPointerEnter={warm} onFocus={warm} onClick={warm}>?</button>
         </P.Trigger>
       </Tip>
       <P.Portal>

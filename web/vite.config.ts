@@ -14,5 +14,5 @@ export default defineConfig({
   // /api goes to the AXION server (127.0.0.1:5191; AXION_API=http://127.0.0.1:5192 for the e2e server).
   server: { host: '127.0.0.1', port: 5190, strictPort: false, proxy: { '/api': apiProxy }, fs: { allow: ['.', '../shared'], deny: ['.env', '.env.*', '*.dump', '**/backups/**', '**/server/**'] } },
   preview: { host: '127.0.0.1', port: 4190, proxy: { '/api': apiProxy } },
-  build: { chunkSizeWarningLimit: 1500 },
+  build: { chunkSizeWarningLimit: 400 },
 });

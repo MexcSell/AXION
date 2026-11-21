@@ -16,7 +16,7 @@ import { useData, allApprovals, useVisibleMissions } from '@/store/data';
 import { useMemo } from 'react';
 import { useVisibleNotices } from '@/data/useNotices';
 import { UserAvatar } from '@/components/ui/UserAvatar';
-import { useChatUnread } from '@/features/chat/ChatDock';
+import { useChatUnread } from '@/features/chat/chatHooks';
 import { useAuth, useMe, isAdmin, usePendingApprovals } from '@/store/auth';
 
 const PIPELINE = [
