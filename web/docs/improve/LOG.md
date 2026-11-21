@@ -125,3 +125,19 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
 - Merged with no conflicts. Server 331/331; auth 15/15, flows 23/23, api-improve 83/83; verify-all green; fit 77/77; ov-fit 32/32. First-load static set 243,175 B gzip (the new baseline).
 - api-stage6: 34/35 in 7 of 7 runs, always at the reload after the 130-message burst (the page stays unresponsive ~50 s against a 30 s timeout). A/B: the same failure on 74117b8 (before c07), so c07 isn't the cause.
 - Ruling: resume merges. stage6 counts as passed with its 34 checks before the reload; the reload stall is a known pre-existing issue (lane w6 investigates). A **quiet verification window** near the end of the loop runs api-stage6 in full plus perf-nav on the integrated tree. c05's m5 gate and c07's perf figure are deferred to that window.
+- Fix round (6838952): node_modules symlink untracked; in api mode the Learning/Evolving tiles count real plans and proposals; try/finally in the test. Controller verified. Cleared; merge queued after c05.
+
+### Finding: verify-all's exit code hides failures (~20:30Z)
+- Lane w15 found that verify-all returned rc=0 while flows.mjs printed FAILs ("Hierarchy: click agent → conversation pane", sometimes "Conversations: mission agents pane" and "v1 → v2 migration"). Earlier "verify-all green" claims may hide flow failures.
+- Actions: the integrator greps verify-all output for FAIL from now on and re-checks flows on the integrated tree (before and after the lanes). New lane w19, cycle 21: honest exit codes in every verification script, a per-step summary, and an honest run listing what fails today.
+
+### Cycle 17 fix round (9d710af, e4bd746)
+- Two-admin wording, no "instead of editing directly", pages for c04–c06 written as available, plain language, M2 link to /missions. api-c17 all PASS + 3 SKIP (to run after merge). Cleared; merge after c04, c05 and c06.
+
+### Cycle 14: S1 security hardening (lane w12)
+- Implementer (3a82013, bcb626a, 39130bd, 14e1124): security headers on every response; a strict CSP for the built app (style-src-elem unsafe-inline for react-remove-scroll); per-session write rate limits; CSRF and Origin enforced on all 10 routes added since Stage 5; npm audit 0. Server 385; all api checks pass under the CSP preview.
+- Review: PASS/PASS. I1: the rate-limit map is hand-kept and misses c05/c19 governance writes. Ruling: the integrator adds them plus a route-table test at merge. Queued after c19.
+
+### Cycle 20: A5 org coverage (lane w18)
+- Implementer (0cdfc24, cfea9b1, df91e31): orgCoverage facts (roles covered/missing, duplicate roles, depts without head, span, depth) as warnings in dry runs, History and a Policies card; server 359, api-c20 14/14.
+- Review: PASS/PASS, minors only. Deferred: narrow the older api-improve assertions that ban the word "coverage"; ? help on the coverage sections; the ROLE_CATALOG↔web roles check. Cleared; merge after c04.
