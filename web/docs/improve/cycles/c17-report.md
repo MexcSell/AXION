@@ -35,3 +35,15 @@ size is below the app's fit gate and was replaced by 1440x900; nothing was loose
 - The "Coming when merged" pages must be updated or removed when cycles 4 to 6 merge (the status field is one line each).
 - The guide is hand-written from PROGRESS.md and LOG.md and can go stale; there is no automatic check of its claims.
 - The check is api mode only; demo mode renders the same tab but was only covered by verify-all.
+
+## Fix round (review c17-review.md)
+- **I1** Organization and version proposal pages now say: only administrators can propose and decide, the author cannot approve their own, so two administrators are needed and with one a proposal can be made but never applied.
+- **I2** Dropped "instead of editing the org chart directly". Proposals are the reviewed route for reporting lines; adding an agent places it in the chart directly. Direct edits of an agent's skills, tools or model are single-administrator, audited and versioned, and the owner question on this is stated as open.
+- **History/rollback, version proposals, department facts** rewritten as available features (no "Coming when merged"), from the c04, c05 and c06 reports, with their limits: no one-click undo, rollback past a newer agent cannot be approved, version proposals show no evaluation numbers, department outcomes need execution data (below 5 tasks: "too few to rate"). Statuses are now Real.
+- **Runs-after-merge checks:** these three pages carry an `afterMerge` landmark. `api-c17.mjs` prints `SKIP ... runs after merge` when the landmark is not in the build (all three skip on this branch) and runs the check normally once cycles 4 to 6 are merged. The integrator must run it after merging and expect 3 fewer SKIP lines. For History the check clicks the Proposals / History switch first.
+- **M2** Conversations link goes to `/missions` (no dependence on M-126). **M3** jargon removed (argon2id, "NOT MET", "n of 5", "dry run", "stale check"). **M1** verified-completion wording gained the agent-check path. **M4** Task Flow noted as sample data. **M5** a line at the top of the tab and per-page DEMO wording say the guide describes the server version and the offline demo shows sample data.
+- Also made the fit check wait for the scroll region (it measured before the page rendered once).
+
+Results: `api-c17.mjs` all PASS with 3 SKIP (after merge), fit PASS at 1672x941 and 1440x900. verify-all: typecheck, crawls NO PROBLEMS, dialog smoke 106/106, help keys defined, fs guard OK.
+
+**Concern, not caused by this round:** the demo-mode `flows.mjs` step "Hierarchy: click agent → conversation pane" (and in one verify-all run also "Conversations: mission agents pane" and "v1 to v2 migration") FAILED. It fails identically on the previous commit 03c761f, where verify-all had passed before the lane dev-server override changed, so it looks environmental (the new override or load), not this change. verify-all still returned rc 0 because flows failures do not set the exit code; the integrator should rerun flows on the merged tree.
