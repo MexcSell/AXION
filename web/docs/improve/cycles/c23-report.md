@@ -22,7 +22,7 @@ ChatView empty "Loading the conversation…" / "Could not load…" (1, shared by
 | 2. 0 states without live region, one shared component, errors `role=alert` | PASS for the inventory; slow probe saw "Loading proposals…" and "Loading instances…" announced on 3 pages, fail probe saw alerts on all 6 |
 | 2. script checks live regions and Tab wrap; passes demo and api | PASS: demo 50 views, 55 dialogs, 0 violations; api 40 views, 55 dialogs, 0 violations |
 | 3. no visual change | PASS: failed-load screenshots of /overview, live instances and proposals, before vs after: 10 / 0 / 9 of 1.57 M pixels differ (animation noise). `web/scripts/shot-c23.mjs` |
-| 4. verify-all, api-improve, api-stage6 | see below |
+| 4. verify-all, api-improve, api-stage6 | NOT MET: verify-all was cut by my 590 s timeout during crawl-deep (0 FAIL lines before the cut, run incomplete); api-improve and api-stage6 were not run. Only attributes and one new component changed, but this is unproven. Controller should run them. |
 
 RED evidence: before the fixes the script's api-mode probe found the loading text with no status ancestor (f51f788 + original src); demo run on the base src (without c16 files) gave 29 violations.
 
