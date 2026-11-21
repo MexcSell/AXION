@@ -67,7 +67,8 @@ export function startSync(): () => void {
     // Stage 6: the agent catalog, and each mission's hierarchy, tasks and conversations
     if (type.startsWith('agent.')) agents('a');
     // improvement cycle 1: organisation proposals; an applied one changes the reporting lines (catalog managers + org graph)
-    if (type.startsWith('org.')) proposals('o');
+    // every new org revision (an approved proposal, or a new agent's reporting line) changes which proposals are stale
+    if (type.startsWith('org.') || type === 'agent.created') proposals('o');
     if (type === 'org.revisionApplied') agents('a');
     if (/^(instance|task|mission)\./.test(type)) instances('i'); // Agents pages: Live Instances and each profile's missions
     if (type === 'conversation.messageCreated' && onChannelEvent(e)) return; // a direct channel (GM, administrators, one agent), not a mission thread

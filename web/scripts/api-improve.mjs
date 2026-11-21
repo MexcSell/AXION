@@ -172,13 +172,22 @@ try {
     await until(async () => (await card(B.p, P3.id).locator('[role="alert"]').innerText()).includes('expired') && (await card(B.p, P3.id).getAttribute('data-status')) === 'expired', 8000));
   await B.p.getByRole('radio', { name: 'All', exact: true }).click();
 
+  // ------------------------------------------------------------ fix round: a new agent is a new org revision, so a pending proposal turns stale live
+  const g3 = (await apiA('GET', '/organization/graph')).body;
+  const P4 = (await apiA('POST', '/organization/proposals', { title: 'Tester-01 under Ops-01', why: '', baseRevision: g3.revision.seq, edges: g3.edges.map((e) => (e.subordinateId === 'tester-01' ? { ...e, supervisorId: 'ops-01' } : e)) }, { 'idempotency-key': `c01-p4-${Date.now()}` })).body.proposal;
+  await card(B.p, P4.id).waitFor({ timeout: 10000 });
+  check('a fresh proposal is not stale and can be approved', (await card(B.p, P4.id).getByText(/^stale/).count()) === 0 && !(await card(B.p, P4.id).getByRole('button', { name: 'Approve', exact: true }).isDisabled()));
+  const na = await apiA('POST', '/agents', { name: 'Archivist-01', role: 'archivist', dept: 'Operations', duty: 'Keeps the archive', model: 'claude-sonnet-5-5' }, { 'idempotency-key': `c01-agent-${Date.now()}` });
+  check('creating an agent (a new org revision) marks the pending proposal stale live, Approve off', na.status === 201 && await until(async () => (await card(B.p, P4.id).getByText(`stale: rev ${g3.revision.seq + 1} is active`).count()) === 1 && await card(B.p, P4.id).getByRole('button', { name: 'Approve', exact: true }).isDisabled(), 10000));
+  await apiA('POST', `/organization/proposals/${P4.id}/withdraw`, {});
+
   // ------------------------------------------------------------ A: live status, honest content, screenshot
   await A.p.getByRole('radio', { name: 'All', exact: true }).click();
   check('A sees both decisions live (Applied, Rejected) without reload', await until(async () => (await A.p.locator(`[data-proposal="${P1.id}"][data-status="applied"]`).count()) === 1 && (await A.p.locator(`[data-proposal="${P2.id}"][data-status="rejected"]`).count()) === 1, 10000));
   check('A\'s card shows who decided and the note', (await card(A.p, P1.id).innerText()).includes('Applied by Bea') && (await card(A.p, P1.id).innerText()).includes('Agreed in the Monday review.'));
   const txt = await A.p.locator('[data-proposals]').innerText();
   check('nothing invented: no percentages (coverage, latency, tokens) on the proposal cards', !/\d+\s*%/.test(txt) && !/coverage|latency|tokens/i.test(txt));
-  check('member C reading via the API gets the same three proposals', (await apiOf(C.p)('GET', '/organization/proposals')).body.proposals?.length === 3);
+  check('member C reading via the API gets the same four proposals', (await apiOf(C.p)('GET', '/organization/proposals')).body.proposals?.length === 4);
   await A.p.getByRole('button', { name: /agent boards/i }).first().click({ timeout: 2000 }).catch(() => {}); // more room for the cards
   await A.p.waitForTimeout(900);
   if (DOC_SHOT) await A.p.screenshot({ path: DOC_SHOT });

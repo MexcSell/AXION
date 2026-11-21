@@ -86,7 +86,7 @@ function ProposalCard({ p, active, meId, admin, index, err, setErr }: { p: OrgPr
         <span className="oa-hex" style={{ ['--h' as string]: S.hue }}><GitPullRequest size={18} /></span>
         <div style={{ minWidth: 0, flex: 1 }}>
           <b style={{ fontSize: 14 }}>{p.title}</b>
-          <div className="dim" style={{ fontSize: 11.5 }}>{p.id} · by {p.createdByName} · {ago(ageMin)}</div>
+          <div className="dim" style={{ fontSize: 11.5 }}><span className="mono" title={p.id}>{p.id.slice(0, 11)}</span> · by {p.createdByName} · {ago(ageMin)}</div>
         </div>
         <Chip hue={S.hue} icon={S.icon} size="sm" solid={pending} className={cx(pending && 'oa-pulse')}>{S.label}</Chip>
       </div>

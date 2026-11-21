@@ -238,3 +238,91 @@ applied proposal, a rejected stale one and an expired one. A third browser's hie
   but that file is outside this brief, so it should be a backlog item.
 - Migration 0013 down drops `org_proposals`, and the proposals with it. The applied revisions survive in the append-only
   `org_revisions`/`org_edges`, whose notes name the proposal id.
+
+## Fix round (review `c01-review.md`)
+
+### Changes
+- **I-1, POST /agents could silently undo an applied proposal.** Fixed at the root, in `server/src/agents/org.ts`:
+  - **`createOrgRevision` is now the single lock-then-read path for every org-revision writer.** In order, it:
+    1. takes `lockOrg` (`org-rev:<tenant>`);
+    2. reads the newest revision with `latestRevision()`, which uses `max(seq)` and not `activeRevision()` with its
+       `active_from <= now()` filter;
+    3. builds the edges;
+    4. validates them;
+    5. inserts `seq + 1`.
+  - `edges` may be a function of the latest revision's edges. `POST /agents` now passes
+    `(latest) => [...latest, newLine]`, so it no longer reads the organisation before the lock.
+  - The proposal apply path passes its stored edges with `expectSeq: base_revision`, so a stale base is refused inside the
+    lock too (409 `ORG_CHANGED`).
+  - The seed is unchanged; it also goes through `createOrgRevision`.
+  - `proposals.ts` uses the same `latestRevision` and `lockOrg`; its private `latest()` is gone.
+  - `POST /agents` now also emits `org.revisionApplied` (subjectKind `org`, payload `{revision, previous, agentId}`), and
+    its audit detail carries the revision.
+- **I-2, the chart is one tree under the GM.** `validateOrg` has new errors:
+  - `RETIRED_MANAGER`: a retired agent as a manager;
+  - `GM_HAS_MANAGER`: the GM as a subordinate;
+  - `NOT_UNDER_GM`: an active chain that does not end at the GM, reported once per detached top and naming the agents
+    under it;
+  - `DUPLICATE_LINE`: the same line listed twice, which used to be reported misleadingly as `MULTIPLE_MANAGERS`.
+
+  An unknown manager stays `UNKNOWN_AGENT`, and now also produces `NOT_UNDER_GM` for the active agents under it. Each
+  loop is reported once, with its members ("a → b → c → a"). The depth limit is unchanged: 64 levels below the GM is fine
+  and 65 is `CYCLE`. **`createOrgRevision` runs the full `validateOrg`** after the existing `assertAcyclic` (kept, so a
+  loop is still `ORG_CYCLE`). Any other error is 422 `ORG_INVALID`, so no API path can apply an invalid chart.
+- **Live stale chip:** `web/src/api/events.ts` refreshes the Proposals list on every `org.*` event and on `agent.created`.
+  Together with the new `org.revisionApplied` from `POST /agents`, a pending proposal shows "stale: rev N is active" and
+  disables Approve live when someone creates an agent.
+- **Proposal ids are 128-bit:** `OP-` + 16 random bytes in hex. The card shows the first 11 characters, with the full id
+  on hover.
+- Review minors, done while I was there:
+  - the decision, reject and withdraw compare-and-set updates and `one()` filter by `tenant_id` too;
+  - the canonical sort for the sha uses a plain `<` comparison, not `localeCompare`;
+  - `edgeType` is restricted to `reports_to`, the only type that exists.
+
+### Covering tests (written first)
+RED: `npx vitest run test/org-validate.test.ts test/proposals.test.ts` gave `Tests 9 failed | 30 passed (39)`. The race
+test failed exactly on the silent undo: `AssertionError: expected 'gm' to be 'ops-01'`. The boundary test passed in RED;
+it pins down behaviour that already held.
+
+- `org-validate.test.ts` (+7 tests):
+  - a retired manager (`RETIRED_MANAGER` and `NOT_UNDER_GM` naming the top and its member);
+  - an unknown manager of an active agent;
+  - the GM as a subordinate;
+  - an active chain not ending at the GM;
+  - a 3-agent cycle reported once, naming all three;
+  - the 64/65 depth boundary;
+  - `DUPLICATE_LINE`.
+- `proposals.test.ts` (+3 tests):
+  - `createOrgRevision` refuses an invalid chart (an agent without a manager → `ORG_INVALID` 422; the GM under an agent
+    → 422) and no revision is written;
+  - a retired manager is a dry-run error, and approving it is 422 `ORG_INVALID`;
+  - **the deterministic race:**
+    1. a separate connection X holds `pg_advisory_xact_lock(hashtext('org-rev:t-1'))`;
+    2. `POST /agents` is fired, and the test polls `pg_locks` until it waits on that key;
+    3. a second connection Y, whose transaction starts after POST's (so its `active_from` lies in POST's future, which
+       also exercises the `active_from` gap), commits a revision that moves writer-01 under ops-01;
+    4. X commits;
+    5. the test asserts POST is 201, its revision is the moved one's seq + 1, writer-01 still reports to ops-01, the new
+       agent reports to gm, and exactly one `org.revisionApplied` event (subjectKind `org`) exists for that revision.
+- `api-improve.mjs` (+2 checks, 31 in total): a fresh pending proposal is not stale. Then an agent is created through the
+  API, and B's open card turns "stale: rev N is active" with Approve disabled, live.
+
+### Commands and output
+- `cd server && npx tsc --noEmit -p . && npx vitest run` gave `TSC-OK`, `Test Files 19 passed (19)`,
+  `Tests 258 passed (258)` (248 → 258).
+- `cd web && npx tsc --noEmit -p . && DOC_SHOT=… ./scripts/api-e2e.sh api-auth-flow.mjs api-flows.mjs api-stage6.mjs api-improve.mjs && ./scripts/verify-all.sh`:
+  - `TSC-OK`;
+  - `api-auth-flow 15/15`, `api-flows 23/23`, `api-stage6 94/94`, `api-improve 31/31`, no page errors;
+  - verify-all: build ✓; crawl 77 views NO PROBLEMS; deep crawl NO PROBLEMS; flows, auth flow and u1 flows all PASS with no
+    console or page errors; dialog smoke 106 checks with 0 failures; dialog ids and help keys all defined; fs guard OK;
+    `EXIT 0`.
+- **A flaky check, recorded honestly.** The first run of that command had `api-stage6` at 92/94. Two checks failed: "the
+  server created the next version" and "Versions lists v(n+1)…", both in the designer-01 Edit dialog. That step patches
+  skills and never touches org code. `api-stage6` alone then gave 94/94, and the full command above was re-run from the
+  start and gave 94/94. I could not reproduce it. My guess is a timing flake in that pre-existing step (the dialog's save
+  against the catalog load), not this change, but it was seen once, so it is listed here.
+
+### Commits
+- `a55c14a`: server fix round (I-1, I-2, ids, minors, tests)
+- the web and report commit that follows it (events refresh on `agent.created`, short id display, `api-improve` checks,
+  the screenshot regenerated with four proposals, this section)
