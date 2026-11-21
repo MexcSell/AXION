@@ -320,3 +320,55 @@ seeded sample missions (DEMO tag; `npm run demo:clear`).
 (nobody has connected to the real database yet). Offline prototype: http://127.0.0.1:5190/?data=demo.
 
 **Stage 5 is complete. Do you approve Stage 6?**
+
+## Stage 6 (2026-11-21, owner approval: "yes. all continue, all start")
+
+Plan: `docs/plan-2026-11-21_stage6.md`. Every decision and review finding: `docs/stage6-ledger.md` ("Ruling:" and "minor (deferred)" lines).
+Controller: session axion-53 (axion-9a, which built Stage 5, stood down). The owner pointed to `/home/thomas/subnet-scout` for reference. It is used read-only, for rules only: no fake replies when no model exists, uploads checked at send time, id-cursor paging, a cycle check on the manager chain, retry/reassign returning 409 while running, and "not enough evidence" below 5 samples. It has no agent versions or per-mission threads, so those were designed from the spec.
+
+**What was built**
+- **Agents** (`server/src/agents`, migration 0006):
+  - Definitions keep the prototype ids. 24 agents are seeded idempotently on every start, and `demo:clear` never removes them.
+  - Versions are immutable: changing model, skills or tools adds a version.
+  - The org revision graph is read-only (reorganisation is Stage 11).
+  - Metrics carry provenance: DEMO, or "not enough evidence" below 5 samples over 90 days.
+- **Mission instances** (0007): one instance per agent per mission, pinned to that agent's version.
+  - Delegation and task-attempt history are append-only. Deletes pass only with a transaction-local flag that only `demo:clear` sets.
+  - The team (`agentIds`, `leadId`, `executorId`) is derived from instances.
+  - A startup backfill is idempotent, logs its counts and survives a broken mission.
+  - Real-mission instances are `idle` (0012): nothing executes.
+- **Conversations** (0008):
+  - Threads, append-only messages and receipts, and attachments that must belong to the sender.
+  - The author is always the signed-in user. A person can't post into an agent↔agent thread.
+  - Real missions get one honest note: "Agents don't act yet — this message is stored and will be delivered when execution starts". DEMO missions get a simulation tagged *Simulated*.
+- **Tasks** (0009): the spec §10.6 task state machine. People may only retry, reassign or cancel. A retry keeps the failed attempt.
+- **Direct channels** (0010, 0011): your GM, administrators and agent lines live on the server.
+  - GM and agent lines are private to their owner: a new event and notification audience `owner`, never sent to admins. Admins can't open files attached there.
+  - The administrators line is a real chat between people, and the user is notified when an admin answers.
+- **Web (api mode)**:
+  - The agent catalog, mission hierarchy (version label on every node), tasks and threads come from the server, update live, and page by page.
+  - Loading has retry and backoff. A failed send keeps your draft. Reconnects fill gaps and don't mark messages read.
+  - Agents pages: create and edit through the server (409 inline), server versions, Live Instances, the org chart drawn from the stored reporting lines, and provenance chips. Members see them read-only.
+- **Owner changes:** removed the Overview "tokens recorded" total and the task inspector's "Request Verification" / "QA will verify" toast (both modes).
+- **Honesty fixes:** on real missions, Activity shows "not measured yet" and the Reports tab is an honest empty state. Neither invents numbers or a lead report.
+
+**Reviews.** Each task had a task review on the strongest model where security mattered, and fix rounds:
+- Tasks 2, 3, 4, 6 and 7 needed one fix round each; Tasks 1 and 5 were clean.
+- A final whole-stage review on the strongest model found no privacy or tenant leak. Its 4 Important findings were fixed in one wave and re-reviewed clean: the server typecheck, an invented report on real missions, real instances shown as working, and reconnects marking messages read.
+
+**Evidence (HEAD 26110a5, 2026-11-21)**
+- `cd server && npx tsc --noEmit -p . && npx vitest run` → 17 files, **219/219**.
+- `cd web && npx tsc --noEmit -p .` → clean.
+- `web/scripts/api-e2e.sh api-auth-flow.mjs api-flows.mjs api-stage6.mjs` → **15/15, 23/23, 94/94**, no page errors.
+- `web/scripts/verify-all.sh` (demo mode) → crawls NO PROBLEMS, dialog smoke 104 checks / 0 failures, help keys and dialog ids OK, fs guard OK.
+- **Real database:**
+  1. `npm run db:backup` → `backups/axion-20261121T110311Z.dump`, then `db:restore-check` → PASS.
+  2. The API on 5191 was restarted on Stage 6 code, which applied migrations 1–12 and seeded 24 agents, 24 versions, 1 org revision and 23 edges. The backfill had no missions to fill.
+  3. A second restart changed nothing (24 / 24 / 1), which shows startup is idempotent. `/auth/hello` → `firstEver: true`: nobody has signed in yet, so the first name that connects becomes administrator.
+- Screenshots: `docs/screenshots/stage6-*-dark.png`: hierarchy, demo thread, real thread, task actions, agents directory, hierarchy, live instances, versions, admin line, GM line.
+
+**Still DEMO after Stage 6:** plug-in (Job Search) chat, lineage knowledge, Activity numbers on demo missions, artifacts/results, the timeline of real missions, model routing, News, and the Operations tabs other than the server panel.
+
+**Open for the owner:** may members decide approvals on shared missions (from Stage 5)? Light-mode screenshots for Stage 6 were not regenerated.
+
+**Rollback:** `?data=demo`. `cd server && npm run migrate -- down 5` removes Stage 6 and keeps Stage 5 data, or restore the dump above. Or `git revert` the Stage 6 commits.

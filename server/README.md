@@ -1,4 +1,4 @@
-# AXION server (Stage 5)
+# AXION server (Stages 5–6)
 
 Fastify + PostgreSQL API for the AXION web app: sign-in with administrator approval of users and devices, missions with
 a server-side state machine, approvals, notifications, a durable event log and a live event stream (SSE).
@@ -60,6 +60,21 @@ server (`myapp`, `agentapp`, `ajp`, `ajp_test`, `postgres`) are never read or ch
   `DELETE /missions/:id`, `POST /uploads` (≤ 25 MB, type checked from the bytes), `GET /uploads/:id`.
 - Approvals: `GET /approvals`, `POST /approvals/:id/decision {decision, digest, reason?}`.
 - Notifications: `GET /notifications`, `POST /notifications/:id/ack`, `POST /notifications/ack-all {ids}`.
+- Agents (Stage 6): `GET /agents`, `GET /agents/:id` (with versions), `POST /agents` (admin, Idempotency-Key; 409
+  `ROLE_TAKEN`/`DUTY_TAKEN`), `PATCH /agents/:id` (admin, If-Match; a model/skills/tools change adds an immutable version),
+  `GET /organization/graph`, `GET /organization/revisions`. 24 agents and org revision 1 are seeded on every start (idempotent,
+  independent of `DEMO_SEED`; `demo:clear` never removes them).
+- Mission instances: `GET /missions/:id/hierarchy`, `GET /missions/:id/tasks`, `GET /agent-instances[?agentId=]`,
+  `GET /agent-instances/:id`. Each instance is pinned to the agent version active when it joined. A startup backfill gives
+  existing missions their instances, delegations, tasks and (demo) threads; it is idempotent and skips a broken mission.
+- Tasks: `POST /tasks/:id/{retry|reassign|cancel}` (Idempotency-Key). Every other task state change is system-only.
+- Conversations: `GET /missions/:id/threads`, `POST /missions/:id/threads {instanceId}`,
+  `GET /threads/:id/messages?before=&limit=&mark=0` → `{messages, hasMore, nextBefore}`, `POST /threads/:id/messages`
+  (Idempotency-Key; the author is always the signed-in user; only `command`/`reply`; 422 `THREAD_NOT_HUMAN` in agent↔agent
+  threads). Real missions get one honest note instead of invented replies; DEMO missions get a labelled simulation.
+- Direct channels: `GET /channels`, `GET|POST /channels/{gm|admin|agent:<id>}/messages`, admins:
+  `/channels/admin/:userId/messages`. GM and agent channels are private to their owner (event + notification audience
+  `owner`, never admins).
 - Live: `GET /events/stream` (SSE; `Last-Event-ID` replay; `ping` every 15 s; per-user filtering).
 
 ## Patterns taken from the axor backend (`/home/luca/axor/backend`, read only)
@@ -80,5 +95,6 @@ Not taken: axor's single-connection SQLite→Postgres shim, ad hoc migrations an
 ## Rollback
 
 1. Web: `?data=demo` (or `VITE_DATA_MODE=demo`) brings back the browser-only prototype.
-2. Data: `npm run migrate -- down 0`, or restore a dump.
+2. Data: `npm run migrate -- down 5` removes Stage 6 (migrations 0006–0012) and keeps Stage 5 data; `down 0` empties the
+   schema; or restore a dump (`backups/axion-20261121T110311Z.dump` was taken right before the Stage 6 migration).
 3. Remove everything: `dropdb` `axion`, `axion_test`, `axion_e2e`, `axion_restore_check`; `drop role axion`.
