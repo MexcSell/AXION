@@ -15,9 +15,11 @@ import { useData, useMission } from '@/store/data';
 import { useMe } from '@/store/auth';
 import { isApi } from '@/api/mode';
 import { toast } from '@/store/ui';
-import { AGENT_BY_ID } from '@/data/agents';
+import { AGENT_BY_ID, AGENTS } from '@/data/agents';
+import { useAgentsCatalog } from '@/api/agents';
 import type { MissionFile, MissionFileKind } from '@/data/types';
 import { deriveTitle, fileKind, guessKind, staffingPlan } from '@/features/mission/staffing';
+import { orgStaffing, type OrgView } from '@/features/mission/staffing-org';
 import { KIND_META } from '@/features/mission/MissionBits';
 import { cx } from '@/lib/format';
 import '@/theme/pages/mission-add.css';
@@ -38,6 +40,11 @@ const IDEAS = [
 ];
 const fmtSize = (n: number) => (n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 let seq = 1;
+/** The organisation as the api-mode catalog holds it (managerId comes from the active org revision). */
+const catalogOrg = (): OrgView => ({
+  agents: AGENTS.map((a) => ({ id: a.id, dept: a.dept, active: (a as { lifecycle?: string }).lifecycle !== 'retired' })),
+  edges: AGENTS.filter((a) => a.managerId).map((a) => ({ supervisorId: a.managerId!, subordinateId: a.id })),
+});
 
 /** DL-01 Add mission (owner update 2026-11-20 u1): only the mission's content — text and files. The GM does the rest. */
 function MissionAdd({ close, props }: DialogComponentProps<{ text?: string; cloneFrom?: string; template?: string }>) {
@@ -67,7 +74,9 @@ function MissionAdd({ close, props }: DialogComponentProps<{ text?: string; clon
 
   const kind = guessKind(text, files);
   const title = deriveTitle(text, files);
-  const plan = useMemo(() => staffingPlan(kind, text), [kind, text]);
+  const catalog = useAgentsCatalog();
+  // api mode (cycle 11): the server staffs a new mission from the active organisation; preview the same choice
+  const plan = useMemo(() => (isApi() ? orgStaffing(kind, staffingPlan(kind, text), catalogOrg()) : staffingPlan(kind, text)), [kind, text, catalog]); // eslint-disable-line react-hooks/exhaustive-deps
   const exec = AGENT_BY_ID[plan.executorId];
 
   const submit = () => {
@@ -76,7 +85,8 @@ function MissionAdd({ close, props }: DialogComponentProps<{ text?: string; clon
     window.setTimeout(async () => {
       try {
         const m = await add({ text, files, shared }, me);
-        toast({ tone: 'success', title: `${m.id} added`, body: `The General Manager is appointing ${exec?.name ?? 'an executor'}, who will bring the agents.` });
+        const appointed = AGENT_BY_ID[m.executorId ?? plan.executorId] ?? exec;
+        toast({ tone: 'success', title: `${m.id} added`, body: `The General Manager is appointing ${appointed?.name ?? 'an executor'}, who will bring the agents.` });
         close();
         nav(`/missions/${m.id}?tab=overview`);
       } catch (e) {

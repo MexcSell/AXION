@@ -49,10 +49,12 @@ export function startStaffingSim(app: FastifyInstance, stepMs = 1500) {
         const u = await c.query(`update missions set presentation = presentation || $2::jsonb, status=$3, row_version=row_version+1, updated_at=now() where id=$1 and status=$4 returning id`,
           [id, JSON.stringify(pres), to, r.status]);
         if (!u.rowCount) return false;
-        const st = rest.staffing as { stage: string; joined: number; plan: { agentId: string; why: string }[] };
+        const st = rest.staffing as { stage: string; joined: number; plan: { agentId: string; why: string; managerId?: string }[] };
         const joinedAgent = st.stage === 'recruiting' ? st.plan[st.joined - 1]?.agentId : st.stage === 'appointing' ? p.executorId : undefined;
         if (joinedAgent && joinedAgent !== 'gm') {
-          const mgr = st.stage === 'appointing' ? 'gm' : (p.executorId as string);
+          // cycle 11: a real mission's plan names each agent's manager (fixed when the mission was created); DEMO plans never do
+          const planned = st.stage === 'recruiting' ? st.plan[st.joined - 1]?.managerId : undefined;
+          const mgr = st.stage === 'appointing' ? 'gm' : !simulated && planned && team.includes(planned) ? planned : (p.executorId as string);
           await joinMission(c, { tenantId: r.tenant_id, missionId: id, agentId: joinedAgent, managerAgentId: mgr, simulated,
             task: st.stage === 'appointing' ? 'General executor' : st.plan[st.joined - 1]?.why ?? '' });
         }

@@ -4,6 +4,7 @@ import type { Ctx } from '../auth/session.ts';
 import { toUiStatus, type MissionStatus } from './machine.ts';
 import { VISIBLE_SQL } from './visibility.ts';
 import { guessKind, deriveTitle, staffingPlan } from '../../../web/src/features/mission/staffing-plan.ts';
+import { orgStaffing, type OrgView } from '../../../web/src/features/mission/staffing-org.ts';
 import type { MissionFileDto } from '../../../shared/contracts/src/index.ts';
 
 export const SELECT_MISSION = `
@@ -18,17 +19,23 @@ export const SELECT_MISSION = `
 
 const PHASES = ['Plan', 'Design', 'Build', 'Verify', 'Deliver', 'Learn'];
 
-/** DEMO-only display fields for a new mission (same values as the prototype's addMission). */
-export function defaultPresentation(text: string, files: MissionFileDto[], ownerName: string, now = Date.now()) {
+/**
+ * Display fields for a new mission (same values as the prototype's addMission). With `org` (cycle 11: every real mission
+ * created through POST /missions) the executor and the planned agents' managers follow that organisation; the plan is
+ * stored here, so a later org change never alters this mission's staffing.
+ */
+export function defaultPresentation(text: string, files: MissionFileDto[], ownerName: string, now = Date.now(), org?: OrgView) {
   const kind = guessKind(text, files as never);
-  const { executorId, plan } = staffingPlan(kind, text);
+  const fixture = staffingPlan(kind, text);
+  const fromOrg = org ? orgStaffing(kind, fixture, org) : undefined;
+  const { executorId, plan } = fromOrg ?? fixture;
   return {
     kind,
     title: deriveTitle(text, files as never),
     presentation: {
       progress: 0, tasksVerified: 0, tasksTotal: plan.length + 2, blocked: 0,
       agentIds: ['gm'], leadId: 'gm', executorId,
-      staffing: { stage: 'reading', plan, joined: 0, log: [{ at: now, by: 'gm', text: `GM is reading the mission from ${ownerName}` }] },
+      staffing: { stage: 'reading', plan, joined: 0, log: [{ at: now, by: 'gm', text: `GM is reading the mission from ${ownerName}` }], ...(fromOrg ? { org: fromOrg.origin } : {}) },
       summary: 'The General Manager is reading the mission and will appoint a general executor.', summaryAt: now,
       lastEvent: `Added by ${ownerName}`, lastEventAt: now,
       elapsedH: 0, dueInDays: 7, version: 'v0.1.0',

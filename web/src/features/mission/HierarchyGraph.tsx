@@ -236,6 +236,8 @@ function HierarchyGraphView({ mission, selected, onSelect, onOpenChat }: GraphPr
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   transition={{ delay: p.depth * .12 + i * .03, type: 'spring', stiffness: 260, damping: 22 }}
                   role="button"
+                  data-agent={n.agentId}
+                  data-parent={n.parent ? nodeMap[n.parent]?.agentId ?? '' : ''}
                   tabIndex={0}
                   aria-pressed={sel}
                   aria-label={`${a.name}, ${ROLES[a.role].label}, ${n.state}, task: ${n.task}`}
