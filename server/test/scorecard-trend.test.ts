@@ -92,6 +92,17 @@ describe('weekly throughput', () => {
     expect(w.map((x) => x.started)).toEqual([0, 0, 0, 0, 0, 1, 1, 1]);
     expect(w.map((x) => x.finished)).toEqual([0, 0, 0, 0, 0, 0, 1, 1]);
   });
+  it('fail in week 3 → retry → complete in week 6 counts once, in week 6; the sum equals the distinct finished missions', () => {
+    const s = empty();
+    mission(s, 'R', 40 * D, [['failed', 35 * D], ['running', 30 * D], ['completed', 8 * D]]); // oldest week index 0 ... failed ~5 weeks ago, completed 8 days ago
+    mission(s, 'Q', 20 * D, [['completed', 2 * D]]);
+    mission(s, 'Z', 20 * D, [['failed', 70 * D]]); // outside the 8 weeks (final long ago)
+    const w = computeThroughput(s, { weeks: 8, to: NOW, includeDemo: false }).weeks;
+    expect(w.map((x) => x.finished)).toEqual([0, 0, 0, 0, 0, 0, 1, 1]);
+    expect(w.reduce((a, x) => a + x.finished, 0)).toBe(2);
+    const sc = computeScorecard(s, { window: '7d', from: W7.from, to: W7.to, includeDemo: false }).rows.find((r) => r.key === 'finished')!;
+    expect(w[7].finished).toBe(sc.value);
+  });
   it('ignores rows of missions outside the mission set', () => {
     const s = empty();
     s.runs.push({ missionId: 'X', startedAt: at(1 * D) });

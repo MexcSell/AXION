@@ -175,14 +175,23 @@ export function computeScorecard(input: ScoreInput, opt: { window: ScorecardWind
 
 export const THROUGHPUT_WEEKS_MAX = 26;
 /** Weekly counts (no ratios): missions started and finished in each of the last `weeks` weeks ending at `to`, oldest first.
- *  Each week uses the scorecard's own rules (first run; last final transition at or before the week's end). */
+ *  Started = first run in the week. Finished = each mission once, by its LAST terminal transition as of `to` (not a restore
+ *  from the archive), placed in the week of that transition (so fail → retry → complete counts once, in the completion week,
+ *  and the last week equals the 7-day scorecard's finished count). */
 export function computeThroughput(input: ScoreInput, opt: { weeks: number; to: Date; includeDemo: boolean }): ThroughputDto {
+  const to = opt.to.getTime();
+  const ids = new Set(input.missions.map((m) => m.id));
+  const lastFinal = new Map<string, number>(); // same rule as computeRows: the last final transition that is not a restore
+  for (const e of input.transitions.filter((x) => ids.has(x.missionId) && x.at.getTime() <= to).sort((a, b) => a.at.getTime() - b.at.getTime())) {
+    if (FINAL.has(e.to) && e.from !== 'archived') lastFinal.set(e.missionId, e.at.getTime());
+  }
   const out: ThroughputDto['weeks'] = [];
   for (let k = opt.weeks - 1; k >= 0; k--) {
-    const to = new Date(opt.to.getTime() - k * 7 * DAY);
-    const from = new Date(to.getTime() - 7 * DAY + 1);
-    const rows = computeRows(input, from, to);
-    out.push({ from: from.toISOString(), to: to.toISOString(), started: rows.find((r) => r.key === 'started')!.value as number, finished: rows.find((r) => r.key === 'finished')!.value as number });
+    const wTo = to - k * 7 * DAY;
+    const wFrom = wTo - 7 * DAY + 1;
+    const started = computeRows(input, new Date(wFrom), new Date(wTo)).find((r) => r.key === 'started')!.value as number;
+    const finished = [...lastFinal.values()].filter((t) => t >= wFrom && t <= wTo).length;
+    out.push({ from: new Date(wFrom).toISOString(), to: new Date(wTo).toISOString(), started, finished });
   }
   return { weeks: out, includeDemo: opt.includeDemo, to: opt.to.toISOString() };
 }

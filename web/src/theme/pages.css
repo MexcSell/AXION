@@ -18,8 +18,7 @@
 .sc-row .sc-val { font-weight: 700; text-align: right; min-width: 44px; }
 .sc-row.none .sc-val { color: var(--text-muted); font-weight: 600; }
 .sc-row .sc-prev { font-size: 11px; color: var(--text-muted); text-align: right; white-space: nowrap; }
-.sc-row .sc-prev.on.tr-up { color: var(--accent-2); }
-.sc-row .sc-prev.on.tr-down { color: var(--warn, #f59e0b); }
+.sc-row .sc-prev.on { color: var(--text); } /* direction only: no good/bad colour (up is worse for failure rate and waiting time) */
 .sc-tput { display: grid; grid-template-columns: 38px minmax(0, 1fr) 15px; align-items: center; gap: 7px; height: 30px; padding: 0 4px; margin-top: 2px; }
 .sc-tput-l { display: flex; flex-direction: column; font-size: 9.5px; line-height: 1.15; }
 .sc-row .sc-n { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); text-align: right; }
