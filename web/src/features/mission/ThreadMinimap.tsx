@@ -2,7 +2,8 @@ import { AnimatePresence, motion } from 'motion/react';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { AGENT_BY_ID } from '@/data/agents';
 import type { Message, MessageKind } from '@/data/types';
-import { clock, cx, dateLabel } from '@/lib/format';
+import { cx } from '@/lib/format';
+import { clockOf, dayOf, type MapRow } from '@/features/chat/threadWindow';
 
 /*
  * VS Code–style minimap for a conversation thread (owner 2026-11-20 (d)): every message is drawn as a tiny block of "text lines"
@@ -16,76 +17,55 @@ const BLOCK_MIN = 3;
 const MAX_SCALE = .2;  // like VS Code: short threads stay small at the top instead of stretching
 const LANE = 34;      // px width of the block lane
 
-export function ThreadMinimap({ scroller, msgs, me, kindHue, deps }: {
+export function ThreadMinimap({ scroller, msgs, rows, me, kindHue, deps }: {
   scroller: RefObject<HTMLDivElement | null>; msgs: Message[]; me: string; kindHue: Record<MessageKind, number>; deps: unknown;
+  /** improvement cycle 26: where each message sits in the (virtualised) thread, from ChatThreadView's geometry model,
+   *  measured or estimated, so every message gets a block whether or not its row is in the DOM */
+  rows: MapRow[];
 }) {
   const rail = useRef<HTMLDivElement>(null);
   const [railH, setRailH] = useState(0);
   const [geo, setGeo] = useState({ top: 0, client: 1, height: 1 });
-  const [items, setItems] = useState<Item[]>([]);
   const [hoverY, setHoverY] = useState<number | null>(null);
   const [active, setActive] = useState(false); // scrolling or dragging → show the floating time chip
   const [drag, setDrag] = useState(false);
   const idle = useRef<number>(0);
 
-  const byId = useMemo(() => Object.fromEntries(msgs.map((m) => [m.id, m])), [msgs]);
-
-  const measure = useCallback(() => {
-    const el = scroller.current;
-    if (!el) return;
-    setGeo({ top: el.scrollTop, client: el.clientHeight, height: Math.max(el.scrollHeight, 1) });
+  const byId = useMemo(() => new Map(msgs.map((m) => [m.id, m])), [msgs]);
+  const items = useMemo(() => {
     let lastDay = '';
-    const out: Item[] = [];
-    el.querySelectorAll<HTMLElement>('[data-mid]').forEach((w) => {
-      const m = byId[w.dataset.mid!];
-      if (!m) return;
-      const row = w.querySelector<HTMLElement>('.bubble-row') ?? w;
-      const bub = row.querySelector<HTMLElement>('.bubble') ?? row;
-      const day = dateLabel(m.agoMin, m.ts);
+    return msgs.map((m, i): Item => {
+      const r = rows[i] ?? { top: 0, h: 0, w: .3 };
+      const day = dayOf(m);
       const human = m.from.startsWith('human:');
-      out.push({
-        id: m.id, top: row.offsetTop, h: row.offsetHeight, w: Math.min(LANE - 4, Math.max(8, (bub.offsetWidth / Math.max(el.clientWidth, 1)) * LANE)), // .thread-body is the offsetParent
-        side: human ? 'human' : m.from === me ? 'right' : 'left', hue: kindHue[m.kind], time: clock(m.agoMin, m.ts),
+      return {
+        id: m.id, top: r.top, h: r.h, w: Math.min(LANE - 4, Math.max(8, r.w * LANE)),
+        side: human ? 'human' : m.from === me ? 'right' : 'left', hue: kindHue[m.kind], time: clockOf(m),
         day: day !== lastDay ? (lastDay = day) : '', who: human ? 'You' : AGENT_BY_ID[m.from]?.name ?? m.from, kind: m.kind, text: m.text,
-      });
+      };
     });
-    setItems(out);
-  }, [scroller, byId, me, kindHue]);
+  }, [msgs, rows, me, kindHue]);
 
-  // re-measure when content or sizes change
-  useLayoutEffect(() => { measure(); }, [measure, deps]);
-  // improvement cycle 22: one ResizeObserver for the component's life; new rows are added to it as they arrive (it used to
-  // be rebuilt over every row on each new message), and its callbacks share one measure per frame
-  const latest = useRef(measure);
-  useLayoutEffect(() => { latest.current = measure; }, [measure]);
-  const ro = useRef<ResizeObserver | null>(null);
-  const observed = useRef(new Set<Element>());
+  // the scroll geometry follows the content (rows measured, typing shown) and the scroll position
+  const readGeo = useCallback(() => {
+    const el = scroller.current;
+    if (el) setGeo({ top: el.scrollTop, client: el.clientHeight, height: Math.max(el.scrollHeight, 1) });
+  }, [scroller]);
+  useLayoutEffect(() => { readGeo(); }, [readGeo, rows, deps]);
   useEffect(() => {
     const el = scroller.current, r = rail.current;
     if (!el || !r) return;
-    let raf = 0;
-    const kick = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => latest.current()); };
-    const obs = new ResizeObserver((ents) => { ents.forEach((e) => { if (e.target === r) setRailH(e.contentRect.height); }); kick(); });
-    ro.current = obs; observed.current = new Set();
+    const obs = new ResizeObserver((ents) => { ents.forEach((e) => { if (e.target === r) setRailH(e.contentRect.height); }); readGeo(); });
     obs.observe(r); obs.observe(el);
-    el.querySelectorAll('[data-mid]').forEach((c) => { observed.current.add(c); obs.observe(c); });
     const onScroll = () => {
-      setGeo({ top: el.scrollTop, client: el.clientHeight, height: Math.max(el.scrollHeight, 1) });
+      readGeo();
       setActive(true);
       window.clearTimeout(idle.current);
       idle.current = window.setTimeout(() => setActive(false), 900);
     };
     el.addEventListener('scroll', onScroll, { passive: true });
-    return () => { obs.disconnect(); ro.current = null; el.removeEventListener('scroll', onScroll); cancelAnimationFrame(raf); window.clearTimeout(idle.current); };
-  }, [scroller]);
-  // keyed on the messages, not only their count: a row replaced at the same length (my message's local copy → the server's
-  // copy, another thread of the same length, a gap reset) is a new element; rows that left the DOM are let go
-  useEffect(() => {
-    const el = scroller.current, obs = ro.current;
-    if (!el || !obs) return;
-    observed.current.forEach((c) => { if (!c.isConnected) { obs.unobserve(c); observed.current.delete(c); } });
-    el.querySelectorAll('[data-mid]').forEach((c) => { if (!observed.current.has(c)) { observed.current.add(c); obs.observe(c); } });
-  }, [scroller, msgs, deps]);
+    return () => { obs.disconnect(); el.removeEventListener('scroll', onScroll); window.clearTimeout(idle.current); };
+  }, [scroller, readGeo]);
 
   const s = Math.min(railH / geo.height, MAX_SCALE); // content px → rail px
   const sliderTop = geo.top * s, sliderH = Math.max(14, geo.client * s);
@@ -153,19 +133,19 @@ export function ThreadMinimap({ scroller, msgs, me, kindHue, deps }: {
         {(active || drag) && current && scrollable && (
           <motion.div className="minimap-chip" style={{ top: chipTop }} aria-hidden
             initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 6 }} transition={{ duration: .15 }}>
-            <span className="minimap-chip-day">{dateLabel(byId[current.id]?.agoMin ?? 0, byId[current.id]?.ts)}</span>
+            <span className="minimap-chip-day">{byId.get(current.id) ? dayOf(byId.get(current.id)!) : ''}</span>
             <b>{current.time}</b>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <div ref={rail} className={cx('minimap', drag && 'dragging')} role="scrollbar" aria-orientation="vertical" aria-label="Conversation minimap — times of messages"
+      <div ref={rail} className={cx('minimap', drag && 'dragging')} style={{ ['--s' as string]: s }} role="scrollbar" aria-orientation="vertical" aria-label="Conversation minimap — times of messages"
         aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-valuetext={current ? `${current.time}, ${current.who}` : undefined} tabIndex={0}
         onPointerDown={onPointerDown} onPointerMove={(e) => setHoverY(localY(e))} onPointerLeave={() => setHoverY(null)} onKeyDown={onKey}>
 
         {items.map((it, i) => (
-          <Block key={it.id} cls={cx('mm-block', it.side, visible(it) && 'in-view', current?.id === it.id && 'current')}
-            top={it.top * s} h={Math.max(BLOCK_MIN, it.h * s)} w={it.w} left={it.side === 'left' ? 2 : LANE - it.w} hue={it.hue} i={i} />
+          <Block key={it.id} id={it.id} cls={cx('mm-block', it.side, visible(it) && 'in-view', current?.id === it.id && 'current')}
+            top={it.top} h={it.h} w={it.w} left={it.side === 'left' ? 2 : LANE - it.w} hue={it.hue} i={i} />
         ))}
 
         {items.filter((it) => it.day).map((it) => <span key={'d' + it.id} className="mm-day" style={{ top: Math.max(it.top * s - 2, 0) }} />)}
@@ -196,10 +176,13 @@ export function ThreadMinimap({ scroller, msgs, me, kindHue, deps }: {
   );
 }
 
-/** One message block. Memoised (improvement cycle 22): a re-measure only re-renders the blocks that moved or changed. */
-const Block = memo(function Block({ cls, top, h, w, left, hue, i }: { cls: string; top: number; h: number; w: number; left: number; hue: number; i: number }) {
+/**
+ * One message block, in content px; the rail's `--s` scales it (improvement cycle 26: appending a message changes the
+ * scale, and with the scale in a CSS variable only the new block renders, not all of them). Memoised (cycle 22).
+ */
+const Block = memo(function Block({ id, cls, top, h, w, left, hue, i }: { id: string; cls: string; top: number; h: number; w: number; left: number; hue: number; i: number }) {
   return (
-    <motion.span className={cls} style={{ top, height: h, width: w, left, ['--h' as string]: hue }}
+    <motion.span className={cls} data-mm={id} style={{ top: `calc(${top}px * var(--s))`, height: `max(${BLOCK_MIN}px, calc(${h}px * var(--s)))`, width: w, left, ['--h' as string]: hue }}
       initial={{ opacity: 0, scaleX: .3 }} animate={{ opacity: 1, scaleX: 1 }} transition={{ delay: Math.min(i, 20) * .02, duration: .25 }} />
   );
 });
