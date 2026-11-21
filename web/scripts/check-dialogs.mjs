@@ -14,3 +14,4 @@ const missing = [...used.keys()].filter((k) => !defined.has(k));
 console.log(`dialogs defined: ${defined.size}, ids opened in code: ${used.size}`);
 console.log(missing.length ? 'MISSING:\n' + missing.map((k) => `  ${k}  <- ${used.get(k).join(', ')}`).join('\n') : 'All opened dialog ids are defined.');
 console.log('Defined but never opened:', [...defined].filter((k) => !used.has(k)).join(', ') || 'none');
+process.exit(missing.length ? 1 : 0);

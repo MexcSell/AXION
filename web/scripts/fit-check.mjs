@@ -40,3 +40,4 @@ for (const [key, path] of routes) {
 }
 console.log(bad ? `${bad} view(s) need work` : 'ALL FIT');
 await b.close();
+process.exit(bad ? 1 : 0);

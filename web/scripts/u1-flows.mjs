@@ -89,3 +89,5 @@ await step('Old links redirect: /agents, /models, /browser, /users', async () =>
 console.log(results.join('\n'));
 console.log(errors.length ? 'ERRORS\n' + errors.join('\n') : 'no console errors');
 await b.close();
+// exit code: non-zero when any check failed or the page logged an error
+process.exit(results.some((r) => r.startsWith('FAIL')) || errors.length ? 1 : 0);

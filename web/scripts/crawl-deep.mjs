@@ -33,3 +33,4 @@ for (const path of ['/overview?tab=activity', '/notifications?tab=news', '/plugi
 console.log(`missions: ${ids.length} (incl. edge cases ${created.join(', ')}), agents: ${agents?.length ?? 'n/a'}`);
 console.log(problems.length ? [...new Set(problems)].join('\n') : 'NO PROBLEMS');
 await b.close();
+process.exit(problems.length ? 1 : 0);

@@ -37,3 +37,5 @@ for (const [w, h] of sizes) {
 }
 console.log(bad ? `${bad} view(s) scroll` : 'NO SCROLL ANYWHERE');
 await b.close();
+
+process.exit(bad ? 1 : 0);

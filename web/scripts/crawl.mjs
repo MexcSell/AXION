@@ -39,3 +39,4 @@ for (const [key, path] of routes) {
 console.log(`visited ${n} route/tab views`);
 console.log(problems.length ? problems.join('\n') : 'NO PROBLEMS');
 await b.close();
+process.exit(problems.length ? 1 : 0);
