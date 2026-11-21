@@ -43,17 +43,19 @@ Integrator log: one entry per merge request. Times are UTC.
 - **Run 3 probe:**
   - Every second, the Vite `/`, Vite `/src/main.tsx`, the proxied `/api/v1/health` and direct `:5192` health all answered 200 in 1–12 ms.
   - The deps `_metadata.json` mtime did not change.
-  - Nevertheless the reload navigation did not even commit until 52.5 s after it started. The `page.screenshot` right after it stalled 22.4 s before "waiting for fonts".
-  - So the page's main thread was busy (browser-side). It was not the API, not Vite and not the dependency cache.
+  - Nevertheless the reload navigation did not even commit until 52.5 s after it started (the 30 s timeout plus 22.5 s more).
+  - So the stall is browser-side: the page was unresponsive. Vite's static paths, the health endpoints and the dependency cache were all fine. Data endpoints that touch the database were not probed.
 - **A/B on identical setup:** a throwaway worktree in the integrator's scratchpad, with its own node_modules of per-package symlinks, the priority slot and ports 5192/5193. The worktree has since been removed.
 
-  | Build | Plain run | Debug run | Reload commit after start | Screenshot stall | Load avg |
-  |---|---|---|---|---|---|
-  | 74117b8 (before c07) | 34/35, same reload timeout | 34/35 | 48.9 s | 18.9 s | ~25 |
-  | 648e32b (c07 merged) | — | 34/35 | 55.3 s | 25.3 s | ~25 |
+  | Build | Plain run | Debug run | Page unresponsive (reload start to commit) | Load avg |
+  |---|---|---|---|---|
+  | 74117b8 (before c07) | 34/35, same reload timeout | 34/35 | 48.9 s | ~25 |
+  | 648e32b (c07 merged) | — | 34/35 | 55.3 s (52.5 s in run 3 on the integration tree) | ~25 |
 
-  Both builds fail identically, and the difference is within single-sample noise at load ~25. c07 is not the cause.
-- **History:** stage6 was 94/94 in lane runs c01–c05 at lower load. The failure is environmental or pre-existing on this tree. Possibly the page is still processing the 130-message burst when the reload is issued, and on a CPU-starved host that takes more than 30 s.
+  Each figure is one timed sample per build. Both builds fail identically, and the gap is within single-sample noise at load ~25. c07 is not the cause.
+- **Total so far:** 7 of 7 runs red, 5 on c07 and 2 on base.
+- **History:** stage6 was 94/94 in lane runs c01–c05. The host load during those runs is not recorded, so "lower load" is an assumption.
+- **Likely cause:** possibly the page is still processing the 130-message burst when the reload is issued, and on a CPU-starved host that takes more than 30 s. The stall is about 50 s against a 30 s timeout, so it is not marginal; another rerun at this load will not change the result. One run on a quiet host, with lane runs paused for about 3 minutes, would separate load from a real defect. perf-nav could run in the same window.
 - **Status:** the controller is holding the merge queue (c05 → c13 → c04 → c11 → c16). c05's gate m5 needs api-stage6 green against axion_e2e.
 
 **Follow-up commits:** none.
