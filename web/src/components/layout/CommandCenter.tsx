@@ -16,7 +16,9 @@ import { AGENTS } from '@/data/agents';
 import { DemoTag } from '@/components/ui/Chips';
 import { Segmented, Switch } from '@/components/ui/Form';
 import { isApi } from '@/api/mode';
-import { useScorecard, rowOf, fmtRow } from '@/api/scorecard';
+import { useScorecard, rowOf, fmtRow, trendOf } from '@/api/scorecard';
+import { useThroughput } from '@/api/throughput';
+import { ThroughputChart } from '@/components/viz/ThroughputChart';
 
 /** Company-wide KPI tiles (40-4 command center) — rendered through the shared TopBoard. */
 export function useCompanyKpis(): KpiItem[] {
@@ -76,6 +78,7 @@ export function CompanyScorecard() {
   const [win, setWin] = useState<ScorecardWindow>('30d');
   const [demo, setDemo] = useState(false);
   const { data, error } = useScorecard(win, demo);
+  const tput = useThroughput(8, demo).data;
   const shown = data && data.window === win && data.includeDemo === demo ? data : null;
   return (
     <motion.section className="panel cc-health cc-score" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .4, delay: .08 }}
@@ -99,12 +102,22 @@ export function CompanyScorecard() {
                 <Icon size={14} className="sc-ico" aria-hidden />
                 <span role="cell" className="sc-label ellipsis">{r.label}</span>
                 <motion.b role="cell" key={`${r.value}`} className="sc-val tnum" initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}>{fmtRow(r)}</motion.b>
+                {(() => { const t = trendOf(r); return (
+                  <span role="cell" className={cx('sc-prev tnum', t && 'on', t && `tr-${r.trend}`)} data-trend={r.trend ?? ''} title={t ? `${t.word} ${t.prev} in the previous ${WINDOW_LABEL[win].replace('last ', '')} (n=${r.previous.n})` : undefined}>
+                    {t ? `${t.arrow} ${t.prev}` : ''}</span>); })()}
                 <span role="cell" className="sc-n tnum" title="sample size">n={r.n}</span>
                 <span onClick={(e) => e.stopPropagation()}><HelpTrigger k={`scorecard.${r.key}`} /></span>
               </motion.div>
             </Tip>
           );
         })}
+        {tput && (
+          <div className="sc-tput" data-tput-ready="1" aria-label="Weekly throughput">
+            <span className="dim sc-tput-l"><span>weekly</span><span>8 wk</span></span>
+            <ThroughputChart weeks={tput.weeks} />
+            <span onClick={(e) => e.stopPropagation()}><HelpTrigger k="scorecard.throughput" /></span>
+          </div>
+        )}
         {!shown && (error ? <LiveStatus key="err" kind="error" className="dim sc-empty">{error}</LiveStatus> : <LiveStatus key="load" className="dim sc-empty">Reading the scorecard…</LiveStatus>)}
       </div>
       <footer className="sc-foot">

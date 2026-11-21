@@ -12,6 +12,9 @@ import { makeScorecardCache } from './scorecardCache';
  */
 interface Entry { data: CompanyScorecardDto | null; error: string | null; tick?: number }
 const useStore = create<{ tick: number; byKey: Record<string, Entry> }>(() => ({ tick: 0, byKey: {} }));
+/** Other caches that follow the scorecard's refresh tick and sign-out (cycle 12: the weekly throughput). */
+export const useScorecardTick = () => useStore((s) => s.tick);
+export const onScorecardClear = new Set<() => void>();
 export const bumpScorecard = () => useStore.setState((s) => ({ tick: s.tick + 1 }));
 
 // one read per query and refresh tick; older reads never overwrite newer ones; a sign-out drops late responses (m2)
@@ -21,7 +24,7 @@ const cache = makeScorecardCache<CompanyScorecardDto>(
 );
 cache.subscribe((byKey) => useStore.setState({ byKey }));
 /** Sign-out: forget every number and drop responses still in flight (they belong to the previous session). */
-export const clearScorecard = () => { cache.clear(); useStore.setState((s) => ({ tick: s.tick + 1 })); };
+export const clearScorecard = () => { cache.clear(); onScorecardClear.forEach((f) => f()); useStore.setState((s) => ({ tick: s.tick + 1 })); };
 
 export function useScorecard(w: ScorecardWindow = '30d', includeDemo = false): Entry {
   const tick = useStore((s) => s.tick);
@@ -39,4 +42,12 @@ export function fmtRow(r: ScorecardRow): string {
   if (r.unit === '%') return `${r.value.toFixed(1)}%`;
   if (r.unit === 'h') return `${r.value < 10 ? r.value.toFixed(1) : Math.round(r.value)} h`;
   return String(r.value);
+}
+
+const ARROW = { up: '↑', down: '↓', flat: '→' } as const;
+/** Cycle 12: the previous-period text of a row. Empty unless the server's trend is non-null (never a fake delta). */
+export function trendOf(r: ScorecardRow): { arrow: string; prev: string; word: string } | null {
+  if (!r.trend || r.previous.value === null) return null;
+  const prev = fmtRow({ ...r, value: r.previous.value, state: 'ok' });
+  return { arrow: ARROW[r.trend], prev, word: r.trend === 'flat' ? 'about the same as' : r.trend === 'up' ? 'up from' : 'down from' };
 }

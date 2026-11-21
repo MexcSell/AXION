@@ -1,4 +1,4 @@
-import type { CompanyScorecardDto, ScorecardRow, ScorecardWindow } from '../../../shared/contracts/src/index.ts';
+import type { CompanyScorecardDto, ScorecardRow, ScorecardWindow, ScorecardTrend, ThroughputDto } from '../../../shared/contracts/src/index.ts';
 
 /**
  * Improvement cycle 2: the company scorecard, computed only from recorded rows (spec §11 invariant 9: every metric shows
@@ -45,9 +45,10 @@ function median(xs: number[]) {
 const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? one : many}`;
 const fmtH = (h: number) => `${round(h, 1)} h`;
 
-export function computeScorecard(input: ScoreInput, opt: { window: ScorecardWindow; from: Date; to: Date; includeDemo: boolean }): CompanyScorecardDto {
-  const from = opt.from.getTime();
-  const to = opt.to.getTime();
+type BaseRow = Omit<ScorecardRow, 'previous' | 'trend'>;
+function computeRows(input: ScoreInput, optFrom: Date, optTo: Date): BaseRow[] {
+  const from = optFrom.getTime();
+  const to = optTo.getTime();
   const inWin = (t: number) => t >= from && t <= to;
   const owner = new Map(input.missions.map((m) => [m.id, m.ownerId]));
   const mine = <T extends { missionId: string }>(xs: T[]) => xs.filter((x) => owner.has(x.missionId));
@@ -119,13 +120,13 @@ export function computeScorecard(input: ScoreInput, opt: { window: ScorecardWind
   }
 
   const need = (what: string) => `${what} (at least ${MIN_N} needed)`;
-  const rate = (key: ScorecardRow['key'], label: string, num: number, den: number, ok: string, none: string): ScorecardRow =>
+  const rate = (key: ScorecardRow['key'], label: string, num: number, den: number, ok: string, none: string): BaseRow =>
     den >= MIN_N ? { key, label, value: pct(num, den), unit: '%', n: den, evidence: ok, state: 'ok' } : { key, label, value: null, unit: '%', n: den, evidence: none, state: 'none' };
-  const med = (key: ScorecardRow['key'], label: string, xs: number[], ok: (m: number) => string, none: string): ScorecardRow =>
+  const med = (key: ScorecardRow['key'], label: string, xs: number[], ok: (m: number) => string, none: string): BaseRow =>
     xs.length >= MIN_N ? { key, label, value: round(median(xs), 2), unit: 'h', n: xs.length, evidence: ok(median(xs)), state: 'ok' } : { key, label, value: null, unit: 'h', n: xs.length, evidence: none, state: 'none' };
 
   const verifiedSentence = `${nVerified} of ${plural(finished, 'finished mission')} verified · ${nUnverified} completed unverified`;
-  const rows: ScorecardRow[] = [
+  const rows: BaseRow[] = [
     { key: 'started', label: 'Missions started', value: started, unit: 'missions', n: started, state: 'ok',
       evidence: `${plural(started, 'mission')} started a first run in this window` },
     { key: 'finished', label: 'Missions finished', value: finished, unit: 'missions', n: finished, state: 'ok',
@@ -143,5 +144,54 @@ export function computeScorecard(input: ScoreInput, opt: { window: ScorecardWind
     med('waiting_approval_median_h', 'Waiting for approval', waits, (m) => `median ${fmtH(m)} over ${plural(waits.length, 'closed approval wait')}`,
       need(`${plural(waits.length, 'closed approval wait')}`)),
   ];
-  return { window: opt.window, from: opt.from.toISOString(), to: opt.to.toISOString(), includeDemo: opt.includeDemo, rows };
+  return rows;
+}
+
+/** Improvement cycle 12 (trend): flat tolerance per unit. A trend is only ever drawn from two measured values. */
+const FLAT: Record<ScorecardRow['unit'], number> = { '%': 1, h: 0.1, missions: 0 };
+/**
+ * 'up' | 'down' | 'flat', or null whenever either period lacks enough evidence: a value that is null (state 'none'), or a
+ * sample size below MIN_N on either side. Flat means within ±1 percentage point (rates), ±0.1 h (times) or equal (counts).
+ */
+export function trendOf(unit: BaseRow['unit'], cur: { value: number | null; n: number }, prev: { value: number | null; n: number }): ScorecardTrend | null {
+  if (cur.value === null || prev.value === null || cur.n < MIN_N || prev.n < MIN_N) return null;
+  const d = cur.value - prev.value;
+  if (Math.abs(d) <= FLAT[unit] + 1e-9) return 'flat';
+  return d > 0 ? 'up' : 'down';
+}
+
+export function computeScorecard(input: ScoreInput, opt: { window: ScorecardWindow; from: Date; to: Date; includeDemo: boolean }): CompanyScorecardDto {
+  const len = opt.to.getTime() - opt.from.getTime();
+  // the previous equal-length window ends 1 ms before this one starts (windows are inclusive, so nothing counts twice)
+  const pFrom = new Date(opt.from.getTime() - len - 1), pTo = new Date(opt.from.getTime() - 1);
+  const prev = new Map(computeRows(input, pFrom, pTo).map((r) => [r.key, r]));
+  const rows = computeRows(input, opt.from, opt.to).map((r) => {
+    const p = prev.get(r.key)!;
+    const previous = { value: p.state === 'ok' ? p.value : null, n: p.n };
+    return { ...r, previous, trend: trendOf(r.unit, r, previous) };
+  });
+  return { window: opt.window, from: opt.from.toISOString(), to: opt.to.toISOString(), includeDemo: opt.includeDemo, previousFrom: pFrom.toISOString(), previousTo: pTo.toISOString(), rows };
+}
+
+export const THROUGHPUT_WEEKS_MAX = 26;
+/** Weekly counts (no ratios): missions started and finished in each of the last `weeks` weeks ending at `to`, oldest first.
+ *  Started = first run in the week. Finished = each mission once, by its LAST terminal transition as of `to` (not a restore
+ *  from the archive), placed in the week of that transition (so fail → retry → complete counts once, in the completion week,
+ *  and the last week equals the 7-day scorecard's finished count). */
+export function computeThroughput(input: ScoreInput, opt: { weeks: number; to: Date; includeDemo: boolean }): ThroughputDto {
+  const to = opt.to.getTime();
+  const ids = new Set(input.missions.map((m) => m.id));
+  const lastFinal = new Map<string, number>(); // same rule as computeRows: the last final transition that is not a restore
+  for (const e of input.transitions.filter((x) => ids.has(x.missionId) && x.at.getTime() <= to).sort((a, b) => a.at.getTime() - b.at.getTime())) {
+    if (FINAL.has(e.to) && e.from !== 'archived') lastFinal.set(e.missionId, e.at.getTime());
+  }
+  const out: ThroughputDto['weeks'] = [];
+  for (let k = opt.weeks - 1; k >= 0; k--) {
+    const wTo = to - k * 7 * DAY;
+    const wFrom = wTo - 7 * DAY + 1;
+    const started = computeRows(input, new Date(wFrom), new Date(wTo)).find((r) => r.key === 'started')!.value as number;
+    const finished = [...lastFinal.values()].filter((t) => t >= wFrom && t <= wTo).length;
+    out.push({ from: new Date(wFrom).toISOString(), to: new Date(wTo).toISOString(), started, finished });
+  }
+  return { weeks: out, includeDemo: opt.includeDemo, to: opt.to.toISOString() };
 }
