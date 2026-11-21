@@ -11,13 +11,15 @@ export function ago(min: number): string {
 
 /** Clock label for a timestamp N minutes before page load. */
 const LOAD = Date.now();
+// improvement cycle 22: one formatter each, made once. toLocale*String builds a new Intl formatter on every call, which
+// was the top app cost while a long thread re-rendered; the output is identical (same locale, same options).
+const CLOCK = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit', hour12: false });
+const DAY = new Intl.DateTimeFormat([], { month: 'short', day: 'numeric' });
 export function clock(minAgo: number, ts?: number): string {
-  const d = new Date(ts ?? LOAD - minAgo * 60_000);
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+  return CLOCK.format(new Date(ts ?? LOAD - minAgo * 60_000));
 }
 export function dateLabel(minAgo: number, ts?: number): string {
-  const d = new Date(ts ?? LOAD - minAgo * 60_000);
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return DAY.format(new Date(ts ?? LOAD - minAgo * 60_000));
 }
 export function agoFromTs(ts: number): string { return ago((Date.now() - ts) / 60_000); }
 

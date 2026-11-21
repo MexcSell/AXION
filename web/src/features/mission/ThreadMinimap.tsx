@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { AGENT_BY_ID } from '@/data/agents';
 import type { Message, MessageKind } from '@/data/types';
 import { clock, cx, dateLabel } from '@/lib/format';
@@ -149,9 +149,8 @@ export function ThreadMinimap({ scroller, msgs, me, kindHue, deps }: {
         onPointerDown={onPointerDown} onPointerMove={(e) => setHoverY(localY(e))} onPointerLeave={() => setHoverY(null)} onKeyDown={onKey}>
 
         {items.map((it, i) => (
-          <motion.span key={it.id} className={cx('mm-block', it.side, visible(it) && 'in-view', current?.id === it.id && 'current')}
-            style={{ top: it.top * s, height: Math.max(BLOCK_MIN, it.h * s), width: it.w, left: it.side === 'left' ? 2 : LANE - it.w, ['--h' as string]: it.hue }}
-            initial={{ opacity: 0, scaleX: .3 }} animate={{ opacity: 1, scaleX: 1 }} transition={{ delay: Math.min(i, 20) * .02, duration: .25 }} />
+          <Block key={it.id} cls={cx('mm-block', it.side, visible(it) && 'in-view', current?.id === it.id && 'current')}
+            top={it.top * s} h={Math.max(BLOCK_MIN, it.h * s)} w={it.w} left={it.side === 'left' ? 2 : LANE - it.w} hue={it.hue} i={i} />
         ))}
 
         {items.filter((it) => it.day).map((it) => <span key={'d' + it.id} className="mm-day" style={{ top: Math.max(it.top * s - 2, 0) }} />)}
@@ -181,3 +180,11 @@ export function ThreadMinimap({ scroller, msgs, me, kindHue, deps }: {
     </div>
   );
 }
+
+/** One message block. Memoised (improvement cycle 22): a re-measure only re-renders the blocks that moved or changed. */
+const Block = memo(function Block({ cls, top, h, w, left, hue, i }: { cls: string; top: number; h: number; w: number; left: number; hue: number; i: number }) {
+  return (
+    <motion.span className={cls} style={{ top, height: h, width: w, left, ['--h' as string]: hue }}
+      initial={{ opacity: 0, scaleX: .3 }} animate={{ opacity: 1, scaleX: 1 }} transition={{ delay: Math.min(i, 20) * .02, duration: .25 }} />
+  );
+});

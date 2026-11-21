@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Send, Paperclip, Image as ImageIcon, AtSign, X, CheckCheck, Check, Clock, ArrowDown, Info, FileText, ShieldAlert, Map as MapIcon, Rows3, Rows2, Music, Film, Loader2 } from 'lucide-react';
 import { RobotAvatar } from '@/components/art/RobotAvatar';
 import { UserAvatar } from '@/components/ui/UserAvatar';
@@ -42,7 +42,11 @@ export function SimTag() {
   return <span className="sim-tag" title="Simulated on a DEMO mission. No agent acted; agents do not execute yet.">Simulated</span>;
 }
 
-export function ChatBubble({ m, right, compact, missionId, label }: { m: Message; right: boolean; compact?: boolean; missionId?: string; label?: string }) {
+/**
+ * Memoised (improvement cycle 22): a thread re-renders on every new message or receipt, and only the bubbles whose
+ * message object changed render again. The store keeps unchanged messages as the same objects.
+ */
+export const ChatBubble = memo(function ChatBubble({ m, right, compact, missionId, label }: { m: Message; right: boolean; compact?: boolean; missionId?: string; label?: string }) {
   const au = useAuthor(m.from, m.authorName);
   const human = au.kind === 'human';
   // system notes (Stage 6: the honest "agents don't act yet" note) are a centred line, not anyone's speech bubble
@@ -88,7 +92,7 @@ export function ChatBubble({ m, right, compact, missionId, label }: { m: Message
       </div>
     </motion.div>
   );
-}
+});
 
 export interface ChatMode { key: string; label: ReactNode; help?: string; placeholder: string }
 interface LocalAtt { id: string; name: string; size: number; type: string; url?: string; file: File }
@@ -250,7 +254,8 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
         {loadingOlder && <div className="thread-older" role="status"><Loader2 size={12} className="spin" /> Loading older messages…</div>}
         <div className="thread-body" ref={scroller} onScroll={(e) => { const el = e.currentTarget; const b = el.scrollHeight - el.scrollTop - el.clientHeight < 40; setAtBottom(b); if (b) setNewCount(0); if (el.scrollTop < 80) requestOlder(el); }} role="log" aria-label="Conversation" aria-live="polite" data-has-older={hasOlder ? '1' : undefined}>
           {shown.length === 0 && <div className="empty" style={{ padding: 30 }}><div className="empty-icon"><Send size={22} /></div><h4>{emptyTitle ?? 'No messages yet'}</h4>{emptyText && typeof emptyText === 'object' ? <div className="thread-empty-body">{emptyText}</div> : <p>{emptyText ?? 'Write the first message.'}</p>}</div>}
-          <AnimatePresence initial={false}>
+          {/* presenceAffectsLayout off: otherwise every row gets a new presence context (and re-measures its layout) on each render */}
+          <AnimatePresence initial={false} presenceAffectsLayout={false}>
             {shown.map((m) => {
               const day = dateLabel(m.agoMin, m.ts);
               const sep = day !== lastDay ? (lastDay = day) : null;
