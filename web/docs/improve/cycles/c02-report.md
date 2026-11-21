@@ -50,9 +50,11 @@ Implementer report for `c02-brief.md`. Branch `improve-30h`, base `b2c02ed`.
   and `mission.deleted`, and on every stream reconnect. The debounce is cancelled on sign-out and the cache is cleared.
 - **Overview, api mode** (`CommandCenter.tsx`, `Overview.tsx`):
   - **Verified Success tile.**
-    - With evidence, it shows the server's `verified_success_rate`, with `n=… finished · 30 days` under it and the
-      evidence sentence in a tooltip.
-    - Without evidence, it shows "not enough evidence" (no %) with `n=0 · 30 days`.
+    - With evidence, it shows the server's `verified_success_rate` with an `n=…` badge beside the value (evidence sentence
+      in its tooltip) and "finished missions · 30 days" under it.
+    - Without evidence, it shows "not enough evidence" (no %) with the `n=0` badge.
+    - The badge sits beside the value, not in the hint line, because short screens hide the hint (`frame.css`, max-height
+      860px). The n stays visible at 1366×650; the browser check asserts this.
     - No delta; help key `kpi.success.api`.
   - **Tokens Today tile:** removed.
   - **Active Missions tile:** the fake `+2` delta is removed.
@@ -65,8 +67,9 @@ Implementer report for `c02-brief.md`. Branch `improve-30h`, base `b2c02ed`.
       header shows a DEMO tag.
     - The footer shows the date range.
   - The demo-only Period select is hidden in api mode; it only ever showed a "(demo)" toast.
-- **`KpiTile`** (`PageFrame.tsx`): a new optional `text` replaces the counted-up number. It is not set in demo mode, so the
-  demo path renders exactly as before.
+- **`KpiTile`** (`PageFrame.tsx`): two new optional fields, `text` (replaces the counted-up number) and `badge` (a small note
+  beside the value that stays visible on short screens). Neither is set in demo mode, so the demo path renders exactly as
+  before.
 - **Missions list header, api mode:** `N open · 0.0% verified success (n=3)` (server value, 30d, DEMO excluded), with the
   evidence in a tooltip. With no evidence it shows only `N open`.
 - **Demo mode is unchanged:** the 96.4% / +2.1% / 1.84M / +2 tiles, the Company Health ring and the Missions header
@@ -152,7 +155,7 @@ Tests added:
   - an admin sees all missions of the tenant (DEMO, deleted and other-tenant missions are excluded);
   - a member never counts a private mission they can't see, including its task-recovery and approval-wait rows;
   - DEMO is counted only with `includeDemo=1`;
-  - another tenant's missions never count;
+  - another tenant's missions never count, including its shared mission's approval wait;
   - every task passed + a `verifies` delegation verifies a completion; the owner's own approval does not.
 
 ## Pass threshold
@@ -172,9 +175,14 @@ Other verification:
   - The one failure was in api-stage6 ("I2: a real mission's Reports tab says reports arrive…", an 8 s wait right after the
     simulated server restart in that script).
   - Rerunning api-stage6 alone gave 94/94. The check does not involve the scorecard (see Concerns).
-  - `api-improve.mjs` passed 49/49 on 4 of 5 runs. The one failure was in the cycle 1 part: the Approve click on the
-    expired-proposal card timed out before any c02 step. It passed on the next run, which also wrote the committed
-    screenshot.
+  - Two earlier `api-improve.mjs` runs failed on things that are fixed now. One was my own header overlap: the DEMO
+    switch sat under the window switch, which is why the switch went back to the footer. The other was a cycle 1 race,
+    seen twice.
+  - The race: after P3 is created, A's or C's re-read on `org.proposalCreated` could land after the script moved P3's
+    expiry into the past. The server then expired P3 on that read, the card left B's Pending filter, and the Approve
+    click timed out.
+  - The fix waits 1.5 s for those re-reads to finish before the expiry. No assertion changed. The final two runs passed
+    50/50 each (the c02 section now also checks 1366×650).
 - `node scripts/ov-fit.mjs` (demo mode, 5190): **NO SCROLL ANYWHERE** (8 sizes × 4 tabs).
 - `./scripts/api-e2e.sh "DATA_MODE=api node scripts/ov-fit.mjs …"` (api mode, where the new panel is): **NO SCROLL ANYWHERE**
   (8 sizes × 4 tabs).
@@ -225,8 +233,12 @@ three canceled missions, with the DEMO switch off and the window at 30d. Write i
 - **Performance.** Every `mission.stateChanged` event of the visible missions is loaded on each read. With debounced reads
   that is fine at current sizes; at scale, a `(tenant_id, type, mission_id)` index or an incremental table would be the next
   step, and that needs migration 0014.
-- **Two flaky browser checks, both outside this change.**
-  - api-stage6 I2 failed once in the combined run and passed alone (94/94).
-  - In api-improve, the cycle 1 expiry step failed once with an Approve click timeout. Probable cause: a proposals re-read
-    expires the card, and it leaves the Pending filter before the click.
-  - Both could be made more robust in a later cycle.
+- **Flaky browser checks.**
+  - api-stage6 I2 failed once in the combined run and passed alone (94/94). It is unrelated to this change and could be
+    made more robust in a later cycle.
+  - The cycle 1 expiry race in `api-improve.mjs` is mitigated with a settle wait (see above), not removed. Expiry on read
+    by any client can still race with a fixed DB update.
+- **Threshold item 2 covers the top board and the Missions header.** The rest of the api-mode Overview body still shows
+  prototype panels. Most carry a DEMO tag: Mission Pipeline, Verified Completions, Health. "Recent Verified Outcomes" (with
+  its "+N") and the Active Agents board have no tag. They are list items from mission data, not company-level rates, and
+  I left them for a later cycle rather than widen this one.

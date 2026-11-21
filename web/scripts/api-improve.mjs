@@ -189,6 +189,9 @@ try {
   const P3 = (await apiA('POST', '/organization/proposals', { title: 'Designer-01 under Ops-01', why: '', baseRevision: g2.revision.seq, edges: g2.edges.map((e) => (e.subordinateId === 'designer-01' ? { ...e, supervisorId: 'ops-01' } : e)) }, { 'idempotency-key': `c01-p3-${Date.now()}` })).body.proposal;
   await B.p.getByRole('radio', { name: /^Pending/ }).click();
   await card(B.p, P3.id).waitFor({ timeout: 10000 });
+  // let every browser's re-read after org.proposalCreated finish first: a read after the expiry below expires P3 on the
+  // server and takes the card out of B's Pending filter before the Approve click (a race seen in cycle 2 runs)
+  await B.p.waitForTimeout(1500);
   const pg = createRequire(new URL('../../server/package.json', import.meta.url))('pg');
   const db = new pg.Client({ connectionString: e2eUrl });
   await db.connect();
@@ -254,6 +257,12 @@ try {
       && (await scRow(A.p, 'median_cycle_time_h').getAttribute('data-n')) === String(by1.median_cycle_time_h.n), 8000));
   check('c02 the evidence sentence is the server\'s', by1.verified_success_rate.evidence === '0 of 3 finished missions verified · 0 completed unverified');
   check('c02 A did not reload', (await A.p.evaluate(() => window.__noReload)) === 'c02');
+  await A.p.setViewportSize({ width: 1366, height: 650 }); // short screens hide tile hints: the n must stay visible
+  await A.p.waitForTimeout(500);
+  check('c02 at 1366x650 the tile still shows its n (n=3 beside 0.0%)', await tile(A.p).locator('[data-kpi-n="3"]').isVisible());
+  await A.p.screenshot({ path: `${SHOTS}/improve-c02-overview-1366x650.png` });
+  await A.p.setViewportSize({ width: 1600, height: 940 });
+  await A.p.waitForTimeout(400);
 
   // ------------------------------------------------------------ c02: DEMO missions are excluded by default
   const all = (await apiA('GET', '/missions')).body.missions;

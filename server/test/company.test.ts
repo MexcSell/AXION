@@ -87,6 +87,7 @@ describe('scoping', () => {
     await q(`insert into tenants(id,name) values ('t-2','Other')`);
     await q(`insert into users(id,tenant_id,name,name_key,pass_hash,role,status) values ('u-x','t-2','X','x','h','admin','approved')`);
     await finished('M-207', 'u-x', 'completed', { shared: true, tenant: 't-2' });
+    await step('M-207', 'completed', 'waiting_approval', 0.9, 't-2'); await step('M-207', 'waiting_approval', 'running', 0.5, 't-2');
     // a deleted mission never counts
     await finished('M-208', minaId, 'canceled');
     await q(`update missions set deleted_at=now() where id='M-208'`);

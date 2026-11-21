@@ -33,9 +33,10 @@ export function useCompanyKpis(): KpiItem[] {
     const r = rowOf(score.data, 'verified_success_rate');
     const success: KpiItem = r && r.state === 'ok' && r.value !== null
       ? { key: 'success', icon: Trophy, value: r.value, decimals: 1, suffix: '%', label: 'Verified Success', color: '#facc15', help: 'kpi.success.api', onClick: () => nav('/missions'),
-          hint: <Tip label={r.evidence}><span data-kpi-n={r.n}>n={r.n} finished · 30 days</span></Tip> }
+          badge: <Tip label={r.evidence}><span data-kpi-n={r.n}>n={r.n}</span></Tip>, hint: 'finished missions · 30 days' }
       : { key: 'success', icon: Trophy, value: 0, text: r ? 'not enough evidence' : score.error ? 'unavailable' : 'loading…', label: 'Verified Success', color: '#facc15', help: 'kpi.success.api', onClick: () => nav('/missions'),
-          hint: <Tip label={r?.evidence ?? score.error ?? 'Reading the scorecard'}><span data-kpi-n={r?.n ?? ''}>{r ? `n=${r.n} finished · 30 days` : '30 days'}</span></Tip> };
+          ...(r ? { badge: <Tip label={r.evidence}><span data-kpi-n={r.n}>n={r.n}</span></Tip> } : {}),
+          hint: <Tip label={r?.evidence ?? score.error ?? 'Reading the scorecard'}><span>{r ? 'finished missions · 30 days' : '30 days'}</span></Tip> };
     return [
       { key: 'missions', icon: Target, value: active, label: 'Active Missions', color: '#22d3ee', help: 'kpi.activeMissions', onClick: () => nav('/missions?filter=active') },
       { key: 'agents', icon: Users, value: activeAgents, label: 'Active Agents', hint: `of ${AGENTS.length} · one per role`, color: '#3b82f6', help: 'kpi.activeAgents', onClick: () => nav('/agents') },
