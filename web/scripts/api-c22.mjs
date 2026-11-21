@@ -13,6 +13,7 @@ const CAP = Number(process.env.CAP_MS || 180000);
 const DIR = process.env.TRACE_DIR || '/tmp/axion-c22';
 const TRACE = process.env.TRACE === '1';
 mkdirSync(DIR, { recursive: true });
+const TOP = new Set(['RunTask', 'ThreadControllerImpl::RunTask', 'FunctionCall', 'RunMicrotasks', 'EventDispatch', 'TimerFire', 'FireAnimationFrame', 'UpdateLayoutTree', 'Layout', 'Paint', 'ParseHTML', 'EvaluateScript', 'v8.compile', 'HitTest', 'Commit', 'PrePaint', 'Layerize']);
 if (process.env.SUMMARISE) { console.log(JSON.stringify(summarise(process.env.SUMMARISE, {}), null, 1)); process.exit(0); }
 const load = () => readFileSync('/proc/loadavg', 'utf8').split(' ').slice(0, 3).join(' ');
 const until = async (f, ms = 10000, step = 100) => { const t0 = Date.now(); for (;;) { try { if (await f()) return true; } catch { /* retry */ } if (Date.now() - t0 > ms) return false; await new Promise((r) => setTimeout(r, step)); } };
@@ -20,9 +21,17 @@ const until = async (f, ms = 10000, step = 100) => { const t0 = Date.now(); for 
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
 const ctx = await b.newContext({ viewport: { width: 1600, height: 940 } });
 await ctx.addInitScript(() => { try { localStorage.setItem('axion.data-mode', 'api'); localStorage.setItem('axion.testhook', '1'); } catch { /* ignore */ } });
-const p = await ctx.newPage();
+let p = await ctx.newPage();
 const errors = [];
 p.on('pageerror', (e) => errors.push(e.message));
+/** A page stuck past the cap is closed (its renderer would block the next rep) and replaced; the session cookie stays in the context. */
+async function replacePage() {
+  await p.close({ runBeforeUnload: false }).catch(() => undefined);
+  p = await ctx.newPage();
+  p.on('pageerror', (e) => errors.push(e.message));
+  await p.goto(base + '/missions', { waitUntil: 'domcontentloaded' });
+  await p.waitForSelector('.rail-nav', { timeout: 30000 });
+}
 await p.goto(base + '/missions', { waitUntil: 'domcontentloaded' });
 await p.getByRole('heading', { name: 'Connect' }).waitFor({ timeout: 20000 });
 await p.getByLabel('Name').fill('Luca');
@@ -87,7 +96,6 @@ async function timedReload(newest) {
  * Long tasks on the renderer main thread (top-level trace slices merged into busy intervals; ≥ 50 ms counts as long)
  * and the CPU profile: top functions by self time, and the app's own functions by inclusive time.
  */
-const TOP = new Set(['RunTask', 'ThreadControllerImpl::RunTask', 'FunctionCall', 'RunMicrotasks', 'EventDispatch', 'TimerFire', 'FireAnimationFrame', 'UpdateLayoutTree', 'Layout', 'Paint', 'ParseHTML', 'EvaluateScript', 'v8.compile', 'HitTest', 'Commit', 'PrePaint', 'Layerize']);
 function summarise(file, marks) {
   const size = statSync(file).size;
   if (size > 480_000_000) return { skipped: `trace too large to parse (${size} B)`, marks };
@@ -99,7 +107,10 @@ function summarise(file, marks) {
   const busy = [];
   for (const [a, z] of slices) { const l = busy[busy.length - 1]; if (l && a <= l[1] + 1000) l[1] = Math.max(l[1], z); else busy.push([a, z]); } // gaps under 1 ms join
   const long = busy.filter(([a, z]) => z - a >= 50_000).map(([a, z]) => ({ at: Math.round((a - t0) / 1000), ms: Math.round((z - a) / 1000) }));
-  const self = new Map(), incl = new Map(), nodes = new Map();
+  const bySlice = new Map();
+  for (const e of ev) if (e.ph === 'X' && e.dur > 0 && mains.has(`${e.pid}:${e.tid}`) && TOP.has(e.name) && e.name !== 'RunTask' && e.name !== 'ThreadControllerImpl::RunTask') bySlice.set(e.name, (bySlice.get(e.name) ?? 0) + e.dur / 1000);
+  const self = new Map(), incl = new Map(), nodes = new Map(), pkg = new Map();
+  const pkgOf = (cf) => { const u = cf.url || ''; if (!u) return cf.functionName === '(garbage collector)' ? 'gc' : 'native'; if (/\/src\//.test(u)) return 'app'; if (/react-dom/.test(u)) return 'react-dom'; if (/motion|framer/.test(u)) return 'motion'; if (/jsx|react-[A-Za-z0-9_]+\.js|\/react\.js/.test(u)) return 'react'; if (/zustand/.test(u)) return 'zustand'; return u.replace(/^.*\/(deps\/)?/, '').replace(/\?.*$/, ''); };
   let total = 0;
   const nm = (cf) => `${cf.functionName || '(anonymous)'} ${(cf.url || (cf.scriptId ? '' : '(native)')).replace(/^.*\/(node_modules\/\.vite\/deps|src)\//, '$1/').replace(/\?.*$/, '')}:${(cf.lineNumber ?? 0) + 1}`;
   for (const e of ev) {
@@ -114,7 +125,7 @@ function summarise(file, marks) {
       const seen = new Set();
       while (key && nodes.has(key)) {
         const n = nodes.get(key), name = nm(n.cf);
-        if (first) { self.set(name, (self.get(name) ?? 0) + d); first = false; }
+        if (first) { self.set(name, (self.get(name) ?? 0) + d); pkg.set(pkgOf(n.cf), (pkg.get(pkgOf(n.cf)) ?? 0) + d); first = false; }
         if (!seen.has(name)) { incl.set(name, (incl.get(name) ?? 0) + d); seen.add(name); }
         key = n.parent;
       }
@@ -125,10 +136,13 @@ function summarise(file, marks) {
   return {
     long: { count: long.length, totalMs: long.reduce((s, x) => s + x.ms, 0), worstMs: long.reduce((s, x) => Math.max(s, x.ms), 0), list: long },
     sampledMs: Math.round(total), top: rank(self), app: rank(incl, / src\//), marks,
+    packages: [...pkg.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12).map(([n, ms]) => ({ pkg: n, ms: Math.round(ms) })),
+    slices: [...bySlice.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([n, ms]) => ({ slice: n, ms: Math.round(ms) })),
   };
 }
 
 const out = { base, at: new Date().toISOString(), runs: [] };
+try {
 for (const n of SIZES) {
   // REPS timed runs without tracing, then (TRACE=1) one extra traced run that is not counted (the profiler slows it down)
   for (let rep = 1; rep <= REPS + (TRACE ? 1 : 0); rep++) {
@@ -154,15 +168,18 @@ for (const n of SIZES) {
         console.log(`  long tasks (≥50 ms, renderer main): ${trace.long.count}, total ${trace.long.totalMs} ms, worst ${trace.long.worstMs} ms · sampled JS ${trace.sampledMs} ms`);
         const inReload = trace.long.list.filter((x) => x.at + x.ms >= marks.reloadAt && (marks.interactiveAt == null || x.at <= marks.interactiveAt));
         console.log(`  long tasks between reload and interactive (trace clock ≈ burst start): ${inReload.length}, total ${inReload.reduce((q, x) => q + x.ms, 0)} ms, worst ${inReload.reduce((q, x) => Math.max(q, x.ms), 0)} ms; busy until ${trace.long.list.length ? Math.max(...trace.long.list.map((x) => x.at + x.ms)) : 0} ms`);
+        console.log(`  self time by package: ${trace.packages.map((x) => `${x.pkg} ${x.ms}`).join(' · ')}`);
         console.log('  top self time:'); for (const t of trace.top.slice(0, 12)) console.log(`    ${String(t.ms).padStart(7)} ms  ${t.fn}`);
         console.log('  app functions, inclusive:'); for (const t of trace.app.slice(0, 8)) console.log(`    ${String(t.ms).padStart(7)} ms  ${t.fn}`);
       }
     }
     out.runs.push({ n, rep: tracing ? 'traced' : rep, mid, load: loadBefore, burstMs, afterBurst, idle, trace });
-    if (afterBurst.interactive == null && !tracing) { console.log('  (not interactive within the cap; the remaining untraced reps of this size are skipped)'); rep = REPS; }
+    if (afterBurst.interactive == null) { console.log(`  (not interactive within the ${CAP} ms cap: reported as >cap; the page is replaced)`); await replacePage(); }
   }
 }
+} finally {
 out.errors = errors;
 writeFileSync(`${DIR}/c22-${Date.now()}.json`, JSON.stringify(out, null, 1));
 console.log(`page errors: ${errors.length}${errors.length ? ' — ' + errors.slice(0, 3).join(' | ') : ''}`);
 await b.close();
+}
