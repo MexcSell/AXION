@@ -11,6 +11,7 @@ import { Panel } from '@/components/ui/Panel';
 import { Segmented, SwitchRow } from '@/components/ui/Form';
 import { isApi } from '@/api/mode';
 import { ServerProposals } from './ServerProposals';
+import { ServerDepartments } from './ServerDepartments';
 import { Chip, DemoTag, AgentStatusChip } from '@/components/ui/Chips';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { Tip } from '@/components/ui/Tip';
@@ -29,7 +30,10 @@ export interface OrgMove { agentId: string; from: string; to: string; }
 /* ================================================================== */
 /* DEPARTMENTS                                                         */
 /* ================================================================== */
-export function Departments() {
+/** api mode: the server's department facts (improvement cycle 6); demo mode keeps the prototype below unchanged. */
+export function Departments() { return isApi() ? <ServerDepartments /> : <DemoDepartments />; }
+
+function DemoDepartments() {
   const nav = useNavigate();
   const canEdit = useCanEditAgents();
   return (

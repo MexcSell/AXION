@@ -106,7 +106,7 @@ export function useAgentsSection() {
       <HelpTrigger k="agents.views" />
     </>
   );
-  const toolbar = <span>{tab === 'Proposals' && isApi() ? 'Reporting-line changes: proposed by an administrator, checked by the server, approved by another administrator.' : TAB_NOTE[tab]}</span>;
+  const toolbar = <span>{tab === 'Proposals' && isApi() ? 'Reporting-line changes: proposed by an administrator, checked by the server, approved by another administrator.' : tab === 'Departments' && isApi() ? 'Members, head, staffing, open tasks and outcomes: counted by the server.' : TAB_NOTE[tab]}</span>;
 
   const list = useMemo(() => STAFF.filter((a) => match(a, filter) && (dept === 'all' || a.dept === dept)
     && (!q || (a.name + ' ' + ROLES[a.role].label + ' ' + a.skills.join(' ') + ' ' + a.dept).toLowerCase().includes(q.toLowerCase()))), [STAFF, filter, dept, q]);

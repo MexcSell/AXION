@@ -7,6 +7,7 @@ import { api, ApiFailure } from './client';
 import { loadAgents, useAgentsVersion, bumpInstances } from './agents';
 import { bumpProposals } from './orgProposals';
 import { bumpScorecard, clearScorecard } from './scorecard';
+import { bumpDepartments, clearDepartments } from './departments';
 import { onChannelEvent, refreshLoadedChannels, clearChannels, setChatUser } from './chat';
 import { onMissionControlEvent, refreshLoadedMissionControl, clearMissionControl, setMcUser } from './missionControl';
 
@@ -45,6 +46,8 @@ export function startSync(): () => void {
   const scorecard = debounceKeyed(() => bumpScorecard(), 400);
   // improvement cycle 3: each agent's measured reliability follows task outcomes and reassignments (the catalog carries it)
   const reliability = debounceKeyed(() => { void loadAgents().catch(() => undefined); }, 400);
+  // improvement cycle 6: department facts follow staffing, tasks, the org chart, the catalog and missions
+  const departments = debounceKeyed(() => bumpDepartments(), 400);
 
   let retries = 0;
   let opened = 0;
@@ -77,6 +80,7 @@ export function startSync(): () => void {
     // improvement cycle 2: the company scorecard follows state changes (and what the viewer can see)
     if (type === 'mission.stateChanged' || type === 'task.stateChanged' || type === 'mission.shared' || type === 'mission.deleted') scorecard('s');
     if (type === 'task.stateChanged' || type === 'task.delegated' || type === 'mission.shared' || type === 'mission.deleted') reliability('r');
+    if (/^(instance|task|org|agent|mission)\./.test(type)) departments('d');
     if (/^(instance|task|mission)\./.test(type)) instances('i'); // Agents pages: Live Instances and each profile's missions
     if (type === 'conversation.messageCreated' && onChannelEvent(e)) return; // a direct channel (GM, administrators, one agent), not a mission thread
     if (type.startsWith('conversation.') || type.startsWith('instance.') || type.startsWith('task.')) onMissionControlEvent(type, e);
@@ -102,7 +106,7 @@ export function startSync(): () => void {
       set('live');
       // the snapshot is read after the stream's cursor exists, so nothing committed in between is missed
       void loadSnapshot().catch(() => undefined);
-      if (opened++) { agents('a'); instances('i'); proposals('o'); scorecard('s'); refreshLoadedMissionControl(); void refreshLoadedChannels(); } // a reconnect: re-read what this tab already shows
+      if (opened++) { agents('a'); instances('i'); proposals('o'); scorecard('s'); refreshLoadedMissionControl(); void refreshLoadedChannels(); departments('d'); } // a reconnect: re-read what this tab already shows
       else if (useAgentsVersion.getState().failed) agents('a'); // the first catalog load failed: try again now the server answers
     });
     for (const t of ['mission.created', 'mission.revised', 'mission.stateChanged', 'mission.shared', 'mission.deleted', 'staffing.progressed', 'approval.requested', 'approval.decided', 'notification.created', 'user.requested', 'user.changed', 'auth.approved',
@@ -127,7 +131,7 @@ export function startSync(): () => void {
   const fallback = window.setTimeout(() => { if (!useData.getState().loaded) void loadSnapshot().catch(() => undefined); }, 3000);
   return () => {
     closed = true; es?.close(); window.clearTimeout(staleTimer); window.clearTimeout(fallback); window.clearInterval(watchdog);
-    mission.cancel(); approvals.cancel(); notices.cancel(); people.cancel(); agents.cancel(); instances.cancel(); proposals.cancel(); scorecard.cancel(); reliability.cancel(); // no refresh fires after sign-out
+    mission.cancel(); approvals.cancel(); notices.cancel(); people.cancel(); agents.cancel(); instances.cancel(); proposals.cancel(); scorecard.cancel(); reliability.cancel(); departments.cancel(); // no refresh fires after sign-out
     set('off');
   };
 }
@@ -139,6 +143,6 @@ export function useServerSync() {
     if (!isApi() || !meId) return;
     setMcUser(meId); setChatUser(meId);
     const stop = startSync();
-    return () => { stop(); clearServerData(); clearMissionControl(); clearChannels(); clearScorecard(); };
+    return () => { stop(); clearServerData(); clearMissionControl(); clearChannels(); clearScorecard(); clearDepartments(); };
   }, [meId]);
 }
