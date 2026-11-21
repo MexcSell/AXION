@@ -141,3 +141,21 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
 ### Cycle 20: A5 org coverage (lane w18)
 - Implementer (0cdfc24, cfea9b1, df91e31): orgCoverage facts (roles covered/missing, duplicate roles, depts without head, span, depth) as warnings in dry runs, History and a Policies card; server 359, api-c20 14/14.
 - Review: PASS/PASS, minors only. Deferred: narrow the older api-improve assertions that ban the word "coverage"; ? help on the coverage sections; the ROLE_CATALOG↔web roles check. Cleared; merge after c04.
+
+### Cycle 18: H5 profile fit (lane w16)
+- Implementer (787a79d): Agent Profile ALL FIT at 1366×768 and 1280×760 (was 10 BAD each); icon-first tabs plus aria-labels in the shared Tabs collapse mode; 1672 unchanged. Review: PASS/PASS. Cleared; merge after c16.
+
+### 20:00Z: 4 new lanes (owner: "if there is no work, find a new way to update")
+- w20 c22 long-thread performance (the 50 s reload stall: app-side fix, threshold ≤3 s / ≤5 s for 130 / 1,000 messages)
+- w21 c23 live regions for loading states (a11y H6)
+- w22 c24 phone-width fit for the new features (390 / 900 px)
+- w23 c25 test hygiene: narrow over-broad assertions, a shared lane-DB guard, no fixed sleeps, deferred web minors
+- Cycle 9 fix round (b67e7e3 to 4eb4651): the Messenger sends pendingQ.id (api-c09 6/6); decidedByName on approvals; channel read-mark flushed on close; test 4 precondition asserted. Server 338; verify-all fully green. stage6: the known reload stall. Controller verified. Cleared; merge before c15.
+- Cycle 12 fix round (564f36f, 8d6da53): each finished mission is counted once, by its last terminal transition (new test); neutral arrow colour; precise help text. Server 348, api-c12 10/10, ov-fit NO SCROLL. Cleared; merge after c10.
+
+### Integration pacing (19:12Z)
+- c05 merged (6f8bd59). Each merge takes ~30 min of checks at load ~24, and 14 are queued. Ruling: batches of up to 3 non-conflicting branches, each merge its own commit with a quick server test, the full set once per batch, bisect on failure. Planned batches: [c13 c04 c11] [c16 c18 c06] [c10 c12 c19] [c14] [c20 c09 c15] [c17].
+
+### Incident: all workers stopped (sign-in error, ~19:20Z)
+- Every running agent (the integrator plus lanes w6, w19, w20, w21, w22, w23) ended with "Not logged in" at the same moment, and the session restarted. Nothing was lost in git: no merge was in progress, and c05 (6f8bd59) is merged. Lanes keep their uncommitted work in their worktrees. Dev server 5190 had died with the old session and was restarted at 20:11Z; the live API on 5191 stayed up.
+- Recovery (20:11Z): a fresh integrator from MERGES.md and LOG.md; the lanes resumed by fresh agents that inspect and finish the predecessor's work.
