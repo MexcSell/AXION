@@ -31,6 +31,7 @@ Lane L lives in `/home/luca/AXION-wL` on its own branch. Port base B is 5000 + L
   (live API). Never use another lane's ports.
 - Never use the real `axion` database (your `.env` points it at `axion_lane_disabled`). Never run `npm run dev`,
   `migrate` or `demo:*` in `server/`.
+- Never `git stash`: the stash is shared by every worktree, so another lane can pop yours. Commit work-in-progress on your branch instead, and squash it later if you like.
 - Never `pkill -f`: kill by port with `ss -ltnpH "sport = :PORT"`. Never push, merge or rebase onto other branches.
 - Never loosen auth, visibility, append-only rules, the execution guard or a test to make something pass.
 

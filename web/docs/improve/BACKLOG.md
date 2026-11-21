@@ -62,3 +62,5 @@ A1 → B1 → C1 → A3 → B3 → C2 → A2 → B2 → C3 → A5 → B4 → C4 
 | H3 | Race: POST /agents reads the org edges before taking the org-revision lock, so an agent created while a proposal is approved can silently revert it (found in cycle 1). One-line fix in agents/routes.ts. | 5 | 5 | 4 | 14 |
 
 | H4 | Flaky browser checks: api-stage6 Edit-dialog save (I2) failed once in c01 and c02 combined runs; c01 proposal-expiry step races with another browser re-read (c02 papered over it with a 1.5 s wait). Replace fixed waits with condition waits and remove the races. | 4 | 4 | 5 | 13 |
+
+| H5 | Agent Profile tabs overflow by 13 px at 1366×768 (the fit-check fails; pre-existing, found in c05 and c06). Make the tab bar fit (icon-first when narrow), per the owner's one-screen rule. | 4 | 4 | 5 | 13 |

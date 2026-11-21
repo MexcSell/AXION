@@ -49,3 +49,8 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
 
 ## Parallel phase (from 16:30Z)
 - Owner: "add 10 more workers; if there is no work, find a new way to update". 14 lanes now run: w2 c04, w3 c05, w4 c06, w5 c07, w6 c08 to w15 c17 (see STATE.md and LANES.md). A gate allows at most 3 concurrent heavy test runs, to protect the shared PostgreSQL server used by other apps.
+
+### Cycle 7: H2 bundle split (lane w5)
+- Implementer (163bf0a, 030937f): first-load JS for /missions 307,502 → 243,127 B gzip (−20.9%, threshold −20%). The help registry, command palette and chat dock now load on demand. The "Chips" chunk was a shared bucket holding the whole help registry through HelpTrigger's static import.
+- Review (c07-review.md): spec MET (thin margin), quality GOOD. I1: api-stage6 red under host load (the same failure on baseline). I2: process slips (git stash, one read-only load from 5190), now in LESSONS.
+- Ruling: no code fix round. api-stage6 and the literal perf threshold get re-verified on the integration tree at merge time, with lower load. The same-load A/B (193 vs 192 ms) is accepted as evidence of no regression.
