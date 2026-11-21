@@ -10,6 +10,10 @@ PASS  agent-evidence             no-props evidence
 PASS  agent-evidence             props    evidence 
 PASS  agent-inspector            no-props         
 PASS  agent-inspector            props    DL-11   
+PASS  agent-rollback             no-props DL-76   
+PASS  agent-rollback             props    DL-76   
+PASS  agent-version-propose      no-props DL-75   
+PASS  agent-version-propose      props    DL-75   
 PASS  ai-summary                 no-props         
 PASS  ai-summary                 props    DL-10   
 PASS  appearance                 no-props DL-56   

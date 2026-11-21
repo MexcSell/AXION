@@ -7,7 +7,7 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   Bot, Radar as RadarIcon, Wrench, Boxes, MessagesSquare, MessageCircle, Brain, Gauge, GraduationCap, Dna, ScrollText, ArrowLeft, Target, PencilLine,
-  Crown, Sparkles, Lock, CheckCircle2, XCircle, ArrowRight, Clock, ShieldCheck, FlaskConical, MoreHorizontal, KeyRound, Check, X, TrendingUp, Fingerprint, UserRound,
+  Crown, Sparkles, Lock, CheckCircle2, XCircle, ArrowRight, Clock, ShieldCheck, FlaskConical, MoreHorizontal, KeyRound, Check, X, TrendingUp, Fingerprint, UserRound, GitBranchPlus, RotateCcw,
 } from 'lucide-react';
 import { RobotAvatar } from '@/components/art/RobotAvatar';
 import { Panel } from '@/components/ui/Panel';
@@ -23,6 +23,7 @@ import { IconButton } from '@/components/ui/IconButton';
 import { Radar, AreaChart, Sparkline, RingGauge } from '@/components/viz/Charts';
 import { activityFor, fmtTokens } from '@/data/activity';
 import { ChannelChat } from '@/features/chat/ChannelChat';
+import { VersionProposalList } from '@/features/agents/VersionProposals';
 import { channelId } from '@/store/chat';
 import { useMe } from '@/store/auth';
 import { AGENTS, AGENT_BY_ID } from '@/data/agents';
@@ -475,26 +476,36 @@ function MentoringTab({ a }: { a: Agent }) {
 
 function VersionsPanel({ a }: { a: Agent }) {
   const v = useAgentVersions(a.id);
-  const canEdit = useCanEditAgents();
+  const canEdit = useCanEditAgents(); // api mode: administrators
   const list = v.data ?? [];
+  const activeV = list.find((x) => x.label === a.version);
+  // improvement cycle 5: "last good" = the version before the active one (its parent)
+  const lastGood = activeV ? list.find((x) => x.id === activeV.parentVersionId) : undefined;
   return (
-    <Panel icon={Dna} title="Versions" help="agent.versions" delay={.05} actions={canEdit ? <button className="btn" onClick={() => openDialog('agent-edit', { agentId: a.id })}>Edit</button> : undefined}>
+    <Panel icon={Dna} title="Versions" help="agent.versions" delay={.05} actions={canEdit ? <div className="row" style={{ gap: 6 }}>
+      <button className="btn primary" disabled={!activeV} onClick={() => openDialog('agent-version-propose', { agentId: a.id })}><GitBranchPlus size={15} />Propose a change</button>
+      <HelpTrigger k="agent.version.propose" />
+      <button className="btn" onClick={() => openDialog('agent-edit', { agentId: a.id })}>Edit</button>
+    </div> : undefined}>
       {v.error && !v.data ? <div className="oa-banner" role="alert"><span>The versions could not be read: {v.error}</span><button className="btn sm" onClick={v.retry}>Retry</button></div>
         : !v.data ? <div className="dim" style={{ fontSize: 13 }} data-state="loading">Loading versions…</div>
         : <div className="col" style={{ gap: 8 }} data-versions>
           {list.slice().reverse().map((x, i, all) => {
-            const active = x.label === a.version;
+            const active = x.id === activeV?.id;
+            const good = x.id === lastGood?.id;
             return (
-              <motion.div key={x.id} className={cx('oa-ver', active && 'stable')} data-version={x.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, textAlign: 'left', padding: '10px 12px' }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .1 + i * .05 }}>
-                <b className="mono">{x.label}</b>{active ? <Chip hue={145} size="sm">active</Chip> : <Chip hue={225} size="sm">earlier</Chip>}
+              <motion.div key={x.id} className={cx('oa-ver', active && 'stable')} data-version={x.label} data-active={active ? '1' : undefined} data-last-good={good ? '1' : undefined} style={{ width: 'auto', flexDirection: 'row', alignItems: 'center', gap: 12, textAlign: 'left', padding: '10px 12px' }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .1 + i * .05 }}>
+                <b className="mono">{x.label}</b>{active ? <Chip hue={145} size="sm" icon={CheckCircle2}>active</Chip> : <Chip hue={225} size="sm">earlier</Chip>}
+                {good && <Chip hue={190} size="sm" icon={ShieldCheck} title="The version before the active one: one click to roll back to it">last good</Chip>}
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div className="ellipsis" style={{ fontSize: 12.5 }}>{x.model} · {x.skills.length ? x.skills.join(', ') : 'no skills'}</div>
+                  <div className="ellipsis" style={{ fontSize: 12.5 }} title={`${x.model} · skills: ${x.skills.join(', ') || 'none'} · tools: ${x.tools.join(', ') || 'none'}`}>{x.model} · {x.skills.length ? x.skills.join(', ') : 'no skills'}</div>
                   <div className="dim" style={{ fontSize: 11.5 }}>{new Date(x.createdAt).toLocaleString()}{i === all.length - 1 ? ' · first version' : ''}</div>
                 </div>
+                {canEdit && !active && <button className={cx('btn sm', !good && 'ghost')} style={{ flex: 'none' }} aria-label={`Roll back to this version (${x.label})`} onClick={() => openDialog('agent-rollback', { agentId: a.id, versionId: x.id })}><RotateCcw size={13} />Roll back to this version</button>}
               </motion.div>
             );
           })}
-          <div className="dim" style={{ fontSize: 12 }}>A change to the model, skills or tools adds a version. Instances already running keep theirs; new instances use the active one.</div>
+          <div className="row" style={{ gap: 6 }}><span className="dim" style={{ fontSize: 12 }}>A promoted proposal, an edit of the model, skills or tools, or a rollback adds a version; none is ever changed or deleted. Instances already running keep theirs; new instances use the active one.</span>{canEdit && <HelpTrigger k="agent.version.rollback" />}</div>
         </div>}
     </Panel>
   );
@@ -507,8 +518,8 @@ function EvolutionTab({ a }: { a: Agent }) {
   if (isApi()) return (
     <div className="oa-grid-2b">
       <VersionsPanel a={a} />
-      <Panel icon={FlaskConical} title="Candidate Experiment" help="agent.experiment" delay={.1} actions={<ProvTag agent={a} />}>
-        <EmptyState icon={FlaskConical} title="No experiments yet" body="Candidate versions, benchmarks and promotions arrive with the evolution pipeline (a later stage)." />
+      <Panel icon={GitBranchPlus} title="Version proposals" help="agent.version.proposals" delay={.1} sub="Candidates for this agent: another administrator promotes them.">
+        <VersionProposalList agentId={a.id} compact />
       </Panel>
     </div>
   );

@@ -34,6 +34,8 @@ import { cx } from '@/lib/format';
 import { AgentHierarchy } from '@/features/agents/AgentHierarchy';
 import { GrowthBadge, LevelPips, EvoTrack, GROWTH } from '@/features/agents/Growth';
 import { Departments, Assignments, Policies, Proposals } from '@/features/agents/OrgSections';
+import { ServerDevelopment } from '@/features/agents/VersionProposals';
+import { useVersionProposals } from '@/api/versionProposals';
 
 type Filter = 'all' | 'working' | 'in-mission' | 'idle' | 'learning' | 'evolving';
 type View = 'cards' | 'list' | 'hierarchy';
@@ -78,6 +80,9 @@ export function useAgentsSection() {
   const STAFF = useMemo(() => staff(), [catalog]); // eslint-disable-line react-hooks/exhaustive-deps
   const COUNTS = useMemo(() => counts(), [catalog]); // eslint-disable-line react-hooks/exhaustive-deps
   const canEdit = useCanEditAgents();
+  // improvement cycle 5: in api mode the Development tab counts pending version proposals (the server's), not fixture growth
+  const vp = useVersionProposals();
+  const devCount = isApi() ? (vp.data ?? []).filter((p) => p.status === 'pending').length : COUNTS.learning + COUNTS.evolving;
   // api mode: an agent whose numbers are measured but not backed by enough tasks does not count into the average
   const scored = STAFF.filter((a) => !needsEvidence(a));
   const avg = scored.length ? Math.round((scored.reduce((s, a) => s + a.success, 0) / scored.length) * 10) / 10 : 0;
@@ -106,7 +111,7 @@ export function useAgentsSection() {
       <HelpTrigger k="agents.views" />
     </>
   );
-  const toolbar = <span>{tab === 'Proposals' && isApi() ? 'Reporting-line changes: proposed by an administrator, checked by the server, approved by another administrator.' : TAB_NOTE[tab]}</span>;
+  const toolbar = <span>{tab === 'Proposals' && isApi() ? 'Reporting-line changes: proposed by an administrator, checked by the server, approved by another administrator.' : tab === 'Development' && isApi() ? 'Agent version proposals: proposed by an administrator, promoted by another, rolled back in one step.' : TAB_NOTE[tab]}</span>;
 
   const list = useMemo(() => STAFF.filter((a) => match(a, filter) && (dept === 'all' || a.dept === dept)
     && (!q || (a.name + ' ' + ROLES[a.role].label + ' ' + a.skills.join(' ') + ' ' + a.dept).toLowerCase().includes(q.toLowerCase()))), [STAFF, filter, dept, q]);
@@ -118,7 +123,7 @@ export function useAgentsSection() {
       {canEdit && <button className="btn" onClick={() => openDialog('department-create')}><Building2 size={15} />New department</button>}
       {canEdit && <button className="btn primary" onClick={() => openDialog('agent-create')}><Plus size={16} />New Agent</button>}
     </>,
-    sub: { tabs, value: tab, onChange: setTab, icons: TAB_ICONS, counts: { Development: COUNTS.learning + COUNTS.evolving } },
+    sub: { tabs, value: tab, onChange: setTab, icons: TAB_ICONS, counts: { Development: devCount } },
     toolbar,
     bodyKey: dir ? `${tab}-${view}` : tab,
     scroll: !(dir && view === 'hierarchy'),
@@ -129,7 +134,7 @@ export function useAgentsSection() {
         : view === 'cards' ? <Cards list={list} />
         : view === 'list' ? <AgentTable list={list} onOpen={(id) => nav(`/agents/${id}`)} />
         : <AgentHierarchy highlight={(a) => a.id === 'gm' || list.includes(a)} />)}
-      {tab === 'Development' && <Development />}
+      {tab === 'Development' && (isApi() ? <ServerDevelopment /> : <Development />)}
       {tab === 'Lineage' && <Lineage />}
       {tab === 'Live Instances' && <LiveInstances />}
       {tab === 'Departments' && <Departments />}
