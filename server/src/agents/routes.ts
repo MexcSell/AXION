@@ -1,13 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { tx } from '../db.ts';
+import { tx, type Tx, type Db } from '../db.ts';
 import { audit } from '../audit.ts';
 import { ApiError, notFound } from '../errors.ts';
-import { requireUser, requireAdmin } from '../auth/session.ts';
+import { requireUser, requireAdmin, type Ctx } from '../auth/session.ts';
 import { parse } from '../auth/routes.ts';
 import { idempotent } from '../idempotency.ts';
 import { emit } from '../events/hooks.ts';
-import { addVersion, getAgent, listAgents } from './service.ts';
+import { addVersion, getAgent, listAgents, type AgentBase } from './service.ts';
+import { attachReliability } from './reliability.ts';
 import { activeRevision, createOrgRevision, edgesOf, revDto } from './org.ts';
 
 const Str = z.string().trim();
@@ -25,6 +26,11 @@ const PatchIn = z.object({
   model: Str.min(1).max(120).optional(), skills: List.optional(), tools: List.optional(),
 }).strict();
 
+// improvement cycle 3: ?includeSimulated=1 adds simulated (DEMO) tasks to the reliability (default: real tasks only)
+const ReadIn = z.object({ includeSimulated: z.enum(['0', '1']).default('0') });
+const viewerOf = (ctx: Ctx) => ({ tenantId: ctx.tenantId, admin: ctx.user.role === 'admin', userId: ctx.user.id });
+const withRel = async (c: Tx | Db, ctx: Ctx, a: AgentBase, includeSimulated = false) => (await attachReliability(c, viewerOf(ctx), [a], includeSimulated))[0];
+
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
 const stale = () => new ApiError('CONFLICT', 409, 'Someone changed this agent meanwhile. Reload it and apply your change again.');
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -32,14 +38,16 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 export default async function agentRoutes(app: FastifyInstance) {
   app.get('/agents', async (req) => {
     const ctx = await requireUser(req);
-    return { agents: await listAgents(app.db, ctx.tenantId) };
+    const qs = parse(ReadIn, req.query ?? {});
+    return { agents: await attachReliability(app.db, viewerOf(ctx), await listAgents(app.db, ctx.tenantId), qs.includeSimulated === '1') };
   });
 
   app.get('/agents/:id', async (req) => {
     const ctx = await requireUser(req);
+    const qs = parse(ReadIn, req.query ?? {});
     const a = await getAgent(app.db, ctx.tenantId, (req.params as { id: string }).id);
     if (!a) throw notFound('No such agent.');
-    return { agent: a };
+    return { agent: await withRel(app.db, ctx, a, qs.includeSimulated === '1') };
   });
 
   app.post('/agents', async (req, reply) => {
@@ -72,7 +80,7 @@ export default async function agentRoutes(app: FastifyInstance) {
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'agent.create', subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { role: b.role, version: v.label, revision: org?.seq ?? null } });
       await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'agent.created', subject: id, payload: { versionId: v.id, label: v.label } });
       if (org) await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'org.revisionApplied', subject: String(org.seq), subjectKind: 'org', payload: { revision: org.seq, previous: org.previous, agentId: id } });
-      return { status: 201, body: { agent: await getAgent(c, ctx.tenantId, id) } };
+      return { status: 201, body: { agent: await withRel(c, ctx, (await getAgent(c, ctx.tenantId, id))!) } };
     });
     return reply.status(out.status).send(out.body);
   });
@@ -91,7 +99,7 @@ export default async function agentRoutes(app: FastifyInstance) {
       const display = ['name', 'dept', 'description', 'site', 'avatar'].filter((k) => (b as Record<string, unknown>)[k] !== undefined && !same((b as Record<string, unknown>)[k], (cur as Record<string, unknown>)[k] ?? null));
       const model = b.model ?? cur.model, skills = b.skills ?? cur.skills, tools = b.tools ?? cur.tools;
       const versioned = model !== cur.model || !same(skills, cur.skills) || !same(tools, cur.tools);
-      if (!display.length && !versioned) return (await getAgent(c, ctx.tenantId, id))!; // nothing changed: no write, no event
+      if (!display.length && !versioned) return withRel(c, ctx, (await getAgent(c, ctx.tenantId, id))!); // nothing changed: no write, no event
       const u = await c.query(
         `update agent_definitions set name=$3, dept=$4, description=$5, site=$6, avatar=$7, row_version=row_version+1 where id=$1 and row_version=$2 returning id`,
         [id, expected, b.name ?? cur.name, b.dept ?? cur.dept, b.description ?? cur.description, b.site === undefined ? (cur.site ?? null) : b.site, JSON.stringify(b.avatar ?? cur.avatar)]);
@@ -105,7 +113,7 @@ export default async function agentRoutes(app: FastifyInstance) {
         await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'agent.version', subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { seq: v.seq, label: v.label, from: cur.versionId } });
         await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'agent.versionCreated', subject: id, payload: { versionId: v.id, label: v.label, seq: v.seq, previousVersionId: cur.versionId } });
       }
-      return (await getAgent(c, ctx.tenantId, id))!;
+      return withRel(c, ctx, (await getAgent(c, ctx.tenantId, id))!);
     });
     return { agent };
   });

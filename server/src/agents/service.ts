@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Tx, Db } from '../db.ts';
-import type { AgentDto, AgentVersionDto, Provenance } from '../../../shared/contracts/src/index.ts';
+import type { AgentStoredDto, AgentVersionDto, Provenance } from '../../../shared/contracts/src/index.ts';
 import { activeRevision, edgesOf } from './org.ts';
 
 export const promptHash = (model: string, skills: unknown[], tools: unknown[]) =>
@@ -20,7 +20,10 @@ export const versionDto = (v: any): AgentVersionDto => ({
 const SELECT = `select d.*, v.id as v_id, v.label as v_label, v.model as v_model, v.skills as v_skills, v.tools as v_tools
   from agent_definitions d join agent_versions v on v.id = d.active_version_id`;
 
-function dto(r: any, manager: string | undefined): AgentDto {
+/** The stored agent; routes add the viewer-scoped `reliability` (attachReliability). */
+export type AgentBase = AgentStoredDto;
+
+function dto(r: any, manager: string | undefined): AgentBase {
   const profile = (r.profile ?? {}) as Record<string, unknown>;
   const provenance: Provenance = (profile.provenance as Provenance | undefined) ?? { source: 'measured', sample: 0, window: '90d' };
   return {
@@ -39,13 +42,13 @@ async function managers(c: Tx | Db, tenantId: string) {
   return new Map((rev ? await edgesOf(c, rev.id) : []).map((e) => [e.subordinateId, e.supervisorId]));
 }
 
-export async function listAgents(c: Tx | Db, tenantId: string): Promise<AgentDto[]> {
+export async function listAgents(c: Tx | Db, tenantId: string): Promise<AgentBase[]> {
   const mg = await managers(c, tenantId);
   const rows = (await c.query(`${SELECT} where d.tenant_id=$1 order by d.created_at, d.id`, [tenantId])).rows;
   return rows.map((r) => dto(r, mg.get(r.id)));
 }
 
-export async function getAgent(c: Tx | Db, tenantId: string, id: string, withVersions = true, lock = false): Promise<AgentDto | null> {
+export async function getAgent(c: Tx | Db, tenantId: string, id: string, withVersions = true, lock = false): Promise<AgentBase | null> {
   const r = (await c.query(`${SELECT} where d.tenant_id=$1 and d.id=$2${lock ? ' for update of d' : ''}`, [tenantId, id])).rows[0];
   if (!r) return null;
   const out = dto(r, (await managers(c, tenantId)).get(id));

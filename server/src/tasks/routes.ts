@@ -51,7 +51,7 @@ export default async function taskRoutes(app: FastifyInstance) {
         if (!u.rowCount) throw new ApiError('CONFLICT', 409, 'The task changed while you were editing it. Reload and try again.');
         const fromInst = lead && lead.id !== target.id ? lead.id : target.id;
         if (fromInst !== target.id) await insertDelegation(c, { missionId: t.mission_id, from: fromInst, to: target.id, kind: 'delegated', taskId: id, simulated: sim });
-        Object.assign(detail, { toInstanceId: target.id, fromInstanceId: t.owner_instance_id, reason: body!.reason ?? null });
+        Object.assign(detail, { toInstanceId: target.id, fromInstanceId: t.owner_instance_id, fromAgent: t.owner_agent, reason: body!.reason ?? null }); // fromAgent: cycle 3 reliability (a task without an owner instance)
         delegated = { from: fromInst, to: target.id };
       } else {
         // compare-and-set on the status we read: a concurrent change is a conflict, never a silent overwrite
