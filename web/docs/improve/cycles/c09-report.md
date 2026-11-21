@@ -30,3 +30,14 @@ server: `src/conversations/post.ts` (new), `routes.ts`, `direct.ts`, `src/instan
 - No UI layout change, so no screenshots.
 
 ## Browser checks and verify-all
+| Check | Result |
+|---|---|
+| Server suite (`vitest run`) | 337/337 PASS |
+| `api-auth-flow` | 15/15 PASS |
+| `api-flows` | 23/23 PASS |
+| `api-stage6` | first run 92/94 (agent-edit step "the server created the next version", unrelated to this diff, timing under load); rerun alone 94/94 PASS |
+| `api-improve` | 83/83 PASS, after one guard change (below) |
+| verify-all (demo suite, dev server on 5790) | all steps green except `fs-guard`: see below |
+
+- `web/scripts/api-improve.mjs` line 224: the database-name guard accepted only `axion_e2e`; lane databases are `axion_e2eL`. It now accepts `axion_e2e` plus digits. It still refuses the real `axion` database. Other lanes will hit the same guard.
+- `fs-guard` fails only because the lane override config `vite-w7.config.ts` sets `fs.allow` to the whole worktree root (so `update/*.md` is served 200). It is an artifact of the lane override config, not of this diff. Not run against a normal config.
