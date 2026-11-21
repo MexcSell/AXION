@@ -10,7 +10,7 @@ import { Tip } from '@/components/ui/Tip';
 import { AGENT_BY_ID } from '@/data/agents';
 import { useAgentsCatalog } from '@/api/agents';
 import type { Attachment, Message, MessageKind } from '@/data/types';
-import { useAuth } from '@/store/auth';
+import { useAuth, useMe } from '@/store/auth';
 import { openDialog } from '@/store/ui';
 import { clock, cx } from '@/lib/format';
 import { layoutRows, mapRows, rangeFor, type RowGeo } from './threadWindow';
@@ -201,13 +201,13 @@ const OVERSCAN = 900;   // px rendered above and below the viewport
 const DRIFT = 300;      // the window follows the scroll position in steps of this many px
 const EST_SAMPLES = 30; // estimates: the mean of the first N measured rows, then fixed (so the spacers do not churn)
 
-const ThreadRow = memo(function ThreadRow({ m, sep, gk, right, compact, missionId, label, pos, size, tab, seen, live, observe }: {
+const ThreadRow = memo(function ThreadRow({ m, sep, gk, right, compact, missionId, label, pos, size, tab, known, live, observe }: {
   m: Message; sep: string | null; gk: string; right: boolean; compact: boolean; missionId?: string; label?: string; pos: number; size: number; tab: boolean;
-  seen: Set<string>; live: { current: boolean }; observe: (el: HTMLDivElement | null) => void | (() => void);
+  known: Set<string>; live: { current: boolean }; observe: (el: HTMLDivElement | null) => void | (() => void);
 }) {
-  // the entrance animation plays once per message: not for the rows of the first render, not for a row scrolled back in
-  const [enter] = useState(() => live.current && !seen.has(m.id));
-  useEffect(() => { seen.add(m.id); }, [seen, m.id]);
+  // the entrance animation plays for a message that just joined the thread (a new message, an older page), not for the
+  // rows of the first render and not for a row that mounts because the reader scrolled to it
+  const [enter] = useState(() => live.current && !known.has(m.id));
   return (
     <div data-mid={m.id} data-gk={gk} ref={observe} className="thread-row" role="article" aria-posinset={pos} aria-setsize={size} tabIndex={tab ? 0 : -1}>
       {sep && <div className="day-sep"><span>{sep}</span></div>}
@@ -234,6 +234,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
   const [atBottom, setAtBottom] = useState(true);
   const [newCount, setNewCount] = useState(0);
   const [said, setSaid] = useState(''); // the last arrival, for screen readers
+  const myId = useMe()?.id;
   const compact = view === 'compact';
   const shown = !compact || !compactFilter ? messages : messages.filter(compactFilter);
   const mm = allowMinimap && minimap;
@@ -273,9 +274,10 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
   const base = !compact && total !== undefined && total > messages.length ? total - messages.length : 0; // older messages not loaded yet
   const size = base + n;
 
-  const seen = useRef(new Set<string>()).current;
+  const known = useRef(new Set<string>()).current; // every id the thread has shown (see ThreadRow)
   const live = useRef(false);
   useEffect(() => { live.current = true; }, []);
+  useEffect(() => { for (const m of shown) known.add(m.id); }, [shown, known]);
   // one ResizeObserver for the rows and the scroller; a row is measured when it mounts and whenever its size changes
   const [meter] = useState(() => {
     const me = {
@@ -283,7 +285,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
       row(el: HTMLElement): boolean {
         const gk = el.dataset.gk, sc = scroller.current;
         if (!gk || !sc || !el.isConnected) return false;
-        const h = el.offsetHeight;
+        const h = el.getBoundingClientRect().height; // fractional: rounded heights would add up in the spacers (the wrapper has no transform)
         if (!h) return false; // not laid out (a hidden tab)
         const row = el.querySelector<HTMLElement>('.bubble-row') ?? el;
         const bub = row.querySelector<HTMLElement>('.bubble') ?? row;
@@ -353,7 +355,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
       if (atBottom) window.setTimeout(() => scroller.current?.scrollTo({ top: 1e6, behavior: 'smooth' }), 30);
       else setNewCount((n) => n + Math.max(1, i >= 0 ? messages.length - 1 - i : messages.length - prevLen.current)); // only rows after the last one seen (an older page may land in the same render)
       if (i >= 0) { // announce what arrived from others, in order (the log is not a live region: see above)
-        const fresh = messages.slice(i + 1).filter((m) => !isRight(m));
+        const fresh = messages.slice(i + 1).filter((m) => !m.pending && m.from !== `human:${myId}`); // not my own
         const m = fresh[fresh.length - 1];
         if (m) { const t = `${whoOf(m)}: ${m.text.length > 200 ? m.text.slice(0, 200) + '…' : m.text}`; setSaid(fresh.length > 1 ? `${fresh.length} new messages. Latest, ${t}` : t); }
       }
@@ -420,7 +422,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
     for (let i = a; i < z; i++) {
       const m = shown[i];
       rows.push(<ThreadRow key={m.id} m={m} sep={layout.seps[i]} gk={layout.keys[i]} right={isRight(m)} compact={compact} missionId={missionId} label={labelFor?.(m)}
-        pos={base + i + 1} size={size} tab={m.id === rovingId} seen={seen} live={live} observe={observe} />);
+        pos={base + i + 1} size={size} tab={m.id === rovingId} known={known} live={live} observe={observe} />);
     }
     at = z;
   }
