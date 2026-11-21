@@ -1,4 +1,5 @@
 import { motion } from 'motion/react';
+import { useAgentsCatalog } from '@/api/agents';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ZoomIn, ZoomOut, Maximize2, Crown, Move, RotateCcw } from 'lucide-react';
@@ -125,10 +126,11 @@ const COL = 236, GAP = 28, NODE_H = 118, NODE_GAP = 18, DEPT_Y = 200, DEPT_H = 7
 
 export function AgentHierarchy({ agents = AGENTS, highlight }: { agents?: Agent[]; highlight?: (a: Agent) => boolean }) {
   const nav = useNavigate();
+  const catalog = useAgentsCatalog(); // api mode: the server's catalog, live (Stage 6)
   const gm = agents.find((a) => a.id === 'gm') ?? AGENTS[0];
   const depts = useMemo(() => DEPTS.filter((d) => d.name !== 'Executive').map((d) => ({
     d, members: AGENTS.filter((a) => a.id !== 'gm' && a.dept === d.name).sort((a, b) => (a.id === d.managerId ? -1 : b.id === d.managerId ? 1 : b.success - a.success)),
-  })).filter((x) => x.members.length > 0), []);
+  })).filter((x) => x.members.length > 0), [catalog]); // eslint-disable-line react-hooks/exhaustive-deps
   const W = depts.length * COL + (depts.length - 1) * GAP;
   const maxN = Math.max(...depts.map((x) => x.members.length));
   const H = AG_Y + maxN * (NODE_H + NODE_GAP) + 10;

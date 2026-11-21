@@ -12,6 +12,7 @@ import { useUI } from './store/ui';
 import { HELP } from './help/registry';
 import { loadDialogs } from './dialogs/DialogHost';
 import { useData } from './store/data';
+import './api/missionControl'; // api mode: getMissionControl answers from the server (Stage 6)
 
 // Test hook for scripts/*.mjs. Always on in dev; in production builds only when localStorage 'axion.testhook' = '1'.
 const hookOn = (() => { try { return import.meta.env.DEV || localStorage.getItem('axion.testhook') === '1'; } catch { return import.meta.env.DEV; } })();

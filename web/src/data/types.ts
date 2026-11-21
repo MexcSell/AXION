@@ -119,13 +119,15 @@ export interface MissionNode {
   tasks: number;
   pending: number;
   progress: number;
+  /** api mode (Stage 6): the agent version this instance is pinned to */
+  versionLabel?: string;
 }
 
 export interface MissionEdge { from: string; to: string; kind: EdgeKind; label?: string; }
 
 export type MessageKind = 'delegation' | 'report' | 'consult' | 'command' | 'reply' | 'question' | 'ack' | 'result' | 'system';
 
-export interface Attachment { id: string; name: string; kind: 'image' | 'audio' | 'video' | 'doc' | 'file' | 'link'; size?: string; url?: string; }
+export interface Attachment { id: string; name: string; kind: 'image' | 'audio' | 'video' | 'doc' | 'file' | 'link'; size?: string; url?: string; /** api mode: the picked file, uploaded on send (never persisted) */ blob?: Blob; }
 
 export interface Message {
   id: string;
@@ -139,6 +141,12 @@ export interface Message {
   attachments?: Attachment[];
   status?: 'sent' | 'delivered' | 'acknowledged' | 'queued';
   replyTo?: string;
+  /** api mode (Stage 6): server order within the thread, DEMO simulation flag, author display name */
+  seq?: number;
+  simulated?: boolean;
+  authorName?: string;
+  /** api mode: still being sent */
+  pending?: boolean;
 }
 
 export type TaskState = 'queued' | 'ready' | 'running' | 'waiting-agent' | 'waiting-user' | 'verifying' | 'passed' | 'failed' | 'canceled';

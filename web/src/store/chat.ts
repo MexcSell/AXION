@@ -75,7 +75,7 @@ export const useChat = create<ChatState>()(persist((set, get) => ({
   name: 'axion.chat.v1',
   version: 1,
   storage: createJSONStorage(() => localStorage),
-  partialize: (s) => ({ channels: Object.fromEntries(Object.entries(s.channels).map(([k, v]) => [k, v.slice(-200).map((m) => ({ ...m, attachments: m.attachments?.map((a) => ({ ...a, url: undefined })) }))])), reads: s.reads }) as unknown as ChatState,
+  partialize: (s) => ({ channels: Object.fromEntries(Object.entries(s.channels).map(([k, v]) => [k, v.slice(-200).map((m) => ({ ...m, attachments: m.attachments?.map((a) => ({ ...a, url: undefined, blob: undefined })) }))])), reads: s.reads }) as unknown as ChatState,
 }));
 
 if (typeof window !== 'undefined') {

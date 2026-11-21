@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Send, MoreHorizontal, UserRound,
   ChevronUp, ChevronDown, Crown, Users, ArrowLeftRight, CornerDownRight } from 'lucide-react';
@@ -14,6 +14,8 @@ import { getMissionControl, threadKey } from '@/data/missions';
 import type { Attachment, Mission } from '@/data/types';
 import { useData } from '@/store/data';
 import { openDialog, toast } from '@/store/ui';
+import { isApi } from '@/api/mode';
+import { useMissionControl, findThread, openThread, loadOlder, sendMissionMessage } from '@/api/missionControl';
 import { useLive } from './live';
 import { clock, cx } from '@/lib/format';
 import { EvidenceThumb } from './EvidenceThumb';
@@ -25,6 +27,7 @@ type Relation = 'superior' | 'subordinate' | 'peer' | 'owner';
 interface Counterpart { id: string; relation: Relation; }
 
 export function useCounterparts(mission: Mission, agentId: string): Counterpart[] {
+  const entry = useMissionControl(mission.id, ['hierarchy']);
   return useMemo(() => {
     const mc = getMissionControl(mission);
     const me = mc.nodes.find((n) => n.agentId === agentId);
@@ -40,7 +43,7 @@ export function useCounterparts(mission: Mission, agentId: string): Counterpart[
     peersByEdge.forEach((p) => { if (!out.some((o) => o.id === p.agentId)) out.push({ id: p.agentId, relation: 'peer' }); });
     if (sup) out.push({ id: HUMAN, relation: 'owner' });
     return out;
-  }, [mission, agentId]);
+  }, [mission, agentId, entry?.nodes, entry?.edges]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 const REL_META: Record<Relation, { label: string; icon: typeof Crown; hue: number }> = {
@@ -55,13 +58,18 @@ export function Messenger({ mission, agentId, layout = 'narrow', onCounterpartCh
   mission: Mission; agentId: string; layout?: 'narrow' | 'wide'; onCounterpartChange?: (id: string) => void; initialCounterpart?: string;
 }) {
   const a = AGENT_BY_ID[agentId];
+  useMissionControl(mission.id);
   const mc = getMissionControl(mission);
   const node = mc.nodes.find((n) => n.agentId === agentId);
   const cps = useCounterparts(mission, agentId);
   const [cp, setCp] = useState<string>(initialCounterpart && cps.some((c) => c.id === initialCounterpart) ? initialCounterpart : cps[0]?.id ?? HUMAN);
   const [listOpen, setListOpen] = useState(true);
   useEffect(() => { if (!cps.some((c) => c.id === cp)) setCp(cps[0]?.id ?? HUMAN); }, [agentId]); // eslint-disable-line react-hooks/exhaustive-deps
-  const choose = (id: string) => { setCp(id); onCounterpartChange?.(id); };
+  // api mode: the partners are known once the server's hierarchy arrives; until the reader picks one, follow the default
+  const picked = useRef(false);
+  const first = cps[0]?.id ?? HUMAN;
+  useEffect(() => { if (isApi() && !picked.current && !(initialCounterpart && cps.some((c) => c.id === initialCounterpart))) setCp(first); }, [first]); // eslint-disable-line react-hooks/exhaustive-deps
+  const choose = (id: string) => { picked.current = true; setCp(id); onCounterpartChange?.(id); };
   const [cpW, setCpW, resetCpW] = usePaneWidth('conv.partners', 270);
   if (!a) return null;
 
@@ -77,7 +85,7 @@ export function Messenger({ mission, agentId, layout = 'narrow', onCounterpartCh
         <RobotAvatar role={a.role} size={42} faceMode="face" animated status={node?.state === 'working' ? 'good' : node?.state === 'waiting' ? 'warn' : 'info'} />
         <div style={{ minWidth: 0, flex: 1 }}>
           <div className="row" style={{ gap: 6, minWidth: 0 }}><b className="nowrap" style={{ flex: 'none' }}>{a.name}</b>{node && <span className="msg-head-state" style={{ minWidth: 0, overflow: 'hidden' }}><InstanceStateChip state={node.state} size="sm" /></span>}</div>
-          <div className="dim ellipsis" style={{ fontSize: 11.5 }}>{ROLES[a.role].label} · instance {mission.id}:{a.id} · {a.version}</div>
+          <div className="dim ellipsis" style={{ fontSize: 11.5 }}>{ROLES[a.role].label} · instance {node?.instanceId ?? `${mission.id}:${a.id}`} · {node?.versionLabel ?? a.version}</div>
         </div>
         <HelpTrigger k="agent.instance" />
         <IconButton icon={Send} label="Send a command with impact preview" size="sm" onClick={() => openDialog('send-command', { missionId: mission.id, agentId })} />
@@ -98,7 +106,7 @@ export function Messenger({ mission, agentId, layout = 'narrow', onCounterpartCh
           <div className="cp-col" style={{ ['--cp-w' as string]: `${cpW}px` }}><div className="section-label" style={{ padding: '4px 8px 8px' }}>Conversation partners</div>{directory}</div>
           <Splitter pane="prev" width={cpW} onChange={setCpW} onReset={resetCpW} min={170} maxFrac={.4} label="Resize conversation partners" />
         </>}
-        <Thread key={agentId + '|' + cp} mission={mission} me={agentId} other={cp} relation={cps.find((c) => c.id === cp)?.relation ?? 'owner'} />
+        <Thread key={agentId + '|' + cp} mission={mission} me={agentId} other={cp} relation={cps.find((c) => c.id === cp)?.relation ?? 'owner'} onRedirect={choose} />
       </div>
     </div>
   );
@@ -107,7 +115,7 @@ export function Messenger({ mission, agentId, layout = 'narrow', onCounterpartCh
 function CounterpartItem({ mission, me, c, selected, onClick, index, compact }: { mission: Mission; me: string; c: Counterpart; selected: boolean; onClick: () => void; index: number; compact: boolean }) {
   const extra = useData((s) => s.extraMessages);
   const base = getMissionControl(mission).threads[threadKey(me, c.id)] ?? [];
-  const msgs = [...base, ...(extra[`${mission.id}::${threadKey(me, c.id)}`] ?? [])];
+  const msgs = isApi() ? base : [...base, ...(extra[`${mission.id}::${threadKey(me, c.id)}`] ?? [])];
   const last = msgs[msgs.length - 1];
   const other = AGENT_BY_ID[c.id];
   const R = REL_META[c.relation];
@@ -131,7 +139,7 @@ function CounterpartItem({ mission, me, c, selected, onClick, index, compact }: 
 }
 
 /* ------------------------------------------------------------------ */
-function Thread({ mission, me, other, relation }: { mission: Mission; me: string; other: string; relation: Relation }) {
+function Thread({ mission, me, other, relation, onRedirect }: { mission: Mission; me: string; other: string; relation: Relation; onRedirect?: (id: string) => void }) {
   const extra = useData((s) => s.extraMessages);
   const send = useData((s) => s.sendMessage);
   const patch = useData((s) => s.patchMessage);
@@ -139,17 +147,37 @@ function Thread({ mission, me, other, relation }: { mission: Mission; me: string
   const log = useLive((s) => s.log);
   const user = useMe();
   const [typing, setTyping] = useState(false);
+  const api = isApi();
+  const entry = useMissionControl(mission.id);
+  const th = api ? findThread(entry, threadKey(me, other)) : undefined;
+  useEffect(() => { if (th && !th.messages && !th.loading) void openThread(mission.id, th.id); }, [mission.id, th?.id, th?.messages, th?.loading]); // eslint-disable-line react-hooks/exhaustive-deps
   const mc = getMissionControl(mission);
   const base = mc.threads[threadKey(me, other)] ?? [];
-  const msgs = useMemo(() => [...base, ...(extra[`${mission.id}::${threadKey(me, other)}`] ?? [])], [base, extra, mission.id, me, other]);
+  const msgs = useMemo(() => (api ? th?.messages ?? [] : [...base, ...(extra[`${mission.id}::${threadKey(me, other)}`] ?? [])]), [api, th?.messages, base, extra, mission.id, me, other]);
   const a = AGENT_BY_ID[me];
   const o = AGENT_BY_ID[other];
   const pendingQ = [...msgs].reverse().find((m) => m.kind === 'question' && m.from === me);
   const readOnly = mission.status === 'archived' || mission.status === 'completed';
   const who = user?.name ?? 'You';
 
+  /** api mode: one path to the server. People only write in their own thread with an agent (Task 3 ruling). */
+  const apiSend = (text: string, mode: 'command' | 'reply', attachments: Attachment[]) => {
+    if (!user) return;
+    const replyTo = mode === 'reply' ? pendingQ?.replyTo ?? pendingQ?.id : undefined;
+    if (other !== HUMAN) {
+      onRedirect?.(HUMAN);
+      toast({ tone: 'info', title: `Sent to your conversation with ${a.name}`, body: `${a.name} ↔ ${o?.name ?? 'agent'} is between agents and read-only for people, so your ${mode} went to your own thread with ${a.name}.` });
+    }
+    log(mission.id, `${who} sent a ${mode} to ${a.name}`, 'command');
+    void sendMissionMessage(mission, me, { kind: mode, text, attachments, replyTo }, user).then((r) => {
+      // gone: the mission page leaves it with a toast; elsewhere (a dialog) say it here
+      if (r === 'gone' && !window.location.pathname.startsWith(`/missions/${mission.id}`)) toast({ tone: 'warning', title: `${mission.id} is no longer available`, body: 'Its owner made it private, or it was deleted. Your message was not sent.' });
+    });
+  };
+
   const onSend = (text: string, modeKey: string, attachments: Attachment[]) => {
     const mode = modeKey as 'command' | 'reply';
+    if (api) { apiSend(text, mode, attachments); return; }
     // the thread stays keyed to the human side (HUMAN); the author is the signed-in user
     const msg = send(mission.id, me, other, { from: user ? `human:${user.id}` : HUMAN, to: me, kind: mode, text, attachments, replyTo: mode === 'reply' ? pendingQ?.replyTo ?? pendingQ?.id : undefined });
     log(mission.id, `${who} sent a ${mode} to ${a.name}`, 'command');
@@ -182,7 +210,8 @@ function Thread({ mission, me, other, relation }: { mission: Mission; me: string
       messages={msgs} isRight={(m) => m.from.startsWith('human:') || m.from === me} mmMe={me}
       typing={typing ? { name: a.name, role: a.role } : null} missionId={mission.id}
       compactFilter={(m) => ['delegation', 'report', 'result', 'command', 'question'].includes(m.kind)}
-      emptyText="Send a command to start this conversation."
+      emptyText={th?.loading ? 'Loading the conversation…' : 'Send a command to start this conversation.'}
+      hasOlder={th?.hasMore} loadingOlder={th?.loadingOlder} onLoadOlder={th ? () => void loadOlder(mission.id, th.id) : undefined} total={th ? Math.max(th.count, msgs.length) : undefined}
       composer={<ChatComposer key={me + other} toName={a.name} draftKey={`axion.draft.${mission.id}.${me}`} disabled={readOnly} disabledText="This mission is closed — conversations are read-only."
         initialMode={pendingQ ? 'reply' : 'command'}
         modes={[

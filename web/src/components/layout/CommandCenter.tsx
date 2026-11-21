@@ -1,4 +1,5 @@
 import { motion } from 'motion/react';
+import { useAgentsCatalog } from '@/api/agents';
 import { useNavigate } from 'react-router-dom';
 import { Target, Users, ClipboardList, Trophy, Database, HeartPulse, CheckCircle2 } from 'lucide-react';
 import { useMemo } from 'react';
@@ -11,6 +12,7 @@ import { AGENTS } from '@/data/agents';
 
 /** Company-wide KPI tiles (40-4 command center) — rendered through the shared TopBoard. */
 export function useCompanyKpis(): KpiItem[] {
+  useAgentsCatalog();
   const nav = useNavigate();
   const missions = useVisibleMissions();
   const decisions = useData((s) => s.approvalDecisions);
@@ -28,6 +30,7 @@ export function useCompanyKpis(): KpiItem[] {
 
 /** "Company Health" ring board — the aside of the Overview top board. */
 export function CompanyHealth() {
+  useAgentsCatalog();
   return (
     <motion.section className="panel cc-health" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .4, delay: .08 }} aria-label="Company health">
       <header className="panel-head" style={{ marginBottom: 6 }}>

@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { isApi } from '@/api/mode';
+import { useMe } from '@/store/auth';
 import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -14,6 +15,7 @@ import { useData, useMission } from '@/store/data';
 import { toast, openDialog } from '@/store/ui';
 import { AGENTS, AGENT_BY_ID } from '@/data/agents';
 import { getMissionControl } from '@/data/missions';
+import { useMissionControl, sendMissionMessage } from '@/api/missionControl';
 import { ROLES } from '@/data/roles';
 import type { Mission, Attachment } from '@/data/types';
 import { KIND_META } from '@/features/mission/MissionBits';
@@ -121,6 +123,7 @@ function MissionEdit({ close, props }: DialogComponentProps<{ missionId: string 
 /* ------------------------------------------------------------------ */
 function MissionDelete({ close, props }: DialogComponentProps<{ missionId: string }>) {
   const m = useMission(props.missionId);
+  useMissionControl(props.missionId); // api mode: fetch and follow this mission's server data
   const archive = useData((s) => s.archiveMission);
   const purge = useData((s) => s.purgeMission);
   const [mode, setMode] = useState<'archive' | 'purge'>(m?.status === 'archived' ? 'purge' : 'archive');
@@ -157,6 +160,7 @@ function MissionDelete({ close, props }: DialogComponentProps<{ missionId: strin
 /* ------------------------------------------------------------------ */
 function Lifecycle({ close, props, kind }: DialogComponentProps<{ missionId: string }> & { kind: 'start' | 'pause' | 'stop' | 'retry' }) {
   const m = useMission(props.missionId);
+  useMissionControl(props.missionId); // api mode: fetch and follow this mission's server data
   const setStatus = useData((s) => s.setMissionStatus);
   const [reason, setReason] = useState('');
   if (!m) return <Missing close={close} />;
@@ -251,6 +255,7 @@ function AttachDialog({ close, props }: DialogComponentProps<{ onAttach?: (a: At
 
 function AiSummary({ close, props }: DialogComponentProps<{ missionId: string }>) {
   const m = useMission(props.missionId);
+  useMissionControl(props.missionId); // api mode: fetch and follow this mission's server data
   const [regen, setRegen] = useState(false);
   if (!m) return <Missing close={close} />;
   const ev = getMissionControl(m).timeline.slice(0, 6);
@@ -272,6 +277,7 @@ function AiSummary({ close, props }: DialogComponentProps<{ missionId: string }>
 /* ------------------------------------------------------------------ */
 function AgentInspector({ close, props }: DialogComponentProps<{ missionId: string; agentId: string; onOpenChat?: () => void }>) {
   const m = useMission(props.missionId);
+  useMissionControl(props.missionId); // api mode: fetch and follow this mission's server data
   const nav = useNavigate();
   const a = AGENT_BY_ID[props.agentId];
   if (!m || !a) return <Missing close={close} />;
@@ -298,6 +304,7 @@ function AgentInspector({ close, props }: DialogComponentProps<{ missionId: stri
 
 function TaskReassign({ close, props }: DialogComponentProps<{ missionId: string; taskId?: string; agentId?: string }>) {
   const m = useMission(props.missionId);
+  useMissionControl(props.missionId); // api mode: fetch and follow this mission's server data
   const [to, setTo] = useState('');
   const [why, setWhy] = useState('');
   if (!m) return <Missing close={close} />;
@@ -325,6 +332,7 @@ function TaskReassign({ close, props }: DialogComponentProps<{ missionId: string
 
 function TaskCriteria({ close, props }: DialogComponentProps<{ missionId: string; taskId: string }>) {
   const m = useMission(props.missionId);
+  useMissionControl(props.missionId); // api mode: fetch and follow this mission's server data
   if (!m) return <Missing close={close} />;
   const t = getMissionControl(m).tasks.find((x) => x.id === props.taskId);
   if (!t) return <Missing close={close} />;
@@ -367,6 +375,8 @@ function MessageDetails({ close, props }: DialogComponentProps<{ message: { id: 
 
 function SendCommand({ close, props }: DialogComponentProps<{ missionId: string; agentId: string; mode?: 'command' | 'reply'; replyTo?: string; question?: string }>) {
   const m = useMission(props.missionId);
+  useMissionControl(props.missionId);
+  const me = useMe();
   const send = useData((s) => s.sendMessage);
   const [text, setText] = useState('');
   const [files, setFiles] = useState<LocalFile[]>([]);
@@ -375,7 +385,15 @@ function SendCommand({ close, props }: DialogComponentProps<{ missionId: string;
   const impact = useMemo(() => (text.match(/publish|deploy|delete|submit|purchase|pay/i) ? 'This instruction mentions a consequential action — it will still require a separate approval.' : 'Within current mission scope. No new grants.'), [text]);
   if (!m || !a) return <Missing close={close} />;
   const go = () => {
-    send(m.id, 'human:owner', a.id, { from: 'human:owner', to: a.id, kind: isReply ? 'reply' : 'command', text, replyTo: props.replyTo, attachments: files.map((f) => ({ id: f.id, name: f.name, kind: f.type.startsWith('image/') ? 'image' : 'file', url: f.url, size: `${(f.size / 1024).toFixed(0)} KB` })) });
+    const attachments = files.map((f) => ({ id: f.id, name: f.name, kind: f.type.startsWith('image/') ? 'image' as const : 'file' as const, url: f.url, size: `${(f.size / 1024).toFixed(0)} KB`, blob: f.blob }));
+    if (isApi()) {
+      // Stage 6: the server stores it in the human↔agent thread; on real missions it is queued (agents don't act yet)
+      if (me) void sendMissionMessage(m, a.id, { kind: isReply ? 'reply' : 'command', text: text.trim() || '(attachment)', replyTo: props.replyTo, attachments }, me);
+      toast({ tone: 'success', title: isReply ? 'Reply submitted' : 'Command sent', body: m.demo ? `${a.name} will acknowledge receipt (simulated on this DEMO mission).` : 'Stored on the server and queued: agents do not act yet.' });
+      close();
+      return;
+    }
+    send(m.id, 'human:owner', a.id, { from: 'human:owner', to: a.id, kind: isReply ? 'reply' : 'command', text, replyTo: props.replyTo, attachments: attachments.map(({ blob: _b, ...x }) => { void _b; return x; }) });
     toast({ tone: 'success', title: isReply ? 'Reply submitted' : 'Command sent', body: `${a.name} will acknowledge receipt.` });
     close();
   };
@@ -406,6 +424,7 @@ function AttachmentPreview({ close, props }: DialogComponentProps<{ attachment: 
 /* DL-14 Thread picker · DL-15 Conversation thread (drawer; used when the inspector pane is not visible) */
 function ThreadPicker({ close, props }: DialogComponentProps<{ missionId: string }>) {
   const m = useMission(props.missionId);
+  useMissionControl(props.missionId); // api mode: fetch and follow this mission's server data
   if (!m) return <Missing close={close} />;
   const mc = getMissionControl(m);
   return (

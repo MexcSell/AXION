@@ -22,6 +22,11 @@ import { PhaseStepper } from './MissionBits';
 import { EvidenceThumb } from './Messenger';
 import { ApprovalMini, EventIcon } from './Shared';
 import { useLive } from './live';
+import { isApi } from '@/api/mode';
+import { useMissionControl } from '@/api/missionControl';
+
+/** api mode, real missions: results and the timeline are produced by execution, which arrives in Stage 8. */
+const stage8 = (m: Mission) => isApi() && !m.demo;
 
 /** Workspace tabs of the merged Missions page (formerly Mission Control). */
 
@@ -29,6 +34,7 @@ const stateTone = (s: string) => (s === 'working' ? 'good' : s === 'waiting' ? '
 
 /* ------------------------------------------------------------------ */
 export function OverviewTab({ m, onSelectAgent }: { m: Mission; onSelectAgent: (agentId: string) => void }) {
+  useMissionControl(m.id);
   const mc = getMissionControl(m);
   const [, setTab] = useTab('missions');
   const decisions = useData((s) => s.approvalDecisions);
@@ -92,6 +98,7 @@ export function OverviewTab({ m, onSelectAgent }: { m: Mission; onSelectAgent: (
           <div className="team-strip">
             {mc.nodes.map((n, i) => {
               const a = AGENT_BY_ID[n.agentId];
+              if (!a) return null;
               return (
                 <Tip key={n.instanceId} label={`${a.name} — ${n.task}`}>
                   <motion.button className="team-dot" onClick={() => onSelectAgent(a.id)} initial={{ scale: .5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ delay: .04 * i, type: 'spring', stiffness: 300, damping: 18 }} aria-label={`${a.name}: ${n.task}`}>
@@ -105,7 +112,7 @@ export function OverviewTab({ m, onSelectAgent }: { m: Mission; onSelectAgent: (
         </div>
         <div className="subpanel">
           <div className="row" style={{ marginBottom: 8 }}><Package size={15} className="info" /><b>Recent artifacts</b><span className="spacer" /><button className="btn sm ghost" onClick={() => setTab('Results')}>All results</button></div>
-          {mc.artifacts.length === 0 && <span className="dim" style={{ fontSize: 12.5 }}>Nothing produced yet.</span>}
+          {mc.artifacts.length === 0 && <span className="dim" style={{ fontSize: 12.5 }}>Nothing produced yet.{stage8(m) && ' Results arrive in Stage 8, when agents execute.'}</span>}
           {mc.artifacts.slice(0, 3).map((a) => (
             <div key={a.id} className="list-row" style={{ cursor: 'pointer' }} onClick={() => openDialog('artifact-preview', { missionId: m.id, artifactId: a.id })}>
               <ArtifactIcon a={a} /><span className="ellipsis grow">{a.name}</span><Chip hue={a.versions[0].verified ? 145 : 38} size="sm">{a.versions[0].v}</Chip>
@@ -124,6 +131,7 @@ export function OverviewTab({ m, onSelectAgent }: { m: Mission; onSelectAgent: (
             </motion.div>
           ))}
         </AnimatePresence>
+        {stage8(m) && mc.timeline.length === 0 && lines.length === 0 && <div className="dim" style={{ fontSize: 12.5 }}>No agent activity yet. The timeline of a real mission arrives in Stage 8, when agents execute.</div>}
         {mc.timeline.slice(0, Math.max(0, 5 - lines.length)).map((e) => <div key={e.id} className="event-row"><span className="mono dim" style={{ width: 44 }}>{clock(e.agoMin)}</span><EventIcon type={e.type} /><span className="ellipsis grow">{e.text}</span><span className="mono dim" style={{ fontSize: 10.5 }}>{e.trace}</span></div>)}
       </div>
     </div>
@@ -150,6 +158,7 @@ export function ResultsTab({ m }: { m: Mission }) {
     <div className="col" style={{ gap: 10 }}>
       <div className="row" style={{ gap: 8 }}><Package size={16} className="info" /><b>Mission results</b><span className="dim" style={{ fontSize: 12 }}>Every version is immutable; old versions stay downloadable.</span><HelpTrigger k="release.version" /><span className="spacer" />
         <button className="btn sm" onClick={() => openDialog('download-bundle', { missionId: m.id })}><Download size={14} />Bundle</button></div>
+      {mc.artifacts.length === 0 && <EmptyState icon={Package} title="No results yet" body={stage8(m) ? 'Results arrive in Stage 8: agents do not execute yet, so nothing has been produced for this mission.' : 'Nothing has been produced for this mission yet.'} />}
       <div className="grid g-2">
         {mc.artifacts.map((a, i) => {
           const v = a.versions.find((x) => x.v === ver[a.id]) ?? a.versions[0];
@@ -205,6 +214,7 @@ export function ApprovalsTab({ m }: { m: Mission }) {
 }
 
 export function ReportsTab({ m }: { m: Mission }) {
+  useMissionControl(m.id, ['hierarchy', 'tasks']);
   const mc = getMissionControl(m);
   const lead = AGENT_BY_ID[m.leadId];
   const [rev, setRev] = useState('r3');
@@ -238,9 +248,9 @@ export function ReportsTab({ m }: { m: Mission }) {
         </ol>
         <div className="divider" />
         <div className="section-label" style={{ marginBottom: 6 }}>Agent → manager deliveries</div>
-        {mc.nodes.filter((n) => n.parent).map((n) => (
+        {mc.nodes.filter((n) => n.parent && AGENT_BY_ID[n.agentId]).map((n) => (
           <div key={n.instanceId} className="list-row">
-            <RobotAvatar role={AGENT_BY_ID[n.agentId].role} size={26} /><span className="ellipsis grow" style={{ fontSize: 12.5 }}><b>{AGENT_BY_ID[n.agentId].name}</b> → {AGENT_BY_ID[mc.nodes.find((x) => x.instanceId === n.parent)!.agentId].name}: “{n.task}”</span>
+            <RobotAvatar role={AGENT_BY_ID[n.agentId].role} size={26} /><span className="ellipsis grow" style={{ fontSize: 12.5 }}><b>{AGENT_BY_ID[n.agentId].name}</b> → {AGENT_BY_ID[mc.nodes.find((x) => x.instanceId === n.parent)?.agentId ?? '']?.name ?? 'its manager'}: “{n.task}”</span>
             <InstanceStateChip state={n.state} size="sm" />
           </div>
         ))}
@@ -268,7 +278,9 @@ export function TimelineTab({ m }: { m: Mission }) {
         <button className="btn sm" onClick={() => downloadBlob(`${m.id}-timeline.json`, JSON.stringify(evs, null, 2))}><Download size={14} />Export</button>
       </div>
       <div className="timeline">
-        {evs.length === 0 && <EmptyState icon={Filter} title="No events match" body="Clear the filters to see the full log." />}
+        {evs.length === 0 && (mc.timeline.length === 0 && stage8(m)
+          ? <EmptyState icon={History} title="No timeline yet" body="The timeline of a real mission arrives in Stage 8, when agents execute. Conversations and the hierarchy are live now." />
+          : <EmptyState icon={Filter} title="No events match" body="Clear the filters to see the full log." />)}
         {evs.map((e, i) => (
           <motion.div key={e.id} className="tl-item" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: Math.min(i, 15) * .025 }}>
             <span className="tl-time mono">{clock(e.agoMin)}</span>

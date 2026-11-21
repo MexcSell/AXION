@@ -36,8 +36,10 @@ function layout(nodes: MissionNode[]) {
     pos[n.instanceId] = { x, y: d * (H + GY) };
     return x;
   };
-  nodes.filter((n) => !n.parent).forEach((r) => walk(r, 0));
+  const ids = new Set(nodes.map((n) => n.instanceId));
+  nodes.filter((n) => !n.parent || !ids.has(n.parent)).forEach((r) => walk(r, 0));
   const ps = Object.values(pos);
+  if (!ps.length) return { pos, w: W, h: H };
   return { pos, w: Math.max(...ps.map((p) => p.x)) + W, h: Math.max(...ps.map((p) => p.y)) + H };
 }
 

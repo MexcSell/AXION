@@ -23,6 +23,8 @@ import type { Agent } from '@/data/types';
 import { useTab } from '@/hooks/useTab';
 import { useVisibleMissions } from '@/store/data';
 import { getMissionControl } from '@/data/missions';
+import { useAgentsCatalog } from '@/api/agents';
+import { useMissionControls } from '@/api/missionControl';
 import { openDialog } from '@/store/ui';
 import { cx } from '@/lib/format';
 import { AgentHierarchy } from '@/features/agents/AgentHierarchy';
@@ -43,10 +45,11 @@ const TAB_NOTE: Record<string, string> = {
   Proposals: 'Reorganizations: simulate, evaluate, approve, apply with rollback.',
 };
 
-const STAFF = AGENTS.filter((a) => a.id !== 'gm');
+/** Functions, not constants: in api mode the catalog arrives from the server after sign-in and changes live (Stage 6). */
+const staff = () => AGENTS.filter((a) => a.id !== 'gm');
 const match = (a: Agent, f: Filter) =>
   f === 'all' ? true : f === 'working' ? a.status === 'active' || a.status === 'in-mission' : f === 'learning' || f === 'evolving' ? a.growth === f : a.status === f;
-const COUNTS: Record<Filter, number> = Object.fromEntries((['all', 'working', 'in-mission', 'idle', 'learning', 'evolving'] as Filter[]).map((f) => [f, STAFF.filter((a) => match(a, f)).length])) as Record<Filter, number>;
+const counts = (): Record<Filter, number> => { const st = staff(); return Object.fromEntries((['all', 'working', 'in-mission', 'idle', 'learning', 'evolving'] as Filter[]).map((f) => [f, st.filter((a) => match(a, f)).length])) as Record<Filter, number>; };
 
 /** Old /agents links land in System Operations › Agents (owner update u1), keeping ?tab= as ?sub= and ?view=. */
 export default function AgentsRedirect() {
@@ -67,6 +70,9 @@ export function useAgentsSection() {
   const [dept, setDept] = useState('all');
   const nav = useNavigate();
 
+  const catalog = useAgentsCatalog();
+  const STAFF = useMemo(() => staff(), [catalog]); // eslint-disable-line react-hooks/exhaustive-deps
+  const COUNTS = useMemo(() => counts(), [catalog]); // eslint-disable-line react-hooks/exhaustive-deps
   const avg = Math.round((STAFF.reduce((s, a) => s + a.success, 0) / STAFF.length) * 10) / 10;
   const kpis: KpiItem[] = [
     { key: 'all', icon: Bot, value: AGENTS.length, label: 'Agents', hint: 'one per duty · no duplicates', color: '#22d3ee', help: 'agents.kpi.total', onClick: () => { setTab('Directory'); setFilter('all'); } },
@@ -95,7 +101,7 @@ export function useAgentsSection() {
   const toolbar = <span>{TAB_NOTE[tab]}</span>;
 
   const list = useMemo(() => STAFF.filter((a) => match(a, filter) && (dept === 'all' || a.dept === dept)
-    && (!q || (a.name + ' ' + ROLES[a.role].label + ' ' + a.skills.join(' ') + ' ' + a.dept).toLowerCase().includes(q.toLowerCase()))), [filter, dept, q]);
+    && (!q || (a.name + ' ' + ROLES[a.role].label + ' ' + a.skills.join(' ') + ' ' + a.dept).toLowerCase().includes(q.toLowerCase()))), [STAFF, filter, dept, q]);
   const reset = () => { setFilter('all'); setDept('all'); setQ(''); };
 
   return {
@@ -136,7 +142,7 @@ function StatusChips({ value, onChange }: { value: Filter; onChange: (f: Filter)
     { key: 'learning', label: 'Learning', icon: GraduationCap },
     { key: 'evolving', label: 'Evolving', icon: Dna },
   ];
-  return <Tabs tabs={chips.map((c) => ({ key: c.key, label: c.label, icon: c.icon, count: COUNTS[c.key] }))} value={value} onChange={onChange} ariaLabel="Filter agents by status or development" className="status-chips" />;
+  return <Tabs tabs={chips.map((c) => ({ key: c.key, label: c.label, icon: c.icon, count: counts()[c.key] }))} value={value} onChange={onChange} ariaLabel="Filter agents by status or development" className="status-chips" />;
 }
 
 /* ------------------------------------------------------------------ */
@@ -246,7 +252,9 @@ function Development() {
 function LiveInstances() {
   const missions = useVisibleMissions();
   const nav = useNavigate();
-  const rows = useMemo(() => missions.filter((m) => !['archived', 'completed', 'draft'].includes(m.status)).flatMap((m) => getMissionControl(m).nodes.map((n) => ({ m, n }))).filter(({ n }) => AGENT_BY_ID[n.agentId]), [missions]);
+  const live = useMemo(() => missions.filter((m) => !['archived', 'completed', 'draft'].includes(m.status)), [missions]);
+  const byMission = useMissionControls(live.map((m) => m.id), ['hierarchy']); // api mode: each mission's server instances
+  const rows = useMemo(() => live.flatMap((m) => getMissionControl(m).nodes.map((n) => ({ m, n }))).filter(({ n }) => AGENT_BY_ID[n.agentId]), [live, byMission]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="col" style={{ gap: 10 }}>
       <div className="row" style={{ gap: 8 }}><span className="muted" style={{ fontSize: 13 }}>{rows.length} live instances across {new Set(rows.map((r) => r.m.id)).size} missions. One agent can run in several missions; each instance has its own memory, grants and pinned version.</span><HelpTrigger k="agent.instance" /><span className="spacer" /><DemoTag /></div>
@@ -263,7 +271,7 @@ function LiveInstances() {
                   <td><button className="btn ghost sm" onClick={() => nav(`/missions/${m.id}?tab=hierarchy&agent=${n.agentId}`)}>{m.id}</button></td>
                   <td className="ellipsis" style={{ maxWidth: 220 }}>{n.task}</td>
                   <td><InstanceStateChip state={n.state} size="sm" /></td>
-                  <td className="mono">{a.version}</td>
+                  <td className="mono">{n.versionLabel ?? a.version}</td>
                   <td style={{ width: 120 }}><div className="bar thin"><i style={{ width: `${n.progress}%` }} /></div></td>
                   <td><IconButton icon={ArrowRight} label="Open in Missions" size="sm" onClick={() => nav(`/missions/${m.id}?tab=hierarchy&agent=${n.agentId}`)} /></td>
                 </tr>
@@ -283,9 +291,9 @@ function Lifecycle() {
   const nav = useNavigate();
   const steps = [
     { label: 'Create', icon: Box, hue: 165, n: AGENTS.filter((a) => a.createdAgo <= 14).length, go: () => openDialog('agent-create') },
-    { label: 'Learn', icon: Sparkles, hue: 195, n: COUNTS.learning, go: () => nav('/agents?tab=development') },
-    { label: 'Deploy', icon: Rocket, hue: 215, n: COUNTS.working, go: () => nav('/agents?tab=live-instances') },
-    { label: 'Evolve', icon: Layers, hue: 285, n: COUNTS.evolving, go: () => nav('/agents?tab=development') },
+    { label: 'Learn', icon: Sparkles, hue: 195, n: counts().learning, go: () => nav('/agents?tab=development') },
+    { label: 'Deploy', icon: Rocket, hue: 215, n: counts().working, go: () => nav('/agents?tab=live-instances') },
+    { label: 'Evolve', icon: Layers, hue: 285, n: counts().evolving, go: () => nav('/agents?tab=development') },
   ];
   return (
     <Panel icon={RefreshCcw} title="Agent Lifecycle" help="agents.lifecycle" delay={.15} className="bottom-panel">
@@ -329,7 +337,7 @@ function StageBoard() {
 
 function TopPerformers() {
   const nav = useNavigate();
-  const list = [...STAFF].sort((a, b) => b.success - a.success || b.sample - a.sample).slice(0, 5);
+  const list = staff().sort((a, b) => b.success - a.success || b.sample - a.sample).slice(0, 5);
   return (
     <Panel icon={Gauge} title={<>Agent Performance <span className="dim" style={{ fontSize: 13, fontWeight: 500 }}>(Top 5)</span></>} help="agents.performance" delay={.25} className="bottom-panel">
       <div className="col" style={{ gap: 7 }}>

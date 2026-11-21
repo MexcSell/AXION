@@ -1,4 +1,5 @@
 import { motion, AnimatePresence } from 'motion/react';
+import { useAgentsCatalog } from '@/api/agents';
 import { NavLink, useLocation } from 'react-router-dom';
 import { PanelLeftClose, PanelLeftOpen, X, Plus, Puzzle, Eye } from 'lucide-react';
 import { useMemo } from 'react';
@@ -17,6 +18,7 @@ import { useVisibleNotices } from '@/data/useNotices';
 import { useMediaQuery } from '@/hooks/useTab';
 
 export function Rail() {
+  useAgentsCatalog(); // agent counts follow the catalog (api mode)
   const collapsedPref = useSettings((s) => s.railCollapsed);
   const set = useSettings((s) => s.set);
   const loc = useLocation();

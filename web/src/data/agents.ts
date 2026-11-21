@@ -180,8 +180,28 @@ export const AGENT_BY_ID: Record<string, Agent> = Object.fromEntries(AGENTS.map(
 export const childrenOf = (id: string) => AGENTS.filter((a) => a.parentId === id);
 export const agentName = (id: string) => AGENT_BY_ID[id]?.name ?? (id.startsWith('human:') ? 'You' : id);
 
-/** 12 agents from the reference grid (excludes GM). */
-export const FEATURED_AGENTS = AGENTS.slice(1, 13);
+/** 12 agents from the reference grid (excludes GM). A function: in api mode the catalog is replaced after sign-in. */
+export const featuredAgents = () => AGENTS.slice(1, 13);
+
+/** Fixture order (GM first, the reference grid next); the server lists agents by creation, so its order is mapped onto this. */
+const FIXTURE_ORDER = new Map(AGENTS.map((a, i) => [a.id, i]));
+
+/**
+ * api mode (Stage 6): replace the catalog with the server's agents *in place*, so every module that imported
+ * `AGENTS` / `AGENT_BY_ID` sees them. Known agents keep their object (updated with the server's fields),
+ * new ones are appended. Agents missing from the list leave `AGENTS` but stay resolvable by id (old missions name them).
+ */
+export function applyAgentCatalog(list: Agent[]) {
+  const next = list.map((a) => {
+    const cur = AGENT_BY_ID[a.id];
+    if (!cur) return { ...a };
+    Object.assign(cur, a);
+    return cur;
+  });
+  next.sort((x, y) => (FIXTURE_ORDER.get(x.id) ?? 1e6) - (FIXTURE_ORDER.get(y.id) ?? 1e6));
+  AGENTS.splice(0, AGENTS.length, ...next);
+  for (const a of next) AGENT_BY_ID[a.id] = a;
+}
 
 export const AGENT_VERSIONS = [
   { v: 'v2.3.0', label: 'Current', note: 'Stable · last-good' },

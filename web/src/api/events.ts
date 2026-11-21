@@ -4,6 +4,8 @@ import { useData, loadSnapshot, refreshMission, refreshApprovals, refreshNotices
 import { authApi, useAuth } from '@/store/auth';
 import { isApi } from './mode';
 import { api, ApiFailure } from './client';
+import { loadAgents } from './agents';
+import { onMissionControlEvent, refreshLoadedMissionControl, clearMissionControl, setMcUser } from './missionControl';
 
 /**
  * Live sync (Stage 5, spec §12.2): one EventSource per tab. The browser resends Last-Event-ID on reconnect;
@@ -34,8 +36,10 @@ export function startSync(): () => void {
   const approvals = debounceKeyed(() => { void refreshApprovals().catch(() => undefined); }, 150);
   const notices = debounceKeyed(() => { void refreshNotices().catch(() => undefined); }, 150);
   const people = debounceKeyed(() => { void authApi.refresh(); }, 200);
+  const agents = debounceKeyed(() => { void loadAgents().catch(() => undefined); }, 200);
 
   let retries = 0;
+  let opened = 0;
   /** The stream closed for good (non-200): find out whether the session is still valid before reopening. */
   const recover = async () => {
     try { await api('GET', '/me', undefined, { quietAuth: true }); }
@@ -56,6 +60,9 @@ export function startSync(): () => void {
     if (type.startsWith('approval.')) approvals('a');
     if (type === 'notification.created') notices('n');
     if (type.startsWith('user.') || type.startsWith('auth.')) people('p');
+    // Stage 6: the agent catalog, and each mission's hierarchy, tasks and conversations
+    if (type.startsWith('agent.')) agents('a');
+    if (type.startsWith('conversation.') || type.startsWith('instance.') || type.startsWith('task.')) onMissionControlEvent(type, e);
   };
 
   let lastHeard = Date.now();
@@ -78,8 +85,10 @@ export function startSync(): () => void {
       set('live');
       // the snapshot is read after the stream's cursor exists, so nothing committed in between is missed
       void loadSnapshot().catch(() => undefined);
+      if (opened++) { agents('a'); refreshLoadedMissionControl(); } // a reconnect: re-read what this tab already shows
     });
-    for (const t of ['mission.created', 'mission.revised', 'mission.stateChanged', 'mission.shared', 'mission.deleted', 'staffing.progressed', 'approval.requested', 'approval.decided', 'notification.created', 'user.requested', 'user.changed', 'auth.approved'])
+    for (const t of ['mission.created', 'mission.revised', 'mission.stateChanged', 'mission.shared', 'mission.deleted', 'staffing.progressed', 'approval.requested', 'approval.decided', 'notification.created', 'user.requested', 'user.changed', 'auth.approved',
+      'agent.created', 'agent.updated', 'agent.versionCreated', 'conversation.messageCreated', 'conversation.receipt', 'instance.created', 'instance.stateChanged', 'task.delegated'])
       es.addEventListener(t, (ev) => { heard(); onEvent(t, ev as MessageEvent); });
     // the server ends the stream when this session was revoked: re-check, which returns to Connect with the reason
     es.addEventListener('auth', () => {
@@ -100,7 +109,7 @@ export function startSync(): () => void {
   const fallback = window.setTimeout(() => { if (!useData.getState().loaded) void loadSnapshot().catch(() => undefined); }, 3000);
   return () => {
     closed = true; es?.close(); window.clearTimeout(staleTimer); window.clearTimeout(fallback); window.clearInterval(watchdog);
-    mission.cancel(); approvals.cancel(); notices.cancel(); people.cancel(); // no refresh fires after sign-out
+    mission.cancel(); approvals.cancel(); notices.cancel(); people.cancel(); agents.cancel(); // no refresh fires after sign-out
     set('off');
   };
 }
@@ -110,7 +119,8 @@ export function useServerSync() {
   const meId = useAuth((s) => (s.server.phase === 'connected' ? s.server.meId : ''));
   useEffect(() => {
     if (!isApi() || !meId) return;
+    setMcUser(meId);
     const stop = startSync();
-    return () => { stop(); clearServerData(); };
+    return () => { stop(); clearServerData(); clearMissionControl(); };
   }, [meId]);
 }

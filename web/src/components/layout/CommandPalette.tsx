@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
+import { useAgentsCatalog } from '@/api/agents';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
@@ -47,6 +48,7 @@ export function CommandPalette() {
 
   useEffect(() => { if (open) { setQ(''); setSel(0); window.setTimeout(() => inputRef.current?.focus(), 20); } }, [open]);
 
+  const catalog = useAgentsCatalog(); // the search index follows the agent catalog (api mode, Stage 6)
   const all = useMemo<Cmd[]>(() => {
     const go = (p: string) => () => { nav(p); setOpen(false); };
     const act = (f: () => void) => () => { setOpen(false); f(); };
@@ -102,7 +104,7 @@ export function CommandPalette() {
     for (const l of lessons) cmds.push({ id: 'kn-' + l.id, group: 'Knowledge', label: l.title, hint: `${AGENT_BY_ID[l.agentId]?.name} · ${l.scope === 'own' ? 'kept' : 'shared up'}`, icon: BookOpen, run: go('/operations?tab=agents&sub=lineage') });
     for (const [k, e] of Object.entries(HELP)) cmds.push({ id: 'h-' + k, group: 'Help', label: e.title, hint: 'help', body: e.what, icon: LifeBuoy, run: go(`/help?tab=context-help&k=${encodeURIComponent(k)}`) });
     return cmds;
-  }, [missions, nav, setOpen, me, accounts, vms, sites, jobs, news, lessons, extraModels, chats, notices]);
+  }, [missions, nav, setOpen, me, accounts, vms, sites, jobs, news, lessons, extraModels, chats, notices, catalog]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Every word must match; rank label hits above hint/body hits; keep each group short so all kinds of elements show. */
   const results = useMemo(() => {

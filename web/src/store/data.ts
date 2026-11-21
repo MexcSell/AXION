@@ -14,7 +14,8 @@ import { actionForUiStatus, type UiMissionStatus } from '@contracts';
  * Mission data. In 'demo' mode every mutation stays in this browser (the prototype).
  * In 'api' mode (Stage 5) missions, approvals and notification read state come from the server: actions call the API,
  * apply the change optimistically and roll back with a toast on error; the event stream (api/events.ts) keeps it current.
- * Conversations (extraMessages) stay DEMO until Stage 6.
+ * Stage 6: in api mode mission conversations, hierarchy and tasks come from the server (api/missionControl.ts);
+ * extraMessages are the demo mode's local conversations only.
  */
 export type Connection = 'off' | 'live' | 'reconnecting' | 'stale';
 interface DataState {
@@ -130,10 +131,10 @@ export const useData = create<DataState>()(persist((set, get) => ({
   storage: createJSONStorage(() => { try { localStorage.setItem('__d', '1'); localStorage.removeItem('__d'); return localStorage; } catch { const m = new Map<string, string>(); return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k) }; } }),
   // blob: URLs die with the page, so attachments keep only their metadata
   partialize: (s) => (isApi() ? {
-    extraMessages: Object.fromEntries(Object.entries(s.extraMessages).map(([k, v]) => [k, v.map((m) => ({ ...m, attachments: m.attachments?.map((a) => ({ ...a, url: undefined })) }))])),
+    extraMessages: Object.fromEntries(Object.entries(s.extraMessages).map(([k, v]) => [k, v.map((m) => ({ ...m, attachments: m.attachments?.map((a) => ({ ...a, url: undefined, blob: undefined })) }))])),
   } : {
     missions: s.missions.map((m) => (m.content?.files.some((f) => f.url) ? { ...m, content: { ...m.content, files: m.content.files.map((f) => ({ ...f, url: undefined })) } } : m)), approvalDecisions: s.approvalDecisions, readNotifications: s.readNotifications,
-    extraMessages: Object.fromEntries(Object.entries(s.extraMessages).map(([k, v]) => [k, v.map((m) => ({ ...m, attachments: m.attachments?.map((a) => ({ ...a, url: undefined })) }))])),
+    extraMessages: Object.fromEntries(Object.entries(s.extraMessages).map(([k, v]) => [k, v.map((m) => ({ ...m, attachments: m.attachments?.map((a) => ({ ...a, url: undefined, blob: undefined })) }))])),
   }) as unknown as DataState,
 }));
 
@@ -145,7 +146,7 @@ export function threadMessages(missionId: string, a: string, b: string, extra: R
   const m = useData.getState().missions.find((x) => x.id === missionId);
   if (!m) return [];
   const base = getMissionControl(m).threads[threadKey(a, b)] ?? [];
-  return [...base, ...(extra[`${missionId}::${threadKey(a, b)}`] ?? [])];
+  return isApi() ? base : [...base, ...(extra[`${missionId}::${threadKey(a, b)}`] ?? [])]; // api mode: the server's thread only
 }
 
 export function allApprovals(missions: Mission[], decisions: Record<string, 'approved' | 'denied'>): Approval[] {
@@ -181,6 +182,12 @@ const put = (m: Mission) => useData.setState((s) => {
   return { missions, lastEventAt: Date.now() };
 });
 const drop = (id: string) => { bump(id); useData.setState((s) => ({ missions: s.missions.filter((m) => m.id !== id), lastEventAt: Date.now() })); };
+/** The server answered 404 for this mission (made private or deleted meanwhile): forget it and tell the open view to leave it. */
+export function missionGone(id: string) {
+  const had = useData.getState().missions.some((m) => m.id === id);
+  drop(id);
+  if (had) window.dispatchEvent(new CustomEvent('axion:mission-gone', { detail: id }));
+}
 
 /** Full snapshot: after sign-in, after every (re)connect of the event stream, or after a gap. */
 export async function loadSnapshot() {

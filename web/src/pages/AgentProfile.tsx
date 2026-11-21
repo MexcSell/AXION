@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
+import { useAgentsCatalog } from '@/api/agents';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
@@ -24,6 +25,7 @@ import { useMe } from '@/store/auth';
 import { AGENTS, AGENT_BY_ID } from '@/data/agents';
 import { ROLES } from '@/data/roles';
 import { getMissionControl } from '@/data/missions';
+import { useMissionControls } from '@/api/missionControl';
 import { METRIC_KEYS, METRIC_LABELS, DEPT_BY_NAME, metricSample, toolsFor, memoryFor, auditFor, evolutionFor, mentoringFor, perfSeries } from '@/data/orgdemo';
 import type { Agent } from '@/data/types';
 import { useTab } from '@/hooks/useTab';
@@ -33,6 +35,7 @@ import { ago, cx } from '@/lib/format';
 import '@/theme/pages/overview-org-agent.css';
 
 export default function AgentProfilePage() {
+  useAgentsCatalog(); // a renamed or upgraded agent shows at once (agent.* events)
   const { id } = useParams();
   const agent = id ? AGENT_BY_ID[id] : undefined;
   if (!agent) {
@@ -258,6 +261,7 @@ function ToolsTab({ a }: { a: Agent }) {
 function InstancesTab({ a }: { a: Agent }) {
   const nav = useNavigate();
   const ms = useAgentMissions(a);
+  useMissionControls(ms.map((m) => m.id), ['hierarchy']); // api mode: re-renders as the server's instances arrive
   const rows = ms.flatMap((m) => getMissionControl(m).nodes.filter((n) => n.agentId === a.id).map((n) => ({ m, n })));
   return (
     <Panel icon={Boxes} titleSize="lg" title="Instances" help="agent.instance" sub="Each mission gets its own memory, grants and pinned version." delay={.05} actions={<button className="btn primary" onClick={() => openDialog('agent-assign', { agentId: a.id })}><Target size={15} />New instance</button>}>
@@ -269,7 +273,7 @@ function InstancesTab({ a }: { a: Agent }) {
               <b className="clamp-2" style={{ margin: '6px 0 2px', fontSize: 13.5 }}>{m.title}</b>
               <div className="dim ellipsis" style={{ fontSize: 12 }}>{n.task}</div>
               <div className="row" style={{ gap: 6, margin: '10px 0' }}><div className="bar thin good" style={{ flex: 1 }}><motion.i initial={{ width: 0 }} animate={{ width: `${n.progress}%` }} transition={{ duration: .8, delay: .1 + i * .04 }} /></div><b className="tnum" style={{ fontSize: 12 }}>{n.progress}%</b></div>
-              <dl className="kv oa-kv sm"><dt>Pinned</dt><dd className="mono">{a.version}</dd><dt>Memory</dt><dd>scope {m.id} (isolated)</dd><dt>Tokens</dt><dd>{fmtTokens(activityFor(m, a.id).tokens)}</dd><dt>Tasks</dt><dd>{n.tasks} · {n.pending} pending</dd></dl>
+              <dl className="kv oa-kv sm"><dt>Pinned</dt><dd className="mono">{n.versionLabel ?? a.version}</dd><dt>Memory</dt><dd>scope {m.id} (isolated)</dd><dt>Tokens</dt><dd>{fmtTokens(activityFor(m, a.id).tokens)}</dd><dt>Tasks</dt><dd>{n.tasks} · {n.pending} pending</dd></dl>
               <div className="row" style={{ gap: 6, marginTop: 8 }}><button className="btn sm" onClick={() => nav(`/missions/${m.id}?tab=hierarchy&agent=${a.id}`)}>Open in mission</button><button className="btn sm ghost" onClick={() => toast({ tone: 'info', title: 'Migration is a controlled change (demo)', body: 'Running instances stay pinned unless a migration is approved.' })}>Migrate version</button></div>
             </motion.div>
           ))}
@@ -281,6 +285,7 @@ function InstancesTab({ a }: { a: Agent }) {
 
 function ConversationsTab({ a }: { a: Agent }) {
   const ms = useAgentMissions(a);
+  useMissionControls(ms.map((m) => m.id), ['hierarchy', 'threads']);
   const threads = ms.flatMap((m) => Object.entries(getMissionControl(m).threads).filter(([k]) => k.split('|').includes(a.id)).map(([k, msgs]) => {
     const other = k.split('|').find((x) => x !== a.id) ?? '';
     return { m, k, other, msgs, last: msgs[msgs.length - 1] };

@@ -1,4 +1,5 @@
 import { motion } from 'motion/react';
+import { useAgentsCatalog } from '@/api/agents';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, Server, Cpu, ListChecks, HardDrive, ScrollText, LifeBuoy, RotateCw, Pause, Play, Download, Search, CircleCheck, CircleX,
@@ -30,6 +31,7 @@ const ICONS = [Server, Monitor, Bot, Boxes, Cpu, ListChecks, HardDrive, ScrollTe
 const HCOL: Record<Health, string> = { good: 'good', warn: 'warn', bad: 'bad' };
 
 export default function OperationsPage() {
+  useAgentsCatalog();
   const me = useMe();
   const [tab, setTab, tabs] = useTab('operations');
   const up = SERVICES.filter((s) => s.health === 'good').length;

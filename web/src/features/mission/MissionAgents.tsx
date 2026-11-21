@@ -12,6 +12,7 @@ import { getMissionControl } from '@/data/missions';
 import { INSTANCE_STATE } from '@/data/roles';
 import type { InstanceState, Mission, MissionNode } from '@/data/types';
 import { cx } from '@/lib/format';
+import { useMissionControl } from '@/api/missionControl';
 
 export const stateTone = (s: string) => (s === 'working' ? 'good' : s === 'waiting' ? 'warn' : s === 'blocked' ? 'bad' : s === 'done' ? 'violet' : 'info') as 'good' | 'warn' | 'bad' | 'violet' | 'info';
 
@@ -35,6 +36,7 @@ interface Row { n: MissionNode; d: number; kids: number; last: boolean; rails: b
 
 /** The mission's agents, viewable as hierarchy tree, levels, status groups or a flat list. Left pane of Missions › Conversations. */
 export function MissionAgents({ m, agentId, onSelectAgent, onOpenGraph }: { m: Mission; agentId: string; onSelectAgent: (id: string) => void; onOpenGraph?: () => void }) {
+  useMissionControl(m.id, ['hierarchy']);
   const mc = getMissionControl(m);
   const [view, setViewState] = useState<View>(readView);
   const setView = (v: View) => { setViewState(v); writeView(v); };

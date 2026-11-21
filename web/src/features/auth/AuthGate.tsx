@@ -8,6 +8,7 @@ import { BRAND } from '@/config/brand';
 import { useApplyPreferences } from '@/components/layout/usePreferences';
 import { useAuth, useGate, useAuthPoll, type Gate } from '@/store/auth';
 import { isApi, switchMode } from '@/api/mode';
+import { useAgentsVersion, loadAgentsOnce } from '@/api/agents';
 import { WifiOff } from 'lucide-react';
 import { cx } from '@/lib/format';
 import '@/theme/pages/auth.css';
@@ -38,8 +39,13 @@ export function AuthGate({ children }: { children: ReactNode }) {
     wasWaiting.current = waiting;
   }, [gate.state, waiting]);
 
-  if (gate.state === 'connected' && !celebrate) return <>{children}</>;
-  const apiPhase = isApi() ? server.phase : null;
+  // Stage 6: in api mode the agent catalog comes from the server; the shell opens once it is loaded
+  const catalog = useAgentsVersion((s) => s.loaded);
+  useEffect(() => { if (isApi() && server.phase === 'connected') void loadAgentsOnce(); }, [server.phase]);
+  const waitCatalog = isApi() && gate.state === 'connected' && !catalog;
+
+  if (gate.state === 'connected' && !celebrate && !waitCatalog) return <>{children}</>;
+  const apiPhase = isApi() ? (waitCatalog && !celebrate ? 'booting' : server.phase) : null;
   return (
     <div className="auth-screen">
       <div className="app-bg-grid" aria-hidden />

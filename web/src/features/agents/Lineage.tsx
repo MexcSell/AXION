@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
+import { useAgentsCatalog } from '@/api/agents';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { GitBranch, Lock, ArrowUp, ArrowDown, Share2, BookOpen, Undo2, ArrowUpRight } from 'lucide-react';
@@ -34,6 +35,7 @@ function layout(root: Agent) {
 
 /** Agents › Lineage: derived agents and how their knowledge flows (owner update 2026-11-20 u1). */
 export function Lineage() {
+  useAgentsCatalog();
   const lessons = useLineage((s) => s.lessons);
   const roots = lineageRoots();
   const [sel, setSel] = useState('mobile-dev-01');

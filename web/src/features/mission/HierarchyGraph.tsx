@@ -11,6 +11,8 @@ import { ROLES } from '@/data/roles';
 import type { EdgeKind, Mission, MissionEdge, MissionNode } from '@/data/types';
 import { getMissionControl } from '@/data/missions';
 import { useLive } from './live';
+import { isApi } from '@/api/mode';
+import { useMissionControl } from '@/api/missionControl';
 import { cx, clock } from '@/lib/format';
 
 const NODE_W = 172, NODE_H = 128, GAP_X = 26, GAP_Y = 96;
@@ -30,8 +32,11 @@ interface Pos { x: number; y: number; depth: number; }
 function layout(nodes: MissionNode[]) {
   const kids: Record<string, MissionNode[]> = {};
   nodes.forEach((n) => { if (n.parent) (kids[n.parent] ??= []).push(n); });
-  const root = nodes.find((n) => !n.parent)!;
+  const ids = new Set(nodes.map((n) => n.instanceId));
+  // roots: no manager, or a manager not in this mission's list (never drop a node from the drawing)
+  const roots = nodes.filter((n) => !n.parent || !ids.has(n.parent));
   const pos: Record<string, Pos> = {};
+  if (!roots.length) return { pos, w: NODE_W, h: NODE_H };
   let leaf = 0;
   const walk = (n: MissionNode, depth: number): number => {
     const ch = kids[n.instanceId] ?? [];
@@ -41,7 +46,7 @@ function layout(nodes: MissionNode[]) {
     pos[n.instanceId] = { x, y: depth * (NODE_H + GAP_Y), depth };
     return x;
   };
-  walk(root, 0);
+  for (const r of roots) walk(r, 0);
   const maxX = Math.max(...Object.values(pos).map((p) => p.x)) + NODE_W;
   const maxY = Math.max(...Object.values(pos).map((p) => p.y)) + NODE_H;
   return { pos, w: maxX, h: maxY };
@@ -75,6 +80,7 @@ function edgePath(e: MissionEdge, pos: Record<string, Pos>) {
 }
 
 export function HierarchyGraph({ mission, selected, onSelect, onOpenChat }: { mission: Mission; selected?: string; onSelect: (agentId: string) => void; onOpenChat?: (agentId: string) => void }) {
+  useMissionControl(mission.id, ['hierarchy']);
   const mc = getMissionControl(mission);
   const { pos, w, h } = useMemo(() => layout(mc.nodes), [mc.nodes]);
   const pad = 40;
@@ -99,7 +105,8 @@ export function HierarchyGraph({ mission, selected, onSelect, onOpenChat }: { mi
   useEffect(() => { const ro = new ResizeObserver(fit); if (wrap.current) ro.observe(wrap.current); return () => ro.disconnect(); }, [vw, vh]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // DEMO live simulation: emit a real-direction pulse every few seconds
-  const active = !['completed', 'archived', 'paused', 'draft', 'failed'].includes(mission.status);
+  // api mode: only DEMO missions get the invented pulses; a real mission shows only what the server reports
+  const active = !['completed', 'archived', 'paused', 'draft', 'failed'].includes(mission.status) && (!isApi() || !!mission.demo);
   useEffect(() => {
     if (!simulate || !active || mc.edges.length === 0) return;
     const name = (inst: string) => AGENT_BY_ID[mc.nodes.find((n) => n.instanceId === inst)?.agentId ?? '']?.name ?? '?';
@@ -163,6 +170,7 @@ export function HierarchyGraph({ mission, selected, onSelect, onOpenChat }: { mi
         <div className="hlist" role="list" aria-label="Hierarchy relationships">
           {mc.edges.map((e, i) => {
             const a = AGENT_BY_ID[nodeMap[e.from]?.agentId], b = AGENT_BY_ID[nodeMap[e.to]?.agentId];
+            if (!a || !b) return null;
             return (
               <motion.div key={i} role="listitem" className="list-row" initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * .02 }}>
                 <RobotAvatar role={a.role} size={26} /><button className="btn ghost sm" onClick={() => onSelect(a.id)}>{a.name}</button>
@@ -209,6 +217,7 @@ export function HierarchyGraph({ mission, selected, onSelect, onOpenChat }: { mi
             {mc.nodes.map((n, i) => {
               const p = pos[n.instanceId];
               const a = AGENT_BY_ID[n.agentId];
+              if (!p || !a) return null;
               const sel = n.agentId === selected;
               const hot = pulses.some((x) => x.to === n.instanceId);
               return (
@@ -233,7 +242,7 @@ export function HierarchyGraph({ mission, selected, onSelect, onOpenChat }: { mi
                     <div style={{ minWidth: 0 }}>
                       <div className="hnode-name ellipsis">{a.name}</div>
                       <div className="hnode-role ellipsis">{ROLES[a.role].label}</div>
-                      <span className="mono dim" style={{ fontSize: 10 }}>{a.version}</span>
+                      <span className="mono dim hnode-ver" style={{ fontSize: 10 }} title={n.versionLabel ? `Pinned to ${a.name} ${n.versionLabel} for this mission` : undefined}>{n.versionLabel ?? a.version}</span>
                     </div>
                     {n.pending > 0 && <span className="badge" style={{ position: 'absolute', top: -6, right: -6 }} aria-label={`${n.pending} pending`}>{n.pending}</span>}
                   </div>

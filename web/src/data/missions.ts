@@ -365,9 +365,23 @@ export function buildMissionControl(m: Mission): MissionControlData {
 }
 
 const cache = new Map<string, MissionControlData>();
-export function getMissionControl(m: Mission) {
+/** The prototype's generated Mission Control data (demo mode; DEMO artifacts and timeline in api mode). */
+export function fixtureMissionControl(m: Mission) {
   // keyed by the team too: agents join a mission while it runs (owner update u1)
   const key = `${m.id}|${m.leadId}|${m.agentIds.join(',')}`;
   if (!cache.has(key)) cache.set(key, buildMissionControl(m));
   return cache.get(key)!;
+}
+
+/**
+ * api mode (Stage 6): web/src/api/missionControl.ts registers a provider that answers from the server's data.
+ * It returns null when it does not apply (demo mode), and the fixture is used. Kept as a plain hook point because
+ * the server imports this file too (seeding, backfill) and must not pull in browser modules.
+ */
+type Provider = (m: Mission) => MissionControlData | null;
+let provider: Provider | null = null;
+export function setMissionControlProvider(p: Provider | null) { provider = p; }
+
+export function getMissionControl(m: Mission): MissionControlData {
+  return provider?.(m) ?? fixtureMissionControl(m);
 }

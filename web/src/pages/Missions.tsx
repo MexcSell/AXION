@@ -28,6 +28,7 @@ import { MISSION_FILTERS, slug } from '@/config/nav';
 import { missionTotals, fmtTokens, fmtMin } from '@/data/activity';
 import { AGENT_BY_ID } from '@/data/agents';
 import { getMissionControl } from '@/data/missions';
+import { useMissionControl } from '@/api/missionControl';
 import { MISSION_STATUS, TONE_VAR } from '@/data/roles';
 import type { Mission } from '@/data/types';
 import { ago, cx } from '@/lib/format';
@@ -130,6 +131,7 @@ export default function MissionsPage() {
     return () => window.removeEventListener('axion:mission-gone', on);
   }, [wantedId, nav]);
 
+  useMissionControl(m?.id, ['hierarchy']); // api mode: the selected mission's server data (Stage 6)
   const mc = m ? getMissionControl(m) : null;
   const agentParam = sp.get('agent');
   const agentId = m && mc ? (agentParam && mc.nodes.some((n) => n.agentId === agentParam) ? agentParam : m.leadId) : '';

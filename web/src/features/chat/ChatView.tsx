@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { Send, Paperclip, Image as ImageIcon, AtSign, X, CheckCheck, Check, Clock, ArrowDown, Info, FileText, ShieldAlert, Map as MapIcon, Rows3, Rows2, Music, Film } from 'lucide-react';
+import { Send, Paperclip, Image as ImageIcon, AtSign, X, CheckCheck, Check, Clock, ArrowDown, Info, FileText, ShieldAlert, Map as MapIcon, Rows3, Rows2, Music, Film, Loader2 } from 'lucide-react';
 import { RobotAvatar } from '@/components/art/RobotAvatar';
 import { UserAvatar } from '@/components/ui/UserAvatar';
 import { IconButton } from '@/components/ui/IconButton';
@@ -28,18 +28,29 @@ const MINIMAP_KEY = 'axion.thread.minimap';
 const readMinimap = () => { try { return localStorage.getItem(MINIMAP_KEY) !== '0'; } catch { return true; } };
 const writeMinimap = (v: boolean) => { try { localStorage.setItem(MINIMAP_KEY, v ? '1' : '0'); } catch { /* per-viewer convenience only */ } };
 
-/** Who wrote it: an agent, a human account, or the system. */
-function useAuthor(id: string) {
+/** Who wrote it: an agent, a human account, or the system. `fallback` is the server's author name (api mode). */
+function useAuthor(id: string, fallback?: string) {
   const acc = useAuth((s) => (id.startsWith('human:') ? s.accounts.find((a) => a.id === id.slice(6)) : undefined));
-  if (id.startsWith('human:')) return { kind: 'human' as const, name: acc?.name ?? (id === 'human:owner' ? 'Owner' : 'User'), account: acc };
+  if (id.startsWith('human:')) return { kind: 'human' as const, name: acc?.name ?? fallback ?? (id === 'human:owner' ? 'Owner' : 'User'), account: acc };
   const ag = AGENT_BY_ID[id];
   if (ag) return { kind: 'agent' as const, name: ag.name, agent: ag };
   return { kind: 'system' as const, name: id === 'system' ? 'System' : id };
 }
 
+/** Tag on content the server simulated for a DEMO mission (Stage 6, decision E5): no agent acted. */
+export function SimTag() {
+  return <span className="sim-tag" title="Simulated on a DEMO mission. No agent acted; agents do not execute yet.">Simulated</span>;
+}
+
 export function ChatBubble({ m, right, compact, missionId, label }: { m: Message; right: boolean; compact?: boolean; missionId?: string; label?: string }) {
-  const au = useAuthor(m.from);
+  const au = useAuthor(m.from, m.authorName);
   const human = au.kind === 'human';
+  // system notes (Stage 6: the honest "agents don't act yet" note) are a centred line, not anyone's speech bubble
+  if (m.kind === 'system' && m.from === 'system' && m.seq !== undefined) return (
+    <motion.div className="bubble-row system" role="note" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .25 }}>
+      <div className="bubble-note"><Info size={13} /><span>{m.text}</span><span className="dim">{clock(m.agoMin, m.ts)}</span>{m.simulated && <SimTag />}</div>
+    </motion.div>
+  );
   return (
     <motion.div className={cx('bubble-row', right ? 'right' : 'left', human && 'human')} layout initial={{ opacity: 0, y: 10, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: .25 }}>
       {!right && (au.kind === 'agent' ? <RobotAvatar role={au.agent.role} size={28} /> : au.kind === 'human' ? <UserAvatar account={au.account} name={au.name} size={28} /> : <span className="bubble-sys"><Info size={14} /></span>)}
@@ -48,6 +59,7 @@ export function ChatBubble({ m, right, compact, missionId, label }: { m: Message
           <span className="chip sm" style={{ ['--h' as string]: KIND_HUE[m.kind] }}>{label ?? `${human ? 'HUMAN · ' : ''}${m.kind.toUpperCase()}`}</span>
           <b>{au.name}</b>
           <span className="dim">{clock(m.agoMin, m.ts)}</span>
+          {m.simulated && <SimTag />}
           {m.taskId && <span className="mono dim">{m.taskId}</span>}
           <button className="bubble-more" aria-label="Message details" onClick={() => openDialog('message-details', { message: m })}><Info size={12} /></button>
         </div>
@@ -64,7 +76,7 @@ export function ChatBubble({ m, right, compact, missionId, label }: { m: Message
         )}
         {human && right && (
           <div className="bubble-status" aria-label={`Status: ${m.status ?? 'sent'}`}>
-            {m.status === 'acknowledged' ? <><CheckCheck size={13} className="good" /> acknowledged</> : m.status === 'delivered' ? <><CheckCheck size={13} /> delivered</> : m.status === 'queued' ? <><Clock size={12} /> queued</> : <><Check size={13} /> sent</>}
+            {m.pending ? <><Loader2 size={12} className="spin" /> sending</> : m.status === 'acknowledged' ? <><CheckCheck size={13} className="good" /> acknowledged</> : m.status === 'delivered' ? <><CheckCheck size={13} /> delivered</> : m.status === 'queued' ? <><Clock size={12} /> queued</> : <><Check size={13} /> sent</>}
           </div>
         )}
         {m.kind === 'question' && missionId && (
@@ -79,9 +91,9 @@ export function ChatBubble({ m, right, compact, missionId, label }: { m: Message
 }
 
 export interface ChatMode { key: string; label: ReactNode; help?: string; placeholder: string }
-interface LocalAtt { id: string; name: string; size: number; type: string; url?: string }
+interface LocalAtt { id: string; name: string; size: number; type: string; url?: string; file: File }
 let fseq = 1;
-const toLocal = (list: FileList | File[]): LocalAtt[] => Array.from(list).map((f) => ({ id: 'a' + fseq++, name: f.name, size: f.size, type: f.type, url: /^(image|audio|video)\//.test(f.type) ? URL.createObjectURL(f) : undefined }));
+const toLocal = (list: FileList | File[]): LocalAtt[] => Array.from(list).map((f) => ({ id: 'a' + fseq++, name: f.name, size: f.size, type: f.type, url: /^(image|audio|video)\//.test(f.type) ? URL.createObjectURL(f) : undefined, file: f }));
 
 export function ChatComposer({ modes, initialMode, toName, draftKey, disabled, disabledText, hint, onSend, compact }: {
   modes: ChatMode[]; initialMode?: string; toName: string; draftKey: string; disabled?: boolean; disabledText?: string; hint?: (mode: string) => ReactNode;
@@ -103,7 +115,7 @@ export function ChatComposer({ modes, initialMode, toName, draftKey, disabled, d
     if (disabled || (!text.trim() && !files.length)) return;
     onSend(text.trim() || '(attachment)', mode, files.map((f) => {
       const k = fileKind(f.name, f.type);
-      return { id: f.id, name: f.name, kind: k === 'image' || k === 'audio' || k === 'video' ? k : k === 'doc' || k === 'pdf' ? 'doc' : 'file', url: f.url, size: `${Math.max(1, Math.round(f.size / 1024))} KB` };
+      return { id: f.id, name: f.name, kind: k === 'image' || k === 'audio' || k === 'video' ? k : k === 'doc' || k === 'pdf' ? 'doc' : 'file', url: f.url, size: `${Math.max(1, Math.round(f.size / 1024))} KB`, blob: f.file };
     }));
     setText(''); setFiles([]);
   };
@@ -155,11 +167,13 @@ export function ChatComposer({ modes, initialMode, toName, draftKey, disabled, d
 }
 
 /** A full thread: header, messages (day separators, typing, "new" pill, optional minimap and compact view) and composer. */
-export function ChatThreadView({ title, headRight, messages, isRight, typing, composer, missionId, minimap: allowMinimap = true, compactFilter, emptyText, labelFor, className, mmMe }: {
+export function ChatThreadView({ title, headRight, messages, isRight, typing, composer, missionId, minimap: allowMinimap = true, compactFilter, emptyText, labelFor, className, mmMe, hasOlder, loadingOlder, onLoadOlder, total }: {
   title: ReactNode; headRight?: ReactNode; messages: Message[]; isRight: (m: Message) => boolean;
   typing?: { name: string; role?: import('@/data/types').RoleKey } | null;
   composer: ReactNode; missionId?: string; minimap?: boolean; compactFilter?: (m: Message) => boolean; emptyText?: string;
   labelFor?: (m: Message) => string | undefined; className?: string; mmMe?: string;
+  /** api mode (Stage 6): older pages load when the reader scrolls to the top; `total` is the thread's full length */
+  hasOlder?: boolean; loadingOlder?: boolean; onLoadOlder?: () => void; total?: number;
 }) {
   const [view, setView] = useState<'full' | 'compact'>('full');
   const [minimap, setMinimapState] = useState(readMinimap);
@@ -171,14 +185,42 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
   const mm = allowMinimap && minimap;
 
   useLayoutEffect(() => { scroller.current?.scrollTo({ top: 1e6 }); }, []);
+  const firstId = messages[0]?.id;
+  const lastId = messages[messages.length - 1]?.id;
   const prevLen = useRef(messages.length);
+  const prevLast = useRef(lastId);
+  // a thread that loads after mounting (api mode) is pinned to the bottom before the top loader is armed
+  const armed = useRef(messages.length > 0);
+  useLayoutEffect(() => {
+    if (armed.current || !messages.length) return;
+    scroller.current?.scrollTo({ top: 1e6 });
+    armed.current = true; prevLen.current = messages.length; prevLast.current = lastId;
+  }, [messages.length, lastId]);
   useEffect(() => {
-    if (messages.length > prevLen.current) {
+    // only messages added at the end are new (older pages are prepended)
+    if (messages.length > prevLen.current && lastId !== prevLast.current) {
       if (atBottom) window.setTimeout(() => scroller.current?.scrollTo({ top: 1e6, behavior: 'smooth' }), 30);
-      else setNewCount((n) => n + messages.length - prevLen.current);
+      else setNewCount((n) => n + Math.max(1, messages.length - prevLen.current));
     }
-    prevLen.current = messages.length;
-  }, [messages.length, atBottom]);
+    prevLen.current = messages.length; prevLast.current = lastId;
+  }, [messages.length, lastId, atBottom]);
+  // older pages: remember the first visible message and where it sat, then put it back there once the page is in
+  const anchor = useRef<{ id: string; top: number } | null>(null);
+  const requestOlder = (el: HTMLDivElement) => {
+    if (!onLoadOlder || !hasOlder || loadingOlder || !armed.current) return;
+    const box = el.getBoundingClientRect();
+    const first = Array.from(el.querySelectorAll<HTMLElement>('[data-mid]')).find((n) => n.getBoundingClientRect().bottom > box.top);
+    anchor.current = first ? { id: first.dataset.mid!, top: first.getBoundingClientRect().top - box.top } : null;
+    onLoadOlder();
+  };
+  useLayoutEffect(() => {
+    const el = scroller.current, a = anchor.current;
+    if (!el || !a) return;
+    const n = el.querySelector<HTMLElement>(`[data-mid="${CSS.escape(a.id)}"]`);
+    if (n) el.scrollTop += n.getBoundingClientRect().top - el.getBoundingClientRect().top - a.top;
+    anchor.current = null;
+  }, [firstId]);
+  useEffect(() => { if (!loadingOlder) anchor.current = null; }, [loadingOlder]); // a failed or empty load leaves nothing to restore
   useEffect(() => { if (typing && atBottom) window.setTimeout(() => scroller.current?.scrollTo({ top: 1e6, behavior: 'smooth' }), 30); }, [typing, atBottom]);
 
   let lastDay = '';
@@ -187,7 +229,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
       <div className="thread-head">
         <span className="row" style={{ gap: 6, minWidth: 0 }}>{title}</span>
         <span className="spacer" />
-        <span className="dim thread-count nowrap" style={{ fontSize: 11 }}>{messages.length} msgs</span>
+        <span className="dim thread-count nowrap" style={{ fontSize: 11 }} title={total !== undefined && total > messages.length ? `${messages.length} loaded — scroll up for older messages` : undefined}>{total ?? messages.length} msgs</span>
         {headRight}
         {allowMinimap && <>
           <IconButton size="sm" icon={MapIcon} variant={minimap ? 'active' : 'default'} label={minimap ? 'Hide minimap (times beside the scroll)' : 'Show minimap (times beside the scroll)'} onClick={() => setMinimap(!minimap)} aria-pressed={minimap} className="thread-mm-toggle" />
@@ -196,7 +238,8 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
         {compactFilter && <Segmented ariaLabel="Thread view" size="sm" value={view} onChange={setView} options={[{ key: 'full', label: <><Rows3 size={12} />Full</>, title: 'Verbatim events' }, { key: 'compact', label: <><Rows2 size={12} />Compact</>, title: 'Assignment → report → outcome' }]} />}
       </div>
       <div className={cx('thread-scroll', mm && 'with-minimap')}>
-        <div className="thread-body" ref={scroller} onScroll={(e) => { const el = e.currentTarget; const b = el.scrollHeight - el.scrollTop - el.clientHeight < 40; setAtBottom(b); if (b) setNewCount(0); }} role="log" aria-label="Conversation" aria-live="polite">
+        {loadingOlder && <div className="thread-older" role="status"><Loader2 size={12} className="spin" /> Loading older messages…</div>}
+        <div className="thread-body" ref={scroller} onScroll={(e) => { const el = e.currentTarget; const b = el.scrollHeight - el.scrollTop - el.clientHeight < 40; setAtBottom(b); if (b) setNewCount(0); if (el.scrollTop < 80) requestOlder(el); }} role="log" aria-label="Conversation" aria-live="polite" data-has-older={hasOlder ? '1' : undefined}>
           {shown.length === 0 && <div className="empty" style={{ padding: 30 }}><div className="empty-icon"><Send size={22} /></div><h4>No messages yet</h4><p>{emptyText ?? 'Write the first message.'}</p></div>}
           <AnimatePresence initial={false}>
             {shown.map((m) => {

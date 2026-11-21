@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
+import { useAgentsCatalog } from '@/api/agents';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -77,7 +78,8 @@ function Pulse() {
   const decisions = useData((s) => s.approvalDecisions);
   const decide = useData((s) => s.decideApproval);
   const approvals = useMemo(() => allApprovals(missions, decisions).filter((a) => a.status === 'pending'), [missions, decisions]);
-  const strip = useMemo(() => AGENTS.filter((a) => a.id !== 'gm' && (a.status === 'active' || a.status === 'in-mission' || a.status === 'evolving')).slice(0, 12), []);
+  const catalog = useAgentsCatalog();
+  const strip = useMemo(() => AGENTS.filter((a) => a.id !== 'gm' && (a.status === 'active' || a.status === 'in-mission' || a.status === 'evolving')).slice(0, 12), [catalog]); // eslint-disable-line react-hooks/exhaustive-deps
   const labels = useMemo(() => Array.from({ length: 14 }, (_, i) => `D-${13 - i}`), []);
   const comp = useMemo(() => { const r = seeded('ov-comp'); return Array.from({ length: 14 }, (_, i) => Math.round(18 + i * 1.6 + r() * 8)); }, []);
   const fail = useMemo(() => { const r = seeded('ov-fail'); return Array.from({ length: 14 }, () => Math.round(2 + r() * 4)); }, []);

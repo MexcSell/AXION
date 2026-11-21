@@ -32,7 +32,7 @@ export async function appendEvent(c: Tx, e: AppendInput): Promise<DomainEvent> {
 
 export function eventDto(r: any): DomainEvent {
   return {
-    id: String(r.id), seq: r.seq, type: r.type, tenantId: r.tenant_id,
+    id: String(r.id), seq: r.seq, type: r.type, tenantId: r.tenant_id, ...(r.mission_id ? { missionId: r.mission_id } : {}),
     actor: { kind: r.actor_kind, id: r.actor_id }, subject: { kind: r.subject_kind, id: r.subject_id },
     occurredAt: new Date(r.occurred_at).toISOString(), correlationId: r.correlation_id, payload: r.payload, schemaVersion: r.schema_version,
   };

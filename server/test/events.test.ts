@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { makeTestApp, withAdmin, Browser, openStream, makeSchema, TEST_DB, type TestApp } from './helpers.ts';
 import { buildApp } from '../src/app.ts';
-import { appendEvent } from '../src/events/log.ts';
+import { appendEvent, eventDto } from '../src/events/log.ts';
+import { insertInstance } from '../src/instances/service.ts';
 import { tx } from '../src/db.ts';
 
 let t: TestApp;
@@ -45,6 +46,22 @@ describe('event stream', () => {
     expect(ev?.data.payload.to).toBe('paused');
     expect(ev?.data).toMatchObject({ tenantId: 't-1', actor: { kind: 'human', id: mina.id }, schemaVersion: 1 });
     expect(typeof ev?.data.seq).toBe('number');
+    expect(ev?.data.missionId).toBe(m.id); // Stage 6: thread/instance events carry their mission here
+  });
+
+  it('thread events name their mission in the envelope (subject kind is the thread)', async () => {
+    const m = (await create(mina.b)).body.mission;
+    await tx(t.pool, (c) => insertInstance(c, { tenantId: 't-1', missionId: m.id, agentId: 'gm', simulated: false }));
+    const inst = `${m.id}:gm`;
+    const sa = await openStream(base, mina.b); streams.push(sa);
+    await sa.waitFor((e) => e.event === 'hello');
+    const th = (await mina.b.req('POST', `/missions/${m.id}/threads`, { instanceId: inst })).body.threadId;
+    await mina.b.req('POST', `/threads/${th}/messages`, { kind: 'command', text: 'hello', to: 'gm' }, { 'idempotency-key': 'mc' + n++ });
+    const ev = await sa.waitFor((e) => e.event === 'conversation.messageCreated');
+    expect(ev?.data.subject).toEqual({ kind: 'thread', id: th });
+    expect(ev?.data.missionId).toBe(m.id);
+    const other = (await t.pool.query(`select * from events where mission_id is null limit 1`)).rows[0];
+    expect(other && 'missionId' in eventDto(other)).toBe(false);
   });
 
   it('un-sharing tells the other user (so the UI can leave the mission) and then stops their events', async () => {

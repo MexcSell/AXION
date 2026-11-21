@@ -11,14 +11,21 @@ import { getMissionControl } from '@/data/missions';
 import type { Mission, Task } from '@/data/types';
 import { openDialog } from '@/store/ui';
 import { cx } from '@/lib/format';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { useMissionControl } from '@/api/missionControl';
 
 const CW = 200, CH = 98, GX = 64, GY = 18;
 
 /** Executable task DAG with dependency arrows and verified-weight progress (spec §4.4 Task Flow). */
 export function TaskFlow({ mission }: { mission: Mission }) {
+  useMissionControl(mission.id, ['tasks']);
   const mc = getMissionControl(mission);
+  if (!mc.tasks.length) return <EmptyState icon={Network} title="No tasks yet" body="The executor breaks the mission into tasks. Tasks appear here as they are created; agents do not execute them yet." />;
+  return <TaskDag mission={mission} tasks={mc.tasks} />;
+}
+
+function TaskDag({ mission, tasks }: { mission: Mission; tasks: Task[] }) {
   const [mode, setMode] = useState<'dag' | 'list'>('dag');
-  const tasks = mc.tasks;
   const byId = useMemo(() => Object.fromEntries(tasks.map((t) => [t.id, t])), [tasks]);
   const cols = Math.max(...tasks.map((t) => t.col)) + 1;
   const rows = Math.max(...tasks.map((t) => t.row)) + 1;

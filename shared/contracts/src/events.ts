@@ -5,6 +5,8 @@ export interface DomainEvent<P = Record<string, unknown>> {
   type: string;
   tenantId: string;
   missionRunId?: string;
+  /** Stage 6: the mission an event belongs to (thread and instance events have other subjects) */
+  missionId?: string;
   actor: { kind: 'human' | 'agent' | 'system'; id: string };
   subject: { kind: string; id: string };
   occurredAt: string;
