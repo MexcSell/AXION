@@ -75,7 +75,7 @@ const run = async (W, H) => {
   const api = async (path) => (await ctx.request.get(base + '/api/v1' + path)).json().catch(() => ({}));
   console.log('  api lookups'); const ms = await api('/missions'); const mid = (ms.missions || ms.items || [])[0]?.id;
   const ag = await api('/agents'); const aid = (ag.agents || ag.items || [])[0]?.id;
-  console.log('  routes'); const routes = ['/overview', '/missions', mid && `/missions/${mid}`, '/agents', aid && `/agents/${aid}`, '/results', '/notifications', '/settings', '/operations', '/plugins/job-search', '/help', '/models', '/nope'].filter(Boolean);
+  console.log('  routes'); const routes = ['/overview', '/missions', mid && `/missions/${mid}`, '/agents', aid && `/agents/${aid}`, '/results', '/notifications', '/settings', '/operations', '/plugins/job-search', '/help', '/models', '/nope'].filter(Boolean).filter((r) => !process.env.ROUTES || process.env.ROUTES.split(',').includes(r));
   const seen = new Set(); const tried = new Set();
   const dialogsAt = async (tag) => {
     // click every visible button in the page body / top bar; any that opens a dialog is measured and closed
@@ -87,7 +87,9 @@ const run = async (W, H) => {
       if (!info?.ok) continue;
       const tk = `${tag.split('?')[0].split(' tab=')[0]}|${info.name}`; if (tried.has(tk)) continue; tried.add(tk);
       const before = p.url();
-      await el.click({ timeout: 1000 }).catch(() => {});
+      // playwright's own scroll-into-view stalls on this animated page at 390 px: centre it ourselves, then tap
+      await el.evaluate((e) => e.scrollIntoView({ block: 'center', behavior: 'instant' })).catch(() => {});
+      await el.click({ timeout: 1500, force: true }).catch((e) => { if (process.env.DEBUG_CLICK) console.log('    click failed', info.name, e.message.replace(/\s+/g, ' ').slice(-200)); });
       await p.waitForTimeout(300);
       if (await p.locator('[role=dialog]').count()) {
         await p.waitForTimeout(250);
