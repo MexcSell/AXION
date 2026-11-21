@@ -53,16 +53,10 @@ create table task_attempts (
   unique (task_id, attempt_no)
 );
 
--- Append-only. A cascade from a deleted parent (demo:clear removes demo missions) is the one allowed delete.
+-- Append-only. The one allowed delete is the cascade of a purge that sets the transaction-local flag axion.purge_demo (clearDemo only).
 create function instances_append_only() returns trigger language plpgsql as $$
 begin
-  if tg_op = 'DELETE' then
-    if tg_table_name = 'mission_delegations' then
-      if not exists (select 1 from missions where id = old.mission_id) then return old; end if;
-    elsif tg_table_name = 'task_attempts' then
-      if not exists (select 1 from tasks where id = old.task_id) then return old; end if;
-    end if;
-  end if;
+  if tg_op = 'DELETE' and coalesce(current_setting('axion.purge_demo', true), '') = 'on' then return old; end if;
   raise exception '% is append-only', tg_table_name;
 end $$;
 create trigger mission_delegations_no_update before update or delete on mission_delegations for each row execute function instances_append_only();

@@ -32,7 +32,9 @@ export function startStaffingSim(app: FastifyInstance, stepMs = 1500) {
         const now = Date.now();
         // Stage 6: the team lives in agent_instances. The GM instance exists from the first step.
         const simulated = !!r.demo; // staffing of a real mission is the real record, even though nothing executes
-        await insertInstance(c, { tenantId: r.tenant_id, missionId: id, agentId: 'gm', state: 'working', task: 'Coordinating mission plan', simulated });
+        if (await insertInstance(c, { tenantId: r.tenant_id, missionId: id, agentId: 'gm', state: 'working', task: 'Coordinating mission plan', simulated })) {
+          await emit(c, { tenantId: r.tenant_id, type: 'instance.created', subject: `${id}:gm`, missionId: id, actor: 'gm', actorKind: 'agent', payload: { instanceId: `${id}:gm`, agentId: 'gm', simulated } });
+        }
         const team = (await c.query('select agent_id from agent_instances where mission_id=$1 order by seq', [id])).rows.map((x) => x.agent_id as string);
         const view = { ...p, id, status: toUiStatus(r.status), agentIds: team, progress: p.progress ?? 0 };
         const patch = advance(view as never, now) as Record<string, any> | null;

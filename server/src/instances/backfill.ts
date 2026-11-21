@@ -8,12 +8,15 @@ import { instanceId, insertDelegation, insertInstance, UI_TO_TASK } from './serv
  * Real missions take the GM, executor and joined agents from their presentation (simulated=false; nothing executes).
  * Idempotent: a mission that already has instances is skipped. Task 3 extends this with threads.
  */
-export async function backfillMissionControl(c: Tx, tenantId: string) {
+export async function backfillMissionControl(c: Tx, tenantId: string, log?: { info: (o: object, m: string) => void; error: (o: object, m: string) => void }) {
   await c.query('select pg_advisory_xact_lock(hashtext($1))', ['instance-backfill:' + tenantId]);
   const rows = (await c.query(`select m.id, m.demo, m.presentation, (select id from mission_runs where mission_id=m.id order by id desc limit 1) as run_id
       from missions m where m.tenant_id=$1 and not exists (select 1 from agent_instances i where i.mission_id=m.id) order by m.created_at, m.id`, [tenantId])).rows;
-  const done = { missions: 0, instances: 0, delegations: 0, tasks: 0 };
+  const done = { missions: 0, instances: 0, delegations: 0, tasks: 0, skipped: 0 };
   for (const m of rows) {
+    const part = { instances: 0, delegations: 0, tasks: 0 };
+    await c.query('savepoint bf');
+    try {
     const fixture = m.demo ? MISSIONS.find((x) => x.id === m.id) : undefined;
     const runId = m.run_id ? Number(m.run_id) : null;
     const simulated = !!m.demo;
@@ -23,37 +26,50 @@ export async function backfillMissionControl(c: Tx, tenantId: string) {
       const order = [...fixture.agentIds, ...mc.nodes.map((n) => n.agentId)];
       const nodes = [...mc.nodes].sort((a, b) => order.indexOf(a.agentId) - order.indexOf(b.agentId));
       for (const n of nodes) {
-        if (await insertInstance(c, { tenantId, missionId: m.id, agentId: n.agentId, managerAgentId: n.parent ? agentOf(n.parent) : undefined, state: n.state, task: n.task, progress: n.progress, taskCount: n.tasks, pending: n.pending, simulated, runId })) done.instances++;
+        if (await insertInstance(c, { tenantId, missionId: m.id, agentId: n.agentId, managerAgentId: n.parent ? agentOf(n.parent) : undefined, state: n.state, task: n.task, progress: n.progress, taskCount: n.tasks, pending: n.pending, simulated, runId })) part.instances++;
       }
       const have = new Set((await c.query('select id from agent_instances where mission_id=$1', [m.id])).rows.map((r) => r.id));
       for (const e of mc.edges) {
         if (e.kind === 'reports' || !have.has(e.from) || !have.has(e.to)) continue; // reports is implied by delegated
         await insertDelegation(c, { missionId: m.id, from: e.from, to: e.to, kind: e.kind as 'delegated', simulated });
-        done.delegations++;
+        part.delegations++;
       }
       for (const t of mc.tasks) {
         const owner = instanceId(m.id, t.owner);
         await c.query(`insert into tasks(id, tenant_id, mission_id, run_id, title, status, owner_agent, owner_instance_id, weight, evidence, col, row, simulated)
           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true) on conflict (id) do nothing`,
           [t.id, tenantId, m.id, runId, t.title, UI_TO_TASK[t.state] ?? 'created', t.owner, have.has(owner) ? owner : null, t.weight, t.evidence, t.col, t.row]);
-        done.tasks++;
+        part.tasks++;
       }
       for (const t of mc.tasks) for (const d of t.deps) {
         await c.query('insert into task_dependencies(task_id, depends_on) values ($1,$2) on conflict do nothing', [t.id, d]);
       }
     } else {
       const p = (m.presentation ?? {}) as { agentIds?: string[]; executorId?: string };
-      const joined = [...new Set<string>(['gm', ...(p.agentIds ?? [])])];
+      const ids = Array.isArray(p.agentIds) ? p.agentIds : p.agentIds === undefined ? [] : [...(p.agentIds as Iterable<string>)]; // a malformed value throws, caught per mission
+      const joined = [...new Set<string>(['gm', ...ids])];
       const ex = p.executorId && joined.includes(p.executorId) ? p.executorId : joined.find((a) => a !== 'gm');
       const team = ex ? ['gm', ex, ...joined.filter((a) => a !== 'gm' && a !== ex)] : joined;
+      const made = new Set<string>();
       for (const a of team) {
-        const manager = a === 'gm' ? undefined : a === ex ? 'gm' : ex ?? 'gm';
+        const want = a === 'gm' ? undefined : a === ex ? 'gm' : ex;
+        const manager = want && made.has(want) ? want : a !== 'gm' && made.has('gm') ? 'gm' : undefined; // fall back to the GM instance
         if (!(await insertInstance(c, { tenantId, missionId: m.id, agentId: a, managerAgentId: manager, state: 'working', task: a === 'gm' ? 'Coordinating mission plan' : '', simulated, runId }))) continue;
-        done.instances++;
-        if (manager) { await insertDelegation(c, { missionId: m.id, from: instanceId(m.id, manager), to: instanceId(m.id, a), kind: 'delegated', simulated }); done.delegations++; }
+        made.add(a);
+        part.instances++;
+        if (manager) { await insertDelegation(c, { missionId: m.id, from: instanceId(m.id, manager), to: instanceId(m.id, a), kind: 'delegated', simulated }); part.delegations++; }
       }
     }
+    await c.query('release savepoint bf');
+    done.instances += part.instances; done.delegations += part.delegations; done.tasks += part.tasks;
     done.missions++;
+    } catch (e) {
+      await c.query('rollback to savepoint bf');
+      await c.query('release savepoint bf');
+      done.skipped++;
+      log?.error({ err: e, mission: m.id }, 'instance backfill skipped a mission');
+    }
   }
+  log?.info(done, 'instance backfill');
   return done;
 }

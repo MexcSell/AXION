@@ -47,8 +47,9 @@ export function derivedTeam(r: any, p: Record<string, any>) {
   if (!team.length) return { agentIds: (p.agentIds ?? []) as string[], leadId: (p.leadId ?? 'gm') as string, executorId: p.executorId as string | undefined };
   const agentIds = team.map((t) => t.a);
   const lead = (p.leadId && agentIds.includes(p.leadId) ? team.find((t) => t.a === p.leadId) : undefined) ?? team.find((t) => t.a === 'gm') ?? team.find((t) => !t.m) ?? team[0];
+  // same rule as the web's executorOf: explicit executor, else a non-GM lead, else the GM's first delegated target
   const first = ((r.deleg ?? []) as { f: string; t: string }[]).find((d) => d.f === lead.id);
-  const executorId = first ? team.find((t) => t.id === first.t)?.a : p.executorId;
+  const executorId: string | undefined = p.executorId ?? (lead.a !== 'gm' ? lead.a : first ? team.find((t) => t.id === first.t)?.a : undefined);
   return { agentIds, leadId: lead.a, executorId };
 }
 

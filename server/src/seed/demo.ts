@@ -46,6 +46,7 @@ export async function seedDemo(db: Db, tenantId: string, adminId: string) {
 /** `npm run demo:clear`: removes only demo=true rows (and their approvals); real missions stay. */
 export async function clearDemo(db: Db, tenantId: string) {
   return tx(db, async (c) => {
+    await c.query("set local axion.purge_demo = 'on'"); // the only place allowed to cascade-delete append-only history
     const r = await c.query('delete from missions where tenant_id=$1 and demo=true returning id', [tenantId]);
     await audit(c, { tenantId, actor: 'system', action: 'demo.clear', subject: tenantId, result: 'ok', correlationId: 'clear-' + Date.now(), detail: { missions: r.rowCount } });
     return { missions: r.rowCount ?? 0 };

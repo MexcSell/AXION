@@ -1,5 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { makeTestApp, withAdmin, type TestApp } from './helpers.ts';
+import { makeTestApp, withAdmin, TEST_DB, type TestApp } from './helpers.ts';
+import { buildApp } from '../src/app.ts';
+import { executorOf } from '../../web/src/features/mission/staffing-plan.ts';
 import { seedDemo, clearDemo } from '../src/seed/demo.ts';
 import { backfillMissionControl } from '../src/instances/backfill.ts';
 import { MISSIONS } from '../../web/src/data/missions.ts';
@@ -36,7 +38,7 @@ describe('instances created by staffing', () => {
     const inst = await count(`select count(*)::int n from agent_instances where mission_id=$1`, [m1]);
     expect(d.length).toBe(inst - 1);
     const ev = await rows(`select type from events where mission_id=$1 and type in ('instance.created','task.delegated')`, [m1]);
-    expect(ev.filter((e) => e.type === 'instance.created').length).toBe(inst - 1);
+    expect(ev.filter((e) => e.type === 'instance.created').length).toBe(inst); // the GM instance too
     expect(ev.filter((e) => e.type === 'task.delegated').length).toBe(inst - 1);
   });
 
@@ -145,6 +147,7 @@ describe('startup backfill', () => {
       const a = after.find((x) => x.id === b.id);
       expect([...a.agentIds].sort()).toEqual([...b.agentIds].sort());
       expect(a.leadId).toBe(b.leadId);
+      expect(a.executorId).toBe(executorOf(b)); // what the web computed before (explicit, else non-GM lead, else first non-GM)
     }
     // UI-shaped reads
     const demoId = MISSIONS[0].id;
@@ -160,10 +163,82 @@ describe('startup backfill', () => {
     expect(await count(`select count(*)::int n from agent_instances where mission_id=$1`, [real.id])).toBeGreaterThan(0);
   });
 
-  it('the startup backfill runs in buildApp for missions that already exist', async () => {
+  it('buildApp runs the backfill at startup for missions that have no instances', async () => {
     t = await makeTestApp({ staffingStepMs: 60_000 });
     const A = await withAdmin(t.app);
     await seedDemo(t.app.db, t.app.cfg.tenantId, A.adminId);
-    expect(await count('select count(*)::int n from agent_instances')).toBeGreaterThan(0); // seedDemo backfills too
+    const had = await count('select count(*)::int n from agent_instances');
+    expect(had).toBeGreaterThan(0);
+    await t.pool.query('alter table mission_delegations disable trigger user');
+    await t.pool.query('delete from agent_instances');
+    await t.pool.query('alter table mission_delegations enable trigger user');
+    expect(await count('select count(*)::int n from agent_instances')).toBe(0);
+    const app2 = await buildApp({ databaseUrl: TEST_DB(), schema: t.schema, logger: false, staffingStepMs: 60_000 });
+    try { expect(await count('select count(*)::int n from agent_instances')).toBe(had); } finally { await app2.close(); }
+  });
+
+  async function runBackfill() {
+    const c = await t.pool.connect();
+    try { await c.query('begin'); const r = await backfillMissionControl(c, t.app.cfg.tenantId); await c.query('commit'); return r; } finally { c.release(); }
+  }
+  const realMission = async (A: Awaited<ReturnType<typeof withAdmin>>, pres: Record<string, unknown>) => {
+    const m = (await A.admin.req('POST', '/missions', { text: 'Research competitor pricing.', files: [], shared: false }, key())).body.mission;
+    await t.pool.query(`update missions set presentation = presentation || $2::jsonb where id=$1`, [m.id, JSON.stringify(pres)]);
+    await t.pool.query('alter table mission_delegations disable trigger user');
+    await t.pool.query('delete from agent_instances where mission_id=$1', [m.id]);
+    await t.pool.query('alter table mission_delegations enable trigger user');
+    return m.id as string;
+  };
+
+  it('a real mission with a Stage 5 staffed presentation gets its chain: gm -> executor -> others, not simulated', async () => {
+    t = await makeTestApp({ staffingStepMs: 60_000 });
+    const A = await withAdmin(t.app);
+    const id = await realMission(A, { agentIds: ['gm', 'researcher-01', 'analyst-01', 'writer-01'], executorId: 'researcher-01' });
+    const r = await runBackfill();
+    expect(r.skipped).toBe(0);
+    const inst = await rows('select agent_id, manager_instance_id, simulated from agent_instances where mission_id=$1 order by seq', [id]);
+    expect(inst.map((i) => i.agent_id)).toEqual(['gm', 'researcher-01', 'analyst-01', 'writer-01']);
+    expect(inst.map((i) => i.manager_instance_id)).toEqual([null, `${id}:gm`, `${id}:researcher-01`, `${id}:researcher-01`]);
+    expect(inst.every((i) => i.simulated === false)).toBe(true);
+    const d = await rows(`select from_instance f, to_instance t from mission_delegations where mission_id=$1 order by id`, [id]);
+    expect(d).toEqual([{ f: `${id}:gm`, t: `${id}:researcher-01` }, { f: `${id}:researcher-01`, t: `${id}:analyst-01` }, { f: `${id}:researcher-01`, t: `${id}:writer-01` }]);
+    const dto = (await A.admin.req('GET', `/missions/${id}`)).body.mission;
+    expect(dto.agentIds).toEqual(['gm', 'researcher-01', 'analyst-01', 'writer-01']);
+    expect(dto.executorId).toBe('researcher-01');
+  });
+
+  it('one bad mission is skipped and logged; the others are backfilled and the transaction survives', async () => {
+    t = await makeTestApp({ staffingStepMs: 60_000 });
+    const A = await withAdmin(t.app);
+    const bad = await realMission(A, { agentIds: 123 });
+    const unknown = await realMission(A, { agentIds: ['gm', 'ghost-99', 'coder-01'], executorId: 'ghost-99' });
+    const good = await realMission(A, { agentIds: ['gm', 'coder-01'], executorId: 'coder-01' });
+    const logged: object[] = [];
+    const c = await t.pool.connect();
+    let r;
+    try { await c.query('begin'); r = await backfillMissionControl(c, t.app.cfg.tenantId, { info: () => {}, error: (o) => logged.push(o) }); await c.query('commit'); } finally { c.release(); }
+    expect(r.skipped).toBe(1);
+    expect(logged.length).toBe(1);
+    expect(await count('select count(*)::int n from agent_instances where mission_id=$1', [bad])).toBe(0);
+    expect(await count('select count(*)::int n from agent_instances where mission_id=$1', [good])).toBe(2);
+    // unknown agent ids are skipped; the rest hang under the GM instead of a missing manager
+    const u = await rows('select agent_id, manager_instance_id from agent_instances where mission_id=$1 order by seq', [unknown]);
+    expect(u).toEqual([{ agent_id: 'gm', manager_instance_id: null }, { agent_id: 'coder-01', manager_instance_id: `${unknown}:gm` }]);
+  });
+});
+
+describe('append-only cascade guard', () => {
+  it('a delete cascading from tasks or missions raises unless the purge flag is set; clearDemo sets it', async () => {
+    t = await makeTestApp({ staffingStepMs: 60_000 });
+    const A = await withAdmin(t.app);
+    await seedDemo(t.app.db, t.app.cfg.tenantId, A.adminId);
+    const demoId = MISSIONS[0].id;
+    await t.pool.query(`insert into task_attempts(task_id, attempt_no) select id, 1 from tasks where mission_id=$1 limit 1`, [demoId]);
+    await expect(t.pool.query(`delete from tasks where mission_id=$1`, [demoId])).rejects.toThrow(/append-only/);
+    await expect(t.pool.query(`delete from missions where id=$1`, [demoId])).rejects.toThrow(/append-only/);
+    expect(await count('select count(*)::int n from task_attempts')).toBe(1);
+    await clearDemo(t.app.db, t.app.cfg.tenantId);
+    expect(await count('select count(*)::int n from task_attempts')).toBe(0);
+    expect(await count('select count(*)::int n from mission_delegations')).toBe(0);
   });
 });

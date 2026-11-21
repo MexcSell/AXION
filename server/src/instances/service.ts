@@ -1,6 +1,7 @@
 import type { Tx, Db } from '../db.ts';
 import { emit } from '../events/hooks.ts';
 import { notFound } from '../errors.ts';
+import { VISIBLE_SQL } from '../missions/visibility.ts';
 
 export const instanceId = (missionId: string, agentId: string) => `${missionId}:${agentId}`;
 
@@ -92,14 +93,14 @@ export async function missionTasks(c: Tx | Db, missionId: string) {
 
 export async function listInstances(c: Tx | Db, ctx: { tenantId: string; user: { id: string; role: string } }, agentId?: string) {
   const rows = (await c.query(`select i.*, v.label as version_label from agent_instances i join agent_versions v on v.id=i.agent_version_id join missions m on m.id=i.mission_id
-      where m.tenant_id=$1 and m.deleted_at is null and ($2::boolean or m.owner_id=$3 or m.shared) and ($4::text is null or i.agent_id=$4)
+      where m.tenant_id=$1 and m.deleted_at is null and ${VISIBLE_SQL('$2', '$3')} and ($4::text is null or i.agent_id=$4)
       order by i.created_at desc, i.seq desc limit 500`, [ctx.tenantId, ctx.user.role === 'admin', ctx.user.id, agentId ?? null])).rows;
   return rows.map(instanceDto);
 }
 
 export async function getInstance(c: Tx | Db, ctx: { tenantId: string; user: { id: string; role: string } }, id: string) {
   const r = (await c.query(`select i.*, v.label as version_label from agent_instances i join agent_versions v on v.id=i.agent_version_id join missions m on m.id=i.mission_id
-      where i.id=$1 and m.tenant_id=$2 and m.deleted_at is null and ($3::boolean or m.owner_id=$4 or m.shared)`, [id, ctx.tenantId, ctx.user.role === 'admin', ctx.user.id])).rows[0];
+      where i.id=$1 and m.tenant_id=$2 and m.deleted_at is null and ${VISIBLE_SQL('$3', '$4')}`, [id, ctx.tenantId, ctx.user.role === 'admin', ctx.user.id])).rows[0];
   if (!r) throw notFound('No such agent instance, or its mission is not shared with you.');
   return instanceDto(r);
 }
