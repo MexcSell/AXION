@@ -26,6 +26,7 @@ import conversationRoutes from './conversations/routes.ts';
 import directRoutes from './conversations/direct.ts';
 import { startConversationSim } from './conversations/sim.ts';
 import { backfillMissionControl } from './instances/backfill.ts';
+import companyRoutes from './company/routes.ts';
 
 declare module 'fastify' {
   interface FastifyInstance { db: Db; cfg: Required<Pick<Config, 'tenantId'>> & Config; onFirstAdmin?: (userId: string) => Promise<void> }
@@ -83,6 +84,7 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   await app.register(taskRoutes, { prefix: '/api/v1' });
   await app.register(conversationRoutes, { prefix: '/api/v1' });
   await app.register(directRoutes, { prefix: '/api/v1' });
+  await app.register(companyRoutes, { prefix: '/api/v1' });
   await tx(db, (c) => seedCompany(c, app.cfg.tenantId)); // decision E1: company data, idempotent, independent of DEMO_SEED
   await tx(db, (c) => backfillMissionControl(c, app.cfg.tenantId, app.log)); // Stage 6: instances, delegations and tasks for missions that predate them (idempotent)
 

@@ -35,7 +35,7 @@ server (`myapp`, `agentapp`, `ajp`, `ajp_test`, `postgres`) are never read or ch
 
 | Command | What it does |
 |---|---|
-| `npm test` | 128 Vitest tests against `axion_test` |
+| `npm test` | 284 Vitest tests against `axion_test` |
 | `npm run typecheck` | TypeScript |
 | `npm run migrate [-- down <n>]` | migrations up (default) or down to version n (`down 0` empties the schema) |
 | `npm run admin:approve-device -- <name>` | recovery: approves that user's newest waiting device (e.g. the only admin lost their cookies) |
@@ -70,6 +70,11 @@ server (`myapp`, `agentapp`, `ajp`, `ajp_test`, `postgres`) are never read or ch
   not the author: 403 `SELF_APPROVAL`; 409 `PROPOSAL_CHANGED`/`ORG_CHANGED`/`PROPOSAL_EXPIRED`/`PROPOSAL_NOT_PENDING`, 422
   `ORG_INVALID`; approve appends one org revision), `POST /organization/proposals/:id/withdraw` (author). Pending proposals expire
   after 7 days, on read or decision. Events `org.proposalCreated|proposalDecided|revisionApplied` (audience all).
+- Company scorecard (improvement cycle 2): `GET /company/scorecard?window=7d|30d|90d&includeDemo=0|1` (default `30d`, DEMO excluded;
+  every signed-in user) → `{window, from, to, includeDemo, rows}`; each row `{key, label, value|null, unit, n, evidence, state: ok|none}`.
+  Computed by a pure function (`src/company/scorecard.ts`) only from the caller's visible missions (tenant, not deleted,
+  `VISIBLE_SQL`) and their runs, `mission.stateChanged` events, tasks, task attempts, approval decisions and `verifies`
+  delegations. Rates and medians need n ≥ 3, otherwise `value: null, state: 'none'`. No new table, no new event.
 - Mission instances: `GET /missions/:id/hierarchy`, `GET /missions/:id/tasks`, `GET /agent-instances[?agentId=]`,
   `GET /agent-instances/:id`. Each instance is pinned to the agent version active when it joined. A startup backfill gives
   existing missions their instances, delegations, tasks and (demo) threads; it is idempotent and skips a broken mission.

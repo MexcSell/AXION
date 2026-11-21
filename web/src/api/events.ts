@@ -6,6 +6,7 @@ import { isApi } from './mode';
 import { api, ApiFailure } from './client';
 import { loadAgents, useAgentsVersion, bumpInstances } from './agents';
 import { bumpProposals } from './orgProposals';
+import { bumpScorecard, clearScorecard } from './scorecard';
 import { onChannelEvent, refreshLoadedChannels, clearChannels, setChatUser } from './chat';
 import { onMissionControlEvent, refreshLoadedMissionControl, clearMissionControl, setMcUser } from './missionControl';
 
@@ -41,6 +42,7 @@ export function startSync(): () => void {
   const instances = debounceKeyed(() => bumpInstances(), 250);
   const agents = debounceKeyed(() => { void loadAgents().catch(() => undefined); }, 200);
   const proposals = debounceKeyed(() => bumpProposals(), 150);
+  const scorecard = debounceKeyed(() => bumpScorecard(), 400);
 
   let retries = 0;
   let opened = 0;
@@ -70,6 +72,8 @@ export function startSync(): () => void {
     // every new org revision (an approved proposal, or a new agent's reporting line) changes which proposals are stale
     if (type.startsWith('org.') || type === 'agent.created') proposals('o');
     if (type === 'org.revisionApplied') agents('a');
+    // improvement cycle 2: the company scorecard follows state changes (and what the viewer can see)
+    if (type === 'mission.stateChanged' || type === 'task.stateChanged' || type === 'mission.shared' || type === 'mission.deleted') scorecard('s');
     if (/^(instance|task|mission)\./.test(type)) instances('i'); // Agents pages: Live Instances and each profile's missions
     if (type === 'conversation.messageCreated' && onChannelEvent(e)) return; // a direct channel (GM, administrators, one agent), not a mission thread
     if (type.startsWith('conversation.') || type.startsWith('instance.') || type.startsWith('task.')) onMissionControlEvent(type, e);
@@ -95,7 +99,7 @@ export function startSync(): () => void {
       set('live');
       // the snapshot is read after the stream's cursor exists, so nothing committed in between is missed
       void loadSnapshot().catch(() => undefined);
-      if (opened++) { agents('a'); instances('i'); proposals('o'); refreshLoadedMissionControl(); void refreshLoadedChannels(); } // a reconnect: re-read what this tab already shows
+      if (opened++) { agents('a'); instances('i'); proposals('o'); scorecard('s'); refreshLoadedMissionControl(); void refreshLoadedChannels(); } // a reconnect: re-read what this tab already shows
       else if (useAgentsVersion.getState().failed) agents('a'); // the first catalog load failed: try again now the server answers
     });
     for (const t of ['mission.created', 'mission.revised', 'mission.stateChanged', 'mission.shared', 'mission.deleted', 'staffing.progressed', 'approval.requested', 'approval.decided', 'notification.created', 'user.requested', 'user.changed', 'auth.approved',
@@ -120,7 +124,7 @@ export function startSync(): () => void {
   const fallback = window.setTimeout(() => { if (!useData.getState().loaded) void loadSnapshot().catch(() => undefined); }, 3000);
   return () => {
     closed = true; es?.close(); window.clearTimeout(staleTimer); window.clearTimeout(fallback); window.clearInterval(watchdog);
-    mission.cancel(); approvals.cancel(); notices.cancel(); people.cancel(); agents.cancel(); instances.cancel(); proposals.cancel(); // no refresh fires after sign-out
+    mission.cancel(); approvals.cancel(); notices.cancel(); people.cancel(); agents.cancel(); instances.cancel(); proposals.cancel(); scorecard.cancel(); // no refresh fires after sign-out
     set('off');
   };
 }
@@ -132,6 +136,6 @@ export function useServerSync() {
     if (!isApi() || !meId) return;
     setMcUser(meId); setChatUser(meId);
     const stop = startSync();
-    return () => { stop(); clearServerData(); clearMissionControl(); clearChannels(); };
+    return () => { stop(); clearServerData(); clearMissionControl(); clearChannels(); clearScorecard(); };
   }, [meId]);
 }

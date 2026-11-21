@@ -28,6 +28,8 @@ export interface KpiItem {
   bar?: number;
   /** any extra node (rare) */
   foot?: ReactNode;
+  /** shown instead of the counted-up number (e.g. "not enough evidence"); `value` is then not displayed */
+  text?: string;
   help?: string;
   onClick?: () => void;
 }
@@ -44,12 +46,14 @@ export function KpiTile({ k, i = 0 }: { k: KpiItem; i?: number }) {
       onKeyDown={click ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); click(); } } : undefined}
       style={{ ['--kc' as string]: k.color }}
       initial={{ opacity: 0, y: 12, scale: .97 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ delay: .06 + i * .05, duration: .35 }}
-      aria-label={`${k.label}: ${k.prefix ?? ''}${k.value}${k.suffix ?? ''}`}
+      aria-label={k.text != null ? `${k.label}: ${k.text}` : `${k.label}: ${k.prefix ?? ''}${k.value}${k.suffix ?? ''}`}
     >
       <k.icon size={32} strokeWidth={1.6} className="kpi-ico" aria-hidden />
       <div className="kt-body">
         <div className="kt-top">
-          <span className="kpi-val"><CountUp value={k.value} decimals={k.decimals} prefix={k.prefix} suffix={k.suffix} /></span>
+          {k.text != null
+            ? <span className="kpi-val kt-text">{k.text}</span>
+            : <span className="kpi-val"><CountUp value={k.value} decimals={k.decimals} prefix={k.prefix} suffix={k.suffix} /></span>}
           {k.delta && <span className="kpi-delta">{k.down ? <ArrowDown size={13} strokeWidth={3} /> : <ArrowUp size={13} strokeWidth={3} />}{k.delta}</span>}
         </div>
         <div className="kpi-label">{k.label}</div>

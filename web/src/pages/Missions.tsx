@@ -29,7 +29,8 @@ import { missionTotals, fmtTokens, fmtMin } from '@/data/activity';
 import { AGENT_BY_ID } from '@/data/agents';
 import { getMissionControl } from '@/data/missions';
 import { useMissionControl } from '@/api/missionControl';
-import { hasDemoActivity } from '@/api/mode';
+import { hasDemoActivity, isApi } from '@/api/mode';
+import { useScorecard, rowOf } from '@/api/scorecard';
 import { MISSION_STATUS, TONE_VAR } from '@/data/roles';
 import type { Mission } from '@/data/types';
 import { ago, cx } from '@/lib/format';
@@ -216,6 +217,18 @@ export default function MissionsPage() {
 /* ------------------------------------------------------------------ */
 /* Left column: mission list, the selected mission unfolds its team     */
 /* ------------------------------------------------------------------ */
+/** api mode (improvement cycle 2): the server's verified success rate (30 days, DEMO excluded) with its n, or nothing
+ *  when there isn't enough evidence. */
+function ListSuccess() {
+  const r = rowOf(useScorecard('30d', false).data, 'verified_success_rate');
+  if (!r || r.state !== 'ok' || r.value === null) return null;
+  return (
+    <Tip label={`${r.evidence} · last 30 days`}>
+      <span data-list-success={r.value} data-n={r.n}> · <span className="warn">{r.value.toFixed(1)}%</span> verified success (n={r.n})</span>
+    </Tip>
+  );
+}
+
 function MissionList({ missions, list, selected, onSelect, filter, setFilter, q, setQ, sort, setSort, kind, setKind, scope, setScope, collapsed, setCollapsed }: {
   scope: Scope; setScope: (s: Scope) => void;
   missions: Mission[]; list: Mission[]; selected?: Mission; onSelect: (id: string) => void;
@@ -269,7 +282,7 @@ function MissionList({ missions, list, selected, onSelect, filter, setFilter, q,
         <span className="page-header-icon mw-head-icon"><Target size={20} /></span>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div className="row" style={{ gap: 6 }}><h1 className="mw-title">Missions</h1><HelpTrigger k="missions.list" /></div>
-          <div className="dim ellipsis" style={{ fontSize: 11.5 }}>{counts.All} open · <span className="warn">96.4%</span> success rate</div>
+          <div className="dim ellipsis" style={{ fontSize: 11.5 }}>{counts.All} open{isApi() ? <ListSuccess /> : <> · <span className="warn">96.4%</span> success rate</>}</div>
         </div>
         <IconButton icon={LayoutTemplate} label="Mission templates" variant="bordered" size="sm" onClick={() => openDialog('mission-templates')} />
         <IconButton icon={Plus} label="Add mission" variant="active" size="sm" onClick={() => openDialog('mission-create')} />

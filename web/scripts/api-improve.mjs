@@ -1,14 +1,20 @@
 // Improvement cycle 1 (theme A), api mode: organisation change proposals, end to end in three browsers.
 // A (admin) proposes in Agents › Proposals and sees the server's dry run; B (second admin) approves; C (member) sees the
 // proposals read-only and then watches Agents › Directory › Hierarchy pick up the new reporting line WITHOUT a reload.
+// Improvement cycle 2 (theme B): the company scorecard. A fresh database shows "not enough evidence"; three real missions
+// are driven to a final state with API user actions only (start, then cancel: complete/fail are system-only, so canceled
+// is the honest terminal state reachable here); the Overview tile, the scorecard panel and the Missions header then show the
+// server's numbers with n, live. A DEMO mission canceled the same way is counted only with "include DEMO missions" on.
 // Run through scripts/api-e2e.sh (API 5192 on axion_e2e, reset on start; Vite 5193). Screenshots: SHOTS.
 import { chromium } from 'playwright';
 import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 const base = process.env.BASE || 'http://127.0.0.1:5193';
 const SHOTS = process.env.SHOTS || '/tmp/axion-api-e2e';
-// the committed screenshot is written only on request: DOC_SHOT=docs/screenshots/improve-c01-proposals-dark.png
+// the committed screenshots are written only on request: DOC_SHOT=docs/screenshots/improve-c01-proposals-dark.png,
+// DOC_SHOT_C02=docs/screenshots/improve-c02-scorecard-dark.png
 const DOC_SHOT = process.env.DOC_SHOT;
+const DOC_SHOT_C02 = process.env.DOC_SHOT_C02;
 mkdirSync(SHOTS, { recursive: true });
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
 const results = [];
@@ -49,6 +55,27 @@ try {
   await connect(A.p, 'Luca', 'secret-1');
   check('A (first user = administrator) is connected and live', await live(A.p));
   const apiA = apiOf(A.p);
+
+  // ------------------------------------------------------------ c02: a fresh database has no evidence (no real mission exists yet)
+  const tile = (p) => p.locator('.kt[aria-label^="Verified Success:"]');
+  const scRow = (p, key) => p.locator(`[data-scorecard="ready"] [data-row="${key}"]`);
+  await A.p.goto(base + '/overview', { waitUntil: 'domcontentloaded' });
+  await A.p.locator('[data-scorecard="ready"]').waitFor({ timeout: 15000 });
+  const sc0 = (await apiA('GET', '/company/scorecard')).body;
+  const r0 = sc0.rows?.find((r) => r.key === 'verified_success_rate');
+  check('c02 fresh database: the server has no evidence (verified success null, n=0, state none, demo excluded, 30d)', sc0.window === '30d' && sc0.includeDemo === false && r0?.value === null && r0?.n === 0 && r0?.state === 'none');
+  check('c02 fresh database: the tile says "not enough evidence" with no %, n=0 under it',
+    await until(async () => (await tile(A.p).getAttribute('aria-label')) === 'Verified Success: not enough evidence' && (await tile(A.p).locator('[data-kpi-n="0"]').count()) === 1, 8000)
+      && !/%/.test(await tile(A.p).locator('.kpi-val').innerText()));
+  check('c02 fresh database: the scorecard row shows "—" and n=0', (await scRow(A.p, 'verified_success_rate').getAttribute('data-state')) === 'none' && (await scRow(A.p, 'verified_success_rate').locator('.sc-val').innerText()) === '—' && (await scRow(A.p, 'verified_success_rate').locator('.sc-n').innerText()) === 'n=0');
+  const top0 = await A.p.locator('.topboard').innerText();
+  check('c02 api mode: no invented company numbers on the top board (no Tokens Today, no 96.4%, no trend delta, no DEMO health ring)',
+    !/Tokens Today|96\.4|Mission Success/.test(top0) && (await A.p.locator('.topboard .kpi-delta').count()) === 0 && (await A.p.locator('.cc-health[aria-label="Company health"]').count()) === 0);
+  check('c02 the scorecard panel lists all 8 rows with a ? each', (await A.p.locator('[data-scorecard="ready"] [data-row]').count()) === 8 && (await A.p.locator('[data-scorecard="ready"] [data-row] [data-help-key^="scorecard."]').count()) === 8);
+  await A.p.goto(base + '/missions', { waitUntil: 'domcontentloaded' });
+  await A.p.locator('.mw-list-head').waitFor({ timeout: 10000 });
+  await A.p.waitForTimeout(600);
+  check('c02 fresh database: the Missions list header shows no success rate', !/%|success/.test(await A.p.locator('.mw-list-head').innerText()));
   const join = async (label, name, pass, admin) => {
     const X = await browser(label);
     await X.p.goto(base + '/missions', { waitUntil: 'domcontentloaded' });
@@ -192,6 +219,68 @@ try {
   await A.p.waitForTimeout(900);
   if (DOC_SHOT) await A.p.screenshot({ path: DOC_SHOT });
   await A.p.screenshot({ path: `${SHOTS}/improve-c01-proposals-A.png` });
+
+  // ------------------------------------------------------------ c02: three real missions reach a final state (API user actions), live
+  await A.p.goto(base + '/overview', { waitUntil: 'domcontentloaded' });
+  await A.p.locator('[data-scorecard="ready"]').waitFor({ timeout: 15000 });
+  await A.p.evaluate(() => { window.__noReload = 'c02'; });
+  const act = async (id, action) => {
+    for (let i = 0; i < 8; i++) {
+      const r = await apiA('POST', `/missions/${id}/actions/${action}`, {}, { 'idempotency-key': `c02-${id}-${action}-${i}-${Date.now()}` });
+      if (r.status === 200) return r.body.mission;
+      if (r.status === 409 && action === 'start' && (await apiA('GET', `/missions/${id}`)).body.mission?.serverStatus === 'running') return null; // the staffing step started it meanwhile
+      await new Promise((res) => setTimeout(res, 250));
+    }
+    throw new Error(`${action} ${id} failed`);
+  };
+  const real = [];
+  for (let i = 0; i < 3; i++) {
+    const m = (await apiA('POST', '/missions', { text: `Scorecard check ${i + 1}: compare two backup tools and list their limits.`, files: [], shared: false }, { 'idempotency-key': `c02-new-${i}-${Date.now()}` })).body.mission;
+    await act(m.id, 'start');
+    await act(m.id, 'cancel');
+    real.push(m.id);
+  }
+  const sc1 = (await apiA('GET', '/company/scorecard')).body;
+  const by1 = Object.fromEntries(sc1.rows.map((r) => [r.key, r]));
+  check('c02 the server counts the 3 canceled missions: finished 3, verified success 0% with n=3 (ok), failure rate 100%, 3 missions started',
+    by1.finished.value === 3 && by1.verified_success_rate.state === 'ok' && by1.verified_success_rate.value === 0 && by1.verified_success_rate.n === 3 && by1.failure_rate.value === 100 && by1.started.value === 3,
+    JSON.stringify(sc1.rows.map((r) => [r.key, r.value, r.n])));
+  check('c02 the tile follows live (no reload): the server value 0.0% with n=3',
+    await until(async () => (await tile(A.p).getAttribute('aria-label')) === `Verified Success: ${by1.verified_success_rate.value}%` && (await tile(A.p).locator(`[data-kpi-n="${by1.verified_success_rate.n}"]`).count()) === 1, 10000)
+      && (await tile(A.p).locator('.kpi-val').innerText()).trim() === '0.0%');
+  check('c02 the panel rows show the server values and n',
+    await until(async () => (await scRow(A.p, 'verified_success_rate').getAttribute('data-value')) === '0' && (await scRow(A.p, 'verified_success_rate').getAttribute('data-n')) === '3'
+      && (await scRow(A.p, 'finished').locator('.sc-val').innerText()) === '3' && (await scRow(A.p, 'failure_rate').locator('.sc-val').innerText()) === '100.0%'
+      && (await scRow(A.p, 'median_cycle_time_h').getAttribute('data-n')) === String(by1.median_cycle_time_h.n), 8000));
+  check('c02 the evidence sentence is the server\'s', by1.verified_success_rate.evidence === '0 of 3 finished missions verified · 0 completed unverified');
+  check('c02 A did not reload', (await A.p.evaluate(() => window.__noReload)) === 'c02');
+
+  // ------------------------------------------------------------ c02: DEMO missions are excluded by default
+  const all = (await apiA('GET', '/missions')).body.missions;
+  const dm = all.find((m) => m.demo && ['running', 'paused', 'planning', 'verifying', 'waiting_approval', 'queued'].includes(m.serverStatus));
+  await act(dm.id, 'cancel');
+  const sc2 = Object.fromEntries((await apiA('GET', '/company/scorecard')).body.rows.map((r) => [r.key, r]));
+  const sc2d = await apiA('GET', '/company/scorecard?includeDemo=1');
+  const by2d = Object.fromEntries(sc2d.body.rows.map((r) => [r.key, r]));
+  check(`c02 a canceled DEMO mission (${dm.id}) is not counted by default; with includeDemo=1 it is`, sc2.finished.value === 3 && by2d.finished.value === 4 && sc2d.body.includeDemo === true, `default ${sc2.finished.value}, with DEMO ${by2d.finished.value}`);
+  await A.p.waitForTimeout(900);
+  check('c02 the panel still shows 3 finished (DEMO off) and no DEMO tag', (await scRow(A.p, 'finished').locator('.sc-val').innerText()) === '3' && (await A.p.locator('[data-scorecard] .demo-tag').count()) === 0);
+  await A.p.getByRole('switch', { name: 'Include DEMO missions' }).click();
+  check('c02 "include DEMO missions" on: the panel is tagged DEMO and counts 4 finished (the server value)',
+    await until(async () => (await A.p.locator('[data-scorecard="ready"][data-demo="1"] .demo-tag').count()) === 1 && (await scRow(A.p, 'finished').locator('.sc-val').innerText()) === String(by2d.finished.value), 8000));
+  check('c02 the tile stays on the default (DEMO excluded): n=3', (await tile(A.p).locator('[data-kpi-n="3"]').count()) === 1);
+  await A.p.getByRole('radio', { name: '90d' }).click();
+  check('c02 the 90d window is read from the server', await until(async () => (await A.p.locator('[data-scorecard="ready"][data-window="90d"]').count()) === 1, 8000));
+  await A.p.getByRole('radio', { name: '30d' }).click();
+  await A.p.getByRole('switch', { name: 'Include DEMO missions' }).click();
+  await until(async () => (await A.p.locator('[data-scorecard="ready"][data-demo="0"][data-window="30d"]').count()) === 1, 8000);
+  await A.p.waitForTimeout(900);
+  if (DOC_SHOT_C02) await A.p.screenshot({ path: DOC_SHOT_C02 });
+  await A.p.screenshot({ path: `${SHOTS}/improve-c02-overview-A.png` });
+  await A.p.goto(base + '/missions', { waitUntil: 'domcontentloaded' });
+  check('c02 the Missions list header shows the server rate with n', await until(async () => (await A.p.locator('.mw-list-head [data-list-success="0"][data-n="3"]').count()) === 1 && (await A.p.locator('.mw-list-head').innerText()).includes('0.0% verified success (n=3)'), 8000));
+  const memberSc = (await apiOf(C.p)('GET', '/company/scorecard')).body.rows.find((r) => r.key === 'finished');
+  check('c02 member C cannot see the admin\'s private missions: finished 0', memberSc?.value === 0);
 } catch (e) { check('script ran to the end', false, String(e).split('\n')[0]); }
 for (const [X, l] of [[A, 'A'], [B, 'B'], [C, 'C']]) await X?.p.screenshot({ path: `${SHOTS}/improve-c01-end-${l}.png` }).catch(() => {});
 console.log(errors.length ? 'PAGE ERRORS:\n' + errors.join('\n') : 'no page errors');
