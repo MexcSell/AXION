@@ -94,9 +94,10 @@ export async function createProposal(c: Tx, ctx: Ctx, b: { title: string; why: s
   return { status: 201, body: { proposal: await one(c, ctx.tenantId, id) } };
 }
 
-/** The pending proposals of a tenant whose stored lines equal `edges` (any title or why). */
-export async function pendingWithEdges(c: Tx, tenantId: string, edges: EdgeIn[]) {
-  return (await c.query(`select id from org_proposals where tenant_id=$1 and status='pending' and edges = $2::jsonb`, [tenantId, JSON.stringify(toStored(edges))])).rows.map((r) => r.id as string);
+/** The pending proposals of a tenant on base revision `base` whose stored lines equal `edges` (any title or why). A stale one
+    (older base) does not count: it can only be rejected or withdrawn, so it must not block a fresh proposal. */
+export async function pendingWithEdges(c: Tx, tenantId: string, edges: EdgeIn[], base: number) {
+  return (await c.query(`select id from org_proposals where tenant_id=$1 and status='pending' and base_revision=$3 and edges = $2::jsonb`, [tenantId, JSON.stringify(toStored(edges)), base])).rows.map((r) => r.id as string);
 }
 
 export default async function proposalRoutes(app: FastifyInstance) {

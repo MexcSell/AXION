@@ -144,6 +144,7 @@ describe('revisions and diff', () => {
 });
 
 let rbKey: Record<string, string> = {};
+let staleId = '';
 let RB: { id: string; sha: string; title: string; baseRevision: number; edges: Edge[]; result: any; status: string };
 describe('rollback proposals', () => {
   it('a member is 403; an anonymous caller 401; nothing is stored', async () => {
@@ -248,7 +249,7 @@ describe('rollback proposals', () => {
     expect(d.body.code).toBe('ORG_CHANGED');
     expect((await q('select status from org_proposals where id=$1', [c.body.proposal.id])).rows[0].status).toBe('pending');
     expect(await count(`select count(*)::int n from org_revisions where tenant_id='t-1'`)).toBe(4);
-    expect((await A.req('POST', `/organization/proposals/${c.body.proposal.id}/withdraw`)).status).toBe(200);
+    staleId = c.body.proposal.id; // left pending: a stale proposal must not block the same rollback on the new base
   });
 
   it('removed lines: revision 3 against 4 removes the new agent\'s line', async () => {
@@ -257,8 +258,10 @@ describe('rollback proposals', () => {
   });
 
   it('rolling back past an agent created since: stored with the dry-run error (hist-01 without a manager), approval 422, no revision', async () => {
-    const c = await rollback(A, 2);
+    const c = await rollback(A, 2); // the same lines as the stale pending one (base 3), on the new base 4: not a duplicate
     expect(c.status).toBe(201);
+    expect(c.body.proposal.baseRevision).toBe(4);
+    expect((await q('select status from org_proposals where id=$1', [staleId])).rows[0].status).toBe('pending');
     expect(c.body.proposal.result.ok).toBe(false);
     expect(c.body.proposal.result.errors.map((e: { code: string; agentId?: string }) => `${e.code}:${e.agentId}`)).toContain('NO_MANAGER:hist-01');
     const d = await decide(B, c.body.proposal, 'approve');

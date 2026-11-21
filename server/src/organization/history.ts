@@ -134,7 +134,7 @@ export default async function historyRoutes(app: FastifyInstance) {
       if (seq === cur.seq) throw new ApiError('NOTHING_TO_ROLL_BACK', 422, `Revision ${seq} is the active revision: there is nothing to roll back.`);
       if (!changedCount((await linesAt(c, ctx.tenantId, cur.seq))!, edges))
         throw new ApiError('NOTHING_TO_ROLL_BACK', 422, `Revision ${seq} has the same reporting lines as the active revision ${cur.seq}: there is nothing to roll back.`);
-      if ((await pendingWithEdges(c, ctx.tenantId, edges)).length)
+      if ((await pendingWithEdges(c, ctx.tenantId, edges, cur.seq)).length)
         throw new ApiError('DUPLICATE_PROPOSAL', 409, `A proposal with the reporting lines of revision ${seq} is already waiting for a decision.`);
       return createProposal(c, ctx, { title: `Roll back to revision ${seq}`, why: b.why || `Restores the reporting lines of revision ${seq}.`, baseRevision: cur.seq, edges }, { rollbackTo: seq });
     });

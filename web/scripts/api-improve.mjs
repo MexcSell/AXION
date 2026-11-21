@@ -307,14 +307,18 @@ try {
   const boards = A.p.getByRole('button', { name: /agent boards/i }).first();
   await boards.click({ timeout: 2000 }).catch(() => {});
   await A.p.mouse.move(5, 5);
-  await A.p.waitForTimeout(700);
+  // settled: no toast, the agent boards folded, the diff card fully shown (its enter animation done), no element of the panel still animating
+  const settled4 = async () => (await A.p.getByRole('button', { name: 'Dismiss notification' }).count()) === 0
+    && (await A.p.locator('.bottomboard.folded').count()) === 1 && (await A.p.locator('.bottomboard .bb-grid').count()) === 0 // fold animation finished
+    && (await diffBox(A.p, 3).evaluate((el) => getComputedStyle(el).opacity === '1' && el.getAnimations({ subtree: true }).every((a) => a.playState !== 'running' || a.effect?.getTiming().iterations === Infinity)));
+  await until(settled4, 6000);
   if (process.env.DOC_SHOT_C04) await A.p.screenshot({ path: process.env.DOC_SHOT_C04 });
   await A.p.screenshot({ path: `${SHOTS}/improve-c04-history-A.png` });
   await boards.click({ timeout: 2000 }).catch(() => {});
   await A.p.setViewportSize({ width: 1366, height: 768 });
-  await A.p.waitForTimeout(600);
-  const fit4 = await A.p.evaluate(() => { const d = document.scrollingElement; return { over: d.scrollHeight - d.clientHeight, w: d.scrollWidth - d.clientWidth }; });
-  check('c04 at 1366x768 the History view fits (no page scroll, no sideways scroll), the diff visible', fit4.over <= 1 && fit4.w <= 1 && await diffBox(A.p, 3).isVisible(), JSON.stringify(fit4));
+  let fit4 = {};
+  const fits4 = async () => { fit4 = await A.p.evaluate(() => { const d = document.scrollingElement; return { iw: innerWidth, over: d.scrollHeight - d.clientHeight, w: d.scrollWidth - d.clientWidth }; }); return fit4.iw === 1366 && fit4.over <= 1 && fit4.w <= 1; };
+  check('c04 at 1366x768 the History view fits (no page scroll, no sideways scroll), the diff visible', await until(fits4, 6000) && await diffBox(A.p, 3).isVisible(), JSON.stringify(fit4));
   await A.p.screenshot({ path: `${SHOTS}/improve-c04-history-1366x768.png` });
   await A.p.setViewportSize({ width: 1600, height: 940 });
   await A.p.getByRole('radio', { name: 'Proposals', exact: true }).click();
