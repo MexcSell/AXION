@@ -21,8 +21,12 @@ await migrate(pool, 'down', 0);
 await migrate(pool, 'up');
 await pool.end();
 const port = Number(process.env.E2E_PORT || 5192);
+// Cycle 14: api-stage6.mjs seeds a paged thread with 130 messages from one session in about two seconds, which the real
+// per-session limit (60 messages a minute) refuses. Only this throw-away e2e server lifts the message limit; proposals and
+// uploads keep the real defaults, and test/security.test.ts covers every real limit.
+const E2E_WRITE_LIMITS = { messages: { max: 1000, windowMs: 60_000 } };
 const start = async () => {
-  const a = await buildApp({ databaseUrl: url, logger: false, uploadDir, staffingStepMs: Number(process.env.STAFFING_STEP_MS || 600), demoSeed: process.env.DEMO_SEED !== '0' });
+  const a = await buildApp({ databaseUrl: url, logger: false, uploadDir, staffingStepMs: Number(process.env.STAFFING_STEP_MS || 600), demoSeed: process.env.DEMO_SEED !== '0', writeLimits: E2E_WRITE_LIMITS });
   await a.listen({ host: '127.0.0.1', port });
   return a;
 };

@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { EventEmitter } from 'node:events';
 import pg from 'pg';
 import { requireUser, sha256, SID } from '../auth/session.ts';
+import { API_CSP, API_SECURITY_HEADERS } from '../http-headers.ts';
 import { CHANNEL, eventDto } from './log.ts';
 
 declare module 'fastify' { interface FastifyInstance { eventBus: EventEmitter; sse: { clients: number } } }
@@ -65,7 +66,7 @@ export default async function streamRoutes(app: FastifyInstance) {
 
     reply.hijack();
     const res = reply.raw;
-    res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache, no-transform', connection: 'keep-alive', 'x-accel-buffering': 'no' });
+    res.writeHead(200, { ...API_SECURITY_HEADERS, 'content-security-policy': API_CSP, 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache, no-transform', connection: 'keep-alive', 'x-accel-buffering': 'no' });
     res.write(`retry: 2000\n\nevent: hello\ndata: ${JSON.stringify({ cursor, userId: ctx.user.id })}\n\n`);
     app.sse.clients++;
 

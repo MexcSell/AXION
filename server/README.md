@@ -35,7 +35,7 @@ server (`myapp`, `agentapp`, `ajp`, `ajp_test`, `postgres`) are never read or ch
 
 | Command | What it does |
 |---|---|
-| `npm test` | 355 Vitest tests against `axion_test` |
+| `npm test` | 558 Vitest tests against `axion_test` |
 | `npm run typecheck` | TypeScript |
 | `npm run migrate [-- down <n>]` | migrations up (default) or down to version n (`down 0` empties the schema) |
 | `npm run admin:approve-device -- <name>` | recovery: approves that user's newest waiting device (e.g. the only admin lost their cookies) |
@@ -118,6 +118,64 @@ server (`myapp`, `agentapp`, `ajp`, `ajp_test`, `postgres`) are never read or ch
   `/channels/admin/:userId/messages`. GM and agent channels are private to their owner (event + notification audience
   `owner`, never admins).
 - Live: `GET /events/stream` (SSE; `Last-Event-ID` replay; `ping` every 15 s; per-user filtering).
+
+## HTTP hardening (cycle 14)
+
+Today the API and the web app are reachable only on 127.0.0.1 through an SSH tunnel. These rules hold anyway, and they are
+the checklist before any wider exposure (spec §13.1). Tests: `test/security.test.ts`; browser check under the CSP:
+`web/scripts/api-e2e-preview.sh` (`api-c14.mjs`).
+
+- **Headers on every API response** (`src/http-headers.ts`, also on the hijacked SSE stream): `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`,
+  `Cross-Origin-Opener-Policy: same-origin`, `Cache-Control: no-store` (the stream: `no-cache, no-transform`). No CORS headers
+  are ever sent. A downloaded upload keeps its own `Content-Security-Policy: sandbox; default-src 'none'; frame-ancestors 'none'`.
+- **Body limits:** 1 MB for every JSON body (no route raises it; a bigger body gets `413` with the error envelope); uploads
+  25 MB, one file, multipart only.
+- **Per-session write rate limits** (`src/ratelimit.ts`, sliding 60-second window, counted per signed-in session, refused
+  attempts count too): messages 60/min (thread and direct-channel posts share it), organisation proposals 30/min
+  (create, decide, withdraw), uploads 30/min (checked before the file is read). Over the limit: `429` with
+  `{code: 'RATE_LIMITED', retryable: true}` and `Retry-After`. Sign-in has its own limit (10 wrong passwords per name per minute).
+- **CSRF:** every write needs `X-CSRF` = the session's token, sign-out included. The exceptions are sign-in
+  (`/auth/connect`) and leaving the waiting room (`/auth/cancel`), which have no session yet. Every write that has an
+  `Origin` must be same-origin (or listed in `ALLOWED_ORIGINS`), sign-in included.
+- **Cookies:** `axion_sid`, `axion_dev`, `axion_wait` are `HttpOnly`, `SameSite=Strict`, `Path=/`; `Secure` once
+  `COOKIE_SECURE=1` (it must stay off on plain http, or the browser drops the cookies and nobody can sign in).
+- **`npm audit --omit=dev`** (2026-11-21): server 0 vulnerabilities, web 0 vulnerabilities (with dev dependencies: 0 and 0).
+
+### Serving the built web app behind a reverse proxy
+
+`npm run build` in `web/` writes `web/dist`. `vite preview` already sends the web app's headers (from
+`web/security-headers.ts`). A reverse proxy in front must send the same headers on the app's pages and proxy `/api` unchanged
+(the API sets its own headers). Example for nginx, with TLS and `COOKIE_SECURE=1`:
+
+```nginx
+server {
+  listen 443 ssl;
+  server_name axion.example.internal;
+  root /srv/axion/web/dist;
+  client_max_body_size 26m;            # uploads are at most 25 MB; JSON at most 1 MB (the API enforces both)
+  add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; style-src-elem 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'" always;
+  add_header X-Content-Type-Options "nosniff" always;
+  add_header Referrer-Policy "no-referrer" always;
+  add_header X-Frame-Options "DENY" always;
+  add_header Cross-Origin-Opener-Policy "same-origin" always;
+  add_header Strict-Transport-Security "max-age=31536000" always;
+  location /api/ {
+    proxy_pass http://127.0.0.1:5191;  # keep Host: the API compares Origin with it
+    proxy_set_header Host $host;
+    proxy_buffering off;               # the live event stream
+    proxy_read_timeout 1h;
+  }
+  location / { try_files $uri /index.html; }
+}
+```
+
+The policy (keep it equal to `web/security-headers.ts`): scripts only from this origin (no inline script, no eval), stylesheets
+from this origin and no `style=""` attributes in markup, images and media also from `data:`/`blob:`, fetch and the event
+stream only to this origin, no plugins, no `<base>`, no frames, no framing. One exception, measured: `style-src-elem` allows
+inline `<style>` elements, because the dropdown menu's scroll lock (react-remove-scroll) adds one with the scrollbar width
+in it (its content varies, so a hash can't match, and a static server has no nonce). The dev server (`npm run dev`) cannot run under it: Vite's hot reload injects inline scripts.
+In nginx an `add_header` inside a `location` block replaces the server-level ones, so add no headers inside `location /api/`.
 
 ## Patterns taken from the axor backend (`/home/luca/axor/backend`, read only)
 

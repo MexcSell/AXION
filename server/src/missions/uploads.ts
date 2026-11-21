@@ -121,7 +121,7 @@ export default async function uploadRoutes(app: FastifyInstance) {
     const inline = ['image', 'audio', 'video', 'pdf', 'txt'].includes(f.kind);
     reply.header('content-type', f.mime);
     reply.header('content-disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(f.name)}`);
-    reply.header('content-security-policy', "sandbox; default-src 'none'");
+    reply.header('content-security-policy', "sandbox; default-src 'none'; frame-ancestors 'none'");
     reply.header('cache-control', 'private, max-age=3600');
     return reply.send(createReadStream(join(dir, f.sha256)));
   });
