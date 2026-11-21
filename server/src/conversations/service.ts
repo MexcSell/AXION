@@ -170,10 +170,11 @@ export async function missionThreads(c: Tx | Db, missionId: string, userId: stri
 /* ------------------------------------------------------------------ direct channels (Stage 6, E6) */
 export type ChannelKey = { kind: 'gm' | 'admin' | 'agent'; agentId?: string };
 const THREAD_KIND = { gm: 'gm', admin: 'admin', agent: 'agent-direct' } as const;
+const RESERVED = new Set(['gm', 'admin', 'human', 'system', 'admins']);
 export function parseChannelKey(k: string): ChannelKey | null {
   if (k === 'gm' || k === 'admin') return { kind: k };
   const m = /^agent:([A-Za-z0-9_.-]{1,100})$/.exec(k);
-  return m && m[1] !== 'gm' ? { kind: 'agent', agentId: m[1] } : null; // the General Manager has its own channel
+  return m && !RESERVED.has(m[1]) ? { kind: 'agent', agentId: m[1] } : null; // the General Manager has its own channel; reserved words are no agents
 }
 const sides = (k: ChannelKey) => orderPair(k.kind === 'gm' ? 'gm' : k.kind === 'admin' ? 'admin' : k.agentId!, 'human');
 

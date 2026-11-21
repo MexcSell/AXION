@@ -19,7 +19,7 @@ const PostIn = z.object({ kind: z.string(), text: z.string().max(MAX_BODY, `at m
  * use another user's admin line (`/channels/admin/:userId`); everything else about someone else's channel is 404.
  */
 async function resolve(c: Tx | Db, ctx: Ctx, rawKey: string, userId?: string): Promise<{ key: ChannelKey; ownerId: string; agentName?: string }> {
-  const key = parseChannelKey(decodeURIComponent(rawKey));
+  const key = parseChannelKey(rawKey);
   if (!key) throw notFound('No such channel.');
   let ownerId = ctx.user.id;
   if (userId !== undefined && userId !== ctx.user.id) {
@@ -69,7 +69,7 @@ export default async function directRoutes(app: FastifyInstance) {
         await addReceipt(c, th, msg.id, 'queued', { correlationId: ctx.correlationId });
         await ensureHonestNote(c, th, r.key.kind === 'gm' ? HONEST_NOTE_GM : honestNoteAgent(r.agentName!));
       } else if (toOwner) {
-        await createNotification(c, { tenantId: ctx.tenantId, userId: r.ownerId, severity: 'info', category: 'system', title: 'An administrator answered you',
+        await createNotification(c, { tenantId: ctx.tenantId, userId: r.ownerId, ownerOnly: true, severity: 'info', category: 'system', title: 'An administrator answered you',
           body: text.length > 140 ? text.slice(0, 139) + '…' : text || '(attachment)', route: '/?chat=admin' });
       }
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'conversation.message', subject: th.id, result: 'ok', correlationId: ctx.correlationId, detail: { messageId: msg.id, kind: b.kind, channel: r.key.kind, owner: r.ownerId, attachments: atts.length } });

@@ -203,4 +203,57 @@ describe('direct channels', () => {
     expect((await mina.b.req('GET', `/uploads/${cid}`)).status).toBe(200); // the member opens the admin's file
     expect((await omar.b.req('GET', `/uploads/${cid}`)).status).toBe(404);
   });
+
+  it('fix round 1: the admin-answer notification goes to the user only (list and stream), never to any admin', async () => {
+    const { A, base } = await setup();
+    const mina = await A.member('Mina');
+    const second = await A.member('Sam');
+    await A.admin.req('PATCH', `/users/${second.id}`, { role: 'admin' });
+    const sa = await openStream(base, A.admin); streams.push(sa);
+    const ss = await openStream(base, second.b); streams.push(ss);
+    const sm = await openStream(base, mina.b); streams.push(sm);
+    await post(mina.b, '/channels/admin/messages', { kind: 'reply', text: 'help' });
+    await post(A.admin, `/channels/admin/${mina.id}/messages`, { kind: 'reply', text: 'on it' });
+    expect(await sm.waitFor((e) => e.event === 'notification.created' && /administrator/i.test(e.data.payload.title))).toBeTruthy();
+    await sleep(400);
+    const hit = (b: { events: any[] }) => b.events.filter((e) => e.event === 'notification.created' && /administrator/i.test(e.data.payload.title)).length;
+    expect(hit(sa)).toBe(0); expect(hit(ss)).toBe(0);
+    const mine = (await mina.b.req('GET', '/notifications')).body.notifications;
+    expect(mine.filter((x: any) => /administrator/i.test(x.title))).toHaveLength(1);
+    for (const adm of [A.admin, second.b]) expect((await adm.req('GET', '/notifications')).body.notifications.filter((x: any) => /administrator/i.test(x.title))).toHaveLength(0);
+    // replay privacy (M8): an administrator's replay from the start skips a member's owner events
+    await post(mina.b, '/channels/gm/messages', { kind: 'reply', text: 'gm secret replay' });
+    const rp = await openStream(base, A.admin, '0'); streams.push(rp);
+    await sleep(600);
+    expect(JSON.stringify(rp.events)).not.toContain('gm secret replay');
+    expect(rp.events.filter((e) => e.event === 'notification.created' && /administrator/i.test(e.data.payload.title))).toHaveLength(0);
+    expect(rp.events.some((e) => e.event === 'conversation.messageCreated' && e.data.payload.message.text === 'help')).toBe(true); // the admin line itself replays
+  });
+
+  it('fix round 1: an administrator cannot open a file attached only in a member\'s gm channel; the member and the admin line still can', async () => {
+    const { A } = await setup();
+    const mina = await A.member('Mina');
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+    const up = async () => {
+      const head = Buffer.from(`--XB\r\ncontent-disposition: form-data; name="file"; filename="p.png"\r\ncontent-type: image/png\r\n\r\n`);
+      const cookie = [...mina.b.jar].map(([k, v]) => `${k}=${v}`).join('; ');
+      const r = await t.app.inject({ method: 'POST', url: '/api/v1/uploads', headers: { cookie, 'x-csrf': mina.b.csrf, 'content-type': 'multipart/form-data; boundary=XB' }, payload: Buffer.concat([head, png, Buffer.from('\r\n--XB--\r\n')]) });
+      return r.json().id as string;
+    };
+    const g = await up(), a = await up(), loose = await up();
+    expect((await post(mina.b, '/channels/gm/messages', { kind: 'reply', text: 'see', uploadIds: [g] })).status).toBe(201);
+    expect((await post(mina.b, '/channels/admin/messages', { kind: 'reply', text: 'see', uploadIds: [a] })).status).toBe(201);
+    expect((await mina.b.req('GET', `/uploads/${g}`)).status).toBe(200);
+    expect((await A.admin.req('GET', `/uploads/${g}`)).status).toBe(404);
+    expect((await A.admin.req('GET', `/uploads/${loose}`)).status).toBe(404);
+    expect((await A.admin.req('GET', `/uploads/${a}`)).status).toBe(200);
+  });
+
+  it('fix round 1: odd or reserved channel keys are 404, never 500', async () => {
+    const { A } = await setup();
+    for (const k of ['%25', 'agent:admin', 'agent:human', 'agent:gm', 'agent:']) {
+      expect((await A.admin.req('GET', `/channels/${k}/messages`)).status).toBe(404);
+      expect((await post(A.admin, `/channels/${k}/messages`, { kind: 'reply', text: 'x' })).status).toBe(404);
+    }
+  });
 });

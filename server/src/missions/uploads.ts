@@ -99,7 +99,8 @@ export default async function uploadRoutes(app: FastifyInstance) {
     if (!/^f-[0-9a-f]{12}$/.test(id)) throw notFound();
     const f = (await app.db.query('select * from uploads where id=$1 and tenant_id=$2', [id, ctx.tenantId])).rows[0];
     if (!f) throw notFound();
-    let ok = f.owner_id === ctx.user.id || ctx.user.role === 'admin';
+    // R1: no blanket admin override. Own files, files of a mission I can see (an administrator sees all missions), files attached in a visible mission thread or in an admin line.
+    let ok = f.owner_id === ctx.user.id;
     if (!ok) {
       ok = !!(await app.db.query(
         `select 1 from missions m join mission_revisions r on r.mission_id=m.id where m.tenant_id=$1 and m.deleted_at is null and ${VISIBLE_SQL('$2', '$3')} and r.files @> $4::jsonb limit 1`,
@@ -114,7 +115,7 @@ export default async function uploadRoutes(app: FastifyInstance) {
     if (!ok) { // a file attached in one of my own direct channels (e.g. an administrator's answer in my admin line)
       ok = !!(await app.db.query(
         `select 1 from message_attachments a join messages x on x.id=a.message_id join conversation_threads c on c.id=x.thread_id
-          where a.upload_id=$1 and c.tenant_id=$2 and c.scope='direct' and c.owner_user_id=$3 limit 1`, [id, ctx.tenantId, ctx.user.id])).rowCount;
+          where a.upload_id=$1 and c.tenant_id=$2 and c.scope='direct' and (c.owner_user_id=$3 or (c.kind='admin' and $4::boolean)) limit 1`, [id, ctx.tenantId, ctx.user.id, ctx.user.role === 'admin'])).rowCount;
     }
     if (!ok) throw notFound();
     const inline = ['image', 'audio', 'video', 'pdf', 'txt'].includes(f.kind);

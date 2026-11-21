@@ -6,11 +6,11 @@ import { parse } from '../auth/routes.ts';
 import { appendEvent } from '../events/log.ts';
 import { badRequest } from '../errors.ts';
 
-export interface NoticeInput { tenantId: string; severity: 'critical' | 'warning' | 'info' | 'success'; category: 'mission' | 'agent' | 'system' | 'approval' | 'evolution'; title: string; body: string; route?: string; missionId?: string; adminsOnly?: boolean; userId?: string; actionable?: boolean }
+export interface NoticeInput { tenantId: string; severity: 'critical' | 'warning' | 'info' | 'success'; category: 'mission' | 'agent' | 'system' | 'approval' | 'evolution'; title: string; body: string; route?: string; missionId?: string; adminsOnly?: boolean; userId?: string; ownerOnly?: boolean; actionable?: boolean }
 
 export async function createNotification(c: Tx, n: NoticeInput) {
   const id = 'n-' + (await c.query(`select nextval('notification_seq') as s`)).rows[0].s;
-  const audience = n.adminsOnly ? 'admins' : n.userId ? 'user' : n.missionId ? 'mission' : 'all';
+  const audience = n.adminsOnly ? 'admins' : n.userId ? (n.ownerOnly ? 'owner' : 'user') : n.missionId ? 'mission' : 'all';
   await c.query(`insert into notifications(id, tenant_id, audience, audience_user, mission_id, severity, category, title, body, route, actionable) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
     [id, n.tenantId, audience, n.userId ?? null, n.missionId ?? null, n.severity, n.category, n.title, n.body, n.route ?? null, n.actionable ?? false]);
   await appendEvent(c, { tenantId: n.tenantId, type: 'notification.created', subject: { kind: 'notification', id }, missionId: n.missionId, audience, audienceUser: n.userId, payload: { id, title: n.title, severity: n.severity } });
@@ -26,7 +26,7 @@ export default async function notificationRoutes(app: FastifyInstance) {
     const rows = (await app.db.query(
       `select n.* from notifications n left join missions m on m.id = n.mission_id
         where n.tenant_id=$1 and (
-          n.audience='all' or (n.audience='admins' and $2::boolean) or (n.audience='user' and (n.audience_user=$3 or $2::boolean))
+          n.audience='all' or (n.audience='admins' and $2::boolean) or (n.audience='user' and (n.audience_user=$3 or $2::boolean)) or (n.audience='owner' and n.audience_user=$3)
           or (n.audience='mission' and m.deleted_at is null and ($2::boolean or m.owner_id=$3 or m.shared)))
         order by n.created_at desc limit 200`, [ctx.tenantId, admin, ctx.user.id])).rows;
     const read = (await app.db.query('select notice_id from notification_reads where tenant_id=$1 and user_id=$2', [ctx.tenantId, ctx.user.id])).rows.map((r) => r.notice_id);
