@@ -22,3 +22,16 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
 ### Cycle 2: B1 company scorecard (start 13:15Z)
 - Implementer done (362c6ed, c615458): GET /company/scorecard (visible missions only, DEMO opt-in, n and evidence per row, null below n=3); api-mode Overview tile and scorecard panel, Missions header; the token tile and fake deltas are gone. Server tests 258 → 284; api-improve 50/50.
 - Review (c02-review.md): spec PASS. I1 Active Agents tile untagged DEMO count; minors m1 to m7 (incl. m2 privacy: the cache can carry the previous user's counts). Fix round dispatched 14:14Z.
+- Fix round (b87e473): I1 api-mode "Staffed Agents" counts live non-simulated instances on visible, non-DEMO missions; m1 every other fixture number on Overview tagged DEMO; m2 the scorecard cache drops results from a previous session; m3 condition wait; m4 test for the `to` boundary; m6 tasks.simulated is checked.
+- Re-review: all ADDRESSED, no new breakage.
+- Result: PASS on all threshold items. Server 284 → 290; api-improve 55/55; auth 15/15, flows 23/23, stage6 94/94; verify-all and ov-fit green. Screenshot: docs/screenshots/improve-c02-scorecard-dark.png.
+- Still open (m5): the browser check proves only a 0.0% rate, because cancel is the only final state a user can reach.
+- Queued owner question Q2: should the Active Missions and Pending Approvals tiles exclude DEMO missions in api mode? Default: they include them, and a later cycle adds an "includes DEMO" hint.
+- End 14:45Z (cycle 2 took 3 h 30 min). Live restart deferred until the working tree is clean (cycle 3 is running in the same tree).
+
+### Cycle 3: C1 agent reliability (start 14:40Z)
+- Implementer done (dd6bbdd, df89618, fad7ac3): reliabilityOf plus one grouped query over visible missions; the reliability field on the agents routes; the Profile stat and Directory chips; live re-read. Server 290 → 321; api-improve 81/81.
+- Review (c03-review.md): quality good, privacy holds in every sub-query.
+  - I1: item 3b mislabelled "Met". Ruling: relabel it NOT MET, because a user can't reach n ≥ 5 until execution exists.
+  - I2: a reassigned failure was charged to the new owner. Ruling: every outcome counts against the owner at that time.
+  - Fix round dispatched.

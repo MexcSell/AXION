@@ -49,6 +49,7 @@ The themes take turns (A → B → C → A …), so each one moves forward.
 10. **Learn.** Write one lesson in `LESSONS.md`. If the lesson changes how the loop should work, edit this document.
 11. **Update the live system when needed.** If the cycle changed server routes or the database, first take a backup and
     check that it restores. Then restart the live server and check its health. Otherwise leave the live server alone.
+    Restart only when every change is committed: the live server runs straight from the working folder.
 12. **Next theme.** Go back to step 1.
 
 ## Safety rules that every cycle obeys
