@@ -51,7 +51,7 @@ sits untracked in the main worktree and was not copied here.
     lists refresh.
   - Promote and rollback also emit `agent.versionCreated` and `agent.updated`.
   - All four new types are in the `EventType` union. Five error codes were added to `ERROR_CODES`.
-- **Docs**: `server/README.md` gains the API, the test count (345) and the rollback line (`migrate -- down 13`).
+- **Docs**: `server/README.md` gains the API, the test count (345) and the rollback line (`migrate -- down 14`). That command is correct both before and after lane 0014 merges.
 
 **Web (api mode; demo mode unchanged)**
 - **Agents › Development** (`ServerDevelopment` in `features/agents/VersionProposals.tsx`):
@@ -65,7 +65,8 @@ sits untracked in the main worktree and was not copied here.
 - **Agent Profile › Evolution** (api mode):
   - The Versions panel marks **active** and **last good**. Last good is the active version's parent, which is the version before
     it, as the brief defines it.
-  - Admins get "Propose a change" (DL-75) and "Roll back to this version" (DL-76, reason required) on every non-active version.
+  - Admins get "Propose a change" (DL-75), and a "Roll back" button (DL-76, reason required) on every non-active version. The
+    button's accessible name and tooltip are "Roll back to this version (vX)". The visible text was shortened after the 1366 check.
   - The old "Candidate Experiment" empty state is replaced by this agent's proposal list.
   - The `active` and `earlier` chips are kept, because `api-stage6.mjs` checks for them.
 - **DL-75 Propose dialog**:
@@ -136,7 +137,7 @@ sits untracked in the main worktree and was not copied here.
 
    ```
    $ cd web && E2E_API_PORT=5392 E2E_WEB_PORT=5393 DOC_SHOT_C05=docs/screenshots/improve-c05-versions-dark.png ./scripts/api-e2e.sh api-c05.mjs api-stage6.mjs api-improve.mjs
-   == api-c05.mjs     29/29 passed, no page errors
+   == api-c05.mjs     29/29 passed, no page errors   (later 31/31 with the overflow checks, at 1600 and 1366)
    == api-stage6.mjs  94/94 passed, no page errors
    == api-improve.mjs 32/33 — FAIL "E2E_DATABASE_URL must point at axion_e2e" (see Concerns: the c01 guard rejects the lane's axion_e2e3)
    ```
@@ -162,7 +163,7 @@ sits untracked in the main worktree and was not copied here.
 | # | Item | Result | Evidence |
 |---|---|---|---|
 | 1 | Server tests in the brief pass; the whole suite stays green | **PASS** | 24 new tests in `test/version-proposals.test.ts`, covering every listed case: promote by another admin (new version, candidate config, parent = base, active); author 403; member 403; stale base 409; tampered sha 409; expired 409; duplicate 409; withdraw by the author only; rollback is a new version with old rows unchanged and the append-only trigger still blocking; rollback to the active version 422; another agent's version 422; running instance keeps its version through promote and rollback; two race tests; other tenant 404; 0015 down/up on a populated schema. Full suite 345/345. |
-| 2 | Browser check in api mode | **PASS** | `api-c05.mjs` 29/29, three browsers: A proposes (+ Svelte) and sees the diff; B promotes from Development; C sees v2.4.0 → v2.5.0 live while `M-126:coder-01` still shows v2.4.0 (server agrees); B rolls back → v2.6.0 has v2.4.0's configuration, parent v2.5.0, and v2.4.0's row is unchanged; C sees v2.6.0 live, the instance still on v2.4.0. Condition waits only. |
+| 2 | Browser check in api mode | **PASS** | `api-c05.mjs` 31/31 at 1600×940 and 31/31 at 1366×768 (`VW`/`VH`), including no horizontal overflow on Evolution or Development, three browsers: A proposes (+ Svelte) and sees the diff; B promotes from Development; C sees v2.4.0 → v2.5.0 live while `M-126:coder-01` still shows v2.4.0. **This instance is a simulated one on a DEMO mission**, because real missions' instances are idle and the e2e database has only DEMO running missions; the server tests also pin through `seedDemo` instances, while Stage 6's `instances.test.ts` covers real staffed instances. The server agrees on the pin. B rolls back → v2.6.0 has v2.4.0's configuration, parent v2.5.0, and v2.4.0's row is unchanged; C sees v2.6.0 live, the instance still on v2.4.0. Condition waits only. |
 | 3 | Author can't promote (403); a proposal whose base changed gets 409 | **PASS** | Server tests, and in the browser run: `SELF_APPROVAL` 403; `AGENT_CHANGED` 409 at creation from an old base; a PATCH after proposing leaves the card stale, and Promote shows the 409 message inline while the proposal stays pending. |
 | 4 | `verify-all.sh` green; demo mode unchanged | **PASS** | 46 PASS, 0 FAIL (lane Vite config described above). Demo still renders the old `Development()`, which was not touched; the dialog smoke opens the two new dialogs in demo mode without errors. |
 
@@ -196,6 +197,18 @@ active v2.7.0, last good v2.6.0 and the "Roll back to this version" buttons, nex
 with its diff and "No evaluation yet").
 
 ## Concerns
+- **api-stage6.mjs under load.** It passed 94/94 at commit d9c6f14. Later re-runs, with 15 lanes on the machine and load
+  average 14–15, stopped at 34/35: `page.reload` timed out at line 235, the 130-message conversation thread, before any agent
+  step. The same failure occurred with my last AgentProfile change stashed (an A/B run), so it does not come from this cycle.
+  Re-run it on a quiet machine.
+- **Stash incident.** `git stash` is shared across worktrees. During that A/B run another lane (c07, w5) pushed a stash
+  between my push and my pop, so my `git stash pop` applied their stash to w3.
+  - I reverted their files in w3 and popped my own entry.
+  - I put their stash back with `git stash store`, using the identical commit `e10a7c8` and its original message.
+  - Nothing reached any other worktree; I checked every worktree's AgentProfile.tsx (read only).
+  - Lesson for the process: lanes should not use `git stash`.
+- **Merge note: migration numbers.** Any test in lane 0014 that asserts `migrate up` returns 14 will see 15 after the merge.
+- **Pre-existing at 1366:** the Agent Profile tab bar scrolls sideways, so "Evolution" is half hidden. This is not changed here.
 - **The Stage 6 Edit dialog still changes model and skills directly** through PATCH, bypassing the proposal and second-person flow.
   The brief kept PATCH as one of three writers, so I left it. Whether direct edits should require a proposal is a question for the
   owner.

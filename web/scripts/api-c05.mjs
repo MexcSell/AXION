@@ -18,7 +18,7 @@ const errors = [];
 const check = (name, ok, extra = '') => { results.push(`${ok ? 'PASS' : 'FAIL'} ${name}${extra ? ' — ' + extra : ''}`); console.log(results[results.length - 1]); };
 const until = async (f, ms = 10000, step = 150) => { const t0 = Date.now(); for (;;) { try { if (await f()) return true; } catch { /* retry */ } if (Date.now() - t0 > ms) return false; await new Promise((r) => setTimeout(r, step)); } };
 const browser = async (label) => {
-  const ctx = await b.newContext({ viewport: { width: 1600, height: 940 } });
+  const ctx = await b.newContext({ viewport: { width: Number(process.env.VW || 1600), height: Number(process.env.VH || 940) } });
   await ctx.addInitScript(() => { try { localStorage.setItem('axion.data-mode', 'api'); localStorage.setItem('axion.testhook', '1'); if (!localStorage.getItem('axion.settings.v1')) localStorage.setItem('axion.settings.v1', JSON.stringify({ state: { themeMode: 'dark' }, version: 0 })); } catch { /* ignore */ } });
   const p = await ctx.newPage();
   p.on('pageerror', (e) => errors.push(`${label}: ${e.message}`));
@@ -103,6 +103,7 @@ try {
     await until(async () => (await dlg.locator('[data-dialog-diff] [data-diff="skill-add"][data-value="Svelte"]').count()) === 1, 6000)
       && (await dlg.locator('[data-dialog-diff] [data-diff="model"]').count()) === 0
       && (await dlg.getByText('No evaluation yet. Evaluations run once agents execute.').count()) === 1);
+  await A.p.screenshot({ path: `${SHOTS}/improve-c05-dialog-propose.png` });
   check('Submit stays off until a hypothesis is given', await dlg.getByRole('button', { name: 'Submit proposal' }).isDisabled());
   await dlg.getByLabel('Hypothesis').fill('Svelte work no longer waits for a second coder.');
   await dlg.getByRole('button', { name: 'Submit proposal' }).click();
@@ -149,6 +150,7 @@ try {
   const rb = B.p.locator('[role="dialog"]').first();
   await rb.getByLabel('Reason').waitFor({ timeout: 8000 });
   check('the rollback dialog shows what changes back: − Svelte', await until(async () => (await rb.locator('[data-dialog-diff] [data-diff="skill-rm"][data-value="Svelte"]').count()) === 1, 8000));
+  await B.p.screenshot({ path: `${SHOTS}/improve-c05-dialog-rollback.png` });
   await rb.getByLabel('Reason').fill('Reviews got slower with the new skill.');
   await rb.getByRole('button', { name: 'Roll back', exact: true }).click();
   check('the rollback dialog closes', await until(async () => (await rb.count()) === 0, 8000));
@@ -186,6 +188,12 @@ try {
   await A.p.waitForTimeout(900); // entrance animations
   await A.p.screenshot({ path: `${SHOTS}/improve-c05-versions-dark.png` });
   if (DOC_SHOT) await A.p.screenshot({ path: DOC_SHOT });
+  const overflow = async (p) => p.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1 || [...document.querySelectorAll('[data-versions] [data-version], [data-version-proposal]')].some((e) => e.scrollWidth > e.clientWidth + 1));
+  check(`no horizontal overflow on Evolution (A) at ${process.env.VW || 1600}px`, !(await overflow(A.p)));
+  await B.p.goto(base + DEV, { waitUntil: 'domcontentloaded' });
+  await B.p.locator('[data-version-proposals="ready"]').waitFor({ timeout: 15000 });
+  await B.p.waitForTimeout(600);
+  check(`no horizontal overflow on Development (B) at ${process.env.VW || 1600}px`, !(await overflow(B.p)));
   await B.p.screenshot({ path: `${SHOTS}/improve-c05-development-dark.png` });
 } catch (e) { check('script ran to the end', false, String(e).split('\n')[0]); }
 for (const [X, l] of [[A, 'A'], [B, 'B'], [C, 'C']]) await X?.p.screenshot({ path: `${SHOTS}/improve-c05-end-${l}.png` }).catch(() => {});

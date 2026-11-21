@@ -499,9 +499,9 @@ function VersionsPanel({ a }: { a: Agent }) {
                 {good && <Chip hue={190} size="sm" icon={ShieldCheck} title="The version before the active one: one click to roll back to it">last good</Chip>}
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div className="ellipsis" style={{ fontSize: 12.5 }} title={`${x.model} · skills: ${x.skills.join(', ') || 'none'} · tools: ${x.tools.join(', ') || 'none'}`}>{x.model} · {x.skills.length ? x.skills.join(', ') : 'no skills'}</div>
-                  <div className="dim" style={{ fontSize: 11.5 }}>{new Date(x.createdAt).toLocaleString()}{i === all.length - 1 ? ' · first version' : ''}</div>
+                  <div className="dim ellipsis" style={{ fontSize: 11.5 }}>{new Date(x.createdAt).toLocaleString()}{i === all.length - 1 ? ' · first version' : ''}</div>
                 </div>
-                {canEdit && !active && <button className={cx('btn sm', !good && 'ghost')} style={{ flex: 'none' }} aria-label={`Roll back to this version (${x.label})`} onClick={() => openDialog('agent-rollback', { agentId: a.id, versionId: x.id })}><RotateCcw size={13} />Roll back to this version</button>}
+                {canEdit && !active && <button className={cx('btn sm', !good && 'ghost')} style={{ flex: 'none' }} aria-label={`Roll back to this version (${x.label})`} title={`Roll back to this version (${x.label})`} onClick={() => openDialog('agent-rollback', { agentId: a.id, versionId: x.id })}><RotateCcw size={13} />Roll back</button>}
               </motion.div>
             );
           })}

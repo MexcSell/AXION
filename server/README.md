@@ -127,6 +127,6 @@ Not taken: axor's single-connection SQLite→Postgres shim, ad hoc migrations an
 ## Rollback
 
 1. Web: `?data=demo` (or `VITE_DATA_MODE=demo`) brings back the browser-only prototype.
-2. Data: `npm run migrate -- down 13` removes the agent version proposals (0015; versions they promoted stay, as ordinary versions); `npm run migrate -- down 12` removes the org proposals (0013); `down 5` removes Stage 6 (migrations 0006–0013) and keeps Stage 5 data; `down 0` empties the
+2. Data: `npm run migrate -- down 14` removes the agent version proposals (0015; versions they promoted stay, as ordinary versions); `npm run migrate -- down 12` removes the org proposals (0013); `down 5` removes Stage 6 (migrations 0006–0013) and keeps Stage 5 data; `down 0` empties the
    schema; or restore a dump (`backups/axion-20261121T110311Z.dump` was taken right before the Stage 6 migration).
 3. Remove everything: `dropdb` `axion`, `axion_test`, `axion_e2e`, `axion_restore_check`; `drop role axion`.
