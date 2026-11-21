@@ -7,6 +7,7 @@ import './theme/tokens.css';
 import './theme/base.css';
 import './theme/shell.css';
 import './theme/pages.css';
+import './theme/touch.css';
 import App from './App';
 import { useUI } from './store/ui';
 import { loadHelp } from './help/load';
