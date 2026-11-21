@@ -245,8 +245,8 @@ describe('CSRF and Origin on every write route added since Stage 5 (Stage 6, cyc
     expect(r.statusCode).not.toBe(403);
   });
 
-  it('every other write route that needs a session also refuses a missing X-CSRF (only sign-in routes are exempt)', async () => {
-    const exempt = new Set(['POST /api/v1/auth/connect', 'POST /api/v1/auth/cancel', 'POST /api/v1/auth/logout']);
+  it('every other write route also refuses a missing X-CSRF (only sign-in and leaving the waiting room are exempt: no session yet)', async () => {
+    const exempt = new Set(['POST /api/v1/auth/connect', 'POST /api/v1/auth/cancel']);
     const writes = t.app.routeTable.filter((r) => ['POST', 'PUT', 'PATCH', 'DELETE'].includes(r.method) && r.url.startsWith('/api/v1/') && !exempt.has(`${r.method} ${r.url}`));
     const bad: string[] = [];
     for (const r of writes) {

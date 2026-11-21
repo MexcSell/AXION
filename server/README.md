@@ -35,7 +35,7 @@ server (`myapp`, `agentapp`, `ajp`, `ajp_test`, `postgres`) are never read or ch
 
 | Command | What it does |
 |---|---|
-| `npm test` | 331 Vitest tests against `axion_test` |
+| `npm test` | 385 Vitest tests against `axion_test` |
 | `npm run typecheck` | TypeScript |
 | `npm run migrate [-- down <n>]` | migrations up (default) or down to version n (`down 0` empties the schema) |
 | `npm run admin:approve-device -- <name>` | recovery: approves that user's newest waiting device (e.g. the only admin lost their cookies) |
@@ -113,8 +113,9 @@ the checklist before any wider exposure (spec §13.1). Tests: `test/security.tes
   attempts count too): messages 60/min (thread and direct-channel posts share it), organisation proposals 30/min
   (create, decide, withdraw), uploads 30/min (checked before the file is read). Over the limit: `429` with
   `{code: 'RATE_LIMITED', retryable: true}` and `Retry-After`. Sign-in has its own limit (10 wrong passwords per name per minute).
-- **CSRF:** every write needs `X-CSRF` = the session's token (except sign-in, cancel and sign-out, which have no session yet
-  or only end one); every write with an `Origin` must be same-origin (or listed in `ALLOWED_ORIGINS`), sign-in included.
+- **CSRF:** every write needs `X-CSRF` = the session's token, sign-out included. The exceptions are sign-in
+  (`/auth/connect`) and leaving the waiting room (`/auth/cancel`), which have no session yet. Every write that has an
+  `Origin` must be same-origin (or listed in `ALLOWED_ORIGINS`), sign-in included.
 - **Cookies:** `axion_sid`, `axion_dev`, `axion_wait` are `HttpOnly`, `SameSite=Strict`, `Path=/`; `Secure` once
   `COOKIE_SECURE=1` (it must stay off on plain http, or the browser drops the cookies and nobody can sign in).
 - **`npm audit --omit=dev`** (2026-11-21): server 0 vulnerabilities, web 0 vulnerabilities (with dev dependencies: 0 and 0).
