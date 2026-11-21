@@ -43,3 +43,6 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
 - Re-review: all ADDRESSED, no new breakage. Minor N1 (own-attempt time uses started_at only; the comment says "or finished") goes to the code-health batch. Q4 refined: DEMO attempt-less failures still count while attempt-less passes don't, which biases DEMO values downward. Default: leave it until execution records real attempts.
 - Live (16:10Z): backup axion-20261121T161042Z.dump, restore check PASS, API 5191 restarted on 46c1c45 (cycles 1–3; no migration since 13). Health OK; scorecard, proposals and agents routes answer 401 when signed out.
 - End 16:10Z.
+
+### Cycle 4: A2+A3 org history, diff, rollback (lane w2, start 15:55Z)
+- Implementer done (4a51e15, b064925, a501e3a, 5de9b3e, 5180d91 on c04-org-history): no migration. Server 321 → 343; api-improve 104/104; auth 15/15, flows 23/23, stage6 94/94 (one combined run 93/94 on the known agent-edit flake); verify-all green. All 4 threshold items PASS per the implementer. Independent review running.

@@ -1,0 +1,62 @@
+# Parallel lanes: rules every lane implementer follows
+
+The owner asked (2026-11-21) to use all resources and run many cycles at once. Each cycle runs in its own git worktree
+("lane"). The controller reviews each lane and merges it into `improve-30h`.
+
+## Your lane
+Lane L lives in `/home/luca/AXION-wL` on its own branch. Port base B is 5000 + L×100 for lanes 2–9, and
+6000 + (L−10)×100 for lanes 10–15.
+
+| Purpose | Port / name |
+|---|---|
+| Your dev server (demo-mode suite, fit checks, perf) | B+90 |
+| `vite preview` (production build checks) | B+91 |
+| e2e API / e2e web (api-mode browser checks) | B+92 / B+93 |
+| e2e database | `axion_e2eL` (already set in your lane's `server/.env`) |
+
+## Commands (run from your worktree)
+- **Every heavy run goes through the shared gate:** `/home/luca/AXION-lanes/heavy.sh <command>`. This applies to server
+  tests, browser checks and verify-all. The gate allows at most 3 heavy runs at once on the whole machine, because the
+  shared PostgreSQL server (max 100 connections) also serves other apps. Never bypass it. Typecheck (`tsc`) and builds
+  don't need it.
+- **Server tests:** `cd server && npx tsc --noEmit -p . && /home/luca/AXION-lanes/heavy.sh npx vitest run`
+- **Browser checks:** `cd web && E2E_API_PORT=$((B+92)) E2E_WEB_PORT=$((B+93)) /home/luca/AXION-lanes/heavy.sh ./scripts/api-e2e.sh <scripts>`
+- **Dev server:** `cd web && setsid node node_modules/vite/bin/vite.js --config /home/luca/AXION-lanes/vite-wL.config.ts --host 127.0.0.1 --port $((B+90)) --strictPort > /tmp/wL-vite.log 2>&1 &`
+  - The override config only adds the symlinked `node_modules` to Vite's `fs.allow`. Never commit it.
+  - Demo suite: `BASE=http://127.0.0.1:$((B+90)) /home/luca/AXION-lanes/heavy.sh ./scripts/verify-all.sh`.
+  - Stop the dev server by port when done.
+
+## Never
+- Never touch `/home/luca/AXION` (the integration tree), another lane's worktree, or ports 5190 (live web) and 5191
+  (live API). Never use another lane's ports.
+- Never use the real `axion` database (your `.env` points it at `axion_lane_disabled`). Never run `npm run dev`,
+  `migrate` or `demo:*` in `server/`.
+- Never `pkill -f`: kill by port with `ss -ltnpH "sport = :PORT"`. Never push, merge or rebase onto other branches.
+- Never loosen auth, visibility, append-only rules, the execution guard or a test to make something pass.
+
+## Migrations
+Migrations 0001–0013 are on `improve-30h`. Reserved numbers, so lanes never collide:
+
+| Lane | Migration |
+|---|---|
+| w2 | 0014 |
+| w3 | 0015 |
+| w4 | 0016 |
+| w8 | 0017 |
+| w7 | 0018 |
+| w9 | 0019 |
+| w10 | 0020 |
+| w11 | 0021 |
+| w12 | 0022 |
+
+Use your number only if you really need a migration.
+
+## Commits and reports
+- Commit on your branch. End every message with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+- Put your report in `web/docs/improve/cycles/cNN-report.md` and commit it. Include RED/GREEN evidence, each pass
+  threshold item marked PASS/FAIL/NOT MET with honest evidence, the files changed, screenshots if the UI changed, and
+  concerns.
+- Other lanes change files in parallel. Keep your diff to what your brief needs, and prefer new files over editing
+  shared ones (for example a new browser-check script `web/scripts/api-cNN.mjs` instead of extending `api-improve.mjs`).
+- In api mode never wait for `networkidle`, and never add fixed sleeps. Use `domcontentloaded` + `settle()` and
+  condition waits.
