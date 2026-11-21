@@ -64,6 +64,7 @@ export function ChannelChat({ channel, title, modes, compact, className, headRig
       typing={!srv && typingId ? { name: AGENT_BY_ID[typingId]?.name ?? 'Agent', role: AGENT_BY_ID[typingId]?.role } : null}
       minimap={!compact} mmMe={`human:${me.id}`}
       labelFor={(m) => (m.from.startsWith('human:') ? (m.kind === 'command' ? (info.kind === 'plugin' ? 'INSTRUCT' : 'TASK') : m.kind === 'consult' ? 'TEACH' : 'MESSAGE') : m.kind === 'system' ? 'INFO' : undefined)}
+      emptyState={srv && !ch?.messages ? (ch?.error ? 'error' : 'loading') : undefined}
       emptyTitle={srv && !ch?.messages ? (ch?.error ? 'Could not load this conversation' : 'Loading the conversation…') : undefined}
       emptyText={srv && !ch?.messages ? (ch?.error ? <>{ch.error} <button className="btn sm" onClick={() => void openChannel(channel, true)}>Retry</button></> : 'One moment.') : 'Write the first message.'}
       hasOlder={srv ? ch?.hasMore : undefined} loadingOlder={srv ? ch?.loadingOlder : undefined} onLoadOlder={srv ? () => void loadOlderChannel(channel) : undefined}

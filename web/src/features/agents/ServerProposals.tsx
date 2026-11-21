@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
+import { LiveStatus } from '@/components/ui/LiveStatus';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   GitPullRequest, Plus, Check, X, Undo2, Clock, CheckCircle2, XCircle, Hourglass, AlertOctagon, AlertTriangle, ShieldCheck, Lock, Lightbulb, History,
@@ -160,7 +161,7 @@ function ProposalsPanel({ switcher, filter, setFilter, highlight }: { switcher: 
         {admin && <HelpTrigger k="org.proposal.new" />}
       </div>}>
       {error && <div className="oa-banner" role="alert" style={{ marginBottom: 10 }}><AlertOctagon size={15} /><span>Proposals not loaded: {error}</span><button className="btn sm" onClick={retry}>Retry</button></div>}
-      {!data && !error ? <div className="dim" style={{ padding: 20 }}>Loading proposals…</div>
+      {!data && !error ? <LiveStatus className="dim" style={{ padding: 20 }}>Loading proposals…</LiveStatus>
         : list.length === 0 ? <EmptyState icon={GitPullRequest} title={filter === 'pending' ? 'No proposals waiting' : 'No proposals here'} body={admin ? 'Propose a new reporting line with “New proposal”. Another administrator approves it.' : 'Administrators propose reporting-line changes here.'} action={filter !== 'all' && all.length ? <button className="btn" onClick={() => setFilter('all')}>Show all</button> : undefined} />
         : (
           <div className="oa-prop-grid">

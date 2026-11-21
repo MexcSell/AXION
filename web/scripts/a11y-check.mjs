@@ -31,6 +31,7 @@ add('/settings', ['General', 'Users', 'Navigation', 'Appearance', 'Avatars & Fac
 const audit = () => {
   const out = [];
   const vis = (e) => { const r = e.getBoundingClientRect(); const cs = getComputedStyle(e); return (r.width > 0 || r.height > 0) && cs.visibility !== 'hidden' && cs.display !== 'none' && !e.closest('[aria-hidden="true"],[inert]'); };
+  const vis0 = (e) => { const r = e.getBoundingClientRect(); return (r.width > 0 || r.height > 0) && getComputedStyle(e).visibility !== 'hidden'; };
   const txt = (e) => (e.innerText || e.textContent || '').replace(/\s+/g, ' ').trim();
   const byId = (id) => document.getElementById(id);
   const name = (e) => {
@@ -65,11 +66,21 @@ const audit = () => {
   for (const s of document.querySelectorAll('svg[role=img]')) if (vis(s) && !s.getAttribute('aria-label') && !s.querySelector('title') && !s.getAttribute('aria-labelledby')) out.push(`ALT svg[role=img] has no label`);
   const live = (e) => e.closest('[aria-live],[role=status],[role=alert],[role=log]');
   if (!document.querySelector('[aria-live],[role=status],[role=alert],[role=log]')) out.push('LIVE page has no live region');
-  for (const e of document.querySelectorAll('main *, .page *')) {
+  for (const e of document.querySelectorAll('main *, .page *, [aria-modal=true] *')) {
     if (e.children.length) continue;
     if (!vis(e)) continue;
     const t = (e.textContent || '').trim();
     if (t.length < 60 && /^(loading|saving|syncing|reconnecting|retrying|checking|connecting|sending|working|running)\b.{0,30}(…|\.\.\.)$/i.test(t) && !live(e)) out.push(`LIVE busy text "${t}" is not in an aria-live/status region (${desc(e)})`);
+  }
+  // cycle 23 fix 2: nothing focusable may sit inside aria-hidden content
+  for (const e of document.querySelectorAll('[aria-hidden=true] :is(a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"]))')) if (!e.disabled && vis0(e)) out.push(`HIDDENFOCUS focusable ${e.tagName.toLowerCase()} "${txt(e).slice(0, 20)}" inside aria-hidden`);
+  // cycle 23: loading and failed-load states must be announced (role=status for loading, role=alert for errors)
+  for (const e of document.querySelectorAll('[data-state=loading],.part-status[data-state=loading]')) if (vis(e) && !live(e)) out.push(`LIVE loading state [data-state=loading] "${txt(e).slice(0, 30)}" is not in a status region`);
+  for (const e of document.querySelectorAll('[data-state=error],.oa-banner')) if (vis(e) && (e.matches('[data-state=error]') || e.querySelector('button') || /not loaded|could not|failed/i.test(txt(e))) && !e.closest('[role=alert]') && !e.closest('[aria-live=assertive]')) out.push(`LIVE error state "${txt(e).slice(0, 30)}" is not role=alert`);
+  for (const e of document.querySelectorAll('main *, .page *, .sc-empty, [aria-modal=true] *')) {
+    if (e.children.length || !vis(e)) continue;
+    const t = (e.textContent || '').trim();
+    if (t.length < 60 && /^(loading|reading)\b.{0,40}(…|\.\.\.)$/i.test(t) && !live(e)) out.push(`LIVE loading text "${t}" is not in a status region (${desc(e)})`);
   }
   return out;
 };
@@ -85,6 +96,7 @@ const walk = async () => {
 };
 
 const all = []; // {where, msg}
+const probed = [];
 const pageErrs = [];
 p.on('pageerror', (e) => pageErrs.push(e.message));
 const t0 = Date.now();
@@ -124,11 +136,64 @@ for (const id of ids) {
   for (let i = 0; i < Math.min(n + 3, 40) && trapped; i++) { await p.keyboard.press('Tab'); if (!(await inside())) trapped = false; }
   for (let i = 0; i < 3 && trapped; i++) { await p.keyboard.press('Shift+Tab'); if (!(await inside())) trapped = false; }
   if (!trapped) all.push({ where, msg: 'TRAP Tab/Shift+Tab moved focus out of the dialog' });
+  // cycle 23: Tab on the last control wraps to the first, Shift+Tab on the first wraps to the last
+  const ring = () => p.evaluate(() => { const d = [...document.querySelectorAll('[aria-modal=true]')].pop(); if (!d) return null;
+    const vis = (e) => { const r = e.getBoundingClientRect(); return !e.disabled && (r.width > 0 || r.height > 0) && getComputedStyle(e).visibility !== 'hidden'; };
+    const l = [...d.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]):not([type=hidden]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')].filter(vis);
+    l.forEach((e, i) => e.setAttribute('data-a11y-i', String(i))); return l.length; });
+  const nring = trapped ? await ring() : 0;
+  if (nring >= 2) {
+    const at = () => p.evaluate(() => { const a = document.activeElement; return a && a.hasAttribute('data-a11y-i') ? Number(a.getAttribute('data-a11y-i')) : -1; });
+    await p.evaluate((n) => document.querySelector(`[data-a11y-i="${n - 1}"]`).focus(), nring);
+    await p.keyboard.press('Tab');
+    const afterTab = await at();
+    if (afterTab !== 0) all.push({ where, msg: `WRAP Tab on the last control did not wrap to the first (landed on ${afterTab})` });
+    await p.evaluate(() => document.querySelector('[data-a11y-i="0"]').focus());
+    await p.keyboard.press('Shift+Tab');
+    const afterShift = await at();
+    if (afterShift !== nring - 1) all.push({ where, msg: `WRAP Shift+Tab on the first control did not wrap to the last (landed on ${afterShift})` });
+  }
   await p.keyboard.press('Escape');
   const closed = await p.waitForFunction(() => !document.querySelector('[aria-modal=true]'), null, { timeout: 2500 }).then(() => true, () => false);
   if (!closed) { all.push({ where, msg: 'ESC did not close the dialog' }); continue; }
   const restored = await p.waitForFunction(() => document.activeElement && document.activeElement.id === 'a11y-opener', null, { timeout: 1500 }).then(() => true, () => false);
   if (!restored) all.push({ where, msg: 'RESTORE focus did not return to the opener on close' });
+}
+// cycle 23 (api mode): hold, then fail, the data requests of a few pages and check the loading / error text is announced
+if (API) {
+  // each probe must show its loading (slow) and failed (fail) state inside a live region, unless it lists a reason why the page has none
+  const probes = [
+    { v: '/overview', slow: /reading|loading/i, fail: /request failed|unavailable|could not/i },
+    { v: '/operations?tab=agents&sub=live-instances', slow: /loading/i /* page skeleton (sr-only "Loading…") while the held request blocks the lazy page */, fail: /could not be read/i },
+    { v: '/operations?tab=agents&sub=proposals', slow: /loading proposals/i, fail: /not loaded/i },
+    { v: '/operations?tab=agents&sub=development', slow: /loading/i, fail: /not loaded/i },
+    { v: '/agents/coder-01', slow: /loading instances/i, fail: /could not be read/i },
+    { v: '/agents/coder-01?tab=evolution', slow: /loading proposals/i, fail: /not loaded/i },
+    { v: '/missions/M-125?tab=hierarchy', slow: /loading/i, fail: /could not load/i },
+    { v: '/missions/M-125?tab=task-flow', slow: /loading/i, fail: /could not load/i },
+    { v: '/missions/M-125?tab=conversations', slow: /loading/i, fail: /could not load/i },
+  ];
+  const hit = /\/api\/v1\/(.*instances|agent-instances|.*agent-versions|.*versions|.*proposals|.*versions|company\/scorecard|organization\/graph|missions\/[^/]+\/(hierarchy|tasks|threads)|threads\/|channels\/)/;
+  for (const mode of ['slow', 'fail']) {
+    let release; const gate = new Promise((r) => { release = r; });
+    await p.route(hit, async (route) => {
+      if (route.request().method() !== 'GET' || route.request().url().includes('/stream')) return route.continue();
+      if (mode === 'slow') { await gate; return route.continue().catch(() => {}); }
+      return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: { code: 'internal', message: 'mocked failure' } }) });
+    });
+    for (const { v, slow, fail, none } of probes) {
+      await p.goto(base + v, { waitUntil: navWait() });
+      await settle(p, mode === 'slow' ? 400 : 1000);
+      const found = await p.evaluate(audit);
+      for (const m of found) all.push({ where: `${v} (${mode})`, msg: m });
+      probed.push(`${v} ${mode} [${await p.evaluate(() => (document.body.innerText.match(/(Loading|Reading)[^\n]{0,30}/g) || []).join(';'))}]: ${await p.evaluate(() => [...document.querySelectorAll('[role=status],[role=alert]')].map((e) => (e.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 40)).filter(Boolean).join(' | ').slice(0, 160))}`);
+      const want = mode === 'slow' ? slow : fail;
+      const seen = await p.evaluate((sel) => [...document.querySelectorAll(sel)].map((e) => (e.innerText || e.textContent || '').replace(/\s+/g, ' ').trim()).join(' | '), mode === 'slow' ? '[role=status]' : '[role=alert]');
+      if (none?.[mode]) probed.push(`${v} ${mode}: no state expected (${none[mode]})`);
+      else if (!want.test(seen)) all.push({ where: `${v} (${mode})`, msg: `LIVEPROBE no ${mode === 'slow' ? 'loading' : 'failed-load'} text matching ${want} in a live region (saw: ${seen.slice(0, 100)})` });
+    }
+    release(); await p.waitForTimeout(300); await p.unroute(hit, undefined).catch(() => {});
+  }
 }
 const secs = ((Date.now() - t0) / 1000).toFixed(1);
 const byKind = {};
@@ -137,6 +202,7 @@ const uniq = new Map();
 for (const { where, msg } of all) { const k = /^LIVE/.test(msg) ? msg : msg.replace(/"[^"]*"/g, '"…"'); if (!uniq.has(k)) uniq.set(k, []); uniq.get(k).push(where); }
 for (const [k, w] of uniq) console.log(`VIOLATION x${w.length} ${k}\n    e.g. ${w.slice(0, 3).join(' | ')}`);
 if (pageErrs.length) console.log('page errors:', pageErrs.slice(0, 3).join(' | '));
+for (const l of probed) console.log('probe', l);
 console.log(`a11y-check (${API ? 'api' : 'demo'}): ${views.length} views, ${ids.length} dialogs, ${all.length} violations ${JSON.stringify(byKind)} in ${secs}s`);
 await b.close();
 process.exit(all.length ? 1 : 0);

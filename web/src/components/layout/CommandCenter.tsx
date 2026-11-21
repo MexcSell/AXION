@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
+import { LiveStatus } from '@/components/ui/LiveStatus';
 import { useAgentsCatalog, useAgentInstances } from '@/api/agents';
 import { useNavigate } from 'react-router-dom';
 import { Target, Users, ClipboardList, Trophy, Database, HeartPulse, CheckCircle2, Scale, PlayCircle, Flag, BadgeCheck, ShieldQuestion, Timer, XCircle, RotateCcw, Hourglass } from 'lucide-react';
@@ -35,7 +36,7 @@ export function useCompanyKpis(): KpiItem[] {
     const success: KpiItem = r && r.state === 'ok' && r.value !== null
       ? { key: 'success', icon: Trophy, value: r.value, decimals: 1, suffix: '%', label: 'Verified Success', color: '#facc15', help: 'kpi.success.api', onClick: () => nav('/missions'),
           badge: <Tip label={r.evidence}><span data-kpi-n={r.n}>n={r.n}</span></Tip>, hint: 'finished missions · 30 days' }
-      : { key: 'success', icon: Trophy, value: 0, text: r ? 'not enough evidence' : score.error ? 'unavailable' : 'loading…', label: 'Verified Success', color: '#facc15', help: 'kpi.success.api', onClick: () => nav('/missions'),
+      : { key: 'success', icon: Trophy, value: 0, text: r ? 'not enough evidence' : score.error ? 'unavailable' : 'loading…', ...(r ? {} : { live: score.error ? 'alert' as const : 'status' as const }), label: 'Verified Success', color: '#facc15', help: 'kpi.success.api', onClick: () => nav('/missions'),
           ...(r ? { badge: <Tip label={r.evidence}><span data-kpi-n={r.n}>n={r.n}</span></Tip> } : {}),
           hint: <Tip label={r?.evidence ?? score.error ?? 'Reading the scorecard'}><span>{r ? 'finished missions · 30 days' : '30 days'}</span></Tip> };
     // fix round I1: agent statuses in api mode are prototype fixtures, so the tile counts what the server recorded instead:
@@ -43,7 +44,7 @@ export function useCompanyKpis(): KpiItem[] {
     const liveMissions = new Set(missions.filter((m) => !m.demo && ['running', 'planning', 'verifying', 'waiting'].includes(m.status)).map((m) => m.id));
     const staffed = instances.data ? new Set(instances.data.filter((i) => !i.simulated && !i.endedAt && liveMissions.has(i.missionId)).map((i) => i.agentId)).size : null;
     const agentsTile: KpiItem = staffed === null
-      ? { key: 'agents', icon: Users, value: 0, text: instances.error ? 'unavailable' : 'loading…', label: 'Staffed Agents', hint: 'real missions', color: '#3b82f6', help: 'kpi.staffedAgents', onClick: () => nav('/agents') }
+      ? { key: 'agents', icon: Users, value: 0, text: instances.error ? 'unavailable' : 'loading…', live: instances.error ? 'alert' as const : 'status' as const, label: 'Staffed Agents', hint: 'real missions', color: '#3b82f6', help: 'kpi.staffedAgents', onClick: () => nav('/agents') }
       : { key: 'agents', icon: Users, value: staffed, label: 'Staffed Agents', hint: <span data-kpi-staffed={staffed}>of {AGENTS.length} · on real active missions</span>, color: '#3b82f6', help: 'kpi.staffedAgents', onClick: () => nav('/agents') };
     return [
       { key: 'missions', icon: Target, value: active, label: 'Active Missions', color: '#22d3ee', help: 'kpi.activeMissions', onClick: () => nav('/missions?filter=active') },
@@ -104,7 +105,7 @@ export function CompanyScorecard() {
             </Tip>
           );
         })}
-        {!shown && <div className="dim sc-empty">{error ?? 'Reading the scorecard…'}</div>}
+        {!shown && (error ? <LiveStatus key="err" kind="error" className="dim sc-empty">{error}</LiveStatus> : <LiveStatus key="load" className="dim sc-empty">Reading the scorecard…</LiveStatus>)}
       </div>
       <footer className="sc-foot">
         <span className="dim ellipsis">{shown ? range(shown) : WINDOW_LABEL[win]} · visible missions</span>

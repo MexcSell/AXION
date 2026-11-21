@@ -92,7 +92,7 @@ function AgentVersionPropose({ close, props }: DialogComponentProps<{ agentId?: 
             <RobotAvatar role={a.role} size={44} faceMode="face" />
             <div style={{ minWidth: 0 }}><b>{a.name}</b><div className="dim" style={{ fontSize: 12 }}>{ROLES[a.role]?.label ?? a.role} · {a.dept}</div></div>
             <span className="spacer" />
-            {base ? <Chip hue={225} size="sm" className="mono" title="The active version this proposal starts from">from {base.label}</Chip> : <Chip hue={38} size="sm">loading…</Chip>}
+            {base ? <Chip hue={225} size="sm" className="mono" title="The active version this proposal starts from">from {base.label}</Chip> : <span role="status"><Chip hue={38} size="sm">loading…</Chip></span>}
           </div>
           {!api_ && <div className="oa-banner"><Info size={15} /><span>Version proposals are stored on the server. In demo mode this dialog only shows the editor.</span></div>}
           {detail.error && <div className="oa-banner" role="alert"><ShieldAlert size={15} /><span>The active version could not be read: {detail.error}</span><button className="btn sm" onClick={detail.retry}>Retry</button></div>}
@@ -105,7 +105,7 @@ function AgentVersionPropose({ close, props }: DialogComponentProps<{ agentId?: 
         </div>
         <div className="col" style={{ gap: 12 }}>
           <div className="row" style={{ gap: 8 }}><div className="section-label" style={{ margin: 0 }}>Before → after</div>{base && <Chip hue={225} size="sm" className="mono">{base.label}</Chip>}<ArrowRight size={12} className="dim" aria-hidden /><Chip hue={290} size="sm">candidate</Chip><HelpTrigger k="agent.version.diff" /></div>
-          <div data-dialog-diff>{diff ? <VersionDiffView d={diff} empty="No change yet: edit the model, a skill or a tool." /> : <span className="dim" style={{ fontSize: 12.5 }}>Loading…</span>}</div>
+          <div data-dialog-diff>{diff ? <VersionDiffView d={diff} empty="No change yet: edit the model, a skill or a tool." /> : <span className="dim" style={{ fontSize: 12.5 }} role="status">Loading…</span>}</div>
           <NoEvaluation />
           <Field label="Hypothesis" htmlFor="vp-hyp" required hint="Why should the candidate be better? Shown to the administrator who decides."><textarea id="vp-hyp" data-autofocus className="textarea" rows={3} maxLength={2000} value={hypothesis} onChange={(e) => { setSrvErr(null); setHypothesis(e.target.value); }} placeholder="e.g. Fewer review rounds on frontend tasks." /></Field>
           <Field label="Title" htmlFor="vp-title" hint={`Optional. Default: “${autoTitle}”`}><input id="vp-title" className="input" value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} placeholder={autoTitle} /></Field>

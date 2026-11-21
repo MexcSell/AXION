@@ -176,10 +176,10 @@ export function ChatComposer({ modes, initialMode, toName, draftKey, disabled, d
 }
 
 /** A full thread: header, messages (day separators, typing, "new" pill, optional minimap and compact view) and composer. */
-export function ChatThreadView({ title, headRight, messages, isRight, typing, composer, missionId, minimap: allowMinimap = true, compactFilter, emptyText, emptyTitle, labelFor, className, mmMe, hasOlder, loadingOlder, onLoadOlder, total }: {
+export function ChatThreadView({ title, headRight, messages, isRight, typing, composer, missionId, minimap: allowMinimap = true, compactFilter, emptyText, emptyTitle, labelFor, emptyState, className, mmMe, hasOlder, loadingOlder, onLoadOlder, total }: {
   title: ReactNode; headRight?: ReactNode; messages: Message[]; isRight: (m: Message) => boolean;
   typing?: { name: string; role?: import('@/data/types').RoleKey } | null;
-  composer: ReactNode; missionId?: string; minimap?: boolean; compactFilter?: (m: Message) => boolean; emptyText?: ReactNode; emptyTitle?: ReactNode;
+  composer: ReactNode; missionId?: string; minimap?: boolean; compactFilter?: (m: Message) => boolean; emptyText?: ReactNode; emptyTitle?: ReactNode; emptyState?: 'loading' | 'error';
   labelFor?: (m: Message) => string | undefined; className?: string; mmMe?: string;
   /** api mode (Stage 6): older pages load when the reader scrolls to the top; `total` is the thread's full length */
   hasOlder?: boolean; loadingOlder?: boolean; onLoadOlder?: () => void; total?: number;
@@ -248,8 +248,8 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
       </div>
       <div className={cx('thread-scroll', mm && 'with-minimap')}>
         {loadingOlder && <div className="thread-older" role="status"><Loader2 size={12} className="spin" /> Loading older messages…</div>}
-        <div className="thread-body" ref={scroller} onScroll={(e) => { const el = e.currentTarget; const b = el.scrollHeight - el.scrollTop - el.clientHeight < 40; setAtBottom(b); if (b) setNewCount(0); if (el.scrollTop < 80) requestOlder(el); }} role="log" aria-label="Conversation" aria-live="polite" data-has-older={hasOlder ? '1' : undefined}>
-          {shown.length === 0 && <div className="empty" style={{ padding: 30 }}><div className="empty-icon"><Send size={22} /></div><h4>{emptyTitle ?? 'No messages yet'}</h4>{emptyText && typeof emptyText === 'object' ? <div className="thread-empty-body">{emptyText}</div> : <p>{emptyText ?? 'Write the first message.'}</p>}</div>}
+        <div className="thread-body" ref={scroller} onScroll={(e) => { const el = e.currentTarget; const b = el.scrollHeight - el.scrollTop - el.clientHeight < 40; setAtBottom(b); if (b) setNewCount(0); if (el.scrollTop < 80) requestOlder(el); }} {...(emptyState ? {} : { role: 'log', 'aria-label': 'Conversation', 'aria-live': 'polite' })} data-has-older={hasOlder ? '1' : undefined}>
+          {shown.length === 0 && <div className="empty" style={{ padding: 30 }} {...(emptyState ? { role: emptyState === 'error' ? 'alert' : 'status' } : {})}><div className="empty-icon"><Send size={22} /></div><h4>{emptyTitle ?? 'No messages yet'}</h4>{emptyText && typeof emptyText === 'object' ? <div className="thread-empty-body">{emptyText}</div> : <p>{emptyText ?? 'Write the first message.'}</p>}</div>}
           <AnimatePresence initial={false}>
             {shown.map((m) => {
               const day = dateLabel(m.agoMin, m.ts);

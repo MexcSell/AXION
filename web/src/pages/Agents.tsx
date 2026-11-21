@@ -1,4 +1,5 @@
 import { Lineage } from '@/features/agents/Lineage';
+import { LiveStatus } from '@/components/ui/LiveStatus';
 import { AnimatePresence, motion } from 'motion/react';
 import { useMemo, useState } from 'react';
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
@@ -280,7 +281,7 @@ function LiveInstances() {
     <div className="col" style={{ gap: 10 }}>
       <div className="row" style={{ gap: 8 }}><span className="muted" style={{ fontSize: 13 }}>{rows.length} live instances across {new Set(rows.map((r) => r.mid)).size} missions. One agent can run in several missions; each instance has its own memory, grants and pinned version.</span><HelpTrigger k="agent.instance" /><span className="spacer" />{!isApi() && <DemoTag />}</div>
       {isApi() && srv.error && <div className="oa-banner" role="alert"><span>The instance list could not be read: {srv.error}</span><button className="btn sm" onClick={srv.retry}>Retry</button></div>}
-      {isApi() && !srv.data && !srv.error ? <div className="dim" style={{ fontSize: 13 }} data-state="loading">Loading instances…</div> : rows.length === 0 && isApi() ? <EmptyState icon={Box} title="No live instances" body="Instances appear when a mission is staffed. Missions that are archived, completed or drafts are not listed." /> : (
+      {isApi() && !srv.data && !srv.error ? <LiveStatus className="dim" style={{ fontSize: 13 }} data-state="loading">Loading instances…</LiveStatus> : rows.length === 0 && isApi() ? <EmptyState icon={Box} title="No live instances" body="Instances appear when a mission is staffed. Missions that are archived, completed or drafts are not listed." /> : (
       <div className="table-wrap">
         <table className="table" data-live-instances>
           <thead><tr><th>Instance</th><th>Agent</th><th>Mission</th><th>Current task</th><th>State</th><th>Pinned</th><th>Progress</th><th /></tr></thead>

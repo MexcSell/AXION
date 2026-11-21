@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
+import { LiveStatus } from '@/components/ui/LiveStatus';
 import { useAgentsCatalog, useAgentInstances, useAgentVersions } from '@/api/agents';
 import { useCanEditAgents } from '@/hooks/useCanEditAgents';
 import { ProvenanceChip, ProvTag, needsEvidence, NOT_ENOUGH } from '@/components/agents/Provenance';
@@ -196,7 +197,7 @@ function ProfileTab({ a }: { a: Agent }) {
       <Panel icon={Boxes} title="Current Missions" help="agent.missions" delay={.15} className="oa-span2">
         {isApi() ? (
           inst.error && !inst.data ? <div className="oa-banner" role="alert"><span>The instances could not be read: {inst.error}</span><button className="btn sm" onClick={inst.retry}>Retry</button></div>
-          : !inst.data ? <div className="dim" style={{ fontSize: 13 }} data-state="loading">Loading instances…</div>
+          : !inst.data ? <LiveStatus className="dim" style={{ fontSize: 13 }} data-state="loading">Loading instances…</LiveStatus>
           : inst.data.filter((i) => allMissions.some((m) => m.id === i.missionId)).length === 0 ? <EmptyState icon={Boxes} title="No missions yet" body="Assign this agent to a mission to create its first instance." />
           : <div className="oa-mission-chips" data-current-missions>
               {inst.data.map((i) => ({ i, m: allMissions.find((m) => m.id === i.missionId) })).filter((x) => x.m).slice(0, 6).map(({ i, m }, k) => (
@@ -292,7 +293,7 @@ function InstancesTab({ a }: { a: Agent }) {
   const rows = isApi()
     ? (srv.data ?? []).flatMap((i) => { const m = allMissions.find((x) => x.id === i.missionId); return m ? [{ m, n: { instanceId: i.id, agentId: i.agentId, task: i.task, state: i.state as never, progress: i.progress, versionLabel: i.versionLabel, simulated: i.simulated } }] : []; })
     : ms.flatMap((m) => getMissionControl(m).nodes.filter((n) => n.agentId === a.id).map((n) => ({ m, n: { ...n, simulated: false } })));
-  if (isApi() && !srv.data) return <Panel icon={Boxes} titleSize="lg" title="Instances" help="agent.instance" delay={.05}>{srv.error ? <div className="oa-banner" role="alert"><span>The instances could not be read: {srv.error}</span><button className="btn sm" onClick={srv.retry}>Retry</button></div> : <div className="dim" style={{ fontSize: 13 }} data-state="loading">Loading instances…</div>}</Panel>;
+  if (isApi() && !srv.data) return <Panel icon={Boxes} titleSize="lg" title="Instances" help="agent.instance" delay={.05}>{srv.error ? <div className="oa-banner" role="alert"><span>The instances could not be read: {srv.error}</span><button className="btn sm" onClick={srv.retry}>Retry</button></div> : <LiveStatus className="dim" style={{ fontSize: 13 }} data-state="loading">Loading instances…</LiveStatus>}</Panel>;
   return (
     <Panel icon={Boxes} titleSize="lg" title="Instances" help="agent.instance" sub="Each mission gets its own memory, grants and pinned version." delay={.05} actions={<button className="btn primary" onClick={() => openDialog('agent-assign', { agentId: a.id })}><Target size={15} />New instance</button>}>
       {rows.length === 0 ? <EmptyState icon={Boxes} title="No instances" body="This agent has not been staffed on a mission yet." /> : (
@@ -488,7 +489,7 @@ function VersionsPanel({ a }: { a: Agent }) {
       <button className="btn" onClick={() => openDialog('agent-edit', { agentId: a.id })}>Edit</button>
     </div> : undefined}>
       {v.error && !v.data ? <div className="oa-banner" role="alert"><span>The versions could not be read: {v.error}</span><button className="btn sm" onClick={v.retry}>Retry</button></div>
-        : !v.data ? <div className="dim" style={{ fontSize: 13 }} data-state="loading">Loading versions…</div>
+        : !v.data ? <LiveStatus className="dim" style={{ fontSize: 13 }} data-state="loading">Loading versions…</LiveStatus>
         : <div className="col" style={{ gap: 8 }} data-versions>
           {list.slice().reverse().map((x, i, all) => {
             const active = x.id === activeV?.id;

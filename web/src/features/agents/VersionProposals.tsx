@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
+import { LiveStatus } from '@/components/ui/LiveStatus';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -148,7 +149,7 @@ export function VersionProposalList({ agentId, compact }: { agentId?: string; co
     <div className="col" style={{ gap: 10 }} data-version-proposals={data ? 'ready' : error ? 'error' : 'loading'}>
       {head}
       {error && <div className="oa-banner" role="alert"><AlertOctagon size={15} /><span>Version proposals not loaded: {error}</span><button className="btn sm" onClick={retry}>Retry</button></div>}
-      {!data && !error ? <div className="dim" style={{ padding: 12 }}>Loading proposals…</div>
+      {!data && !error ? <LiveStatus className="dim" style={{ padding: 12 }}>Loading proposals…</LiveStatus>
         : list.length === 0 ? <EmptyState icon={GitBranchPlus} title={filter === 'pending' ? 'No version proposals waiting' : 'No version proposals here'}
           body={admin ? (agentId ? 'Propose a change from the active version with “Propose a change”. Another administrator promotes it.' : 'Open an agent › Evolution › Versions and use “Propose a change”. Another administrator promotes it.') : 'Administrators propose new agent versions here.'}
           action={filter !== 'all' && all.length ? <button className="btn" onClick={() => setFilter('all')}>Show all</button> : undefined} />

@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
+import { LiveStatus } from '@/components/ui/LiveStatus';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
@@ -170,7 +171,7 @@ function Preview({ site }: { site: JobSite }) {
         <div className="js-page-mock">
           <div className="js-site-head"><span className="js-fav lg" style={{ ['--h' as string]: (site.domain.charCodeAt(0) * 37) % 360 }}>{site.name[0]}</span><b>{site.name}</b><span className="dim">Jobs · page {site.page}</span><span className="spacer" /><span className="js-fake-search"><Search size={12} />react, typescript</span></div>
           <div className="js-job-list">
-            {jobs.length === 0 && <div className="dim" style={{ padding: 20, fontSize: 13 }}>Loading results…</div>}
+            {jobs.length === 0 && <LiveStatus className="dim" style={{ padding: 20, fontSize: 13 }}>Loading results…</LiveStatus>}
             {jobs.map((j, i) => (
               <div key={j.id} className={cx('js-mock-job', i === focus && site.state === 'scanning' && 'reading')}>
                 <b className="ellipsis">{j.title}</b><span className="dim ellipsis">{j.company} · {j.remote} · {j.rate}</span>

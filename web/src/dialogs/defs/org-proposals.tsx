@@ -84,7 +84,7 @@ function OrgProposalNew({ close }: DialogComponentProps) {
         <div className="col" style={{ gap: 10 }}>
           <div className="row" style={{ gap: 8 }}>
             <div className="section-label" style={{ margin: 0 }}>Changes</div>
-            {base?.revision ? <Chip hue={225} size="sm">from org revision {base.revision.seq}</Chip> : api_ ? <Chip hue={38} size="sm">loading chart…</Chip> : null}
+            {base?.revision ? <Chip hue={225} size="sm">from org revision {base.revision.seq}</Chip> : api_ ? <span role="status"><Chip hue={38} size="sm">loading chart…</Chip></span> : null}
             <HelpTrigger k="org.proposal.changes" />
           </div>
           {!api_ && <div className="oa-banner"><Info size={15} /><span>Proposals are stored on the server. In demo mode this dialog only shows the pickers.</span></div>}
@@ -114,7 +114,7 @@ function OrgProposalNew({ close }: DialogComponentProps) {
         <div className="col" style={{ gap: 10 }} data-dialog-dry-run={dry.state}>
           <div className="row" style={{ gap: 8 }}><div className="section-label" style={{ margin: 0 }}>Server dry run</div><HelpTrigger k="org.proposal.dryRun" /></div>
           {dry.state === 'idle' && <span className="dim" style={{ fontSize: 12.5 }}>Pick a change: the server checks the whole chart (unknown agents, self-management, loops, two managers, agents left without a manager) and lists the lines added and removed.</span>}
-          {dry.state === 'checking' && <span className="dim row" style={{ gap: 6, fontSize: 12.5 }}><Loader2 size={13} className="spin" />Checking on the server…</span>}
+          {dry.state === 'checking' && <span className="dim row" role="status" style={{ gap: 6, fontSize: 12.5 }}><Loader2 size={13} className="spin" />Checking on the server…</span>}
           {dry.state === 'error' && <div className="oa-banner" role="alert"><ShieldAlert size={15} /><span>{dry.msg}</span></div>}
           {dry.r && dry.state !== 'error' && <div style={{ opacity: dry.state === 'checking' ? .55 : 1, transition: 'opacity .2s' }}><DryRunView r={dry.r} max={20} /></div>}
           {effective.length > 0 && (
