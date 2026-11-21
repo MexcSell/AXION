@@ -27,17 +27,17 @@
 - `api-c08.mjs`: 20 consecutive runs, see the result line below.
 - `api-improve.mjs`: before (old code, lane-db regex only) 0/10 failed unstressed (the race needs load); after the fix 0/20 failed.
 - `flows.mjs`: first run of the day failed on the Hierarchy step (before); after the fix verify-all printed 46 PASS, 0 FAIL, plus
-  10 further runs (see below).
+  10 further runs: 9 with 0 FAIL, but run 7 had 2 FAIL lines whose steps were not captured (the loop only counted them), so a flows flake remains unexplained. Raw: c08-evidence/w6-fl.txt (the 7th line is 2).
 - `api-stage6.mjs`: NOT MEASURABLE here. On this base it fails every run at the known `page.reload` stall (line 235, 30 s
   timeout; lane w20 / c22), and the catch-all stops the script before the Edit/409 steps (lines 468-484). Baseline 0 of 3 runs
   reached those steps. They exercise the same code that `api-c08.mjs` now covers deterministically. Re-run stage6 after c22 merges.
 - CPU-stress of the shared machine was not applied (a machine-wide load generator was refused); the new checks do not depend on load.
 
 ## Pass threshold
-1. Reproduce before (10 runs each): improve 0/10 (flake needs contention), stage6 blocked by the reload stall, flows failed run 1. PARTIAL.
-2. 0 failures in 20 runs: improve PASS (0/20), api-c08 PASS (see below), stage6 NOT MET (cannot reach the step until c22).
-3. No assertion removed or loosened, no fixed sleeps added: PASS (one sleep removed from api-improve; two 500 ms sleeps replaced by condition waits in flows).
-4. verify-all green: PASS (no FAIL lines).
+1. Reproduce before, 10 runs each: PARTIAL. api-improve 0/10 failed (the expiry race was never reproduced RED). api-stage6 could not be measured (every run stops at the reload stall). The 409 flake was reproduced only by the forced-order check api-c08.mjs (RED 5/6 on old code). flows.mjs Hierarchy failed on run 1.
+2. 0 failures in 20 consecutive runs: api-improve PASS (20/20 rc=0, c08-evidence/w6-g-imp.summary); api-c08 PASS (20/20 rc=0, c08-evidence/w6-g-c08.summary); **api-stage6 NOT MET**: 0 runs reached the 409 steps because of the known page.reload stall (c22), so no stage6 runs count.
+3. No assertion removed or loosened, no fixed sleeps added: PASS (one sleep removed from api-improve; in flows.mjs one 500 ms sleep replaced by a condition wait, the Conversations step; the Hierarchy step is left to c25).
+4. verify-all green: PASS (46 PASS, 0 FAIL, before the revert of my Hierarchy change; not re-run on the final tree). Separate flows loop: 1 of 10 runs showed 2 FAILs, unidentified.
 
 ## Files
 `web/src/api/agents.ts`, `web/scripts/api-improve.mjs`, `web/scripts/flows.mjs`, new `web/scripts/api-c08.mjs`.
