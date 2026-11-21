@@ -26,7 +26,7 @@
   .modal-head .modal-title { overflow-wrap: anywhere; }
 }
 @media (max-width: 800px) {
-  .modal-body .row, .modal-body .seg, .modal-body .emu-cred { flex-wrap: wrap; }
+  .modal-body .row, .modal-body .segmented, .modal-body .emu-cred { flex-wrap: wrap; }
   .modal-body > * { min-width: 0; max-width: 100%; }
   .toast-stack { left: 12px; right: 12px; width: auto; }
 }
@@ -34,3 +34,4 @@
   .brand { min-width: 40px; }
   .menu-item, .seg-btn, .rv-select-row { min-height: 40px; }
 }
+@media (max-width: 800px) { .modal-body .segmented { display: flex; flex-wrap: wrap; max-width: 100%; } }
