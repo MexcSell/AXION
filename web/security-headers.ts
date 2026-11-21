@@ -2,7 +2,7 @@
 // snippet in server/README.md repeats them. The dev server can't use this CSP: Vite's HMR and the React plugin inject
 // inline scripts there.
 //  - scripts only from this origin, no inline script, no eval;
-//  - styles from this origin, plus inline styles (see STYLE_NOTE);
+//  - stylesheets from this origin; style="" attributes in markup blocked; <style> elements allowed (see STYLE_NOTE);
 //  - images/media from this origin, data: (inlined small assets) and blob: (local previews of a chosen file);
 //  - fetch / EventSource only to this origin (the API sits behind the same origin at /api);
 //  - no plugins, no <base>, no framing, forms only to this origin.
@@ -10,6 +10,7 @@ export const CSP_DIRECTIVES: [string, string][] = [
   ['default-src', "'self'"],
   ['script-src', "'self'"],
   ['style-src', "'self'"],
+  ['style-src-elem', "'self' 'unsafe-inline'"],
   ['img-src', "'self' data: blob:"],
   ['font-src', "'self' data:"],
   ['media-src', "'self' blob:"],
@@ -22,7 +23,11 @@ export const CSP_DIRECTIVES: [string, string][] = [
   ['form-action', "'self'"],
   ['frame-ancestors', "'none'"],
 ];
-export const STYLE_NOTE = "style-src keeps 'unsafe-inline': UI libraries add <style> elements at run time; scripts stay strict.";
+/** Measured under `vite preview` (api-c14.mjs): the only violation with style-src 'self' alone was a <style> element that
+ *  react-remove-scroll (used by the Radix dropdown menu) adds with the scrollbar width in it, so its content varies and a
+ *  hash can't match, and a static server has no nonce. So style-src-elem allows inline <style> elements; style="" attributes
+ *  (style-src-attr falls back to style-src 'self') stay blocked. React's style prop goes through CSSOM and is unaffected. */
+export const STYLE_NOTE = "style-src-elem allows inline <style> elements (react-remove-scroll); everything else stays 'self'.";
 
 export const CSP = CSP_DIRECTIVES.map(([k, v]) => `${k} ${v}`).join('; ');
 

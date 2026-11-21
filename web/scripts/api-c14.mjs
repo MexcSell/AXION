@@ -37,6 +37,7 @@ try {
   const dir = Object.fromEntries(csp.split(';').map((s) => s.trim().split(/\s+/)).filter((a) => a[0]).map(([k, ...v]) => [k, v]));
   check('the page is served with a Content-Security-Policy', !!csp, csp);
   check("script-src is 'self' only (no inline, no eval)", JSON.stringify(dir['script-src']) === JSON.stringify(["'self'"]));
+  check("style-src 'self' (style attributes in markup blocked); only <style> elements may be inline", JSON.stringify(dir['style-src']) === JSON.stringify(["'self'"]) && !dir['style-src-attr']);
   check("default-src 'self', object-src 'none', base-uri 'none', frame-ancestors 'none'", dir['default-src']?.[0] === "'self'" && dir['object-src']?.[0] === "'none'" && dir['base-uri']?.[0] === "'none'" && dir['frame-ancestors']?.[0] === "'none'");
   check("connect-src 'self' only (the API and the event stream are same-origin)", JSON.stringify(dir['connect-src']) === JSON.stringify(["'self'"]));
   check('nosniff, no-referrer, X-Frame-Options DENY, COOP same-origin on the page', h['x-content-type-options'] === 'nosniff' && h['referrer-policy'] === 'no-referrer' && h['x-frame-options'] === 'DENY' && h['cross-origin-opener-policy'] === 'same-origin');
@@ -92,8 +93,10 @@ try {
   const ran = await p.evaluate(() => { window.__injected = false; const s = document.createElement('script'); s.textContent = 'window.__injected = true'; document.body.appendChild(s); return window.__injected; });
   const reported = await until(async () => (await p.evaluate(() => window.__csp.some((x) => x.startsWith('script-src')))), 4000);
   check('an injected inline script is blocked and reported (the CSP is enforced)', ran === false && reported);
-  const evalBlocked = await p.evaluate(() => { try { return (0, eval)('1+1') !== 2; } catch { return true; } });
-  check('eval is blocked', evalBlocked);
+  // string code (eval-like) from the page: a string timer is checked by the browser against script-src (no 'unsafe-eval')
+  await p.evaluate(() => { window.__strTimer = false; setTimeout('window.__strTimer = true', 0); });
+  const evalReported = await until(async () => (await p.evaluate(() => window.__csp.some((x) => /eval/.test(x)))), 4000);
+  check('code from strings (eval, string timers) is blocked and reported', evalReported && (await p.evaluate(() => window.__strTimer)) === false);
   v = (await violations()).filter((x) => !x.startsWith('script-src') && !/script-src|unsafe-eval|eval/i.test(x));
   check('no other CSP violation during the whole run', v.length === 0, v.slice(0, 5).join(' | '));
 } catch (e) {

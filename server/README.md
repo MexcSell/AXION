@@ -131,7 +131,7 @@ server {
   server_name axion.example.internal;
   root /srv/axion/web/dist;
   client_max_body_size 26m;            # uploads are at most 25 MB; JSON at most 1 MB (the API enforces both)
-  add_header Content-Security-Policy "CSP_PLACEHOLDER" always;
+  add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; style-src-elem 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'" always;
   add_header X-Content-Type-Options "nosniff" always;
   add_header Referrer-Policy "no-referrer" always;
   add_header X-Frame-Options "DENY" always;
@@ -147,9 +147,11 @@ server {
 }
 ```
 
-The policy (keep it equal to `web/security-headers.ts`): scripts only from this origin (no inline script, no eval), styles
-from this origin, images and media also from `data:`/`blob:`, fetch and the event stream only to this origin, no plugins, no
-`<base>`, no frames, no framing. The dev server (`npm run dev`) cannot run under it: Vite's hot reload injects inline scripts.
+The policy (keep it equal to `web/security-headers.ts`): scripts only from this origin (no inline script, no eval), stylesheets
+from this origin and no `style=""` attributes in markup, images and media also from `data:`/`blob:`, fetch and the event
+stream only to this origin, no plugins, no `<base>`, no frames, no framing. One exception, measured: `style-src-elem` allows
+inline `<style>` elements, because the dropdown menu's scroll lock (react-remove-scroll) adds one with the scrollbar width
+in it (its content varies, so a hash can't match, and a static server has no nonce). The dev server (`npm run dev`) cannot run under it: Vite's hot reload injects inline scripts.
 In nginx an `add_header` inside a `location` block replaces the server-level ones, so add no headers inside `location /api/`.
 
 ## Patterns taken from the axor backend (`/home/luca/axor/backend`, read only)
