@@ -112,7 +112,8 @@ try {
   check('c02 the scorecard panel lists all 8 rows with a ? each', (await A.p.locator('[data-scorecard="ready"] [data-row]').count()) === 8 && (await A.p.locator('[data-scorecard="ready"] [data-row] [data-help-key^="scorecard."]').count()) === 8);
   await A.p.goto(base + '/missions', { waitUntil: 'domcontentloaded' });
   await A.p.locator('.mw-list-head').waitFor({ timeout: 10000 });
-  await calm(A.p);
+  // ABSENCE WAIT (kept, 600 ms as before): asserting the list header never shows a success rate once the list has loaded; no condition can signal "never".
+  await A.p.waitForTimeout(600);
   check('c02 fresh database: the Missions list header shows no success rate', !/%|success/.test(await A.p.locator('.mw-list-head').innerText()));
   const join = async (label, name, pass, admin) => {
     const X = await browser(label);
@@ -313,7 +314,8 @@ try {
   const sc2d = await apiA('GET', '/company/scorecard?includeDemo=1');
   const by2d = Object.fromEntries(sc2d.body.rows.map((r) => [r.key, r]));
   check(`c02 a canceled DEMO mission (${dm.id}) is not counted by default; with includeDemo=1 it is`, sc2.finished.value === 3 && by2d.finished.value === 4 && sc2d.body.includeDemo === true, `default ${sc2.finished.value}, with DEMO ${by2d.finished.value}`);
-  await calm(A.p);
+  // ABSENCE WAIT (kept, 900 ms as before): asserting the panel does NOT change (still 3 finished) after the cancel; no condition can signal "never".
+  await A.p.waitForTimeout(900);
   check('c02 the panel still shows 3 finished (DEMO off) and no DEMO tag', (await scRow(A.p, 'finished').locator('.sc-val').innerText()) === '3' && (await A.p.locator('[data-scorecard] .demo-tag').count()) === 0);
   await A.p.getByRole('switch', { name: 'Include DEMO missions' }).click();
   check('c02 "include DEMO missions" on: the panel is tagged DEMO and counts 4 finished (the server value)',
@@ -408,7 +410,8 @@ try {
     rt.status === 200 && await until(async () => agentReads > reads1, 6000), `status ${rt.status}`);
   check(`c03 server, with DEMO tasks: the retried task is open again, so it left the evidence of ${fromAgent} (open tasks are not evidence)`,
     (await relOfApi(apiA, fromAgent, '?includeSimulated=1')).n === before.n - 1 && (await relOfApi(apiA, 'coder-01', '?includeSimulated=1')).n === coderSim.n);
-  await calm(A.p);
+  // ABSENCE WAIT (kept, 600 ms as before): asserting the Coder-01 profile does NOT change after the retry re-read; no condition can signal "never".
+  await A.p.waitForTimeout(600);
   check('c03 Coder-01 profile still says "not enough evidence (0 of 5)" (real tasks only), no reload', (await relText(A.p)) === 'not enough evidence (0 of 5)' && (await A.p.evaluate(() => window.__noReload)) === 'c03');
 
   // ------------------------------------------------------------ c03 SUPPLEMENTARY fixture step (axion_e2e only; not evidence for 3b)

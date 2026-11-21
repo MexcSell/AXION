@@ -79,5 +79,5 @@ export async function signIn(ctx, name = process.env.LOGIN_AS || 'Luca') {
 
 /** Decision controls on a proposal card: members must see none of these (and no note field). */
 export const DECISION_BUTTON = /^(Approve|Reject|Withdraw)$/;
-/** Invented numbers on a proposal card: any percentage, or a number written right beside coverage/latency/tokens. The words alone are fine. */
-export const inventedNumbers = (txt) => [...String(txt).matchAll(/\d+(?:\.\d+)?\s*%|\b(?:coverage|latency|tokens)\b\s*:?\s*[+\-−]?\d+/gi)].map((m) => m[0]);
+/** Invented numbers on a proposal card: any percentage, or a number written right beside coverage/latency/tokens/ms, in either order. The words alone are fine. */
+export const inventedNumbers = (txt) => [...String(txt).matchAll(/\d+(?:\.\d+)?\s*%|\b(?:coverage|latency|tokens?)\b\s*:?\s*[+\-−]?\d+|\d+(?:\.\d+)?\s*(?:k\s*)?(?:ms|s|tokens?|coverage|latency)\b/gi)].map((m) => m[0]);
