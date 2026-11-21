@@ -114,3 +114,17 @@ Integrator log: one entry per merge request. Times are UTC.
 **Observation (not fixed, pre-existing from c05):** `startSync`'s stop handler in `web/src/api/events.ts` cancels every debounced refresher except c05's `versions`. A version-proposals re-read can therefore fire once after sign-out. Harmless today; one word to add (`versions.cancel()`).
 
 **Follow-up commits:** none. Controller files committed with this entry: BACKLOG.md, LESSONS.md, LOG.md, QUEUE.md (modified); cycles/c08-review.md, c21-review.md, c23-rereview.md, c25-review.md (new).
+
+## Batch 2b: c21 (honest exit codes)
+
+- **Merged:** 2026-11-21 ~21:39 UTC. Pre-batch commit `1358f91`.
+- **Merge commit:** `7c4496d` c21-honest-exit-codes (f43ab68), `--no-ff`. **Conflicts:** none.
+- **Server:** tsc OK; vitest 30 files 472/472. **web:** tsc OK.
+- **api-e2e:** not run for 2b. c21 changes only demo-mode scripts and verify-all.sh (no app code, no api script); the api set runs again in batch 2c on top of it.
+- **verify-all (now with c21's per-step table):** exit 1, "1 of 10 STEPS FAILED". Every other step PASS (build, route×tab crawl, deep crawl, auth flow, u1 flows, dialog smoke, dialog ids, help keys, fs guard).
+  - FAIL line: `FAIL  Hierarchy: click agent → conversation pane beside the graph shows its counterparts: hierarchy conversation pane did not switch`
+  - This is the known flows Hierarchy flake (fixed by c25, batch 5b). `flows.mjs` rerun alone (load ~12): exit 0, 21/21 PASS, no console errors.
+- **fit-check:** 77/77 ALL FIT. **ov-fit:** 32/32, no scroll anywhere.
+- `docs/dialog-ledger.txt` was not left modified by this run.
+
+**Follow-up commits:** none. Controller files committed with this entry: LOG.md, QUEUE.md (modified), cycles/c22-review.md (new).
