@@ -463,8 +463,8 @@ try {
   await A.p.locator('.ag-table').waitFor({ timeout: 15000 });
   const rowOf = (p, name) => p.locator('.ag-table tbody tr', { hasText: name }).first();
   const execName = (await apiA('GET', `/agents/${exec.agentId}`)).body.agent.name;
-  check('c03 Directory list: a Reliability column; the executor\'s chip shows 60% with n in the tooltip, the fresh agent "—"',
-    await until(async () => (await A.p.locator('.ag-table thead th', { hasText: 'Reliability' }).count()) === 1
+  check('c03 Directory list: each row carries a reliability chip by the name; the executor\'s shows 60% (n=5), the fresh agent "—"',
+    await until(async () => (await A.p.locator('.ag-table tbody tr td:first-child [data-reliability-chip]').count()) === (await A.p.locator('.ag-table tbody tr').count())
       && (await rowOf(A.p, execName).locator('[data-reliability-chip="ok"][data-reliability-n="5"]').innerText()).includes('60%')
       && (await rowOf(A.p, fresh.name).locator('[data-reliability-chip="none"][data-reliability-n="0"]').innerText()).includes('—'), 8000));
   await rowOf(A.p, execName).locator('[data-reliability-chip]').hover();

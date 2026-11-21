@@ -168,11 +168,11 @@ function AgentTable({ list, onOpen }: { list: Agent[]; onOpen: (id: string) => v
   return (
     <div className="table-wrap">
       <table className="table ag-table">
-        <thead><tr><th>Agent</th><th>Role</th><th>Department</th><th>Status</th><th>Development</th><th>Stage</th><th>Evolution</th><th>Version</th><th>Success (n)</th>{isApi() && <th title="Measured from recorded tasks (n in the tooltip)">Reliability</th>}</tr></thead>
+        <thead><tr><th>Agent</th><th>Role</th><th>Department</th><th>Status</th><th>Development</th><th>Stage</th><th>Evolution</th><th>Version</th><th>Success (n)</th></tr></thead>
         <tbody>
           {list.map((a, i) => (
             <motion.tr key={a.id} onClick={() => onOpen(a.id)} style={{ cursor: 'pointer' }} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * .02 }}>
-              <td><span className="row"><RobotAvatar role={a.role} size={30} animated={a.growth === 'evolving'} /><b>{a.name}</b></span></td>
+              <td><span className="row"><RobotAvatar role={a.role} size={30} animated={a.growth === 'evolving'} /><b>{a.name}</b><ReliabilityChip agent={a} /></span></td>
               <td><RoleChip role={a.role} size="sm" /></td>
               <td>{a.dept}</td>
               <td><AgentStatusChip status={a.status} size="sm" /></td>
@@ -184,7 +184,6 @@ function AgentTable({ list, onOpen }: { list: Agent[]; onOpen: (id: string) => v
               <td><EvoTrack agent={a} /></td>
               <td className="mono">{a.version}{a.candidate && <span className="dim"> → {a.candidate}</span>}</td>
               <td className="tnum">{needsEvidence(a) ? <span className="dim" title={NOT_ENOUGH}>not enough evidence</span> : <><b>{a.success}%</b> <span className="dim">({a.sample})</span></>} <ProvenanceChip agent={a} /></td>
-              {isApi() && <td><ReliabilityChip agent={a} /></td>}
             </motion.tr>
           ))}
         </tbody>

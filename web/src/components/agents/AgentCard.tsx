@@ -57,7 +57,7 @@ export function AgentCard({ agent, index = 0 }: { agent: Agent; index?: number }
       <DevStrip agent={agent} />
       <div className="agent-card-stats">
         <span>Missions</span><b className="tnum">{agent.missions}</b>
-        {isApi() && <><span className="sep" /><ReliabilityChip agent={agent} /></>}
+        {isApi() && <span className="agent-card-rel"><ReliabilityChip agent={agent} /></span>}
         <span className="sep" />
         <span>Success</span>{needsEvidence(agent) ? <b className="tnum dim" title={NOT_ENOUGH}>n/a</b> : <b className="tnum">{agent.success}%</b>}<span style={{ position: 'absolute', right: 8, top: -9, zIndex: 1 }}><ProvenanceChip agent={agent} /></span>
       </div>
