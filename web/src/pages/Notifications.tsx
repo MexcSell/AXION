@@ -290,7 +290,6 @@ function PendingTab() {
 }
 
 function ResolvedTab() {
-  const me = useMe();
   const ALL_NOTICES = useVisibleNotices();
   const resolved = useUG((s) => s.resolvedNotices);
   const missions = useVisibleMissions();
@@ -311,7 +310,7 @@ function ResolvedTab() {
           <AnimatePresence>{done.map((a) => (
             <motion.div key={a.id} className="nt-appr" style={{ ['--h' as string]: a.status === 'approved' ? 150 : 0 }} initial={{ opacity: 0, x: -40 }} animate={{ opacity: 1, x: 0 }}>
               <div className="row" style={{ gap: 6 }}>{a.status === 'approved' ? <CheckCircle2 size={16} className="good" /> : <XCircle size={16} className="bad" />}<b className="ellipsis" style={{ fontSize: 13 }}>{a.title}</b></div>
-              <div className="dim" style={{ fontSize: 12, marginTop: 3 }}>{a.status} by {isApi() && me ? me.name : 'Luca (Owner)'} just now · {a.missionId} · {RISK_TIER[a.risk].tier}</div>
+              <div className="dim" style={{ fontSize: 12, marginTop: 3 }}>{a.status} by {isApi() ? a.decidedByName ?? 'someone' : 'Luca (Owner)'}{isApi() ? '' : ' just now'} · {a.missionId} · {RISK_TIER[a.risk].tier}</div>
             </motion.div>))}</AnimatePresence>
           {done.length === 0 && <div className="dim" style={{ fontSize: 12.5 }}>Decisions made in Pending appear here, with comment and hash.</div>}
         </div>

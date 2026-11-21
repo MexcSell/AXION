@@ -38,6 +38,7 @@ export function approvalDto(r: any, now = Date.now()) {
     expiresMin: Math.max(0, Math.round((new Date(r.expires_at).getTime() - now) / 60000)),
     agoMin: Math.max(0, Math.round((now - new Date(r.created_at).getTime()) / 60000)),
     expiresAt: new Date(r.expires_at).getTime(),
+    decidedByName: (state === 'approved' || state === 'denied') ? (r.decided_by_name ?? null) : null,
   };
 }
 

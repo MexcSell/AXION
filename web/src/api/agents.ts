@@ -104,7 +104,6 @@ function useRead<T>(path: string | null, pick: (r: any) => T, deps: unknown[], l
 }
 const isApiMode = () => isApi();
 
-/** Agent instances visible to me (GET /agent-instances), one agent or all. */
 /** GET /agent-instances, following `nextBefore` until the server says nothing is cut (so counts never silently stop at one page). */
 async function fetchAllInstances(path: string): Promise<{ instances: InstanceRow[] }> {
   const all: InstanceRow[] = []; let before: string | undefined;
@@ -117,6 +116,7 @@ async function fetchAllInstances(path: string): Promise<{ instances: InstanceRow
   }
   return { instances: all };
 }
+/** Agent instances visible to me (GET /agent-instances), one agent or all. */
 export function useAgentInstances(agentId?: string): Read<InstanceRow[]> {
   const tick = useInstTick((s) => s.n);
   return useRead<InstanceRow[]>(`/agent-instances${agentId ? `?agentId=${encodeURIComponent(agentId)}` : ''}`, (r) => r.instances, [tick], fetchAllInstances);
