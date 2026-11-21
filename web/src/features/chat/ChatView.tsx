@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Send, Paperclip, Image as ImageIcon, AtSign, X, CheckCheck, Check, Clock, ArrowDown, Info, FileText, ShieldAlert, Map as MapIcon, Rows3, Rows2, Music, Film, Loader2 } from 'lucide-react';
 import { RobotAvatar } from '@/components/art/RobotAvatar';
 import { UserAvatar } from '@/components/ui/UserAvatar';
@@ -8,6 +8,7 @@ import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { Segmented } from '@/components/ui/Form';
 import { Tip } from '@/components/ui/Tip';
 import { AGENT_BY_ID } from '@/data/agents';
+import { useAgentsCatalog } from '@/api/agents';
 import type { Attachment, Message, MessageKind } from '@/data/types';
 import { useAuth } from '@/store/auth';
 import { openDialog } from '@/store/ui';
@@ -30,6 +31,8 @@ const writeMinimap = (v: boolean) => { try { localStorage.setItem(MINIMAP_KEY, v
 
 /** Who wrote it: an agent, a human account, or the system. `fallback` is the server's author name (api mode). */
 function useAuthor(id: string, fallback?: string) {
+  // the agent catalog is updated in place (api mode): a memoised bubble re-renders when it changes (rename, new avatar)
+  useAgentsCatalog();
   const acc = useAuth((s) => (id.startsWith('human:') ? s.accounts.find((a) => a.id === id.slice(6)) : undefined));
   if (id.startsWith('human:')) return { kind: 'human' as const, name: acc?.name ?? fallback ?? (id === 'human:owner' ? 'Owner' : 'User'), account: acc };
   const ag = AGENT_BY_ID[id];
@@ -42,7 +45,11 @@ export function SimTag() {
   return <span className="sim-tag" title="Simulated on a DEMO mission. No agent acted; agents do not execute yet.">Simulated</span>;
 }
 
-export function ChatBubble({ m, right, compact, missionId, label }: { m: Message; right: boolean; compact?: boolean; missionId?: string; label?: string }) {
+/**
+ * Memoised (improvement cycle 22): a thread re-renders on every new message or receipt, and only the bubbles whose
+ * message object changed render again. The store keeps unchanged messages as the same objects.
+ */
+export const ChatBubble = memo(function ChatBubble({ m, right, compact, missionId, label }: { m: Message; right: boolean; compact?: boolean; missionId?: string; label?: string }) {
   const au = useAuthor(m.from, m.authorName);
   const human = au.kind === 'human';
   // system notes (Stage 6: the honest "agents don't act yet" note) are a centred line, not anyone's speech bubble
@@ -88,7 +95,7 @@ export function ChatBubble({ m, right, compact, missionId, label }: { m: Message
       </div>
     </motion.div>
   );
-}
+});
 
 export interface ChatMode { key: string; label: ReactNode; help?: string; placeholder: string }
 interface LocalAtt { id: string; name: string; size: number; type: string; url?: string; file: File }
@@ -209,7 +216,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
     // only messages added at the end are new (older pages are prepended)
     if (messages.length > prevLen.current && lastId !== prevLast.current) {
       if (atBottom) window.setTimeout(() => scroller.current?.scrollTo({ top: 1e6, behavior: 'smooth' }), 30);
-      else setNewCount((n) => n + Math.max(1, messages.length - prevLen.current));
+      else { const i = messages.findIndex((m) => m.id === prevLast.current); setNewCount((n) => n + Math.max(1, i >= 0 ? messages.length - 1 - i : messages.length - prevLen.current)); } // only rows after the last one seen (an older page may land in the same render)
     }
     prevLen.current = messages.length; prevLast.current = lastId;
   }, [messages.length, lastId, atBottom]);
@@ -250,7 +257,8 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
         {loadingOlder && <div className="thread-older" role="status"><Loader2 size={12} className="spin" /> Loading older messages…</div>}
         <div className="thread-body" ref={scroller} onScroll={(e) => { const el = e.currentTarget; const b = el.scrollHeight - el.scrollTop - el.clientHeight < 40; setAtBottom(b); if (b) setNewCount(0); if (el.scrollTop < 80) requestOlder(el); }} {...(emptyState ? {} : { role: 'log', 'aria-label': 'Conversation', 'aria-live': 'polite' })} data-has-older={hasOlder ? '1' : undefined}>
           {shown.length === 0 && <div className="empty" style={{ padding: 30 }} {...(emptyState ? { role: emptyState === 'error' ? 'alert' : 'status' } : {})}><div className="empty-icon"><Send size={22} /></div><h4>{emptyTitle ?? 'No messages yet'}</h4>{emptyText && typeof emptyText === 'object' ? <div className="thread-empty-body">{emptyText}</div> : <p>{emptyText ?? 'Write the first message.'}</p>}</div>}
-          <AnimatePresence initial={false}>
+          {/* presenceAffectsLayout off: otherwise every row gets a new presence context (and re-measures its layout) on each render */}
+          <AnimatePresence initial={false} presenceAffectsLayout={false}>
             {shown.map((m) => {
               const day = dateLabel(m.agoMin, m.ts);
               const sep = day !== lastDay ? (lastDay = day) : null;
