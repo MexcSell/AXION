@@ -216,7 +216,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
     // only messages added at the end are new (older pages are prepended)
     if (messages.length > prevLen.current && lastId !== prevLast.current) {
       if (atBottom) window.setTimeout(() => scroller.current?.scrollTo({ top: 1e6, behavior: 'smooth' }), 30);
-      else setNewCount((n) => n + Math.max(1, messages.length - prevLen.current));
+      else { const i = messages.findIndex((m) => m.id === prevLast.current); setNewCount((n) => n + Math.max(1, i >= 0 ? messages.length - 1 - i : messages.length - prevLen.current)); } // only rows after the last one seen (an older page may land in the same render)
     }
     prevLen.current = messages.length; prevLast.current = lastId;
   }, [messages.length, lastId, atBottom]);
