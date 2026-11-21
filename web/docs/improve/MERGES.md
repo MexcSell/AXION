@@ -192,3 +192,24 @@ Integrator log: one entry per merge request. Times are UTC.
 - **fit-check:** 77/77 ALL FIT. **ov-fit (demo):** 32/32, no scroll anywhere.
 
 **Follow-up commits:** none.
+
+## Batch 4: c14 (IN PROGRESS when the integrator stopped; batch checks not finished)
+
+- **Merged:** 2026-11-21 ~23:45 UTC. Pre-batch commit `f00fda5`.
+- **Merge commit:** `d0f877d` c14-security-hardening (14e1124), `--no-ff`.
+- **Conflicts:**
+  - `server/README.md`: the test count, set to the measured value.
+  - `server/src/app.ts`: c06's `departmentRoutes` import kept; c14's header and rate-limit imports added.
+  - `web/scripts/api-improve.mjs`: the e2e guard; kept c04's.
+  - `web/vite.config.ts`: c14's preview `headers: WEB_SECURITY_HEADERS` added; c07's `chunkSizeWarningLimit: 400` kept over the branch's old 1500.
+- **Follow-up `6876fab` (review I1):**
+  - `LIMITED_ROUTES` now covers the governance writes. In the proposals bucket:
+    - c04's org `rollback-proposal` (not in the queue's list, found from the route table);
+    - c05's version-proposal create/decision/withdraw and `agents/:id/rollback`;
+    - c19's mentoring create/milestone done/close.
+  - New security tests:
+    - The route table must map every message, upload, proposal, rollback and mentoring write route, and every map key must be a real route. RED before the change: 8 routes missing.
+    - The new routes share the budget (429 on the 4th).
+  - `version-proposals.test.ts` hit 429 (the suite makes more than 30 governance writes per admin session per minute). Its fixture now lifts only the proposals budget (`writeLimits.proposals.max 1000`), the same way c14's e2e server lifts messages for stage6. No assertion changed. **Controller to confirm.**
+- **Server:** tsc OK. vitest after the merge 35 files 558/558; after the follow-up 35 files 560/560. **web:** tsc OK.
+- **Batch checks:** running when stopped (outputs in the integrator scratchpad `b4/`). Re-run the standard set, api-c05 and api-c19 under `scripts/api-e2e-preview.sh` (with api-c14) before calling batch 4 done.
