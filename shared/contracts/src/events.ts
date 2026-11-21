@@ -22,3 +22,6 @@ export type EventType =
   | 'agent.created' | 'agent.updated' | 'agent.versionCreated'
   | 'org.proposalCreated' | 'org.proposalDecided' | 'org.revisionApplied'
   | 'user.requested' | 'user.changed' | 'auth.approved';
+
+/** `task.delegated`: one payload shape for both subjects (an instance joining under its manager, or a task reassigned). */
+export interface TaskDelegatedPayload { taskId?: string; fromInstance: string; toInstance: string; kind: 'delegated'; simulated?: boolean; by?: string }

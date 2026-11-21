@@ -42,8 +42,9 @@ export default async function taskRoutes(app: FastifyInstance) {
       const detail: Record<string, unknown> = { from, to };
       let delegated: { from: string; to: string } | undefined;
       if (action === 'reassign') {
-        const target = (await c.query(`select id, agent_id from agent_instances where id=$1 and mission_id=$2`, [body!.toInstanceId, t.mission_id])).rows[0];
+        const target = (await c.query(`select id, agent_id, state, ended_at from agent_instances where id=$1 and mission_id=$2`, [body!.toInstanceId, t.mission_id])).rows[0];
         if (!target) throw new ApiError('TASK_TARGET_INVALID', 422, 'Choose an agent that is part of this mission.', { fieldErrors: { toInstanceId: 'not in this mission' } });
+        if (target.ended_at || target.state === 'done') throw new ApiError('TASK_TARGET_INVALID', 422, 'That agent has finished its work in this mission.', { fieldErrors: { toInstanceId: 'already done' } });
         if (t.owner_instance_id === target.id || (!t.owner_instance_id && t.owner_agent === target.agent_id)) throw new ApiError('TASK_TARGET_INVALID', 422, 'That agent already owns this task.', { fieldErrors: { toInstanceId: 'already the owner' } });
         const lead = (await c.query(`select id, manager_instance_id from agent_instances where mission_id=$1 order by (manager_instance_id is not null), seq limit 1`, [t.mission_id])).rows[0];
         const sim = (await c.query('select simulated from tasks where id=$1', [id])).rows[0].simulated as boolean;
@@ -70,7 +71,7 @@ export default async function taskRoutes(app: FastifyInstance) {
       }
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: `task.${action}`, subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { missionId: t.mission_id, ...detail } });
       const common = { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, subjectKind: 'task', subject: id, missionId: t.mission_id };
-      if (delegated) await emit(c, { ...common, type: 'task.delegated', payload: { taskId: id, ...delegated, toInstanceId: delegated.to, kind: 'delegated', by: ctx.user.name } });
+      if (delegated) await emit(c, { ...common, type: 'task.delegated', payload: { taskId: id, fromInstance: delegated.from, toInstance: delegated.to, kind: 'delegated', by: ctx.user.name } });
       if (to !== from) await emit(c, { ...common, type: 'task.stateChanged', payload: { taskId: id, from, to, action, by: ctx.user.name } });
       return { status: 200, body: { task: await taskById(c, id) } };
     }, async (c) => { await visibleTask(c, ctx, id); });

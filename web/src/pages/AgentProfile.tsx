@@ -161,6 +161,7 @@ function useAgentMissions(a: Agent) {
 
 function ProfileTab({ a }: { a: Agent }) {
   const nav = useNavigate();
+  const me = useMe();
   const ms = useAgentMissions(a);
   const inst = useAgentInstances(isApi() ? a.id : undefined); // api mode: this agent's instances, each with its pinned version
   const allMissions = useVisibleMissions();
@@ -174,7 +175,7 @@ function ProfileTab({ a }: { a: Agent }) {
           <dt>Role</dt><dd><RoleChip role={a.role} size="sm" /></dd>
           <dt>Department</dt><dd>{a.dept}</dd>
           <dt>Manager</dt><dd>{mgr ? <button className="oa-link-btn" onClick={() => nav(`/agents/${mgr.id}`)}>{mgr.name}</button> : 'Owner'}</dd>
-          <dt>Owner</dt><dd>Luca (Owner)</dd>
+          <dt>Owner</dt><dd>{isApi() && me ? me.name : 'Luca (Owner)'}</dd>
           <dt>Active version</dt><dd className="mono">{a.version} <span className="dim">(pinned for new instances)</span></dd>
           <dt>Status</dt><dd><AgentStatusChip status={a.status} size="sm" /></dd>
           <dt>Model route</dt><dd className="mono">{a.model}</dd>

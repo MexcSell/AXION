@@ -135,6 +135,8 @@ function setUnread(id: string, n: number) {
 const lastRead = new Map<string, number>();
 const readTimers = new Map<string, number>();
 /** The channel is on screen and shows its newest messages: clear its unread count here and on the server (one cheap read, throttled). */
+/** The channel closed: its trailing read mark must not fire later (it would mark a channel nobody is looking at). */
+export function cancelChannelMark(id: string) { const x = readTimers.get(id); if (x) { window.clearTimeout(x); readTimers.delete(id); } }
 export function markChannelRead(id: string) {
   const path = channelPath(id, meId);
   const have = useChannels.getState().by[id]?.messages;
