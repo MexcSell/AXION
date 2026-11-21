@@ -31,6 +31,7 @@ add('/settings', ['General', 'Users', 'Navigation', 'Appearance', 'Avatars & Fac
 const audit = () => {
   const out = [];
   const vis = (e) => { const r = e.getBoundingClientRect(); const cs = getComputedStyle(e); return (r.width > 0 || r.height > 0) && cs.visibility !== 'hidden' && cs.display !== 'none' && !e.closest('[aria-hidden="true"],[inert]'); };
+  const vis0 = (e) => { const r = e.getBoundingClientRect(); return (r.width > 0 || r.height > 0) && getComputedStyle(e).visibility !== 'hidden'; };
   const txt = (e) => (e.innerText || e.textContent || '').replace(/\s+/g, ' ').trim();
   const byId = (id) => document.getElementById(id);
   const name = (e) => {
@@ -71,6 +72,8 @@ const audit = () => {
     const t = (e.textContent || '').trim();
     if (t.length < 60 && /^(loading|saving|syncing|reconnecting|retrying|checking|connecting|sending|working|running)\b.{0,30}(…|\.\.\.)$/i.test(t) && !live(e)) out.push(`LIVE busy text "${t}" is not in an aria-live/status region (${desc(e)})`);
   }
+  // cycle 23 fix 2: nothing focusable may sit inside aria-hidden content
+  for (const e of document.querySelectorAll('[aria-hidden=true] :is(a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"]))')) if (!e.disabled && vis0(e)) out.push(`HIDDENFOCUS focusable ${e.tagName.toLowerCase()} "${txt(e).slice(0, 20)}" inside aria-hidden`);
   // cycle 23: loading and failed-load states must be announced (role=status for loading, role=alert for errors)
   for (const e of document.querySelectorAll('[data-state=loading],.part-status[data-state=loading]')) if (vis(e) && !live(e)) out.push(`LIVE loading state [data-state=loading] "${txt(e).slice(0, 30)}" is not in a status region`);
   for (const e of document.querySelectorAll('[data-state=error],.oa-banner')) if (vis(e) && (e.matches('[data-state=error]') || e.querySelector('button') || /not loaded|could not|failed/i.test(txt(e))) && !e.closest('[role=alert]') && !e.closest('[aria-live=assertive]')) out.push(`LIVE error state "${txt(e).slice(0, 30)}" is not role=alert`);
