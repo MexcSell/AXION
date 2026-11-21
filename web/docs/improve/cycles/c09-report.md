@@ -41,3 +41,18 @@ server: `src/conversations/post.ts` (new), `routes.ts`, `direct.ts`, `src/instan
 
 - `web/scripts/api-improve.mjs` line 224: the database-name guard accepted only `axion_e2e`; lane databases are `axion_e2eL`. It now accepts `axion_e2e` plus digits. It still refuses the real `axion` database. Other lanes will hit the same guard.
 - `fs-guard` fails only because the lane override config `vite-w7.config.ts` sets `fs.allow` to the whole worktree root (so `update/*.md` is served 200). It is an artifact of the lane override config, not of this diff. Not run against a normal config.
+
+## Fix round (after the independent review)
+- **I1 fixed.** `Messenger.tsx` `apiSend` now sends `pendingQ.id` (a real message id in api mode). The demo-mode local path (line 191) and the "Re ..." labels still show `replyTo ?? id`, because they are display and local-store only. New browser check `web/scripts/api-c09.mjs`: in a DEMO mission (M-132, question 170 with fixture `replyTo=APR-M-132-1`), the question is answered through the Messenger composer (the person picks Reply, since the composer mounts in Command mode before the thread loads). Result 6/6 PASS: reply accepted 201, shown with no "Not sent", stored as `kind=reply` with `replyTo` equal to the question's real id, no page errors. First run failed (request was kind=command): that was the check, not the app, and it now clicks Reply.
+- **Item 7 corrected.** The server's `GET /approvals` now carries `decidedByName` (real decider, null while pending; new test `7. approvals say who decided`, written with the fix in the same step, so no separate RED run was recorded for this one). Notifications > Decisions shows that name in api mode (`someone` if unknown). The agent profile "Owner" line is not tied to any user, so in api mode it reads "Administrators" (matching the Manager fallback); demo mode keeps "Luca (Owner)".
+- **Item 6 corrected.** `flushChannelMark` replaces `cancelChannelMark`: when a direct channel closes (own effect keyed on channel, so per-message re-renders do not trigger it), a pending trailing mark is sent once instead of dropped. No behavioural browser test for it (needs a timing window under 1.5 s on a real channel close); covered by typecheck only.
+- Test 4 now asserts its precondition (more than 4 instances) and always runs the live-target reassignment. The `api-improve.mjs` guard message and the orphaned JSDoc blocks (`chat.ts`, `agents.ts`) are fixed.
+
+### Fix-round verification
+| Check | Result |
+|---|---|
+| Server `tsc` and suite | 338/338 PASS |
+| Web typecheck | PASS |
+| `api-c09` | 6/6 PASS |
+| `api-flows` | 23/23 PASS |
+| `api-stage6` | FAIL in this round: stops at step 35 with `page.reload: Timeout 30000ms` (the reload after 130 parallel message posts). It failed the same way three times on the fix round, and also on the pre-fix-round commit f344340 (34/35), so it is not caused by this round. It passed 94/94 earlier on f344340 and on the first review round. Machine load average was about 27 to 30 with 30 queued heavy runs. NOT MET in this round, honest: not re-confirmed green. |
