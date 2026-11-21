@@ -190,6 +190,10 @@ describe('lifecycle', () => {
     const r = await decide(B, p, 'approve');
     expect(r.status).toBe(409);
     expect(r.body.code).toBe('PROPOSAL_EXPIRED');
+    // the expiry was committed by the refused decision itself (before any read)
+    expect((await rows('select status from org_proposals where id=$1', [p.id]))[0].status).toBe('expired');
+    expect(await count(`select count(*)::int n from audit_events where action='org.proposal.expire' and subject=$1`, [p.id])).toBe(1);
+    expect(await count(`select count(*)::int n from audit_events where action='org.proposal.decide' and subject=$1 and result='denied'`, [p.id])).toBe(1);
     const list = (await M.req('GET', '/organization/proposals')).body.proposals;
     expect(list.find((x: { id: string }) => x.id === p.id).status).toBe('expired');
   });

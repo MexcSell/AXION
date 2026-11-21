@@ -3,10 +3,12 @@
 // proposals read-only and then watches Agents › Directory › Hierarchy pick up the new reporting line WITHOUT a reload.
 // Run through scripts/api-e2e.sh (API 5192 on axion_e2e, reset on start; Vite 5193). Screenshots: SHOTS.
 import { chromium } from 'playwright';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 const base = process.env.BASE || 'http://127.0.0.1:5193';
 const SHOTS = process.env.SHOTS || '/tmp/axion-api-e2e';
-const DOC_SHOT = process.env.DOC_SHOT || new URL('../docs/screenshots/improve-c01-proposals-dark.png', import.meta.url).pathname;
+// the committed screenshot is written only on request: DOC_SHOT=docs/screenshots/improve-c01-proposals-dark.png
+const DOC_SHOT = process.env.DOC_SHOT;
 mkdirSync(SHOTS, { recursive: true });
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
 const results = [];
@@ -152,16 +154,34 @@ try {
   await card(B.p, P2.id).getByRole('button', { name: 'Reject', exact: true }).click();
   check('B rejects the stale proposal', await until(async () => (await apiA('GET', '/organization/proposals')).body.proposals.find((x) => x.id === P2.id)?.status === 'rejected', 8000));
 
+  // ------------------------------------------------------------ expiry: the server's message stays on the card after its status changes
+  // Only the e2e database (axion_e2e, emptied on every API start) is touched, to move one proposal's expiry into the past.
+  const e2eUrl = /^E2E_DATABASE_URL=(.*)$/m.exec(readFileSync(new URL('../../server/.env', import.meta.url), 'utf8'))?.[1]?.trim().replace(/^['"]|['"]$/g, '');
+  if (!e2eUrl || !/\/axion_e2e(\?|$)/.test(e2eUrl)) throw new Error('E2E_DATABASE_URL must point at axion_e2e');
+  const g2 = (await apiA('GET', '/organization/graph')).body;
+  const P3 = (await apiA('POST', '/organization/proposals', { title: 'Designer-01 under Ops-01', why: '', baseRevision: g2.revision.seq, edges: g2.edges.map((e) => (e.subordinateId === 'designer-01' ? { ...e, supervisorId: 'ops-01' } : e)) }, { 'idempotency-key': `c01-p3-${Date.now()}` })).body.proposal;
+  await B.p.getByRole('radio', { name: /^Pending/ }).click();
+  await card(B.p, P3.id).waitFor({ timeout: 10000 });
+  const pg = createRequire(new URL('../../server/package.json', import.meta.url))('pg');
+  const db = new pg.Client({ connectionString: e2eUrl });
+  await db.connect();
+  await db.query(`update org_proposals set expires_at = now() - interval '1 minute' where id=$1 and status='pending'`, [P3.id]);
+  await db.end();
+  await card(B.p, P3.id).getByRole('button', { name: 'Approve', exact: true }).click();
+  check('PROPOSAL_EXPIRED: the server message stays on the card although it left the Pending filter, and the card says Expired',
+    await until(async () => (await card(B.p, P3.id).locator('[role="alert"]').innerText()).includes('expired') && (await card(B.p, P3.id).getAttribute('data-status')) === 'expired', 8000));
+  await B.p.getByRole('radio', { name: 'All', exact: true }).click();
+
   // ------------------------------------------------------------ A: live status, honest content, screenshot
   await A.p.getByRole('radio', { name: 'All', exact: true }).click();
   check('A sees both decisions live (Applied, Rejected) without reload', await until(async () => (await A.p.locator(`[data-proposal="${P1.id}"][data-status="applied"]`).count()) === 1 && (await A.p.locator(`[data-proposal="${P2.id}"][data-status="rejected"]`).count()) === 1, 10000));
   check('A\'s card shows who decided and the note', (await card(A.p, P1.id).innerText()).includes('Applied by Bea') && (await card(A.p, P1.id).innerText()).includes('Agreed in the Monday review.'));
   const txt = await A.p.locator('[data-proposals]').innerText();
   check('nothing invented: no percentages (coverage, latency, tokens) on the proposal cards', !/\d+\s*%/.test(txt) && !/coverage|latency|tokens/i.test(txt));
-  check('member C reading via the API gets the same two proposals', (await apiOf(C.p)('GET', '/organization/proposals')).body.proposals?.length === 2);
+  check('member C reading via the API gets the same three proposals', (await apiOf(C.p)('GET', '/organization/proposals')).body.proposals?.length === 3);
   await A.p.getByRole('button', { name: /agent boards/i }).first().click({ timeout: 2000 }).catch(() => {}); // more room for the cards
   await A.p.waitForTimeout(900);
-  await A.p.screenshot({ path: DOC_SHOT });
+  if (DOC_SHOT) await A.p.screenshot({ path: DOC_SHOT });
   await A.p.screenshot({ path: `${SHOTS}/improve-c01-proposals-A.png` });
 } catch (e) { check('script ran to the end', false, String(e).split('\n')[0]); }
 for (const [X, l] of [[A, 'A'], [B, 'B'], [C, 'C']]) await X?.p.screenshot({ path: `${SHOTS}/improve-c01-end-${l}.png` }).catch(() => {});

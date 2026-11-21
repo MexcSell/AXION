@@ -62,10 +62,9 @@ export function DryRunView({ r, max = 6 }: { r: OrgDryRun; max?: number }) {
   );
 }
 
-function ProposalCard({ p, active, meId, admin, index }: { p: OrgProposalDto; active: number; meId?: string; admin: boolean; index: number }) {
+function ProposalCard({ p, active, meId, admin, index, err, setErr }: { p: OrgProposalDto; active: number; meId?: string; admin: boolean; index: number; err?: string; setErr: (m: string | null) => void }) {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
   const S = STATUS[p.status];
   const pending = p.status === 'pending';
   const mine = p.createdBy === meId;
@@ -75,7 +74,7 @@ function ProposalCard({ p, active, meId, admin, index }: { p: OrgProposalDto; ac
     setBusy(true); setErr(null);
     const r = await f();
     setBusy(false);
-    if (!r.ok) { setErr(r.message); return; }
+    if (!r.ok) { setErr(r.message); toast({ tone: 'warning', title: `Proposal ${p.id}: not done`, body: r.message }); return; }
     toast({ tone: 'success', title: done });
   };
   const ageMin = (Date.now() - new Date(p.createdAt).getTime()) / 60_000;
@@ -129,8 +128,11 @@ export function ServerProposals() {
   const me = useMe();
   const admin = isAdmin(me);
   const [filter, setFilter] = useState<Filter>('pending');
+  // a card whose action the server refused keeps its message, and stays listed even if its status left the filter (e.g. expired)
+  const [errs, setErrs] = useState<Record<string, string>>({});
+  const setErr = (id: string) => (m: string | null) => setErrs((x) => { const n = { ...x }; if (m) n[id] = m; else delete n[id]; return n; });
   const all = data?.proposals ?? [];
-  const list = all.filter((p) => filter === 'all' || (filter === 'pending' ? p.status === 'pending' : p.status !== 'pending'));
+  const list = all.filter((p) => errs[p.id] || filter === 'all' || (filter === 'pending' ? p.status === 'pending' : p.status !== 'pending'));
   const nPending = all.filter((p) => p.status === 'pending').length;
   return (
     <Panel icon={Lightbulb} titleSize="lg" title="Organization Proposals" help="org.proposals.server" sub="Reporting-line changes: checked by the server, approved by a second administrator, applied as a new org revision." delay={.05} data-proposals=""
@@ -147,7 +149,7 @@ export function ServerProposals() {
         : (
           <div className="oa-prop-grid">
             <AnimatePresence>
-              {list.map((p, i) => <ProposalCard key={p.id} p={p} active={data!.activeRevision} meId={me?.id} admin={admin} index={i} />)}
+              {list.map((p, i) => <ProposalCard key={p.id} p={p} active={data!.activeRevision} meId={me?.id} admin={admin} index={i} err={errs[p.id]} setErr={setErr(p.id)} />)}
             </AnimatePresence>
           </div>
         )}

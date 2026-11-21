@@ -72,7 +72,8 @@ Implementer report for `c01-brief.md`. Branch `improve-30h`, base `c5f49ff`.
   - a decided card shows who decided, when, and the note;
   - admins who are not the author get a note field plus Approve and Reject. Approve is disabled when the dry run has
     errors or the proposal is stale; the server enforces both anyway. The author gets Withdraw. Members see no buttons;
-  - server errors show inline on the card (`role="alert"`).
+  - server errors show inline on the card (`role="alert"`) and as a toast. A card that holds an error stays listed
+    even if its new status (for example expired) leaves the current filter.
 - `web/src/dialogs/defs/org-proposals.tsx`, the **New proposal** dialog (`org-proposal-new`, DL-66):
   - it starts from the active graph and shows "from org revision N";
   - each row is an agent picker, its current manager, and a new-manager picker; rows can be added and removed; title and
@@ -85,7 +86,11 @@ Implementer report for `c01-brief.md`. Branch `improve-30h`, base `c5f49ff`.
 - Help: `org.proposals.server`, `org.proposal.new`, `org.proposal.changes`, `org.proposal.dryRun`,
   `org.proposal.decide`, `org.proposal.withdraw`. Styles are added to `overview-org-agent.css` using the existing panel
   and card classes.
-- `web/scripts/api-improve.mjs`: the browser flow for threshold item 2 (A, B and C in three browsers, 28 checks).
+- `web/scripts/api-improve.mjs`: the browser flow for threshold item 2 (A, B and C in three browsers, 29 checks). It
+  writes the committed screenshot only when `DOC_SHOT` is set, so a normal run leaves the tree clean. To regenerate it:
+  `DOC_SHOT=$PWD/docs/screenshots/improve-c01-proposals-dark.png ./scripts/api-e2e.sh api-improve.mjs`. To move one
+  proposal's expiry into the past, it touches only `axion_e2e`: it reads `E2E_DATABASE_URL` from `server/.env` and
+  refuses any URL that is not `axion_e2e`.
 
 ## Decisions where the brief left a choice
 - **D1, dry run before submit:** `?dryRun=1` on POST. It stores nothing, writes no audit row and needs no key. The dialog
@@ -123,8 +128,10 @@ Implementer report for `c01-brief.md`. Branch `improve-30h`, base `c5f49ff`.
 - Mutation check: with the stale-base and self-approval guards disabled, `proposals.test.ts` gave 4 failed and 15 passed,
   which shows those tests bite. The code was then restored.
 - Browser (api mode): `cd web && npx tsc --noEmit -p . && ./scripts/api-e2e.sh api-auth-flow.mjs api-flows.mjs api-stage6.mjs api-improve.mjs`
-  gave `TSC-OK`, then `api-auth-flow 15/15`, `api-flows 23/23`, `api-stage6 94/94`, `api-improve 28/28`, with no page errors
-  in any of them, and `EXIT 0`. While the script was being written, its first runs failed only on its own locators (the help
+  gave `TSC-OK`, then `api-auth-flow 15/15`, `api-flows 23/23`, `api-stage6 94/94` and `api-improve 28/28`, with no
+  page errors in any of them, and `EXIT 0`. After the review fixes (commit 3), the server suite was re-run (248/248, with
+  the expiry test strengthened) and `api-improve.mjs` was re-run alone: **29/29**, no page errors, and 5192/5193 free
+  afterwards. The fixes touch only the api-mode card and the script, so the other three scripts were not re-run. While the script was being written, its first runs failed only on its own locators (the help
   `?` buttons share names with the action buttons, and one `<label>` was not linked to its field, which is now fixed in the
   dialog), never on a product check.
 - Demo suite: `./scripts/verify-all.sh` (dev server on 5190, not restarted) gave:
@@ -140,6 +147,9 @@ Implementer report for `c01-brief.md`. Branch `improve-30h`, base `c5f49ff`.
   - fs guard: OK;
   - `EXIT 0`.
 
+  It was re-run on the final code after commit 3, again `EXIT 0`: 46 PASS lines, 0 FAIL, 106 dialog checks with 0
+  failures, and help keys and dialog ids all defined.
+
 ## Pass threshold
 1. **Server tests: PASS.** Every case under the brief's "Tests" has a test:
    - `org-validate.test.ts`: 10 tests, covering each error and each warning, the chain limit and the added/removed lines;
@@ -151,7 +161,8 @@ Implementer report for `c01-brief.md`. Branch `improve-30h`, base `c5f49ff`.
      - the same sha pending twice is 409;
      - stale P1/P2 gives `ORG_CHANGED`;
      - a tampered sha is 409, and so is tampered stored content;
-     - an expired proposal is 409 and shows `expired`, also when expiry happens on read;
+     - an expired proposal is 409, and the refused decision itself commits `expired`, the expire audit row and a denied
+       decide row (asserted in the database before any read); it also expires on read;
      - withdraw works for the author only;
      - instances keep `manager_instance_id`, checked against a non-empty set;
      - `org_edges` UPDATE and DELETE still throw;
@@ -159,7 +170,7 @@ Implementer report for `c01-brief.md`. Branch `improve-30h`, base `c5f49ff`.
        the row counts are unchanged.
 
    The suite went from 219 to 248 tests with 0 failures, and `tsc` is clean.
-2. **Browser check: PASS** (`api-improve.mjs`, 28/28):
+2. **Browser check: PASS** (`api-improve.mjs`, 29/29):
    - A creates a proposal in Agents › Proposals and sees the server dry run in the dialog before submit (checks passed,
      `+ Ops-01 → Coder-01`, `− GM → Coder-01`; a loop shows a red `CYCLE`);
    - B (a second administrator) approves it;
@@ -169,7 +180,9 @@ Implementer report for `c01-brief.md`. Branch `improve-30h`, base `c5f49ff`.
    - C saw the proposals read-only: no New proposal, a "Read only" chip, no buttons on the card, which arrived live;
    - `PROPOSAL_CHANGED` shows the server message inline;
    - the stale P2 shows "stale: rev 2 is active" and its Approve is disabled; through the API it is `ORG_CHANGED`, and
-     `SELF_APPROVAL` through the API is 403.
+     `SELF_APPROVAL` through the API is 403;
+   - `PROPOSAL_EXPIRED`: a proposal B has on screen is expired in `axion_e2e`; B's Approve gets the server message, and
+     it stays on the card although the card left the Pending filter and now says Expired.
 3. **Demo mode unchanged: PASS.** `verify-all.sh` is green (above). The demo `Proposals` JSX is byte-for-byte the old
    function, renamed `DemoProposals`.
 4. **Nothing invented: PASS.** The api-mode cards show only the stored title, why, author, age, status, base revision,
@@ -186,7 +199,8 @@ Commit 1 (server, `67496df`):
 - `server/README.md` (API and rollback lines)
 - `shared/contracts/src/{agents,errors,events}.ts`
 
-Commit 2 (web and report):
+Commit 2 (web and report, `a8007d8`), then commit 3 (review fixes: the error stays on the card, a stronger expiry test,
+`DOC_SHOT` opt-in, the e2e expiry check):
 - `web/src/api/orgProposals.ts`, `web/src/features/agents/ServerProposals.tsx`, `web/src/dialogs/defs/org-proposals.tsx` (new)
 - `web/src/api/events.ts`, `web/src/features/agents/OrgSections.tsx`, `web/src/pages/Agents.tsx`,
   `web/src/help/pages/overview-org-agent.ts`, `web/src/theme/pages/overview-org-agent.css`
@@ -199,7 +213,7 @@ Not touched: `api-stage6.mjs`, migrations 0001–0012, the append-only triggers,
 
 ## Screenshot
 `web/docs/screenshots/improve-c01-proposals-dark.png`: the api-mode Proposals tab with the filter on All, after an
-applied proposal and a rejected stale one. A third browser's hierarchy after the live update is in
+applied proposal, a rejected stale one and an expired one. A third browser's hierarchy after the live update is in
 `/tmp/axion-api-e2e/improve-c01-hierarchy-C.png` (not committed).
 
 ## Concerns
@@ -217,5 +231,10 @@ applied proposal and a rejected stale one. A third browser's hierarchy after the
 - **The tab's other DEMO sections are unchanged.** Departments' "Assign manager" and the Assignments "Rebalance" still
   open the DEMO reorganisation dialog (DL-39) in api mode, as before. They now sit next to a real proposal flow, and a
   later cycle could route them to the new dialog.
+- **A pre-existing race, not fixed this cycle:** `POST /agents` reads the active edges *before* `createOrgRevision`
+  takes the `org-rev` lock. If an agent is created at the same moment a proposal is approved, its revision can be built
+  from the pre-approval edges plus the new agent, which silently undoes the applied proposal. The proposals path itself
+  takes the lock first. The fix is a one-liner in `agents/routes.ts` (take `org-rev:<tenant>` before reading the edges),
+  but that file is outside this brief, so it should be a backlog item.
 - Migration 0013 down drops `org_proposals`, and the proposals with it. The applied revisions survive in the append-only
   `org_revisions`/`org_edges`, whose notes name the proposal id.
