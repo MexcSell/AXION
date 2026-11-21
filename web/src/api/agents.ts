@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import type { AgentDto } from '@contracts';
 import { applyAgentCatalog, AGENTS } from '@/data/agents';
-import { ROLES } from '@/data/roles';
 import type { Agent, AgentMetrics, RoleKey } from '@/data/types';
 import { api } from './client';
 
@@ -20,7 +19,7 @@ const ZERO: AgentMetrics = { reliability: 0, reasoning: 0, coding: 0, research: 
 /** The server's agent = the UI's Agent plus version and provenance; fill what a newly created agent does not have yet. */
 export function toAgent(d: AgentDto): Agent {
   const p = d as unknown as Partial<Agent> & Record<string, unknown>;
-  const role = (d.role in ROLES ? d.role : 'dev') as RoleKey;
+  const role = d.role as RoleKey; // an unknown role keeps its name; data/roles.ts gives it a generic chip and icon
   return {
     ...p,
     id: d.id, name: d.name, role, duty: d.duty, dept: d.dept, description: d.description, model: d.model, skills: d.skills ?? [], version: d.versionLabel ?? d.version,
@@ -41,6 +40,9 @@ export async function loadAgents() {
 }
 
 /** First load after sign-in. On failure the shell still opens with the built-in catalog (and says so). */
+/** Signed out: the next sign-in in this tab loads the catalog again (it may be another user, or the server changed). */
+export function resetAgentsCatalog() { gen++; useAgentsVersion.setState({ loaded: false, failed: false }); }
+
 export async function loadAgentsOnce() {
   if (useAgentsVersion.getState().loaded) return;
   try { await loadAgents(); }

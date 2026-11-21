@@ -13,6 +13,7 @@ import { getMissionControl } from '@/data/missions';
 import { useLive } from './live';
 import { isApi } from '@/api/mode';
 import { useMissionControl } from '@/api/missionControl';
+import { usePartStatus } from './PartStatus';
 import { cx, clock } from '@/lib/format';
 
 const NODE_W = 172, NODE_H = 128, GAP_X = 26, GAP_Y = 96;
@@ -79,7 +80,13 @@ function edgePath(e: MissionEdge, pos: Record<string, Pos>) {
   return `M${x1} ${y1} C${cx} ${y1}, ${cx} ${y2}, ${x2 + 4} ${y2}`;
 }
 
-export function HierarchyGraph({ mission, selected, onSelect, onOpenChat }: { mission: Mission; selected?: string; onSelect: (agentId: string) => void; onOpenChat?: (agentId: string) => void }) {
+type GraphProps = { mission: Mission; selected?: string; onSelect: (agentId: string) => void; onOpenChat?: (agentId: string) => void };
+export function HierarchyGraph(props: GraphProps) {
+  const status = usePartStatus(props.mission.id, 'hierarchy', 'the hierarchy');
+  return status ?? <HierarchyGraphView {...props} />;
+}
+
+function HierarchyGraphView({ mission, selected, onSelect, onOpenChat }: GraphProps) {
   useMissionControl(mission.id, ['hierarchy']);
   const mc = getMissionControl(mission);
   const { pos, w, h } = useMemo(() => layout(mc.nodes), [mc.nodes]);

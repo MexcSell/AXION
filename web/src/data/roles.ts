@@ -1,13 +1,13 @@
 import {
   Crown, Microscope, BarChart3, Code2, Settings2, ShieldCheck, MessagesSquare, CalendarClock, Cpu,
-  Layers, Gauge, BadgeCheck, Network, Globe, PenLine, GraduationCap, Rocket, Palette,
+  Layers, Gauge, BadgeCheck, Network, Globe, PenLine, GraduationCap, Rocket, Palette, Bot,
   type LucideIcon,
 } from 'lucide-react';
 import type { AgentStatus, InstanceState, MissionStatus, RoleKey, TaskState } from './types';
 
 export interface RoleMeta { key: RoleKey; label: string; icon: LucideIcon; hue: number; hue2: number; short: string; }
 
-export const ROLES: Record<RoleKey, RoleMeta> = {
+const KNOWN_ROLES: Record<RoleKey, RoleMeta> = {
   manager:     { key: 'manager', label: 'General Manager', icon: Crown, hue: 268, hue2: 220, short: 'GM' },
   research:    { key: 'research', label: 'Research', icon: Microscope, hue: 268, hue2: 290, short: 'R&D' },
   analytics:   { key: 'analytics', label: 'Analytics', icon: BarChart3, hue: 195, hue2: 160, short: 'ANL' },
@@ -27,6 +27,28 @@ export const ROLES: Record<RoleKey, RoleMeta> = {
   release:     { key: 'release', label: 'Release', icon: Rocket, hue: 12, hue2: 330, short: 'REL' },
   design:      { key: 'design', label: 'Design', icon: Palette, hue: 330, hue2: 280, short: 'UX' },
 };
+
+/**
+ * Stage 6: an administrator can create an agent with a role this UI has no artwork for. Such a role keeps its real name
+ * and gets a generic entry (robot icon, neutral hue) instead of being shown as another role or crashing a lookup.
+ */
+const generic = new Map<string, RoleMeta>();
+export function roleMeta(role: string): RoleMeta {
+  const known = (KNOWN_ROLES as Record<string, RoleMeta>)[role];
+  if (known) return known;
+  let g = generic.get(role);
+  if (!g) {
+    const label = role.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) || 'Agent';
+    g = { key: role as RoleKey, label, icon: Bot, hue: 210, hue2: 235, short: label.replace(/[^A-Za-z0-9]/g, '').slice(0, 3).toUpperCase() || 'AGT' };
+    generic.set(role, g);
+  }
+  return g;
+}
+export const isKnownRole = (role: string): role is RoleKey => Object.prototype.hasOwnProperty.call(KNOWN_ROLES, role);
+/** Every `ROLES[role]` lookup is safe for unknown roles (see roleMeta); keys and iteration list the built-in roles only. */
+export const ROLES: Record<RoleKey, RoleMeta> = new Proxy(KNOWN_ROLES, {
+  get: (t, k) => (typeof k === 'string' && !Object.prototype.hasOwnProperty.call(t, k) && !(k in Object.prototype) ? roleMeta(k) : Reflect.get(t, k)),
+});
 
 export interface StatusMeta { label: string; hue: number; tone: 'good' | 'warn' | 'bad' | 'info' | 'violet' | 'neutral'; }
 

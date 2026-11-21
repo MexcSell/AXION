@@ -182,11 +182,19 @@ const put = (m: Mission) => useData.setState((s) => {
   return { missions, lastEventAt: Date.now() };
 });
 const drop = (id: string) => { bump(id); useData.setState((s) => ({ missions: s.missions.filter((m) => m.id !== id), lastEventAt: Date.now() })); };
-/** The server answered 404 for this mission (made private or deleted meanwhile): forget it and tell the open view to leave it. */
-export function missionGone(id: string) {
+/**
+ * A request about this mission answered 404. That alone does not prove the mission is gone (a thread or agent instance
+ * can be missing on a visible mission), so re-read the mission itself: only when that is 404 too is it forgotten and the
+ * open view told to leave it (one toast, from the Missions page). Returns true when the mission is gone.
+ */
+export async function confirmMissionGone(id: string): Promise<boolean> {
   const had = useData.getState().missions.some((m) => m.id === id);
-  drop(id);
-  if (had) window.dispatchEvent(new CustomEvent('axion:mission-gone', { detail: id }));
+  let r: 'ok' | 'gone' | 'stale';
+  try { r = await refreshMission(id); } catch { return false; }
+  if (r === 'ok') return false;
+  if (r === 'stale') return !useData.getState().missions.some((m) => m.id === id) && had; // a newer read already decided
+  window.dispatchEvent(new CustomEvent('axion:mission-gone', { detail: id }));
+  return true;
 }
 
 /** Full snapshot: after sign-in, after every (re)connect of the event stream, or after a gap. */

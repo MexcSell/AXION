@@ -26,6 +26,7 @@ import { AGENTS, AGENT_BY_ID } from '@/data/agents';
 import { ROLES } from '@/data/roles';
 import { getMissionControl } from '@/data/missions';
 import { useMissionControls } from '@/api/missionControl';
+import { hasDemoActivity } from '@/api/mode';
 import { METRIC_KEYS, METRIC_LABELS, DEPT_BY_NAME, metricSample, toolsFor, memoryFor, auditFor, evolutionFor, mentoringFor, perfSeries } from '@/data/orgdemo';
 import type { Agent } from '@/data/types';
 import { useTab } from '@/hooks/useTab';
@@ -273,7 +274,7 @@ function InstancesTab({ a }: { a: Agent }) {
               <b className="clamp-2" style={{ margin: '6px 0 2px', fontSize: 13.5 }}>{m.title}</b>
               <div className="dim ellipsis" style={{ fontSize: 12 }}>{n.task}</div>
               <div className="row" style={{ gap: 6, margin: '10px 0' }}><div className="bar thin good" style={{ flex: 1 }}><motion.i initial={{ width: 0 }} animate={{ width: `${n.progress}%` }} transition={{ duration: .8, delay: .1 + i * .04 }} /></div><b className="tnum" style={{ fontSize: 12 }}>{n.progress}%</b></div>
-              <dl className="kv oa-kv sm"><dt>Pinned</dt><dd className="mono">{n.versionLabel ?? a.version}</dd><dt>Memory</dt><dd>scope {m.id} (isolated)</dd><dt>Tokens</dt><dd>{fmtTokens(activityFor(m, a.id).tokens)}</dd><dt>Tasks</dt><dd>{n.tasks} · {n.pending} pending</dd></dl>
+              <dl className="kv oa-kv sm"><dt>Pinned</dt><dd className="mono">{n.versionLabel ?? a.version}</dd><dt>Memory</dt><dd>scope {m.id} (isolated)</dd><dt>Tokens</dt><dd>{hasDemoActivity(m) ? fmtTokens(activityFor(m, a.id).tokens) : <span className="dim" title="Measured once agents execute (Stage 9/10)">not measured yet</span>}</dd><dt>Tasks</dt><dd>{n.tasks} · {n.pending} pending</dd></dl>
               <div className="row" style={{ gap: 6, marginTop: 8 }}><button className="btn sm" onClick={() => nav(`/missions/${m.id}?tab=hierarchy&agent=${a.id}`)}>Open in mission</button><button className="btn sm ghost" onClick={() => toast({ tone: 'info', title: 'Migration is a controlled change (demo)', body: 'Running instances stay pinned unless a migration is approved.' })}>Migrate version</button></div>
             </motion.div>
           ))}

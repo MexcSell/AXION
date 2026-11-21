@@ -29,6 +29,7 @@ import { missionTotals, fmtTokens, fmtMin } from '@/data/activity';
 import { AGENT_BY_ID } from '@/data/agents';
 import { getMissionControl } from '@/data/missions';
 import { useMissionControl } from '@/api/missionControl';
+import { hasDemoActivity } from '@/api/mode';
 import { MISSION_STATUS, TONE_VAR } from '@/data/roles';
 import type { Mission } from '@/data/types';
 import { ago, cx } from '@/lib/format';
@@ -455,6 +456,12 @@ function MissionHeader({ m }: { m: Mission }) {
   const setMin = (v: boolean) => { setMinState(v); writeHeadMin(v); };
   const tone = m.status === 'failed' ? 'var(--bad)' : 'var(--accent-2)';
   const tot = missionTotals(m);
+  // E8: activity is DEMO data; a real mission (api mode) is "not measured yet" and shows no invented numbers
+  const demoAct = hasDemoActivity(m);
+  const NOT_MEASURED = 'Activity is not measured yet: tokens, time, CPU and RAM are recorded once agents execute (Stage 9/10).';
+  // Review Focus 3: the version the lead's instance is pinned to, not the agent's current version
+  useMissionControl(m.id, ['hierarchy']);
+  const leadVersion = getMissionControl(m).nodes.find((n) => n.agentId === m.leadId)?.versionLabel ?? lead?.version;
   const fold = <IconButton size="sm" icon={min ? ChevronsUpDown : ChevronsDownUp} label={min ? 'Expand mission header' : 'Minimize mission header'} onClick={() => setMin(!min)} aria-expanded={!min} className="mw-header-fold" />;
   if (min) return (
     <motion.section layout className="panel mc-header mw-header min" initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} aria-label={`Mission ${m.id}`}>
@@ -465,9 +472,13 @@ function MissionHeader({ m }: { m: Mission }) {
       {staffing && <Chip hue={38} size="sm">staffing {staffing.joined}/{staffing.plan.length}</Chip>}
       <span className="spacer" />
       {shareBtn}
-      <Tip label={`${fmtTokens(tot.tokens)} tokens · ${m.agentIds.length} agents · avg CPU ${tot.cpu}%`}>
-        <span className="row nowrap mw-min-budget muted" style={{ gap: 4 }}><Cpu size={13} /><b className="tnum">{fmtTokens(tot.tokens)}</b></span>
-      </Tip>
+      {demoAct ? (
+        <Tip label={`${fmtTokens(tot.tokens)} tokens · ${m.agentIds.length} agents · avg CPU ${tot.cpu}%`}>
+          <span className="row nowrap mw-min-budget muted" style={{ gap: 4 }}><Cpu size={13} /><b className="tnum">{fmtTokens(tot.tokens)}</b></span>
+        </Tip>
+      ) : (
+        <Tip label={NOT_MEASURED}><span className="row nowrap mw-min-budget muted" style={{ gap: 4 }} data-activity="not-measured"><Cpu size={13} /><b className="tnum">—</b></span></Tip>
+      )}
       <Tip label={`${m.progress}% verified progress`}><span><ProgressRing value={m.progress} size={30} stroke={3.5} tone={tone} /></span></Tip>
       {fold}
     </motion.section>
@@ -483,7 +494,7 @@ function MissionHeader({ m }: { m: Mission }) {
         </div>
         <div className="row wrap mw-header-meta">
           <span className="mono dim">{m.id} · rev {m.revision} · {m.version}</span>
-          <Tip label="The General Manager appoints the mission's general executor"><span className="row" style={{ gap: 4 }}><Crown size={13} className="warn" /><b style={{ color: 'var(--text)' }}>{lead?.name}</b>{exec && exec.id !== lead?.id ? <><span className="dim">→</span><b style={{ color: 'var(--text)' }}>{exec.name}</b><span className="dim">executor</span></> : <span className="mono dim">{lead?.version}</span>}</span></Tip>
+          <Tip label="The General Manager appoints the mission's general executor"><span className="row" style={{ gap: 4 }}><Crown size={13} className="warn" /><b style={{ color: 'var(--text)' }}>{lead?.name}</b>{exec && exec.id !== lead?.id ? <><span className="dim">→</span><b style={{ color: 'var(--text)' }}>{exec.name}</b><span className="dim">executor</span></> : <span className="mono dim">{leadVersion}</span>}</span></Tip>
           <span className="row" style={{ gap: 5 }}>{owner && <UserAvatar account={owner} size={16} />}by {owner?.name ?? m.owner}</span>
           {shareBtn}
           {staffing && <span className="row warn" style={{ gap: 4, fontWeight: 700 }}><Sparkles size={13} />staffing {staffing.joined}/{staffing.plan.length}</span>}
@@ -492,11 +503,19 @@ function MissionHeader({ m }: { m: Mission }) {
           <Tip label="Policy: prepare + gated execute — consequential actions need your approval"><span className="row good" style={{ gap: 4 }}><ShieldCheck size={13} />gated</span></Tip>
         </div>
       </div>
-      <div className="mc-budget">
-        <div className="row" style={{ justifyContent: 'space-between', fontSize: 12 }}><span className="row muted nowrap" style={{ gap: 5 }}><Cpu size={13} />Activity<HelpTrigger k="mission.activity" /></span><b className="tnum">{fmtTokens(tot.tokens)} tok</b></div>
-        <div className="bar info" style={{ marginTop: 6 }}><motion.i initial={{ width: 0 }} animate={{ width: `${Math.min(100, tot.cpu)}%` }} transition={{ duration: 1 }} /></div>
-        <div className="dim" style={{ fontSize: 11, marginTop: 4 }}>{m.agentIds.length} agents · {fmtMin(tot.activeMin)} active · CPU {tot.cpu}%</div>
-      </div>
+      {demoAct ? (
+        <div className="mc-budget">
+          <div className="row" style={{ justifyContent: 'space-between', fontSize: 12 }}><span className="row muted nowrap" style={{ gap: 5 }}><Cpu size={13} />Activity<HelpTrigger k="mission.activity" /></span><b className="tnum">{fmtTokens(tot.tokens)} tok</b></div>
+          <div className="bar info" style={{ marginTop: 6 }}><motion.i initial={{ width: 0 }} animate={{ width: `${Math.min(100, tot.cpu)}%` }} transition={{ duration: 1 }} /></div>
+          <div className="dim" style={{ fontSize: 11, marginTop: 4 }}>{m.agentIds.length} agents · {fmtMin(tot.activeMin)} active · CPU {tot.cpu}%</div>
+        </div>
+      ) : (
+        <div className="mc-budget" data-activity="not-measured" title={NOT_MEASURED}>
+          <div className="row" style={{ justifyContent: 'space-between', fontSize: 12 }}><span className="row muted nowrap" style={{ gap: 5 }}><Cpu size={13} />Activity<HelpTrigger k="mission.activity" /></span><span className="demo-tag" style={{ letterSpacing: '.04em' }}>NOT MEASURED YET</span></div>
+          <div className="bar info" style={{ marginTop: 6 }}><i style={{ width: 0 }} /></div>
+          <div className="dim" style={{ fontSize: 11, marginTop: 4 }}>{m.agentIds.length} agents · measured once agents execute</div>
+        </div>
+      )}
       <div className="col" style={{ alignItems: 'center', gap: 2 }}>
         <ProgressRing value={m.progress} size={56} stroke={6} tone={tone} />
         <span className="row dim" style={{ gap: 3, fontSize: 10.5 }}>verified<HelpTrigger k="mission.progress.verified" /></span>

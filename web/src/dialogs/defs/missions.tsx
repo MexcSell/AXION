@@ -380,6 +380,8 @@ function SendCommand({ close, props }: DialogComponentProps<{ missionId: string;
   const send = useData((s) => s.sendMessage);
   const [text, setText] = useState('');
   const [files, setFiles] = useState<LocalFile[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
   const a = AGENT_BY_ID[props.agentId];
   const isReply = props.mode === 'reply';
   const impact = useMemo(() => (text.match(/publish|deploy|delete|submit|purchase|pay/i) ? 'This instruction mentions a consequential action — it will still require a separate approval.' : 'Within current mission scope. No new grants.'), [text]);
@@ -387,10 +389,18 @@ function SendCommand({ close, props }: DialogComponentProps<{ missionId: string;
   const go = () => {
     const attachments = files.map((f) => ({ id: f.id, name: f.name, kind: f.type.startsWith('image/') ? 'image' as const : 'file' as const, url: f.url, size: `${(f.size / 1024).toFixed(0)} KB`, blob: f.blob }));
     if (isApi()) {
-      // Stage 6: the server stores it in the human↔agent thread; on real missions it is queued (agents don't act yet)
-      if (me) void sendMissionMessage(m, a.id, { kind: isReply ? 'reply' : 'command', text: text.trim() || '(attachment)', replyTo: props.replyTo, attachments }, me);
-      toast({ tone: 'success', title: isReply ? 'Reply submitted' : 'Command sent', body: m.demo ? `${a.name} will acknowledge receipt (simulated on this DEMO mission).` : 'Stored on the server and queued: agents do not act yet.' });
-      close();
+      // Stage 6: the server stores it in the human↔agent thread; on real missions it is queued (agents don't act yet).
+      // The dialog waits for the answer: success closes it, a failure keeps it open with the reason (nothing typed is lost).
+      if (!me || busy) return;
+      setBusy(true); setError('');
+      void sendMissionMessage(m, a.id, { kind: isReply ? 'reply' : 'command', text: text.trim() || '(attachment)', replyTo: props.replyTo, attachments }, me).then((r) => {
+        setBusy(false);
+        if (r.ok) {
+          toast({ tone: 'success', title: isReply ? 'Reply submitted' : 'Command sent', body: m.demo ? `${a.name} will acknowledge receipt (simulated on this DEMO mission).` : 'Stored on the server and queued: agents do not act yet.' });
+          close();
+        } else if (r.gone) close();
+        else setError(r.message);
+      });
       return;
     }
     send(m.id, 'human:owner', a.id, { from: 'human:owner', to: a.id, kind: isReply ? 'reply' : 'command', text, replyTo: props.replyTo, attachments: attachments.map(({ blob: _b, ...x }) => { void _b; return x; }) });
@@ -399,7 +409,8 @@ function SendCommand({ close, props }: DialogComponentProps<{ missionId: string;
   };
   return (
     <Modal title={isReply ? 'Reply to agent question' : 'Send command'} icon={isReply ? MessageSquare : Send} dialogId={isReply ? 'DL-18' : 'DL-17'} help={isReply ? 'conversation.reply' : 'conversation.command'} onClose={close} sub={`To ${a.name} · ${m.id}`}
-      footer={<><button className="btn" onClick={close}>{isReply ? 'Save Draft' : 'Edit'}</button><button className="btn primary" disabled={!text.trim() && !files.length} onClick={go}><Send size={15} />{isReply ? 'Submit Reply' : 'Send Command'}</button></>}>
+      footer={<><button className="btn" onClick={close}>{isReply ? 'Save Draft' : 'Edit'}</button><button className="btn primary" disabled={busy || (!text.trim() && !files.length)} onClick={go}><Send size={15} />{busy ? 'Sending…' : isReply ? 'Submit Reply' : 'Send Command'}</button></>}>
+      {error && <div className="callout bad" role="alert"><AlertTriangle size={16} /><div><b>Not sent.</b> {error}</div></div>}
       {isReply && props.question && <div className="callout warn"><MessageSquare size={16} /><div><b>Question {props.replyTo}</b><div>{props.question}</div></div></div>}
       <Field label={isReply ? 'Your reply' : 'Instruction'} required><textarea className="textarea" rows={4} data-autofocus value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && text.trim()) go(); }} placeholder={isReply ? 'Answer the question…' : `Tell ${a.name} what to do…`} /></Field>
       <DropZone files={files} setFiles={setFiles} compact />

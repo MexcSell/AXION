@@ -24,6 +24,7 @@ import { useTab } from '@/hooks/useTab';
 import { useVisibleMissions } from '@/store/data';
 import { getMissionControl } from '@/data/missions';
 import { useAgentsCatalog } from '@/api/agents';
+import { isApi } from '@/api/mode';
 import { useMissionControls } from '@/api/missionControl';
 import { openDialog } from '@/store/ui';
 import { cx } from '@/lib/format';
@@ -257,7 +258,7 @@ function LiveInstances() {
   const rows = useMemo(() => live.flatMap((m) => getMissionControl(m).nodes.map((n) => ({ m, n }))).filter(({ n }) => AGENT_BY_ID[n.agentId]), [live, byMission]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="col" style={{ gap: 10 }}>
-      <div className="row" style={{ gap: 8 }}><span className="muted" style={{ fontSize: 13 }}>{rows.length} live instances across {new Set(rows.map((r) => r.m.id)).size} missions. One agent can run in several missions; each instance has its own memory, grants and pinned version.</span><HelpTrigger k="agent.instance" /><span className="spacer" /><DemoTag /></div>
+      <div className="row" style={{ gap: 8 }}><span className="muted" style={{ fontSize: 13 }}>{rows.length} live instances across {new Set(rows.map((r) => r.m.id)).size} missions. One agent can run in several missions; each instance has its own memory, grants and pinned version.</span><HelpTrigger k="agent.instance" /><span className="spacer" />{!isApi() && <DemoTag />}</div>
       <div className="table-wrap">
         <table className="table">
           <thead><tr><th>Instance</th><th>Agent</th><th>Mission</th><th>Current task</th><th>State</th><th>Pinned</th><th>Progress</th><th /></tr></thead>

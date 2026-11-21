@@ -15,14 +15,13 @@ import type { Attachment, Mission } from '@/data/types';
 import { useData } from '@/store/data';
 import { openDialog, toast } from '@/store/ui';
 import { isApi } from '@/api/mode';
-import { useMissionControl, findThread, openThread, loadOlder, sendMissionMessage } from '@/api/missionControl';
+import { HUMAN, useMissionControl, findThread, openThread, loadOlder, sendMissionMessage, partState, retryPart } from '@/api/missionControl';
 import { useLive } from './live';
 import { clock, cx } from '@/lib/format';
 import { EvidenceThumb } from './EvidenceThumb';
 import { ChatThreadView, ChatComposer } from '@/features/chat/ChatView';
 import { useMe } from '@/store/auth';
 
-const HUMAN = 'human:owner';
 type Relation = 'superior' | 'subordinate' | 'peer' | 'owner';
 interface Counterpart { id: string; relation: Relation; }
 
@@ -150,7 +149,9 @@ function Thread({ mission, me, other, relation, onRedirect }: { mission: Mission
   const api = isApi();
   const entry = useMissionControl(mission.id);
   const th = api ? findThread(entry, threadKey(me, other)) : undefined;
-  useEffect(() => { if (th && !th.messages && !th.loading) void openThread(mission.id, th.id); }, [mission.id, th?.id, th?.messages, th?.loading]); // eslint-disable-line react-hooks/exhaustive-deps
+  // a failed load is not retried here (that was a tight loop): openThread retries with backoff, on reconnect, and on Retry
+  useEffect(() => { if (th && !th.messages && !th.loading && !th.error) void openThread(mission.id, th.id); }, [mission.id, th?.id, th?.messages, th?.loading, th?.error]); // eslint-disable-line react-hooks/exhaustive-deps
+  const partners = api ? partState(entry, 'threads') : 'ready';
   const mc = getMissionControl(mission);
   const base = mc.threads[threadKey(me, other)] ?? [];
   const msgs = useMemo(() => (api ? th?.messages ?? [] : [...base, ...(extra[`${mission.id}::${threadKey(me, other)}`] ?? [])]), [api, th?.messages, base, extra, mission.id, me, other]);
@@ -160,24 +161,32 @@ function Thread({ mission, me, other, relation, onRedirect }: { mission: Mission
   const readOnly = mission.status === 'archived' || mission.status === 'completed';
   const who = user?.name ?? 'You';
 
-  /** api mode: one path to the server. People only write in their own thread with an agent (Task 3 ruling). */
-  const apiSend = (text: string, mode: 'command' | 'reply', attachments: Attachment[]) => {
-    if (!user) return;
+  /**
+   * api mode: one path to the server. People only write in their own thread with an agent (Task 3 ruling): under an
+   * agent↔agent thread the message goes there, and the view follows once it is stored. Resolves false when it was not
+   * sent, so the composer puts the draft back.
+   */
+  const apiSend = async (text: string, mode: 'command' | 'reply', attachments: Attachment[]): Promise<boolean> => {
+    if (!user) return false;
     const replyTo = mode === 'reply' ? pendingQ?.replyTo ?? pendingQ?.id : undefined;
-    if (other !== HUMAN) {
-      onRedirect?.(HUMAN);
-      toast({ tone: 'info', title: `Sent to your conversation with ${a.name}`, body: `${a.name} ↔ ${o?.name ?? 'agent'} is between agents and read-only for people, so your ${mode} went to your own thread with ${a.name}.` });
+    const r = await sendMissionMessage(mission, me, { kind: mode, text, attachments, replyTo }, user);
+    if (r.ok) {
+      log(mission.id, `${who} sent a ${mode} to ${a.name}`, 'command');
+      if (other !== HUMAN) {
+        onRedirect?.(HUMAN);
+        toast({ tone: 'info', title: `Sent to your conversation with ${a.name}`, body: `${a.name} ↔ ${o?.name ?? 'agent'} is between agents and read-only for people, so your ${mode} went to your own thread with ${a.name}.` });
+      }
+      return true;
     }
-    log(mission.id, `${who} sent a ${mode} to ${a.name}`, 'command');
-    void sendMissionMessage(mission, me, { kind: mode, text, attachments, replyTo }, user).then((r) => {
-      // gone: the mission page leaves it with a toast; elsewhere (a dialog) say it here
-      if (r === 'gone' && !window.location.pathname.startsWith(`/missions/${mission.id}`)) toast({ tone: 'warning', title: `${mission.id} is no longer available`, body: 'Its owner made it private, or it was deleted. Your message was not sent.' });
-    });
+    // gone: the Missions page leaves the mission with its own toast; elsewhere (a dialog) say it here
+    if (!r.gone) toast({ tone: 'error', title: 'Not sent', body: `${r.message} Your message is back in the box.` });
+    else if (!window.location.pathname.startsWith(`/missions/${mission.id}`)) toast({ tone: 'warning', title: `${mission.id} is no longer available`, body: 'Its owner made it private, or it was deleted. Your message was not sent.' });
+    return false;
   };
 
   const onSend = (text: string, modeKey: string, attachments: Attachment[]) => {
     const mode = modeKey as 'command' | 'reply';
-    if (api) { apiSend(text, mode, attachments); return; }
+    if (api) return apiSend(text, mode, attachments);
     // the thread stays keyed to the human side (HUMAN); the author is the signed-in user
     const msg = send(mission.id, me, other, { from: user ? `human:${user.id}` : HUMAN, to: me, kind: mode, text, attachments, replyTo: mode === 'reply' ? pendingQ?.replyTo ?? pendingQ?.id : undefined });
     log(mission.id, `${who} sent a ${mode} to ${a.name}`, 'command');
@@ -210,7 +219,10 @@ function Thread({ mission, me, other, relation, onRedirect }: { mission: Mission
       messages={msgs} isRight={(m) => m.from.startsWith('human:') || m.from === me} mmMe={me}
       typing={typing ? { name: a.name, role: a.role } : null} missionId={mission.id}
       compactFilter={(m) => ['delegation', 'report', 'result', 'command', 'question'].includes(m.kind)}
-      emptyText={th?.loading ? 'Loading the conversation…' : 'Send a command to start this conversation.'}
+      emptyTitle={th?.error || (!th && partners === 'error') ? 'Could not load this conversation' : th?.loading || (!th && partners === 'loading') ? 'Loading the conversation…' : undefined}
+      emptyText={th?.error ? <>{th.error} <button className="btn sm" onClick={() => void openThread(mission.id, th.id, true)}>Retry</button></>
+        : !th && partners === 'error' ? <>{entry?.errors?.threads} <button className="btn sm" onClick={() => retryPart(mission.id, 'threads')}>Retry</button></>
+        : th?.loading || (!th && partners === 'loading') ? 'One moment.' : 'Send a command to start this conversation.'}
       hasOlder={th?.hasMore} loadingOlder={th?.loadingOlder} onLoadOlder={th ? () => void loadOlder(mission.id, th.id) : undefined} total={th ? Math.max(th.count, msgs.length) : undefined}
       composer={<ChatComposer key={me + other} toName={a.name} draftKey={`axion.draft.${mission.id}.${me}`} disabled={readOnly} disabledText="This mission is closed — conversations are read-only."
         initialMode={pendingQ ? 'reply' : 'command'}

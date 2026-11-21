@@ -8,7 +8,7 @@ import { BRAND } from '@/config/brand';
 import { useApplyPreferences } from '@/components/layout/usePreferences';
 import { useAuth, useGate, useAuthPoll, type Gate } from '@/store/auth';
 import { isApi, switchMode } from '@/api/mode';
-import { useAgentsVersion, loadAgentsOnce } from '@/api/agents';
+import { useAgentsVersion, loadAgentsOnce, resetAgentsCatalog } from '@/api/agents';
 import { WifiOff } from 'lucide-react';
 import { cx } from '@/lib/format';
 import '@/theme/pages/auth.css';
@@ -41,7 +41,17 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   // Stage 6: in api mode the agent catalog comes from the server; the shell opens once it is loaded
   const catalog = useAgentsVersion((s) => s.loaded);
-  useEffect(() => { if (isApi() && server.phase === 'connected') void loadAgentsOnce(); }, [server.phase]);
+  useEffect(() => { if (isApi() && server.phase === 'connected' && !catalog) void loadAgentsOnce(); }, [server.phase, catalog]);
+  // signed out (or another user signed in in this tab): the next session loads the catalog again
+  const meNow = server.phase === 'connected' ? server.meId : '';
+  const lastMe = useRef('');
+  useEffect(() => {
+    if (!isApi()) return;
+    const ended = server.phase === 'signed-out' || server.phase === 'denied' || server.phase === 'waiting';
+    if ((ended && lastMe.current) || (meNow && lastMe.current && lastMe.current !== meNow)) resetAgentsCatalog();
+    if (ended) lastMe.current = '';
+    if (meNow) lastMe.current = meNow;
+  }, [server.phase, meNow]);
   const waitCatalog = isApi() && gate.state === 'connected' && !catalog;
 
   if (gate.state === 'connected' && !celebrate && !waitCatalog) return <>{children}</>;

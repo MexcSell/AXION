@@ -97,7 +97,8 @@ const toLocal = (list: FileList | File[]): LocalAtt[] => Array.from(list).map((f
 
 export function ChatComposer({ modes, initialMode, toName, draftKey, disabled, disabledText, hint, onSend, compact }: {
   modes: ChatMode[]; initialMode?: string; toName: string; draftKey: string; disabled?: boolean; disabledText?: string; hint?: (mode: string) => ReactNode;
-  onSend: (text: string, mode: string, att: Attachment[]) => void; compact?: boolean;
+  /** may answer later: false = not sent, the composer puts the text and files back (api mode) */
+  onSend: (text: string, mode: string, att: Attachment[]) => void | Promise<boolean>; compact?: boolean;
 }) {
   const [mode, setMode] = useState(initialMode ?? modes[0].key);
   const [text, setText] = useState(() => { try { return localStorage.getItem(draftKey) ?? ''; } catch { return ''; } });
@@ -113,11 +114,19 @@ export function ChatComposer({ modes, initialMode, toName, draftKey, disabled, d
 
   const submit = () => {
     if (disabled || (!text.trim() && !files.length)) return;
-    onSend(text.trim() || '(attachment)', mode, files.map((f) => {
+    const draft = { text, files, mode };
+    const r = onSend(text.trim() || '(attachment)', mode, files.map((f) => {
       const k = fileKind(f.name, f.type);
       return { id: f.id, name: f.name, kind: k === 'image' || k === 'audio' || k === 'video' ? k : k === 'doc' || k === 'pdf' ? 'doc' : 'file', url: f.url, size: `${Math.max(1, Math.round(f.size / 1024))} KB`, blob: f.file };
     }));
     setText(''); setFiles([]);
+    // not sent: the draft comes back (unless something new was typed meanwhile; then the files still come back)
+    if (r && typeof (r as Promise<boolean>).then === 'function') void (r as Promise<boolean>).then((ok) => {
+      if (ok) return;
+      setText((t) => (t.trim() ? t : draft.text));
+      setFiles((f) => [...draft.files, ...f]);
+      setMode(draft.mode);
+    });
   };
 
   if (disabled) return <div className="composer disabled"><Info size={14} /> {disabledText ?? 'This conversation is read-only.'}</div>;
@@ -167,10 +176,10 @@ export function ChatComposer({ modes, initialMode, toName, draftKey, disabled, d
 }
 
 /** A full thread: header, messages (day separators, typing, "new" pill, optional minimap and compact view) and composer. */
-export function ChatThreadView({ title, headRight, messages, isRight, typing, composer, missionId, minimap: allowMinimap = true, compactFilter, emptyText, labelFor, className, mmMe, hasOlder, loadingOlder, onLoadOlder, total }: {
+export function ChatThreadView({ title, headRight, messages, isRight, typing, composer, missionId, minimap: allowMinimap = true, compactFilter, emptyText, emptyTitle, labelFor, className, mmMe, hasOlder, loadingOlder, onLoadOlder, total }: {
   title: ReactNode; headRight?: ReactNode; messages: Message[]; isRight: (m: Message) => boolean;
   typing?: { name: string; role?: import('@/data/types').RoleKey } | null;
-  composer: ReactNode; missionId?: string; minimap?: boolean; compactFilter?: (m: Message) => boolean; emptyText?: string;
+  composer: ReactNode; missionId?: string; minimap?: boolean; compactFilter?: (m: Message) => boolean; emptyText?: ReactNode; emptyTitle?: ReactNode;
   labelFor?: (m: Message) => string | undefined; className?: string; mmMe?: string;
   /** api mode (Stage 6): older pages load when the reader scrolls to the top; `total` is the thread's full length */
   hasOlder?: boolean; loadingOlder?: boolean; onLoadOlder?: () => void; total?: number;
@@ -240,7 +249,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
       <div className={cx('thread-scroll', mm && 'with-minimap')}>
         {loadingOlder && <div className="thread-older" role="status"><Loader2 size={12} className="spin" /> Loading older messages…</div>}
         <div className="thread-body" ref={scroller} onScroll={(e) => { const el = e.currentTarget; const b = el.scrollHeight - el.scrollTop - el.clientHeight < 40; setAtBottom(b); if (b) setNewCount(0); if (el.scrollTop < 80) requestOlder(el); }} role="log" aria-label="Conversation" aria-live="polite" data-has-older={hasOlder ? '1' : undefined}>
-          {shown.length === 0 && <div className="empty" style={{ padding: 30 }}><div className="empty-icon"><Send size={22} /></div><h4>No messages yet</h4><p>{emptyText ?? 'Write the first message.'}</p></div>}
+          {shown.length === 0 && <div className="empty" style={{ padding: 30 }}><div className="empty-icon"><Send size={22} /></div><h4>{emptyTitle ?? 'No messages yet'}</h4>{emptyText && typeof emptyText === 'object' ? <div className="thread-empty-body">{emptyText}</div> : <p>{emptyText ?? 'Write the first message.'}</p>}</div>}
           <AnimatePresence initial={false}>
             {shown.map((m) => {
               const day = dateLabel(m.agoMin, m.ts);

@@ -158,7 +158,7 @@ export function ResultsTab({ m }: { m: Mission }) {
     <div className="col" style={{ gap: 10 }}>
       <div className="row" style={{ gap: 8 }}><Package size={16} className="info" /><b>Mission results</b><span className="dim" style={{ fontSize: 12 }}>Every version is immutable; old versions stay downloadable.</span><HelpTrigger k="release.version" /><span className="spacer" />
         <button className="btn sm" onClick={() => openDialog('download-bundle', { missionId: m.id })}><Download size={14} />Bundle</button></div>
-      {mc.artifacts.length === 0 && <EmptyState icon={Package} title="No results yet" body={stage8(m) ? 'Results arrive in Stage 8: agents do not execute yet, so nothing has been produced for this mission.' : 'Nothing has been produced for this mission yet.'} />}
+      {mc.artifacts.length === 0 && isApi() && <EmptyState icon={Package} title="No results yet" body={stage8(m) ? 'Results arrive in Stage 8: agents do not execute yet, so nothing has been produced for this mission.' : 'Nothing has been produced for this mission yet.'} />}
       <div className="grid g-2">
         {mc.artifacts.map((a, i) => {
           const v = a.versions.find((x) => x.v === ver[a.id]) ?? a.versions[0];

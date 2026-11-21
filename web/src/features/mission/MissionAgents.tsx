@@ -13,6 +13,7 @@ import { INSTANCE_STATE } from '@/data/roles';
 import type { InstanceState, Mission, MissionNode } from '@/data/types';
 import { cx } from '@/lib/format';
 import { useMissionControl } from '@/api/missionControl';
+import { usePartStatus } from './PartStatus';
 
 export const stateTone = (s: string) => (s === 'working' ? 'good' : s === 'waiting' ? 'warn' : s === 'blocked' ? 'bad' : s === 'done' ? 'violet' : 'info') as 'good' | 'warn' | 'bad' | 'violet' | 'info';
 
@@ -35,7 +36,13 @@ const LEVEL_NAME = ['Lead', 'Managers', 'Specialists'];
 interface Row { n: MissionNode; d: number; kids: number; last: boolean; rails: boolean[] }
 
 /** The mission's agents, viewable as hierarchy tree, levels, status groups or a flat list. Left pane of Missions › Conversations. */
-export function MissionAgents({ m, agentId, onSelectAgent, onOpenGraph }: { m: Mission; agentId: string; onSelectAgent: (id: string) => void; onOpenGraph?: () => void }) {
+type AgentsProps = { m: Mission; agentId: string; onSelectAgent: (id: string) => void; onOpenGraph?: () => void };
+export function MissionAgents(props: AgentsProps) {
+  const status = usePartStatus(props.m.id, 'hierarchy', "the mission's agents");
+  return status ?? <MissionAgentsView {...props} />;
+}
+
+function MissionAgentsView({ m, agentId, onSelectAgent, onOpenGraph }: AgentsProps) {
   useMissionControl(m.id, ['hierarchy']);
   const mc = getMissionControl(m);
   const [view, setViewState] = useState<View>(readView);

@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import type { DomainEvent, MessageDto, ThreadDto } from '@contracts';
 import { fixtureMissionControl, setMissionControlProvider, threadKey, type MissionControlData } from '@/data/missions';
 import type { Approval, Artifact, Attachment, Message, Mission, MissionEdge, MissionNode, Task, TimelineEvent } from '@/data/types';
-import { useData, missionGone } from '@/store/data';
+import { useData, confirmMissionGone } from '@/store/data';
 import { api, ApiFailure, newKey } from './client';
 import { isApi } from './mode';
 
@@ -14,24 +14,36 @@ import { isApi } from './mode';
  * getMissionControl(m) keeps its signature: data/missions.ts asks the provider registered here.
  * Approvals come from the Stage 5 approvals store; artifacts and the timeline stay the DEMO fixture for demo missions
  * and are empty for real ones (Stage 8).
+ * Failures are never shown as "empty": each part and each thread carries a loading / error state, retries with backoff,
+ * again on every stream reconnect, and on the views' Retry buttons.
  */
 
 /** The human side of a mission thread, as the prototype's thread keys name it. */
 export const HUMAN = 'human:owner';
 export type Part = 'hierarchy' | 'tasks' | 'threads';
 const ALL: Part[] = ['hierarchy', 'tasks', 'threads'];
+const PAGE = 50;
 
 export interface ThreadState {
   id: string; key: string; kind: string; a: string; b: string;
   count: number; unread: number; last: Message | null;
-  /** null until the thread is opened; then the loaded pages, oldest first */
+  /** null until the thread is opened; then the loaded pages, oldest first (contiguous by seq, plus my unsent messages) */
   messages: Message[] | null;
   hasMore: boolean; nextBefore: number | null; loading: boolean; loadingOlder: boolean;
+  /** the first page failed to load: shown with a Retry button; retried with backoff and on reconnect */
+  error?: string; failures?: number;
+  /** events that arrive while the first page loads, merged into it */
+  early?: Message[]; earlyReceipts?: Record<string, Message['status']>;
+  /** my own posts whose POST answer has not arrived yet: their event copies wait here (matched by the returned id) */
+  mine?: Message[];
 }
+export type PartState = 'loading' | 'error' | 'ready';
 export interface McEntry {
   nodes?: MissionNode[]; edges?: MissionEdge[]; tasks?: Task[];
   /** by thread id */
   threads?: Record<string, ThreadState>;
+  /** parts whose last load failed, with the message */
+  errors?: Partial<Record<Part, string>>;
 }
 interface McState { byMission: Record<string, McEntry> }
 export const useMC = create<McState>(() => ({ byMission: {} }));
@@ -41,6 +53,7 @@ const patchThread = (mid: string, tid: string, f: (t: ThreadState) => ThreadStat
   const t = e.threads?.[tid];
   return t ? { ...e, threads: { ...e.threads, [tid]: f(t) } } : e;
 });
+const msgOf = (e: unknown) => (e instanceof ApiFailure ? e.message : 'Something went wrong.');
 
 /* ------------------------------------------------------------------ messages */
 const toMsg = (d: MessageDto): Message => ({
@@ -54,7 +67,7 @@ const laterStatus = (a?: Message['status'], b?: Message['status']) => (RANK[b ??
 const bySeq = (x: Message, y: Message) => (x.seq ?? Number.MAX_SAFE_INTEGER) - (y.seq ?? Number.MAX_SAFE_INTEGER);
 
 /** Insert or replace by id, keep server order (local pending messages last), receipts never go backwards. */
-function upsert(list: Message[], incoming: Message[]): Message[] {
+export function upsert(list: Message[], incoming: Message[]): Message[] {
   const out = new Map(list.map((m) => [m.id, m]));
   for (const m of incoming) {
     const cur = out.get(m.id);
@@ -62,42 +75,72 @@ function upsert(list: Message[], incoming: Message[]): Message[] {
   }
   return [...out.values()].sort(bySeq);
 }
+const maxSeq = (list: Message[]) => list.reduce((s, m) => (m.seq !== undefined && m.seq > s ? m.seq : s), 0);
 
 /* ------------------------------------------------------------------ threads */
 const sideOf = (x: string, agentId: string | null) => (x === 'human' ? HUMAN : agentId ?? x);
 function threadState(d: ThreadDto, cur?: ThreadState): ThreadState {
   const last = d.lastMessage ? toMsg(d.lastMessage) : null;
   return {
+    ...(cur ?? { messages: null, hasMore: false, nextBefore: null, loading: false, loadingOlder: false }),
     id: d.id, key: threadKey(sideOf(d.a, d.aAgentId), sideOf(d.b, d.bAgentId)), kind: d.kind, a: d.a, b: d.b,
-    count: d.count, unread: d.unread, last: cur?.last && last && (cur.last.seq ?? 0) > (last.seq ?? 0) ? cur.last : last,
-    messages: cur?.messages ?? null, hasMore: cur?.hasMore ?? false, nextBefore: cur?.nextBefore ?? null, loading: cur?.loading ?? false, loadingOlder: cur?.loadingOlder ?? false,
-  };
+    count: Math.max(d.count, cur?.count ?? 0), unread: d.unread, last: cur?.last && last && (cur.last.seq ?? 0) > (last.seq ?? 0) ? cur.last : last,
+  } as ThreadState;
 }
 export const findThread = (e: McEntry | undefined, key: string) => Object.values(e?.threads ?? {}).find((t) => t.key === key);
 
 /* ------------------------------------------------------------------ loading */
+/** Parts some view wants (kept after a failure, so reconnects and Retry still load them). */
 const requested = new Set<string>(); // `${missionId}|${part}`
+/** Generation per key: only the newest request may write. Never reset (a request from a previous session must not match). */
 const gens = new Map<string, number>();
 const nextGen = (k: string) => { const g = (gens.get(k) ?? 0) + 1; gens.set(k, g); return g; };
+const timers = new Map<string, number>();
+const failures = new Map<string, number>();
+const backoff = (n: number) => Math.min(30_000, 2000 * 2 ** Math.max(0, n - 1));
+const later = (k: string, ms: number, f: () => void) => { const t = timers.get(k); if (t) window.clearTimeout(t); timers.set(k, window.setTimeout(() => { timers.delete(k); f(); }, ms)); };
 
 async function fetchPart(mid: string, part: Part) {
   const k = `${mid}|${part}`;
+  if (!requested.has(k)) return; // forgotten meanwhile (mission gone, signed out)
   const g = nextGen(k);
   try {
     if (part === 'hierarchy') {
       const r = await api<{ nodes: MissionNode[]; edges: MissionEdge[] }>('GET', `/missions/${mid}/hierarchy`);
-      if (gens.get(k) === g) patchEntry(mid, (e) => ({ ...e, nodes: r.nodes, edges: r.edges }));
+      if (gens.get(k) === g) patchEntry(mid, (e) => ({ ...e, nodes: r.nodes, edges: r.edges, errors: { ...e.errors, hierarchy: undefined } }));
     } else if (part === 'tasks') {
       const r = await api<Task[]>('GET', `/missions/${mid}/tasks`);
-      if (gens.get(k) === g) patchEntry(mid, (e) => ({ ...e, tasks: r }));
+      if (gens.get(k) === g) patchEntry(mid, (e) => ({ ...e, tasks: r, errors: { ...e.errors, tasks: undefined } }));
     } else {
       const r = await api<{ threads: ThreadDto[] }>('GET', `/missions/${mid}/threads`);
-      if (gens.get(k) === g) patchEntry(mid, (e) => ({ ...e, threads: Object.fromEntries(r.threads.map((t) => [t.id, threadState(t, e.threads?.[t.id])])) }));
+      if (gens.get(k) === g) patchEntry(mid, (e) => ({ ...e, threads: { ...Object.fromEntries(Object.entries(e.threads ?? {}).filter(([, t]) => !t.a)), ...Object.fromEntries(r.threads.map((t) => [t.id, threadState(t, e.threads?.[t.id])])) }, errors: { ...e.errors, threads: undefined } }));
     }
+    if (gens.get(k) === g) failures.delete(k);
   } catch (e) {
-    if (e instanceof ApiFailure && e.status === 404) forget(mid); // the mission went away; the mission store handles leaving it
-    else if (gens.get(k) === g) requested.delete(k); // try again on the next mount or reconnect
+    if (gens.get(k) !== g || !requested.has(k)) return;
+    if (e instanceof ApiFailure && e.status === 404 && await confirmMissionGone(mid)) { forget(mid); return; }
+    // keep what was loaded before; mark the part failed (views show an error, not "empty") and try again later
+    patchEntry(mid, (x) => ({ ...x, errors: { ...x.errors, [part]: msgOf(e) } }));
+    const n = (failures.get(k) ?? 0) + 1;
+    failures.set(k, n);
+    later(k, backoff(n), () => { if (requested.has(k)) void fetchPart(mid, part); });
   }
+}
+
+/** Loading (never loaded, no error), error (the last load failed, nothing usable) or ready. */
+export function partState(e: McEntry | undefined, part: Part): PartState {
+  const has = part === 'hierarchy' ? !!e?.nodes : part === 'tasks' ? !!e?.tasks : !!e?.threads;
+  if (has) return 'ready';
+  return e?.errors?.[part] ? 'error' : 'loading';
+}
+/** The view's Retry button. */
+export function retryPart(mid: string, part: Part) {
+  const k = `${mid}|${part}`;
+  requested.add(k);
+  failures.delete(k);
+  const t = timers.get(k); if (t) { window.clearTimeout(t); timers.delete(k); }
+  patchEntry(mid, (e) => ({ ...e, errors: { ...e.errors, [part]: undefined } }));
+  void fetchPart(mid, part);
 }
 
 function ensure(mid: string, parts: Part[]) {
@@ -125,31 +168,49 @@ export function useMissionControls(missionIds: string[], parts: Part[] = ALL): R
   return all;
 }
 
+const clearTimersOf = (prefix: string) => { for (const [k, t] of timers) if (k.startsWith(prefix)) { window.clearTimeout(t); timers.delete(k); } };
 export function forget(mid: string) {
-  for (const p of ALL) { requested.delete(`${mid}|${p}`); nextGen(`${mid}|${p}`); }
+  for (const p of ALL) { requested.delete(`${mid}|${p}`); failures.delete(`${mid}|${p}`); nextGen(`${mid}|${p}`); }
+  clearTimersOf(`${mid}|`); clearTimersOf(`t:${mid}|`); clearTimersOf(`r:${mid}|`);
   useMC.setState((s) => { if (!s.byMission[mid]) return {}; const b = { ...s.byMission }; delete b[mid]; return { byMission: b }; });
 }
 export function clearMissionControl() {
-  requested.clear(); gens.clear(); refreshTimers.forEach((t) => window.clearTimeout(t)); refreshTimers.clear();
+  // generations keep counting: an answer to a request from the previous session can never match a new one
+  for (const k of requested) nextGen(k);
+  requested.clear(); failures.clear();
+  timers.forEach((t) => window.clearTimeout(t)); timers.clear();
   useMC.setState({ byMission: {} });
 }
 
-/** Opening a thread loads its newest page (the server also records it as read). */
-export async function openThread(mid: string, tid: string) {
+/* ------------------------------------------------------------------ thread pages */
+type Page = { messages: MessageDto[]; hasMore: boolean; nextBefore: number | null };
+const threadGens = new Map<string, number>();
+
+/** Opening a thread loads its newest page (the server also records it as read). A failure is kept, with backoff. */
+export async function openThread(mid: string, tid: string, manual = false) {
   const t = useMC.getState().byMission[mid]?.threads?.[tid];
-  if (!t || t.messages || t.loading) return;
-  patchThread(mid, tid, (x) => ({ ...x, loading: true }));
+  if (!t || t.messages || (t.loading && !manual)) return;
+  const k = `t:${mid}|${tid}`;
+  const g = (threadGens.get(k) ?? 0) + 1; threadGens.set(k, g);
+  if (manual) { const x = timers.get(k); if (x) { window.clearTimeout(x); timers.delete(k); } }
+  patchThread(mid, tid, (x) => ({ ...x, loading: true, error: undefined }));
   try {
-    const r = await api<{ messages: MessageDto[]; hasMore: boolean; nextBefore: number | null }>('GET', `/threads/${tid}/messages?limit=50`);
+    const r = await api<Page>('GET', `/threads/${tid}/messages?limit=${PAGE}`);
+    if (threadGens.get(k) !== g) return;
     patchThread(mid, tid, (x) => {
+      // merge, never replace: messages that arrived (as events) while this page was loading stay
       const page = r.messages.map(toMsg).reverse();
-      const top = page.length ? page[page.length - 1].seq ?? 0 : 0;
-      const newer = [...(x.last && (x.last.seq ?? 0) > top ? [x.last] : []), ...(x.messages ?? [])];
-      return { ...x, messages: upsert(page, newer), hasMore: r.hasMore, nextBefore: r.nextBefore, loading: false, unread: 0 };
+      const top = maxSeq(page);
+      const newer = [...(x.last && (x.last.seq ?? 0) > top ? [x.last] : []), ...(x.early ?? []), ...(x.messages ?? [])];
+      const merged = upsert(page, newer).map((m) => (x.earlyReceipts?.[m.id] ? { ...m, status: laterStatus(m.status, x.earlyReceipts[m.id]) } : m));
+      return { ...x, messages: merged, hasMore: r.hasMore, nextBefore: r.nextBefore, loading: false, unread: 0, error: undefined, failures: 0, early: undefined, earlyReceipts: undefined };
     });
   } catch (e) {
-    patchThread(mid, tid, (x) => ({ ...x, loading: false }));
-    if (e instanceof ApiFailure && e.status === 404) missionGone(mid);
+    if (threadGens.get(k) !== g) return;
+    if (e instanceof ApiFailure && e.status === 404 && await confirmMissionGone(mid)) return;
+    const n = (useMC.getState().byMission[mid]?.threads?.[tid]?.failures ?? 0) + 1;
+    patchThread(mid, tid, (x) => ({ ...x, loading: false, error: msgOf(e), failures: n }));
+    later(k, backoff(n), () => { const cur = useMC.getState().byMission[mid]?.threads?.[tid]; if (cur && !cur.messages && cur.error) void openThread(mid, tid); });
   }
 }
 
@@ -159,35 +220,50 @@ export async function loadOlder(mid: string, tid: string) {
   if (!t || !t.messages || !t.hasMore || t.loadingOlder || t.nextBefore == null) return;
   patchThread(mid, tid, (x) => ({ ...x, loadingOlder: true }));
   try {
-    const r = await api<{ messages: MessageDto[]; hasMore: boolean; nextBefore: number | null }>('GET', `/threads/${tid}/messages?before=${t.nextBefore}&limit=50`);
+    const r = await api<Page>('GET', `/threads/${tid}/messages?before=${t.nextBefore}&limit=${PAGE}`);
     patchThread(mid, tid, (x) => ({ ...x, messages: upsert(x.messages ?? [], r.messages.map(toMsg)), hasMore: r.hasMore, nextBefore: r.nextBefore, loadingOlder: false }));
-  } catch {
+  } catch (e) {
     patchThread(mid, tid, (x) => ({ ...x, loadingOlder: false }));
+    if (e instanceof ApiFailure && e.status === 404) void confirmMissionGone(mid);
   }
 }
 
-/** After a reconnect: everything already loaded is read again (a gap never loses or doubles anything). */
+/**
+ * Re-read an open thread's newest page. When more arrived than one page holds (a long outage), the fresh page does not
+ * touch what is loaded: then the thread restarts from that page with its own cursor, so scrolling up fills the rest —
+ * there is never a hole in the middle.
+ */
+async function rereadThread(mid: string, tid: string) {
+  try {
+    const r = await api<Page>('GET', `/threads/${tid}/messages?limit=${PAGE}`);
+    patchThread(mid, tid, (x) => {
+      const page = r.messages.map(toMsg);
+      const loaded = x.messages ?? [];
+      const oldest = page.reduce((s, m) => Math.min(s, m.seq ?? s), Number.MAX_SAFE_INTEGER);
+      const gap = r.hasMore && page.length > 0 && oldest > maxSeq(loaded) + 1;
+      if (gap) return { ...x, messages: upsert(page, loaded.filter((m) => m.pending)), hasMore: r.hasMore, nextBefore: r.nextBefore, last: page[0] ?? x.last };
+      return { ...x, messages: upsert(loaded, page), last: page[0] && (page[0].seq ?? 0) >= (x.last?.seq ?? 0) ? page[0] : x.last };
+    });
+  } catch { /* the next reconnect tries again */ }
+}
+
+/** After a reconnect: everything this tab shows is read again (failed parts and threads too). */
 export function refreshLoadedMissionControl() {
-  for (const k of requested) { const [mid, p] = k.split('|'); void fetchPart(mid, p as Part); }
+  for (const k of requested) { const [mid, p] = k.split('|'); failures.delete(k); void fetchPart(mid, p as Part); }
   for (const [mid, e] of Object.entries(useMC.getState().byMission)) {
     for (const t of Object.values(e.threads ?? {})) {
-      if (!t.messages) continue;
-      void api<{ messages: MessageDto[] }>('GET', `/threads/${t.id}/messages?limit=50`)
-        .then((r) => patchThread(mid, t.id, (x) => ({ ...x, messages: upsert(x.messages ?? [], r.messages.map(toMsg)) })))
-        .catch(() => undefined);
+      if (t.messages) void rereadThread(mid, t.id);
+      else if (t.error) void openThread(mid, t.id, true);
     }
   }
 }
 
 /* ------------------------------------------------------------------ live events */
-const refreshTimers = new Map<string, number>();
 function refreshSoon(mid: string, parts: Part[]) {
   for (const p of parts) {
     const k = `${mid}|${p}`;
-    if (!requested.has(k)) continue; // never loaded here: the first fetch will be fresh
-    const t = refreshTimers.get(k);
-    if (t) window.clearTimeout(t);
-    refreshTimers.set(k, window.setTimeout(() => { refreshTimers.delete(k); void fetchPart(mid, p); }, 150));
+    if (!requested.has(k)) continue; // never wanted here: the first fetch will be fresh
+    later(`r:${k}`, 150, () => void fetchPart(mid, p));
   }
 }
 
@@ -205,24 +281,20 @@ export function onMissionControlEvent(type: string, e: DomainEvent) {
     if (!th || !p.message) { refreshSoon(mid, ['threads']); return; }
     const msg = toMsg(p.message);
     patchThread(mid, p.threadId, (x) => {
-      let messages = x.messages;
-      // my own post arrives here before (or after) the POST answer: it replaces the local pending copy
-      if (messages && msg.from === `human:${meId}`) {
-        const local = messages.find((m) => m.pending && m.text === msg.text);
-        if (local) messages = messages.filter((m) => m !== local);
-      }
-      const isNew = !(messages ?? []).some((m) => m.id === msg.id) && x.last?.id !== msg.id;
-      return {
-        ...x, messages: messages ? upsert(messages, [msg]) : null,
-        last: !x.last || (msg.seq ?? 0) >= (x.last.seq ?? 0) ? msg : x.last,
-        count: x.count + (isNew ? 1 : 0),
-      };
+      const known = (x.messages ?? []).some((m) => m.id === msg.id) || (x.early ?? []).some((m) => m.id === msg.id) || (x.mine ?? []).some((m) => m.id === msg.id) || x.last?.id === msg.id;
+      const base = { ...x, last: !x.last || (msg.seq ?? 0) >= (x.last.seq ?? 0) ? msg : x.last, count: x.count + (known || (x.last && (msg.seq ?? 0) <= (x.last.seq ?? 0)) ? 0 : 1) };
+      if (!x.messages) return x.loading ? { ...base, early: [...(x.early ?? []), msg] } : base;
+      // my own post while its POST answer is still out: hold the event copy; the answer's id decides (see sendMissionMessage)
+      if (msg.from === `human:${meId}` && x.messages.some((m) => m.pending) && !x.messages.some((m) => m.id === msg.id)) return { ...base, mine: [...(x.mine ?? []), msg] };
+      return { ...base, messages: upsert(x.messages, [msg]) };
     });
   } else if (type === 'conversation.receipt') {
     const p = e.payload as { threadId: string; messageId: string; state: Message['status'] };
     patchThread(mid, p.threadId, (x) => ({
       ...x,
       messages: x.messages?.map((m) => (m.id === p.messageId ? { ...m, status: laterStatus(m.status, p.state) } : m)) ?? null,
+      mine: x.mine?.map((m) => (m.id === p.messageId ? { ...m, status: laterStatus(m.status, p.state) } : m)),
+      earlyReceipts: !x.messages && x.loading ? { ...x.earlyReceipts, [p.messageId]: laterStatus(x.earlyReceipts?.[p.messageId], p.state) } : x.earlyReceipts,
       last: x.last?.id === p.messageId ? { ...x.last, status: laterStatus(x.last.status, p.state) } : x.last,
     }));
   } else if (type.startsWith('instance.') || type.startsWith('task.')) {
@@ -231,28 +303,57 @@ export function onMissionControlEvent(type: string, e: DomainEvent) {
 }
 
 /* ------------------------------------------------------------------ sending */
+export type SendResult = { ok: true } | { ok: false; gone: boolean; message: string };
 let localSeq = 1;
+
+/** Settle a local pending message: drop it, add the server's copy (if any), and release held event copies when none is pending. */
+function settle(mid: string, tid: string, localId: string, real?: Message) {
+  patchThread(mid, tid, (x) => {
+    let messages = (x.messages ?? []).filter((y) => y.id !== localId);
+    let mine = x.mine ?? [];
+    if (real) {
+      const held = mine.find((m) => m.id === real.id);
+      messages = upsert(messages, [held ? { ...real, status: laterStatus(real.status, held.status) } : real]);
+      mine = mine.filter((m) => m.id !== real.id);
+    }
+    if (!messages.some((m) => m.pending) && mine.length) { messages = upsert(messages, mine); mine = []; }
+    const last = real && (!x.last || (real.seq ?? 0) >= (x.last.seq ?? 0)) ? real : x.last;
+    return { ...x, messages, mine, last };
+  });
+}
+
 /**
  * Send a command or reply to an agent of a mission (api mode). It goes to the human↔agent thread (created on first use),
- * images are uploaded first, and the message is shown at once and replaced by the server's copy.
- * Returns 'gone' when the mission is no longer visible (404): the caller leaves it.
+ * images are uploaded first, and the message is shown at once and replaced by the server's copy (matched by the id the
+ * POST returns). On failure nothing is kept locally: the caller restores the draft and says why.
  */
-export async function sendMissionMessage(m: Mission, agentId: string, msg: { kind: 'command' | 'reply'; text: string; attachments?: Attachment[]; replyTo?: string }, me: { id: string }): Promise<'ok' | 'gone' | 'failed'> {
+export async function sendMissionMessage(m: Mission, agentId: string, msg: { kind: 'command' | 'reply'; text: string; attachments?: Attachment[]; replyTo?: string }, me: { id: string }): Promise<SendResult> {
   const key = threadKey(agentId, HUMAN);
   let localId = '';
   let tid = '';
   try {
     let th = findThread(useMC.getState().byMission[m.id], key);
     if (!th) {
+      // the agent's instance in this mission: never guessed (a missing instance is "not joined yet", not "mission gone")
+      if (!useMC.getState().byMission[m.id]?.nodes) { requested.add(`${m.id}|hierarchy`); await fetchPart(m.id, 'hierarchy'); }
       const node = useMC.getState().byMission[m.id]?.nodes?.find((n) => n.agentId === agentId);
-      const r = await api<{ threadId: string }>('POST', `/missions/${m.id}/threads`, { instanceId: node?.instanceId ?? `${m.id}:${agentId}` });
+      if (!node) return { ok: false, gone: false, message: 'This agent has not joined the mission yet, so there is no conversation to write to.' };
+      let r: { threadId: string };
+      try { r = await api<{ threadId: string }>('POST', `/missions/${m.id}/threads`, { instanceId: node.instanceId }); }
+      catch (e) {
+        if (e instanceof ApiFailure && e.status === 404) {
+          if (await confirmMissionGone(m.id)) return { ok: false, gone: true, message: `${m.id} is no longer available.` };
+          return { ok: false, gone: false, message: 'This agent has not joined the mission yet, so there is no conversation to write to.' };
+        }
+        throw e;
+      }
       patchEntry(m.id, (e) => (e.threads?.[r.threadId] ? e : {
         ...e, threads: { ...(e.threads ?? {}), [r.threadId]: { id: r.threadId, key, kind: 'human-agent', a: '', b: '', count: 0, unread: 0, last: null, messages: null, hasMore: false, nextBefore: null, loading: false, loadingOlder: false } },
       }));
       await openThread(m.id, r.threadId);
       refreshSoon(m.id, ['threads']);
       th = useMC.getState().byMission[m.id]?.threads?.[r.threadId];
-    } else if (!th.messages) await openThread(m.id, th.id);
+    } else if (!th.messages) await openThread(m.id, th.id, true);
     tid = th!.id;
     localId = `local-${localSeq++}`;
     const local: Message = { id: localId, from: `human:${me.id}`, to: agentId, kind: msg.kind, text: msg.text, agoMin: 0, ts: Date.now(), status: 'sent', pending: true,
@@ -266,15 +367,12 @@ export async function sendMissionMessage(m: Mission, agentId: string, msg: { kin
       uploadIds.push((await api<{ id: string }>('POST', '/uploads', fd)).id);
     }
     const r = await api<{ message: MessageDto }>('POST', `/threads/${tid}/messages`, { kind: msg.kind, text: msg.text, to: agentId, ...(msg.replyTo ? { replyTo: msg.replyTo } : {}), uploadIds }, { idempotencyKey: newKey() });
-    const real = toMsg(r.message);
-    patchThread(m.id, tid, (x) => ({ ...x, messages: upsert((x.messages ?? []).filter((y) => y.id !== localId), [real]), last: !x.last || (real.seq ?? 0) >= (x.last.seq ?? 0) ? real : x.last }));
-    return 'ok';
+    settle(m.id, tid, localId, toMsg(r.message));
+    return { ok: true };
   } catch (e) {
-    if (localId && tid) patchThread(m.id, tid, (x) => ({ ...x, messages: (x.messages ?? []).filter((y) => y.id !== localId) }));
-    if (e instanceof ApiFailure && e.status === 404) { missionGone(m.id); return 'gone'; }
-    const { toast } = await import('@/store/ui');
-    toast({ tone: 'error', title: 'Not sent', body: e instanceof ApiFailure ? e.message : 'Something went wrong. Try again.' });
-    return 'failed';
+    if (localId && tid) settle(m.id, tid, localId);
+    if (e instanceof ApiFailure && e.status === 404 && await confirmMissionGone(m.id)) return { ok: false, gone: true, message: `${m.id} is no longer available.` };
+    return { ok: false, gone: false, message: msgOf(e) };
   }
 }
 

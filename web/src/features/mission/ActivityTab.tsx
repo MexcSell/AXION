@@ -15,6 +15,8 @@ import { useVisibleMissions } from '@/store/data';
 import type { Mission } from '@/data/types';
 import { executorOf } from './staffing';
 import { ago, cx } from '@/lib/format';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { hasDemoActivity } from '@/api/mode';
 import '@/theme/pages/mission-activity.css';
 
 const LOG_ICON: Record<ActivityLogLine['kind'], typeof Brain> = { think: Brain, tool: Wrench, browse: Globe, write: PenLine, merge: GitMerge, message: Send };
@@ -39,7 +41,18 @@ function live(a: AgentActivity, t: number, running: boolean): AgentActivity {
   };
 }
 
-export function ActivityTab({ m, onOpenChat }: { m: Mission; onOpenChat: (agentId: string) => void }) {
+/** E8: a real mission (api mode) has no measured activity yet, so nothing invented is shown and nothing ticks. */
+export function ActivityTab(props: { m: Mission; onOpenChat: (agentId: string) => void }) {
+  if (!hasDemoActivity(props.m)) return (
+    <div data-activity="not-measured">
+      <EmptyState icon={Cpu} title="Activity is not measured yet"
+        body={<>Tokens, active time, CPU and RAM are recorded per agent once agents execute (Stage 9/10). Until then this mission shows no numbers rather than invented ones. {props.m.agentIds.length} agents are staffed; see Hierarchy and Conversations.</>} />
+    </div>
+  );
+  return <ActivityTabView {...props} />;
+}
+
+function ActivityTabView({ m, onOpenChat }: { m: Mission; onOpenChat: (agentId: string) => void }) {
   const running = RUNNING.includes(m.status);
   const t = useTick(running);
   const missions = useVisibleMissions();

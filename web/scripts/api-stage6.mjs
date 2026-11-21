@@ -17,7 +17,7 @@ const browser = async (label) => {
   await ctx.addInitScript(() => { try { localStorage.setItem('axion.data-mode', 'api'); localStorage.setItem('axion.testhook', '1'); } catch { /* ignore */ } });
   const p = await ctx.newPage();
   p.on('pageerror', (e) => errors.push(`${label}: ${e.message}`));
-  p.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource|ERR_CONNECTION|502|504|EventSource|404 \(Not Found\)/.test(m.text())) errors.push(`${label} console: ${m.text()}`); });
+  p.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource|ERR_CONNECTION|ERR_INTERNET_DISCONNECTED|502|503|504|EventSource/.test(m.text())) errors.push(`${label} console: ${m.text()}`); });
   return { ctx, p };
 };
 const connect = async (p, name, pass) => {
@@ -118,6 +118,48 @@ try {
     return t.includes('asked:') && t.includes(cmd.slice(0, 40)) && (await B.p.locator('.conv-main .bubble-row.k-report, .conv-main .bubble-row', { hasText: 'asked:' }).locator('.sim-tag').count()) > 0;
   }, 12000));
 
+  // ------------------------------------------------------------ fix round 1: failed sends keep the draft; a missing instance is not "mission gone"
+  await pickPartner(A.p, 'You (Owner)');
+  await A.p.waitForTimeout(300);
+  const failOnce = { n: 0 };
+  await A.ctx.route(/\/api\/v1\/threads\/[^/]+\/messages$/, (route) => {
+    if (route.request().method() !== 'POST' || failOnce.n++) return route.continue();
+    return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ code: 'UNAVAILABLE', message: 'Test: the server is busy.', correlationId: 't', retryable: true }) });
+  });
+  const draft = `Draft that must survive a failed send ${Date.now()}`;
+  await sendIn(A.p, draft, true);
+  check('a failed send says so and puts the text and the image back in the composer',
+    await until(async () => (await A.p.getByText('Not sent').count()) > 0 && (await composer(A.p).locator('textarea').inputValue()) === draft && (await composer(A.p).locator('.composer-files .cf').count()) === 1, 8000),
+    `text ${(await composer(A.p).locator('textarea').inputValue().catch(() => '')) === draft ? 'kept' : 'lost'}`);
+  check('nothing unsent stays in the thread', !(await threadText(A.p)).includes(draft));
+  await A.ctx.unroute(/\/api\/v1\/threads\/[^/]+\/messages$/);
+  await composer(A.p).getByRole('button', { name: 'Send message' }).click();
+  check('sending the restored draft again works', await until(async () => (await threadText(A.p)).includes(draft) && (await A.p.locator('.conv-main .bubble-row.right', { hasText: draft }).locator('img[src*="/api/v1/uploads/"]').count()) > 0, 10000));
+  // a 404 from creating a thread (the agent's instance is not there) must not throw the user out of a visible mission
+  await A.p.goto(base + '/missions/M-126?tab=conversations&agent=writer-01', { waitUntil: 'domcontentloaded' });
+  await A.p.locator('.conv-main .cp-item').first().waitFor({ timeout: 10000 });
+  await pickPartner(A.p, 'You (Owner)');
+  await A.ctx.route(/\/api\/v1\/missions\/M-126\/threads$/, (route) => route.request().method() === 'POST'
+    ? route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ code: 'NOT_FOUND', message: 'No such agent instance in this mission.', correlationId: 't', retryable: false }) })
+    : route.continue());
+  const d2 = `Hello Writer ${Date.now()}`;
+  await sendIn(A.p, d2);
+  check('a thread-create 404 on a visible mission is a normal error (A stays, draft back)',
+    await until(async () => (await A.p.getByText(/has not joined the mission yet/).count()) > 0 && (await composer(A.p).locator('textarea').inputValue()) === d2, 8000)
+      && A.p.url().includes('M-126') && (await A.p.getByText('M-126 is no longer available').count()) === 0);
+  await A.ctx.unroute(/\/api\/v1\/missions\/M-126\/threads$/);
+  await composer(A.p).locator('textarea').fill('');
+
+  // ------------------------------------------------------------ fix round 1: a failed tasks load is an error with Retry, not "No tasks yet"
+  const tasks127 = (await apiA('GET', '/missions/M-127/tasks')).body;
+  await A.ctx.route(/\/api\/v1\/missions\/M-127\/tasks$/, (route) => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ code: 'UNAVAILABLE', message: 'Test: tasks are unavailable.', correlationId: 't', retryable: true }) }));
+  await A.p.goto(base + '/missions/M-127?tab=task-flow', { waitUntil: 'domcontentloaded' });
+  check('a failed tasks load shows an error with Retry (not "No tasks yet")',
+    await until(async () => (await A.p.locator('.part-status[data-part="tasks"][data-state="error"]').count()) > 0, 10000) && (await A.p.getByText('No tasks yet').count()) === 0);
+  await A.ctx.unroute(/\/api\/v1\/missions\/M-127\/tasks$/);
+  await A.p.locator('.part-status[data-part="tasks"]').getByRole('button', { name: 'Retry' }).click().catch(() => {});
+  check('Retry loads the tasks', Array.isArray(tasks127) && tasks127.length > 0 && await until(async () => (await A.p.getByText(tasks127[0].title).count()) > 0 && (await A.p.locator('.part-status').count()) === 0, 10000), `${tasks127.length} tasks`);
+
   // ------------------------------------------------------------ a real mission: queued, the honest note, no invented reply
   const made = await apiA('POST', '/missions', { text: 'Compare two hosting providers for the company site and list their limits.', files: [], shared: true }, { 'idempotency-key': key() });
   const realId = made.body.mission?.id;
@@ -134,6 +176,11 @@ try {
   const gmThread = ((await apiA('GET', `/missions/${realId}/threads`)).body.threads ?? []).find((t) => t.a === 'human' || t.b === 'human');
   const kinds = ((await apiA('GET', `/threads/${gmThread?.id}/messages`)).body.messages ?? []).map((m) => m.kind);
   check('no invented agent reply (UI and server)', agentBubbles === 0 && kinds.every((x) => x === 'command' || x === 'system') && !(await A.p.locator('.conv-main .sim-tag').count()), `${agentBubbles} agent bubbles · kinds ${kinds.join(',')}`);
+  const actText = async () => A.p.locator('.mc-budget, .mw-min-budget').first().innerText();
+  const act1 = await actText();
+  await A.p.waitForTimeout(2500);
+  check('E8: a real mission\'s Activity says "not measured yet", with no numbers and nothing ticking',
+    (await A.p.locator('[data-activity="not-measured"]').count()) > 0 && /not measured yet/i.test(act1) && !/\d+(\.\d+)?k? tok/i.test(act1) && act1 === await actText(), act1.replace(/\s+/g, ' '));
   await A.p.screenshot({ path: `${SHOTS}/stage6-thread-real.png` });
 
   // ------------------------------------------------------------ a long thread: newest 50 first, older pages on scroll, no jump
@@ -171,6 +218,44 @@ try {
   const blocks = await A.p.locator('.conv-main .minimap .mm-block').count();
   check('the minimap still works on the long thread (one block per loaded message)', (await A.p.locator('.conv-main .minimap').count()) === 0 ? false : blocks === all.length, `${blocks} blocks`);
 
+  // ------------------------------------------------------------ fix round 1: > 50 messages while A's stream is down → no gap after the reconnect
+  const API_PID = Number(process.env.API_PID || 0);
+  const health = () => fetch(base + '/api/v1/health').then((r) => r.ok).catch(() => false);
+  const seqOf = new Map();
+  if (API_PID) {
+    await A.ctx.setOffline(true);
+    process.kill(API_PID, 'SIGUSR2'); // drops every open stream; A stays offline, so A misses everything below
+    await until(async () => !(await health()), 8000, 100);
+    await until(health, 20000, 200);
+    await until(async () => (await apiB('GET', '/me')).status === 200, 10000, 200);
+    for (let i = 0; i < 60; i += 10) {
+      await Promise.all(Array.from({ length: 10 }, (_, j) => apiB('POST', `/threads/${gmThread.id}/messages`, { kind: 'command', text: `gap message ${String(i + j + 1).padStart(3, '0')}`, to: 'gm' }, { 'idempotency-key': key() })));
+    }
+    // the server's whole thread (id → seq), newest first, page by page
+    let before = null;
+    for (;;) {
+      const pg = (await apiA('GET', `/threads/${gmThread.id}/messages?limit=200${before ? `&before=${before}` : ''}`)).body;
+      for (const m of pg.messages) seqOf.set(m.id, m.seq);
+      if (!pg.hasMore) break;
+      before = pg.nextBefore;
+    }
+    await A.ctx.setOffline(false);
+    check('A reconnects after the outage', await until(async () => (await conn(A.p)) === 'live', 45000, 300));
+    check('the newest message from the outage appears', await until(async () => (await threadText(A.p)).includes('gap message 060'), 10000));
+    const shown = (await mids()).map((id) => seqOf.get(id)).filter((x) => x !== undefined).sort((x, y) => x - y);
+    const contiguous = shown.every((x, i) => i === 0 || x === shown[i - 1] + 1);
+    check('no hole in the thread after the reconnect (loaded messages are contiguous)', shown.length > 0 && contiguous, `${shown.length} shown, seq ${shown[0]}…${shown[shown.length - 1]}`);
+    for (let round = 0; round < 8 && (await mids()).length < seqOf.size; round++) {
+      const n0 = (await mids()).length;
+      await A.p.locator('.conv-main .thread-body').evaluate((el) => { el.scrollTop = 0; });
+      await until(async () => (await mids()).length > n0, 6000);
+      await A.p.locator('.conv-main .thread-body').evaluate((el) => { el.scrollTop += 300; });
+      await A.p.waitForTimeout(200);
+    }
+    const after = await mids();
+    check('scrolling up after the reconnect reaches the whole thread, without duplicates', after.length === seqOf.size && new Set(after).size === after.length, `${after.length}/${seqOf.size}`);
+  } else check('reconnect gap check needs API_PID (run through api-e2e.sh)', false);
+
   // real missions have no results or timeline yet (Stage 8); the empty states say so
   await A.p.goto(`${base}/missions/${realId}?tab=results`, { waitUntil: 'domcontentloaded' });
   check('a real mission\'s Results tab says results arrive in Stage 8', await until(async () => (await A.p.getByText(/Results arrive in Stage 8/).count()) > 0, 8000));
@@ -178,9 +263,10 @@ try {
   // ------------------------------------------------------------ made private while B has the thread open → 404 → B leaves
   await B.p.goto(`${base}/missions/${realId}?tab=conversations&agent=gm`, { waitUntil: 'domcontentloaded' });
   await composer(B.p).waitFor({ timeout: 10000 });
-  check('B has the shared real mission\'s thread open', await until(async () => (await threadText(B.p)).includes('paging message 130'), 8000));
+  check('B has the shared real mission\'s thread open', await until(async () => (await threadText(B.p)).includes('gap message 060'), 8000));
   // hold B's re-read of the mission, so the un-share event cannot move B away before B writes (the composer path is what is tested)
-  await B.ctx.route(new RegExp(`/api/v1/missions/${realId}$`), (route) => { if (route.request().method() !== 'GET') return route.continue(); held.push(route); });
+  let holdOne = true; // hold the event-triggered re-read only; the composer's own confirmation (GET → 404) goes through
+  await B.ctx.route(new RegExp(`/api/v1/missions/${realId}$`), (route) => { if (route.request().method() !== 'GET' || !holdOne) return route.continue(); holdOne = false; held.push(route); });
   const un = await apiA('POST', `/missions/${realId}/share`, { shared: false });
   await B.p.waitForTimeout(1200);
   const stillThere = B.p.url().includes(realId);

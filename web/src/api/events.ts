@@ -4,7 +4,7 @@ import { useData, loadSnapshot, refreshMission, refreshApprovals, refreshNotices
 import { authApi, useAuth } from '@/store/auth';
 import { isApi } from './mode';
 import { api, ApiFailure } from './client';
-import { loadAgents } from './agents';
+import { loadAgents, useAgentsVersion } from './agents';
 import { onMissionControlEvent, refreshLoadedMissionControl, clearMissionControl, setMcUser } from './missionControl';
 
 /**
@@ -86,6 +86,7 @@ export function startSync(): () => void {
       // the snapshot is read after the stream's cursor exists, so nothing committed in between is missed
       void loadSnapshot().catch(() => undefined);
       if (opened++) { agents('a'); refreshLoadedMissionControl(); } // a reconnect: re-read what this tab already shows
+      else if (useAgentsVersion.getState().failed) agents('a'); // the first catalog load failed: try again now the server answers
     });
     for (const t of ['mission.created', 'mission.revised', 'mission.stateChanged', 'mission.shared', 'mission.deleted', 'staffing.progressed', 'approval.requested', 'approval.decided', 'notification.created', 'user.requested', 'user.changed', 'auth.approved',
       'agent.created', 'agent.updated', 'agent.versionCreated', 'conversation.messageCreated', 'conversation.receipt', 'instance.created', 'instance.stateChanged', 'task.delegated'])

@@ -31,3 +31,9 @@ export function switchMode(m: DataMode) {
   u.searchParams.set('data', m);
   window.location.assign(u.toString());
 }
+
+/**
+ * Stage 6 (decision E8): activity numbers (tokens, CPU, RAM, active time) are DEMO data. They are shown, tagged DEMO, for
+ * demo mode and DEMO missions; a real mission in api mode shows "not measured yet" (measured from Stage 9/10) and nothing ticks.
+ */
+export const hasDemoActivity = (m: { demo?: boolean }) => !isApi() || !!m.demo;
