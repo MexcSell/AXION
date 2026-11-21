@@ -43,9 +43,9 @@ export async function joinMission(c: Tx, i: NewInstance & { managerAgentId: stri
   if (!(await insertInstance(c, i))) return false;
   const to = instanceId(i.missionId, i.agentId), from = instanceId(i.missionId, i.managerAgentId);
   await insertDelegation(c, { missionId: i.missionId, from, to, kind: 'delegated', simulated: i.simulated });
-  await emit(c, { tenantId: i.tenantId, type: 'instance.created', subject: to, missionId: i.missionId, actor: i.managerAgentId, actorKind: 'agent',
+  await emit(c, { tenantId: i.tenantId, type: 'instance.created', subjectKind: 'instance', subject: to, missionId: i.missionId, actor: i.managerAgentId, actorKind: 'agent',
     payload: { instanceId: to, agentId: i.agentId, managerInstanceId: from, simulated: i.simulated } });
-  await emit(c, { tenantId: i.tenantId, type: 'task.delegated', subject: to, missionId: i.missionId, actor: i.managerAgentId, actorKind: 'agent',
+  await emit(c, { tenantId: i.tenantId, type: 'task.delegated', subjectKind: 'instance', subject: to, missionId: i.missionId, actor: i.managerAgentId, actorKind: 'agent',
     payload: { from, to, kind: 'delegated', simulated: i.simulated } });
   return true;
 }
@@ -55,7 +55,7 @@ export async function setInstanceState(c: Tx, id: string, state: string, opts: {
       ended_at = case when $2='done' then now() else ended_at end
     where id=$1 and state is distinct from $2 returning tenant_id, mission_id, state`, [id, state, opts.task ?? null, opts.progress ?? null])).rows[0];
   if (!r) return false;
-  await emit(c, { tenantId: r.tenant_id, type: 'instance.stateChanged', subject: id, missionId: r.mission_id, payload: { instanceId: id, state } });
+  await emit(c, { tenantId: r.tenant_id, type: 'instance.stateChanged', subjectKind: 'instance', subject: id, missionId: r.mission_id, payload: { instanceId: id, state } });
   return true;
 }
 

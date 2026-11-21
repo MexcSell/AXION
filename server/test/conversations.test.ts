@@ -3,6 +3,8 @@ import { makeTestApp, withAdmin, openStream, Browser, type TestApp } from './hel
 import { seedDemo } from '../src/seed/demo.ts';
 import { backfillMissionControl } from '../src/instances/backfill.ts';
 import { tx } from '../src/db.ts';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { MISSIONS, getMissionControl } from '../../web/src/data/missions.ts';
 
 let t: TestApp;
@@ -141,6 +143,7 @@ describe('paging', () => {
     const first = await A.admin.req('GET', `/threads/${tid}/messages`);
     expect(first.body.messages).toHaveLength(50);
     expect(first.body.messages[0].seq).toBe(5000);
+    expect(first.body.hasMore).toBe(true); expect(first.body.nextBefore).toBe(4951);
     const seen = new Set<number>(first.body.messages.map((m: any) => m.seq));
     let before = first.body.messages[49].seq;
     let pages = 1;
@@ -148,6 +151,9 @@ describe('paging', () => {
       const r = await A.admin.req('GET', `/threads/${tid}/messages?before=${before}&limit=200`);
       expect(r.status).toBe(200);
       if (!r.body.messages.length) break;
+      const last = r.body.messages[r.body.messages.length - 1].seq;
+      expect(r.body.hasMore).toBe(last > 1);
+      expect(r.body.nextBefore).toBe(last > 1 ? last : null);
       expect(r.body.messages.length).toBeLessThanOrEqual(200);
       for (const m of r.body.messages) { expect(seen.has(m.seq)).toBe(false); seen.add(m.seq); expect(m.seq).toBeLessThan(before); }
       expect(r.body.messages[0].seq).toBe(before - 1); // no gap, no jump
@@ -212,14 +218,41 @@ describe('honest notes and simulation', () => {
     expect(await count(`select count(*)::int n from messages m join conversation_threads c on c.id=m.thread_id join missions x on x.id=c.mission_id where m.simulated and not x.demo`)).toBe(0);
   });
 
-  it('stops cleanly when the app closes with timers pending', async () => {
-    const A = await setup({ conversationSimMs: 5000 });
+  it('stops cleanly when the app closes: nothing is written after close and no sim step failed', async () => {
+    const A = await setup({ conversationSimMs: 120 });
     await seedDemo(t.app.db, 't-1', A.adminId);
     const demo = MISSIONS.find((m) => m.status === 'running')!;
     const node = getMissionControl(demo).nodes.find((x) => x.parent)!;
     const tid = await humanThread(A.admin, demo.id, node.instanceId);
-    await send(A.admin, tid, { kind: 'command', text: 'x', to: node.agentId });
-    // afterEach closes the app; a leaked timer would write to a closed pool and fail the run
+    const r = await send(A.admin, tid, { kind: 'command', text: 'x', to: node.agentId });
+    const sim = t.app.conversationSim;
+    expect(sim.pending()).toBeGreaterThan(0);
+    await t.app.close(); // timers still pending
+    expect(sim.pending()).toBe(0);
+    const snap = async () => [await count(`select count(*)::int n from messages`), await count(`select count(*)::int n from message_receipts`)];
+    const before = await snap();
+    await sleep(120 * 4 + 200); // longer than every sim delay
+    expect(await snap()).toEqual(before);
+    expect(await count(`select count(*)::int n from message_receipts where message_id=$1`, [r.body.message.id])).toBe(0);
+    expect(sim.errors).toEqual([]);
+  });
+
+  it('the sim does not run twice on an idempotent replay, and a sim step failure is recorded', async () => {
+    const A = await setup({ conversationSimMs: 40 });
+    await seedDemo(t.app.db, 't-1', A.adminId);
+    const demo = MISSIONS.find((m) => m.status === 'running')!;
+    const node = getMissionControl(demo).nodes.find((x) => x.parent)!;
+    const tid = await humanThread(A.admin, demo.id, node.instanceId);
+    const h = { 'idempotency-key': 'replay-1' };
+    const body = { kind: 'command', text: 'twice', to: node.agentId };
+    const a = await send(A.admin, tid, body, h);
+    await send(A.admin, tid, body, h); await send(A.admin, tid, body, h);
+    await until(async () => (await count(`select count(*)::int n from message_receipts where message_id=$1`, [a.body.message.id])) >= 2);
+    await sleep(500);
+    expect((await rows(`select state from message_receipts where message_id=$1 order by id`, [a.body.message.id])).map((x) => x.state)).toEqual(['delivered', 'acknowledged']);
+    expect(await count(`select count(*)::int n from messages where kind='ack' and reply_to=$1`, [a.body.message.id])).toBe(1);
+    expect(await count(`select count(*)::int n from messages where kind='report' and reply_to=$1`, [a.body.message.id])).toBeLessThanOrEqual(1);
+    expect(t.app.conversationSim.errors).toEqual([]);
   });
 });
 
@@ -278,5 +311,108 @@ describe('append-only and backfill', () => {
     const { clearDemo } = await import('../src/seed/demo.ts');
     await clearDemo(t.app.db, 't-1');
     expect(await count(`select count(*)::int n from conversation_threads`)).toBe(0);
+  });
+});
+
+describe('human threads only (review I2) and event shape', () => {
+  it('posting into an agent-agent thread is 422 THREAD_NOT_HUMAN and writes nothing (real and demo)', async () => {
+    const A = await setup();
+    const mid = await realMission(A.admin);
+    const ins = await rows(`select id from agent_instances where mission_id=$1 order by seq limit 2`, [mid]);
+    const [x, y] = ins.map((i) => i.id).sort();
+    const tid = (await t.pool.query(`insert into conversation_threads(tenant_id, scope, mission_id, kind, a, b) values ('t-1','mission',$1,'agent-agent',$2,$3) returning id`, [mid, x, y])).rows[0].id;
+    const r = await send(A.admin, tid, { kind: 'command', text: 'hi', to: x });
+    expect(r.status).toBe(422); expect(r.body.code).toBe('THREAD_NOT_HUMAN');
+    expect(await count(`select count(*)::int n from messages where thread_id=$1`, [tid])).toBe(0);
+    await seedDemo(t.app.db, 't-1', A.adminId);
+    const demo = MISSIONS.find((m) => m.status === 'running' && getMissionControl(m).nodes.some((n) => n.parent))!;
+    const th = (await A.admin.req('GET', `/missions/${demo.id}/threads`)).body.threads.find((q: any) => q.kind === 'agent-agent');
+    const before = await count(`select count(*)::int n from messages where thread_id=$1`, [th.id]);
+    const r2 = await send(A.admin, th.id, { kind: 'command', text: 'hi', to: th.aAgentId });
+    expect(r2.status).toBe(422); expect(r2.body.code).toBe('THREAD_NOT_HUMAN');
+    await sleep(200);
+    expect(await count(`select count(*)::int n from messages where thread_id=$1`, [th.id])).toBe(before);
+  });
+
+  it('conversation events use subject.kind thread; the messageCreated payload status matches the HTTP response', async () => {
+    const A = await setup();
+    const mid = await realMission(A.admin);
+    const tid = await humanThread(A.admin, mid, `${mid}:gm`);
+    const r = await send(A.admin, tid, { kind: 'command', text: 'status', to: 'gm' });
+    expect(r.body.message.status).toBe('queued');
+    const ev = await rows(`select type, subject_kind, subject_id, payload from events where type like 'conversation.%' and mission_id=$1`, [mid]);
+    expect(ev.length).toBeGreaterThan(0);
+    expect(ev.every((e) => e.subject_kind === 'thread' && e.subject_id === tid)).toBe(true);
+    const created = ev.filter((e) => e.type === 'conversation.messageCreated').find((e) => e.payload.messageId === r.body.message.id)!;
+    expect(created.payload.message.status).toBe('queued');
+    const inst = await rows(`select subject_kind from events where type like 'instance.%' or type='task.delegated'`);
+    expect(inst.length).toBeGreaterThan(0); expect(inst.every((e) => e.subject_kind === 'instance')).toBe(true);
+    expect((await rows(`select subject_kind from events where type like 'mission.%' and mission_id=$1`, [mid])).every((e) => e.subject_kind === 'mission')).toBe(true);
+  });
+});
+
+describe('attachment downloads (review I3) and other tenants (review I4)', () => {
+  const dl = (b: Browser, id: string) => b.req('GET', `/uploads/${id}`);
+  async function withAttachment(A: Adm, mina: { b: Browser; id: string }) {
+    const mid = await realMission(A.admin, true);
+    const tid = await humanThread(mina.b, mid, `${mid}:gm`);
+    writeFileSync(join(t.app.cfg.uploadDir!, 'abcd'), Buffer.from('hello'));
+    await t.pool.query(`insert into uploads(id, tenant_id, owner_id, sha256, name, mime, kind, size) values ('f-cccccccccccc','t-1',$1,'abcd','note.txt','text/plain','txt',5)`, [mina.id]);
+    const r = await send(mina.b, tid, { kind: 'command', text: 'file', to: 'gm', uploadIds: ['f-cccccccccccc'] });
+    expect(r.status).toBe(201);
+    return { mid, tid, id: 'f-cccccccccccc' };
+  }
+
+  it('poster and a viewer of the shared mission can fetch; a non-viewer, an un-shared viewer and a deleted mission get 404', async () => {
+    const A = await setup();
+    const mina = await A.member('Mina'), kenji = await A.member('Kenji'), zoe = await A.member('Zoe');
+    const { mid, id } = await withAttachment(A, mina);
+    expect((await dl(mina.b, id)).status).toBe(200);
+    expect((await dl(kenji.b, id)).status).toBe(200); // shared mission viewer, not the owner of the file
+    // a file attached in some other mission does not open for the viewer of a different one
+    const other = await realMission(zoe.b, false);
+    void other;
+    await A.admin.req('POST', `/missions/${mid}/share`, { shared: false });
+    expect((await dl(kenji.b, id)).status).toBe(404);
+    expect((await dl(mina.b, id)).status).toBe(200); // the uploader keeps their own file
+    await A.admin.req('POST', `/missions/${mid}/share`, { shared: true });
+    expect((await dl(kenji.b, id)).status).toBe(200);
+    expect((await A.admin.req('DELETE', `/missions/${mid}`)).status).toBe(200);
+    expect((await dl(kenji.b, id)).status).toBe(404);
+  });
+
+  it('a non-viewer never gets it (private mission)', async () => {
+    const A = await setup();
+    const mina = await A.member('Mina'), kenji = await A.member('Kenji');
+    const mid = await realMission(mina.b, false);
+    const tid = await humanThread(mina.b, mid, `${mid}:gm`);
+    writeFileSync(join(t.app.cfg.uploadDir!, 'abcd'), Buffer.from('hello'));
+    await t.pool.query(`insert into uploads(id, tenant_id, owner_id, sha256, name, mime, kind, size) values ('f-dddddddddddd','t-1',$1,'abcd','n.txt','text/plain','txt',5)`, [A.adminId]);
+    // owner is the admin: only an admin-owned file can be attached by the admin on mina's mission
+    expect((await send(A.admin, tid, { kind: 'command', text: 'f', to: 'gm', uploadIds: ['f-dddddddddddd'] })).status).toBe(201);
+    expect((await dl(kenji.b, 'f-dddddddddddd')).status).toBe(404);
+    expect((await dl(mina.b, 'f-dddddddddddd')).status).toBe(200); // owner of the mission sees what is attached in it
+  });
+
+  it('another tenant\'s thread, messages and attachment are 404 for a t-1 admin and a t-1 member (shared mission too)', async () => {
+    // one app serves one tenant (agent ids are global), so the other tenant's rows are inserted directly, as missions.test.ts does
+    const A = await setup();
+    const mina = await A.member('Mina');
+    await t.pool.query(`insert into tenants(id,name) values ('t-2','Other')`);
+    await t.pool.query(`insert into users(id,tenant_id,name,name_key,pass_hash,role,status) values ('u-x','t-2','X','x','h','admin','approved')`);
+    await t.pool.query(`insert into missions(id,tenant_id,owner_id,shared,status) values ('M-9001','t-2','u-x',true,'running')`);
+    const tid = (await t.pool.query(`insert into conversation_threads(tenant_id, scope, mission_id, kind, a, b) values ('t-2','mission','M-9001','human-agent','M-9001:gm','human') returning id`)).rows[0].id;
+    const mid = (await t.pool.query(`insert into messages(thread_id, seq, author_kind, author_id, recipient, kind, body) values ($1,1,'human','u-x','M-9001:gm','command','secret') returning id`, [tid])).rows[0].id;
+    writeFileSync(join(t.app.cfg.uploadDir!, 'ef01'), Buffer.from('secret'));
+    await t.pool.query(`insert into uploads(id, tenant_id, owner_id, sha256, name, mime, kind, size) values ('f-eeeeeeeeeeee','t-2','u-x','ef01','s.txt','text/plain','txt',6)`);
+    await t.pool.query(`insert into message_attachments(message_id, upload_id, name, kind, size) values ($1,'f-eeeeeeeeeeee','s.txt','txt','1 KB')`, [mid]);
+    for (const who of [A.admin, mina.b]) {
+      expect((await who.req('GET', `/missions/M-9001/threads`)).status).toBe(404);
+      expect((await who.req('POST', `/missions/M-9001/threads`, { instanceId: 'M-9001:gm' })).status).toBe(404);
+      expect((await who.req('GET', `/threads/${tid}/messages`)).status).toBe(404);
+      expect((await send(who, tid, { kind: 'command', text: 'x', to: 'gm' })).status).toBe(404);
+      expect((await dl(who, 'f-eeeeeeeeeeee')).status).toBe(404);
+    }
+    expect(await count(`select count(*)::int n from messages where thread_id=$1`, [tid])).toBe(1);
   });
 });

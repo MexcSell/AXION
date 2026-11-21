@@ -68,8 +68,12 @@ export default async function conversationRoutes(app: FastifyInstance) {
     if (!(HUMAN_POST_KINDS as readonly string[]).includes(b.kind)) throw invalid({ kind: 'people can only send a command or a reply' });
     const text = b.text.trim();
     if (!text && !b.uploadIds.length) throw invalid({ text: 'write a message or attach a file' });
+    let fresh = false;
     const out = await idempotent(app.db, req, ctx, async (c) => {
+      fresh = false;
       const th = await getThreadFor(c, ctx, id, true); // 404 when the mission is not visible; the row lock orders seq and the honest note
+      // people write only where a human is a participant: never into an agent<->agent thread
+      if (th.a !== 'human' && th.b !== 'human') throw new ApiError('THREAD_NOT_HUMAN', 422, 'This conversation is between agents. Message the agent in its own conversation with you.', { fieldErrors: { thread: 'not a human conversation' } });
       // `to` must be a participant, and an agent (people never address 'human')
       const parts = (await c.query(`select p.id, i.agent_id from (values ($1::text), ($2::text)) p(id) left join agent_instances i on i.id=p.id`, [th.a, th.b])).rows;
       const target = parts.find((x) => x.id !== 'human' && (x.id === b.to || x.agent_id === b.to));
@@ -81,16 +85,16 @@ export default async function conversationRoutes(app: FastifyInstance) {
         atts.push({ uploadId: f.id, name: f.name, kind: uiAttachmentKind(f.kind), size: sizeLabel(Number(f.size)) });
       }
       const msg = await appendMessage(c, { thread: th, authorKind: 'human', authorId: ctx.user.id, recipient: target.id, kind: b.kind, body: text, replyTo: b.replyTo ?? null,
-        simulated: false, attachments: atts, correlationId: ctx.correlationId });
+        simulated: false, attachments: atts, correlationId: ctx.correlationId, status: th.demo ? undefined : 'queued' });
       if (!th.demo) { // E5: real mission, nothing acts. queued receipt plus one honest note per thread
         await addReceipt(c, th, msg.id, 'queued', { correlationId: ctx.correlationId });
         await ensureHonestNote(c, th);
-        msg.status = 'queued';
       }
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'conversation.message', subject: th.id, result: 'ok', correlationId: ctx.correlationId, detail: { messageId: msg.id, kind: b.kind, attachments: atts.length } });
+      fresh = true;
       return { status: 201, body: { message: msg } };
     }, async (c) => { await getThreadFor(c, ctx, id); });
-    if (out.status === 201) app.onMessagePosted?.((out.body as { message: { id: string } }).message.id);
+    if (out.status === 201 && fresh) app.onMessagePosted?.((out.body as { message: { id: string } }).message.id);
     return reply.status(out.status).send(out.body);
   });
 }

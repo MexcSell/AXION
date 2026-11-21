@@ -7,7 +7,7 @@ import { appendMessage } from './service.ts';
  * (author 'system', kind 'system', simulated=false). The caller holds the thread row lock, so concurrent posts add it once.
  */
 export async function ensureHonestNote(c: Tx, thread: { id: string; tenant_id: string; mission_id: string | null }) {
-  const has = (await c.query(`select 1 from messages where thread_id=$1 and author_kind='system' and body=$2 limit 1`, [thread.id, HONEST_NOTE])).rowCount;
+  const has = (await c.query(`select 1 from messages where thread_id=$1 and author_kind='system' and author_id='system' and kind='system' limit 1`, [thread.id])).rowCount;
   if (has) return null;
   return appendMessage(c, { thread, authorKind: 'system', authorId: 'system', recipient: 'human', kind: 'system', body: HONEST_NOTE, simulated: false });
 }

@@ -61,7 +61,7 @@ export interface NewMessage {
   authorKind: 'human' | 'agent' | 'system'; authorId: string; recipient: string; kind: string; body: string;
   taskId?: string | null; replyTo?: string | null; simulated: boolean; createdAt?: Date; agoMin?: number; seq?: number;
   attachments?: { uploadId?: string | null; name: string; kind: string; size: string }[];
-  actor?: { kind: 'human' | 'agent' | 'system'; id: string }; correlationId?: string; quiet?: boolean;
+  actor?: { kind: 'human' | 'agent' | 'system'; id: string }; correlationId?: string; quiet?: boolean; status?: MessageDto['status'];
 }
 
 /** Append one message (the caller holds the thread lock when concurrent writers are possible) and emit conversation.messageCreated. */
@@ -73,8 +73,9 @@ export async function appendMessage(c: Tx, m: NewMessage): Promise<MessageDto> {
     [m.thread.id, seq, m.authorKind, m.authorId, m.recipient, m.kind, m.body, m.taskId ?? null, m.replyTo ?? null, m.simulated, m.createdAt ?? null, m.agoMin ?? null])).rows[0].id;
   for (const a of m.attachments ?? []) await c.query('insert into message_attachments(message_id, upload_id, name, kind, size) values ($1,$2,$3,$4,$5)', [id, a.uploadId ?? null, a.name, a.kind, a.size]);
   const dto = (await messagesWhere(c, 'm.id=$1', [id]))[0];
+  if (m.status) dto.status = m.status; // the state the receipt written right after will give, so the event and the response agree
   if (m.thread.mission_id && !m.quiet) {
-    await emit(c, { tenantId: m.thread.tenant_id, type: 'conversation.messageCreated', subject: m.thread.id, missionId: m.thread.mission_id,
+    await emit(c, { tenantId: m.thread.tenant_id, type: 'conversation.messageCreated', subjectKind: 'thread', subject: m.thread.id, missionId: m.thread.mission_id,
       actor: m.actor?.id ?? (m.authorKind === 'system' ? 'system' : m.authorId), actorKind: m.actor?.kind ?? m.authorKind, correlationId: m.correlationId,
       payload: { threadId: m.thread.id, messageId: dto.id, seq, kind: m.kind, simulated: m.simulated, message: dto } });
   }
@@ -84,7 +85,7 @@ export async function appendMessage(c: Tx, m: NewMessage): Promise<MessageDto> {
 export async function addReceipt(c: Tx, thread: { id: string; tenant_id: string; mission_id: string | null }, messageId: string, state: 'queued' | 'delivered' | 'acknowledged', opts: { at?: Date; quiet?: boolean; simulated?: boolean; correlationId?: string } = {}) {
   await c.query(`insert into message_receipts(message_id, state, at) values ($1,$2, coalesce($3::timestamptz, now()))`, [messageId, state, opts.at ?? null]);
   if (thread.mission_id && !opts.quiet) {
-    await emit(c, { tenantId: thread.tenant_id, type: 'conversation.receipt', subject: thread.id, missionId: thread.mission_id, correlationId: opts.correlationId,
+    await emit(c, { tenantId: thread.tenant_id, type: 'conversation.receipt', subjectKind: 'thread', subject: thread.id, missionId: thread.mission_id, correlationId: opts.correlationId,
       payload: { threadId: thread.id, messageId, state, simulated: !!opts.simulated } });
   }
 }
