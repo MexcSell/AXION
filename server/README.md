@@ -70,6 +70,15 @@ server (`myapp`, `agentapp`, `ajp`, `ajp_test`, `postgres`) are never read or ch
   not the author: 403 `SELF_APPROVAL`; 409 `PROPOSAL_CHANGED`/`ORG_CHANGED`/`PROPOSAL_EXPIRED`/`PROPOSAL_NOT_PENDING`, 422
   `ORG_INVALID`; approve appends one org revision), `POST /organization/proposals/:id/withdraw` (author). Pending proposals expire
   after 7 days, on read or decision. Events `org.proposalCreated|proposalDecided|revisionApplied` (audience all).
+- Organisation history (improvement cycle 4): `GET /organization/revisions` (everyone; oldest first, each with `createdByName`,
+  `source` = proposal | agent | seed | other, `appliedFromProposal`, `changed` = lines changed against the revision before),
+  `GET /organization/revisions/:seq` (+ `edges`), `GET /organization/revisions/:seq/diff?against=` (default the revision before;
+  0 = before any revision) → `{seq, against, added, removed, moved[{subordinate, from, to}], impact}`, where `impact` lists the
+  caller's visible, non-final, non-archived missions with an instance of an agent whose manager changed (read only: instances
+  are never changed). `POST /organization/revisions/:seq/rollback-proposal {why?}` (admin, Idempotency-Key) stores an ordinary
+  proposal "Roll back to revision N" with revision N's lines on the latest base, through the same path as
+  `POST /organization/proposals`; 422 `NOTHING_TO_ROLL_BACK` (the latest revision, or the same lines), 409 `DUPLICATE_PROPOSAL`
+  (a pending proposal with those lines), 404 for another tenant's revision. Another administrator decides it as usual.
 - Company scorecard (improvement cycle 2): `GET /company/scorecard?window=7d|30d|90d&includeDemo=0|1` (default `30d`, DEMO excluded;
   every signed-in user) → `{window, from, to, includeDemo, rows}`; each row `{key, label, value|null, unit, n, evidence, state: ok|none}`.
   Computed by a pure function (`src/company/scorecard.ts`) only from the caller's visible missions (tenant, not deleted,

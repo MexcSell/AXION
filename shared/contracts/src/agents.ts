@@ -58,3 +58,21 @@ export interface OrgProposalDto {
   decidedBy: string | null; decidedByName: string | null; decidedAt: string | null; decisionNote: string | null;
   appliedRevision: number | null; result: OrgDryRun;
 }
+
+/** Improvement cycle 4: organisation history. Where a revision came from (stored facts only). */
+export type OrgRevisionSource =
+  | { kind: 'proposal'; proposalId: string; title: string }
+  | { kind: 'agent'; agentId: string }
+  | { kind: 'seed' }
+  | { kind: 'other' };
+/** A revision with who made it, its source and how many reporting lines changed against the revision before it. */
+export interface OrgRevisionSummaryDto extends OrgRevisionDto {
+  createdByName: string; source: OrgRevisionSource; appliedFromProposal: string | null; changed: number;
+}
+export interface OrgRevisionDetailDto extends OrgRevisionSummaryDto { edges: OrgEdgeDto[] }
+/** A line whose subordinate is in both revisions with another manager. */
+export interface OrgMoveDto { subordinate: string; from: string; to: string }
+/** An active, visible mission with an instance of an agent whose manager differs between the two revisions (never changed). */
+export interface OrgImpactDto { missionId: string; title: string; agentId: string; instanceId: string; demo: boolean }
+/** GET /organization/revisions/:seq/diff?against=: `against` 0 = before any revision. Pure computation. */
+export interface OrgDiffDto { seq: number; against: number; added: OrgEdgeDto[]; removed: OrgEdgeDto[]; moved: OrgMoveDto[]; impact: OrgImpactDto[] }

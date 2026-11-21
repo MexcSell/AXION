@@ -64,6 +64,41 @@ export async function expireDue(c: Tx, tenantId: string) {
   return gone.length;
 }
 
+const staleBase = (seq: number, base: number) => new ApiError('ORG_CHANGED', 409, `The organisation changed meanwhile (revision ${seq} is active, this was made on ${base}). Start again from the current chart.`);
+/** Serialises proposal creation per tenant (re-entrant within one transaction). */
+export const lockProposals = (c: Tx, tenantId: string) => c.query('select pg_advisory_xact_lock(hashtext($1))', ['org-prop:' + tenantId]);
+
+/**
+ * The one way a proposal is stored (POST /organization/proposals and, cycle 4, the rollback proposal): lock, expire,
+ * stale-base check, duplicate check (same sha pending), server dry run, insert, audit, announce. Runs inside idempotent().
+ * `rollbackTo` (cycle 4) only adds the target revision to the audit detail and the event payload.
+ */
+export async function createProposal(c: Tx, ctx: Ctx, b: { title: string; why: string; baseRevision: number; edges: EdgeIn[] }, opts: { rollbackTo?: number } = {}) {
+  await lockProposals(c, ctx.tenantId);
+  await expireDue(c, ctx.tenantId);
+  const cur = await latest(c, ctx.tenantId);
+  if (cur.seq !== b.baseRevision) throw staleBase(cur.seq, b.baseRevision);
+  const edges = toStored(b.edges);
+  const sha = payloadSha({ title: b.title, why: b.why, baseRevision: b.baseRevision, edges });
+  if ((await c.query(`select 1 from org_proposals where tenant_id=$1 and payload_sha=$2 and status='pending'`, [ctx.tenantId, sha])).rowCount)
+    throw new ApiError('DUPLICATE_PROPOSAL', 409, 'The same proposal is already waiting for a decision.');
+  const result = await dryRun(c, ctx.tenantId, b.edges, cur.id);
+  const id = 'OP-' + randomBytes(16).toString('hex').toUpperCase(); // 128-bit
+  await c.query(
+    `insert into org_proposals(id, tenant_id, title, why, base_revision, edges, payload_sha, created_by, result) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [id, ctx.tenantId, b.title, b.why, b.baseRevision, JSON.stringify(edges), sha, ctx.user.id, JSON.stringify(result)]);
+  const rb = opts.rollbackTo !== undefined ? { rollbackTo: opts.rollbackTo } : {};
+  const detail = { baseRevision: b.baseRevision, added: result.added.length, removed: result.removed.length, errors: result.errors.length, warnings: result.warnings.length, ...rb };
+  await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'org.proposal.create', subject: id, result: 'ok', correlationId: ctx.correlationId, detail });
+  await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'org.proposalCreated', subject: id, subjectKind: 'org', payload: { title: b.title, baseRevision: b.baseRevision, ok: result.ok, ...rb } });
+  return { status: 201, body: { proposal: await one(c, ctx.tenantId, id) } };
+}
+
+/** The pending proposals of a tenant whose stored lines equal `edges` (any title or why). */
+export async function pendingWithEdges(c: Tx, tenantId: string, edges: EdgeIn[]) {
+  return (await c.query(`select id from org_proposals where tenant_id=$1 and status='pending' and edges = $2::jsonb`, [tenantId, JSON.stringify(toStored(edges))])).rows.map((r) => r.id as string);
+}
+
 export default async function proposalRoutes(app: FastifyInstance) {
   app.get('/organization/proposals', async (req) => {
     const ctx = await requireUser(req);
@@ -77,31 +112,12 @@ export default async function proposalRoutes(app: FastifyInstance) {
   app.post('/organization/proposals', async (req, reply) => {
     const ctx = await requireAdmin(req);
     const b = parse(CreateIn, req.body);
-    const stale = (seq: number) => new ApiError('ORG_CHANGED', 409, `The organisation changed meanwhile (revision ${seq} is active, this was made on ${b.baseRevision}). Start again from the current chart.`);
     if ((req.query as { dryRun?: string }).dryRun === '1') { // stores nothing, needs no Idempotency-Key
       const cur = await latest(app.db, ctx.tenantId);
-      if (cur.seq !== b.baseRevision) throw stale(cur.seq);
+      if (cur.seq !== b.baseRevision) throw staleBase(cur.seq, b.baseRevision);
       return { result: await dryRun(app.db, ctx.tenantId, b.edges, cur.id), baseRevision: cur.seq };
     }
-    const out = await idempotent(app.db, req, ctx, async (c) => {
-      await c.query('select pg_advisory_xact_lock(hashtext($1))', ['org-prop:' + ctx.tenantId]);
-      await expireDue(c, ctx.tenantId);
-      const cur = await latest(c, ctx.tenantId);
-      if (cur.seq !== b.baseRevision) throw stale(cur.seq);
-      const edges = toStored(b.edges);
-      const sha = payloadSha({ title: b.title, why: b.why, baseRevision: b.baseRevision, edges });
-      if ((await c.query(`select 1 from org_proposals where tenant_id=$1 and payload_sha=$2 and status='pending'`, [ctx.tenantId, sha])).rowCount)
-        throw new ApiError('DUPLICATE_PROPOSAL', 409, 'The same proposal is already waiting for a decision.');
-      const result = await dryRun(c, ctx.tenantId, b.edges, cur.id);
-      const id = 'OP-' + randomBytes(16).toString('hex').toUpperCase(); // 128-bit
-      await c.query(
-        `insert into org_proposals(id, tenant_id, title, why, base_revision, edges, payload_sha, created_by, result) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [id, ctx.tenantId, b.title, b.why, b.baseRevision, JSON.stringify(edges), sha, ctx.user.id, JSON.stringify(result)]);
-      const detail = { baseRevision: b.baseRevision, added: result.added.length, removed: result.removed.length, errors: result.errors.length, warnings: result.warnings.length };
-      await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'org.proposal.create', subject: id, result: 'ok', correlationId: ctx.correlationId, detail });
-      await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'org.proposalCreated', subject: id, subjectKind: 'org', payload: { title: b.title, baseRevision: b.baseRevision, ok: result.ok } });
-      return { status: 201, body: { proposal: await one(c, ctx.tenantId, id) } };
-    });
+    const out = await idempotent(app.db, req, ctx, (c) => createProposal(c, ctx, b));
     return reply.status(out.status).send(out.body);
   });
 
