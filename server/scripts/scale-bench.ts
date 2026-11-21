@@ -9,12 +9,14 @@ import pg from 'pg';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { assertOwnLaneDb } from './scale-guard.ts';
 import { buildApp } from '../src/app.ts';
 import { migrate } from '../src/migrate.ts';
 import { Browser } from '../test/helpers.ts';
 
 const url = process.env.E2E_DATABASE_URL;
-if (!url || !/\/axion_e2e\d+(\?|$)/.test(url)) throw new Error('E2E_DATABASE_URL must be a lane database axion_e2e<N>');
+assertOwnLaneDb(url, join(import.meta.dirname, '..', '..')); // only this lane's own axion_e2e<N>, never another lane's
+if (!url) throw new Error('E2E_DATABASE_URL missing');
 const RUNS = 20;
 const T = 't-1';
 
