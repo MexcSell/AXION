@@ -135,7 +135,7 @@ for (const id of ids) {
   if (!trapped) all.push({ where, msg: 'TRAP Tab/Shift+Tab moved focus out of the dialog' });
   // cycle 23: Tab on the last control wraps to the first, Shift+Tab on the first wraps to the last
   const ring = () => p.evaluate(() => { const d = [...document.querySelectorAll('[aria-modal=true]')].pop(); if (!d) return null;
-    const vis = (e) => { const r = e.getBoundingClientRect(); return (r.width > 0 || r.height > 0) && getComputedStyle(e).visibility !== 'hidden'; };
+    const vis = (e) => { const r = e.getBoundingClientRect(); return !e.disabled && (r.width > 0 || r.height > 0) && getComputedStyle(e).visibility !== 'hidden'; };
     const l = [...d.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]):not([type=hidden]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')].filter(vis);
     l.forEach((e, i) => e.setAttribute('data-a11y-i', String(i))); return l.length; });
   const nring = trapped ? await ring() : 0;
@@ -169,7 +169,7 @@ if (API) {
     });
     for (const v of probes) {
       await p.goto(base + v, { waitUntil: navWait() });
-      await p.waitForTimeout(mode === 'slow' ? 500 : 1200);
+      await settle(p, mode === 'slow' ? 400 : 1000);
       const found = await p.evaluate(audit);
       for (const m of found) all.push({ where: `${v} (${mode})`, msg: m });
       probed.push(`${v} ${mode} [${await p.evaluate(() => (document.body.innerText.match(/(Loading|Reading)[^\n]{0,30}/g) || []).join(';'))}]: ${await p.evaluate(() => [...document.querySelectorAll('[role=status],[role=alert]')].map((e) => (e.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 40)).filter(Boolean).join(' | ').slice(0, 160))}`);
