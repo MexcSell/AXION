@@ -35,7 +35,7 @@ server (`myapp`, `agentapp`, `ajp`, `ajp_test`, `postgres`) are never read or ch
 
 | Command | What it does |
 |---|---|
-| `npm test` | 321 Vitest tests against `axion_test` |
+| `npm test` | 345 Vitest tests against `axion_test` |
 | `npm run typecheck` | TypeScript |
 | `npm run migrate [-- down <n>]` | migrations up (default) or down to version n (`down 0` empties the schema) |
 | `npm run admin:approve-device -- <name>` | recovery: approves that user's newest waiting device (e.g. the only admin lost their cookies) |
@@ -83,6 +83,19 @@ server (`myapp`, `agentapp`, `ajp`, `ajp_test`, `postgres`) are never read or ch
   rows: the `delegated` row names the mission lead, not the previous owner). Reliable = passed, ≤ 1 attempt, never taken from the
   agent; unreliable = failed, passed after a retry, reassigned away. Canceled and open tasks don't count. `value` is a whole
   percentage, null while n < 5. No migration.
+- Agent version proposals (improvement cycle 5): `GET /version-proposals` (all agents) and `GET /agents/:id/version-proposals`
+  (everyone; `{proposals}`, each with base and candidate `{model, skills, tools}`, the diff, `sha`, `stale`, `evaluation: null`),
+  `POST /agents/:id/version-proposals {title, hypothesis, candidate, baseVersionId}` (admin, Idempotency-Key; 409 `AGENT_CHANGED` when
+  the base is not the active version, 409 `DUPLICATE_PROPOSAL`, 422 `CANDIDATE_UNCHANGED`), `POST /version-proposals/:pid/decision
+  {decision: promote|reject, sha, note?}` (admin, not the author: 403 `SELF_APPROVAL`; checks in this order: pending (409
+  `PROPOSAL_NOT_PENDING`), base still active (promote only, 409 `AGENT_CHANGED`), sha (409 `PROPOSAL_CHANGED`), expiry (409
+  `PROPOSAL_EXPIRED`); promote = a new immutable version through `addVersion`, parent = the base, made active),
+  `POST /version-proposals/:pid/withdraw` (author), `POST /agents/:id/rollback {toVersionId, why}` (admin, Idempotency-Key; a NEW
+  version with the target's configuration, parent = the active one; 422 `ALREADY_ACTIVE`/`SAME_CONFIG`/`VERSION_NOT_OF_AGENT`).
+  Pending proposals expire after 14 days, on read or decision. PATCH, promote and rollback take the same per-agent lock
+  (`lockAgent`, before reading the agent); promote and rollback move `row_version` on, so an edit opened before answers 409.
+  Events `agent.versionProposed|versionPromoted|rolledBack|versionProposalDecided` (audience all, subject kind `agent`), plus
+  `agent.versionCreated` and `agent.updated` on every new active version. Running instances keep their pinned version.
 - Mission instances: `GET /missions/:id/hierarchy`, `GET /missions/:id/tasks`, `GET /agent-instances[?agentId=]`,
   `GET /agent-instances/:id`. Each instance is pinned to the agent version active when it joined. A startup backfill gives
   existing missions their instances, delegations, tasks and (demo) threads; it is idempotent and skips a broken mission.
@@ -114,6 +127,6 @@ Not taken: axor's single-connection SQLite→Postgres shim, ad hoc migrations an
 ## Rollback
 
 1. Web: `?data=demo` (or `VITE_DATA_MODE=demo`) brings back the browser-only prototype.
-2. Data: `npm run migrate -- down 12` removes the org proposals (0013); `down 5` removes Stage 6 (migrations 0006–0013) and keeps Stage 5 data; `down 0` empties the
+2. Data: `npm run migrate -- down 13` removes the agent version proposals (0015; versions they promoted stay, as ordinary versions); `npm run migrate -- down 12` removes the org proposals (0013); `down 5` removes Stage 6 (migrations 0006–0013) and keeps Stage 5 data; `down 0` empties the
    schema; or restore a dump (`backups/axion-20261121T110311Z.dump` was taken right before the Stage 6 migration).
 3. Remove everything: `dropdb` `axion`, `axion_test`, `axion_e2e`, `axion_restore_check`; `drop role axion`.
