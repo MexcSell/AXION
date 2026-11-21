@@ -3,6 +3,8 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams } from '
 import { AppShell } from '@/components/layout/AppShell';
 import { TipProvider } from '@/components/ui/Tip';
 import NotFound from '@/pages/NotFound';
+import { loadHelp } from '@/help/load';
+import { lazyShellParts } from '@/components/layout/AppShell';
 import { AuthGate } from '@/features/auth/AuthGate';
 
 /**
@@ -51,7 +53,7 @@ function usePreloadRoutes() {
   useEffect(() => {
     const idle = (cb: () => void) => { if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(cb, { timeout: 3000 }); else setTimeout(cb, 1200); };
     // one chunk per idle slot so preloading never competes with the first paint
-    const queue = [...preloaders];
+    const queue = [loadHelp, ...lazyShellParts, ...preloaders];
     const next = () => { const f = queue.shift(); if (f) f().catch(() => {}).finally(() => idle(next)); };
     idle(next);
   }, []);
