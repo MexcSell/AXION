@@ -1,0 +1,243 @@
+# c10 raw benchmark output
+
+## Run 3 (final script, reported as the clean run): verbatim output of scale-bench.ts
+[heavy] slot 1 acquired at 17:41:21
+seeded {"m":"300","t":"3000","a":"6000","e":"50000","au":"20000","i":"1200"}
+BEFORE {"/company/scorecard":{"p50":29.1,"p95":36.5,"bytes":1458},"/agents":{"p50":45.9,"p95":47.3,"bytes":26637},"/missions":{"p50":9.9,"p95":13.2,"bytes":200316},"/agent-instances":{"p50":5.1,"p95":5.6,"bytes":139109}}
+EXPLAIN BEFORE scorecard_transitions:
+  ->  Seq Scan on missions  (cost=0.00..8.75 rows=300 width=7) (actual rows=300 loops=1)
+  ->  Index Scan using events_mission_seq on events  (cost=0.27..76.08 rows=1 width=87) (actual rows=285 loops=1
+  Index Cond: (mission_id = ANY ($0))
+  Execution Time: 0.735 ms
+EXPLAIN BEFORE reliability_ev:
+  ->  Seq Scan on events e  (cost=0.00..1454.00 rows=3015 width=21) (actual rows=3000 loops=1)
+  ->  Seq Scan on tasks  (cost=0.00..89.50 rows=2100 width=8) (actual rows=2100 loops=1)
+  Execution Time: 7.478 ms
+EXPLAIN BEFORE reliability_att:
+  ->  Seq Scan on task_attempts a  (cost=0.00..117.00 rows=6000 width=24) (actual rows=6000 loops=1)
+  ->  Seq Scan on tasks  (cost=0.00..89.50 rows=2100 width=8) (actual rows=2100 loops=1)
+  Execution Time: 1.940 ms
+EXPLAIN BEFORE reliability_audit:
+  ->  Seq Scan on audit_events x  (cost=0.00..627.00 rows=3000 width=14) (actual rows=3000 loops=1)
+  ->  Seq Scan on tasks  (cost=0.00..89.50 rows=2100 width=8) (actual rows=2100 loops=1)
+  Execution Time: 2.428 ms
+EXPLAIN BEFORE instances_list:
+  ->  Seq Scan on agent_instances i  (cost=0.00..32.00 rows=1200 width=135) (actual rows=1200 loops=1)
+  ->  Seq Scan on missions m  (cost=0.00..8.75 rows=300 width=7) (actual rows=300 loops=1)
+  Execution Time: 0.682 ms
+EXPLAIN BEFORE reliability_full:
+  Hash Left Join  (cost=2989.44..3180.99 rows=49612 width=169) (actual rows=2100 loops=1)
+  Hash Cond: (v.id = att.task_id)
+  CTE vis
+  ->  Hash Left Join  (cost=59.50..160.13 rows=2100 width=56) (actual rows=2100 loops=1)
+  Hash Cond: (t.owner_instance_id = i.id)
+  ->  Hash Join  (cost=12.50..107.59 rows=2100 width=50) (actual rows=2100 loops=1)
+  Hash Cond: (t.mission_id = m.id)
+  ->  Seq Scan on tasks t  (cost=0.00..89.50 rows=2100 width=56) (actual rows=2100 loops=1)
+  Filter: ((NOT simulated) AND (status = ANY ('{passed,failed}'::text[])))
+  Rows Removed by Filter: 900
+  ->  Hash  (cost=8.75..8.75 rows=300 width=8) (actual rows=300 loops=1)
+  Buckets: 1024  Batches: 1  Memory Usage: 20kB
+  ->  Seq Scan on missions m  (cost=0.00..8.75 rows=300 width=8) (actual rows=300 loops=1)
+  Filter: ((deleted_at IS NULL) AND (NOT demo) AND (tenant_id = 't-1'::text))
+  ->  Hash  (cost=32.00..32.00 rows=1200 width=25) (actual rows=1200 loops=1)
+  Buckets: 2048  Batches: 1  Memory Usage: 85kB
+  ->  Seq Scan on agent_instances i  (cost=0.00..32.00 rows=1200 width=25) (actual rows=1200 loops=1)
+  ->  Hash Left Join  (cost=2295.68..2354.33 rows=3308 width=145) (actual rows=2100 loops=1)
+  Hash Cond: (v.id = moved.task_id)
+  ->  Hash Left Join  (cost=1525.87..1578.89 rows=2100 width=113) (actual rows=2100 loops=1)
+  Hash Cond: ((v.id = ev.task_id) AND (v.status = ev.status))
+  ->  CTE Scan on vis v  (cost=0.00..42.00 rows=2100 width=105) (actual rows=2100 loops=1)
+  ->  Hash  (cost=1523.96..1523.96 rows=127 width=46) (actual rows=2100 loops=1)
+  Buckets: 4096 (originally 1024)  Batches: 1 (originally 1)  Memory Usage: 147kB
+  ->  Subquery Scan on ev  (cost=1519.83..1523.96 rows=127 width=46) (actual rows=2100 loops=1)
+  ->  GroupAggregate  (cost=1519.83..1522.69 rows=127 width=46) (actual rows=2100 loops=1)
+  Group Key: e.subject_id, ((e.payload ->> 'to'::text))
+  ->  Sort  (cost=1519.83..1520.15 rows=127 width=46) (actual rows=2100 loops=1)
+  Sort Key: e.subject_id, ((e.payload ->> 'to'::text))
+  Sort Method: quicksort  Memory: 195kB
+  ->  Hash Join  (cost=51.75..1515.39 rows=127 width=46) (actual rows=2100 loops=1)
+  Hash Cond: (e.subject_id = vis.id)
+  ->  Seq Scan on events e  (cost=0.00..1454.00 rows=3015 width=21) (actual rows=3000 loops=1)
+  Filter: ((tenant_id = 't-1'::text) AND (type = 'task.stateChanged'::text))
+  Rows Removed by Filter: 47000
+  ->  Hash  (cost=49.25..49.25 rows=200 width=32) (actual rows=2100 loops=1)
+  Buckets: 4096 (originally 1024)  Batches: 1 (originally 1)  Memory Usage: 116kB
+  ->  HashAggregate  (cost=47.25..49.25 rows=200 width=32) (actual rows=2100 loops=1)
+  Group Key: vis.id
+  Batches: 1  Memory Usage: 257kB
+  ->  CTE Scan on vis  (cost=0.00..42.00 rows=2100 width=32) (actual rows=2100 loops=1)
+  ->  Hash  (cost=765.88..765.88 rows=315 width=38) (actual rows=2100 loops=1)
+  Buckets: 4096 (originally 1024)  Batches: 1 (originally 1)  Memory Usage: 312kB
+  ->  Subquery Scan on moved  (cost=754.07..765.88 rows=315 width=38) (actual rows=2100 loops=1)
+  ->  GroupAggregate  (cost=754.07..762.73 rows=315 width=38) (actual rows=2100 loops=1)
+  Group Key: x.subject
+  ->  Sort  (cost=754.07..754.85 rows=315 width=42) (actual rows=2100 loops=1)
+  Sort Key: x.subject, x.at, x.id
+  Sort Method: quicksort  Memory: 307kB
+  ->  Hash Left Join  (cost=101.75..741.00 rows=315 width=42) (actual rows=2100 loops=1)
+  Hash Cond: ((x.detail ->> 'fromInstanceId'::text) = fi.id)
+  ->  Hash Join  (cost=51.75..690.13 rows=315 width=37) (actual rows=2100 loops=1)
+  Hash Cond: (x.subject = vis_1.id)
+  ->  Seq Scan on audit_events x  (cost=0.00..627.00 rows=3000 width=37) (actual rows=3000 loops=1)
+  Filter: ((tenant_id = 't-1'::text) AND (action = 'task.reassign'::text) AND (result = 'ok'::text))
+  Rows Removed by Filter: 17000
+  ->  Hash  (cost=49.25..49.25 rows=200 width=32) (actual rows=2100 loops=1)
+  Buckets: 4096 (originally 1024)  Batches: 1 (originally 1)  Memory Usage: 116kB
+  ->  HashAggregate  (cost=47.25..49.25 rows=200 width=32) (actual rows=2100 loops=1)
+  Group Key: vis_1.id
+  Batches: 1  Memory Usage: 257kB
+  ->  CTE Scan on vis vis_1  (cost=0.00..42.00 rows=2100 width=32) (actual rows=2100 loops=1)
+  ->  Hash  (cost=35.00..35.00 rows=1200 width=29) (actual rows=1200 loops=1)
+  Buckets: 2048  Batches: 1  Memory Usage: 89kB
+  ->  Seq Scan on agent_instances fi  (cost=0.00..35.00 rows=1200 width=29) (actual rows=1200 loops=1)
+  Filter: (tenant_id = 't-1'::text)
+  ->  Hash  (cost=496.14..496.14 rows=3000 width=48) (actual rows=2100 loops=1)
+  Buckets: 4096  Batches: 1  Memory Usage: 214kB
+  ->  Subquery Scan on att  (cost=391.14..496.14 rows=3000 width=48) (actual rows=2100 loops=1)
+  ->  GroupAggregate  (cost=391.14..466.14 rows=3000 width=48) (actual rows=2100 loops=1)
+  Group Key: a.task_id
+  ->  Sort  (cost=391.14..398.64 rows=3000 width=28) (actual rows=4200 loops=1)
+  Sort Key: a.task_id, a.attempt_no
+  Sort Method: quicksort  Memory: 444kB
+  ->  Hash Join  (cost=51.75..217.88 rows=3000 width=28) (actual rows=4200 loops=1)
+  Hash Cond: (a.task_id = vis_2.id)
+  ->  Seq Scan on task_attempts a  (cost=0.00..117.00 rows=6000 width=28) (actual rows=6000 loops=1)
+  ->  Hash  (cost=49.25..49.25 rows=200 width=32) (actual rows=2100 loops=1)
+  Buckets: 4096 (originally 1024)  Batches: 1 (originally 1)  Memory Usage: 116kB
+  ->  HashAggregate  (cost=47.25..49.25 rows=200 width=32) (actual rows=2100 loops=1)
+  Group Key: vis_2.id
+  Batches: 1  Memory Usage: 257kB
+  ->  CTE Scan on vis vis_2  (cost=0.00..42.00 rows=2100 width=32) (actual rows=2100 loops=1)
+  Planning Time: 0.648 ms
+  Execution Time: 29.296 ms
+AFTER {"/company/scorecard":{"p50":23.4,"p95":27.4,"bytes":1458},"/agents":{"p50":38.3,"p95":42.7,"bytes":26637},"/missions":{"p50":9.1,"p95":12.1,"bytes":200316},"/agent-instances":{"p50":4.8,"p95":6.5,"bytes":139109}}
+EXPLAIN AFTER scorecard_transitions:
+  ->  Seq Scan on missions  (cost=0.00..8.75 rows=300 width=7) (actual rows=300 loops=1)
+  ->  Bitmap Heap Scan on events  (cost=30.65..34.68 rows=1 width=87) (actual rows=285 loops=1)
+  ->  BitmapAnd  (cost=30.65..30.65 rows=1 width=0) (actual rows=0 loops=1)
+  ->  Bitmap Index Scan on events_tenant_type_subject  (cost=0.00..11.45 rows=303 width=0) (actual rows=300 loop
+  Index Cond: ((tenant_id = 't-1'::text) AND (type = 'mission.stateChanged'::text))
+  ->  Bitmap Index Scan on events_mission_seq  (cost=0.00..18.95 rows=29 width=0) (actual rows=300 loops=1)
+  Index Cond: (mission_id = ANY ($0))
+  Execution Time: 0.755 ms
+EXPLAIN AFTER reliability_ev:
+  ->  Index Scan using events_tenant_type_subject on events e  (cost=0.41..1390.13 rows=2992 width=21) (actual r
+  Index Cond: ((tenant_id = 't-1'::text) AND (type = 'task.stateChanged'::text))
+  ->  Seq Scan on tasks  (cost=0.00..89.50 rows=2100 width=8) (actual rows=2100 loops=1)
+  Execution Time: 4.415 ms
+EXPLAIN AFTER reliability_att:
+  ->  Seq Scan on task_attempts a  (cost=0.00..117.00 rows=6000 width=24) (actual rows=6000 loops=1)
+  ->  Seq Scan on tasks  (cost=0.00..89.50 rows=2100 width=8) (actual rows=2100 loops=1)
+  Execution Time: 1.783 ms
+EXPLAIN AFTER reliability_audit:
+  ->  Index Scan using audit_events_tenant_action_subject on audit_events x  (cost=0.29..649.85 rows=3000 width=
+  Index Cond: ((tenant_id = 't-1'::text) AND (action = 'task.reassign'::text))
+  ->  Seq Scan on tasks  (cost=0.00..89.50 rows=2100 width=8) (actual rows=2100 loops=1)
+  Execution Time: 3.744 ms
+EXPLAIN AFTER instances_list:
+  ->  Seq Scan on agent_instances i  (cost=0.00..32.00 rows=1200 width=135) (actual rows=1200 loops=1)
+  ->  Seq Scan on missions m  (cost=0.00..8.75 rows=300 width=7) (actual rows=300 loops=1)
+  Execution Time: 0.669 ms
+EXPLAIN AFTER reliability_full:
+  Hash Left Join  (cost=2192.78..2384.33 rows=49612 width=169) (actual rows=2100 loops=1)
+  Hash Cond: (v.id = att.task_id)
+  CTE vis
+  ->  Hash Left Join  (cost=59.50..160.13 rows=2100 width=56) (actual rows=2100 loops=1)
+  Hash Cond: (t.owner_instance_id = i.id)
+  ->  Hash Join  (cost=12.50..107.59 rows=2100 width=50) (actual rows=2100 loops=1)
+  Hash Cond: (t.mission_id = m.id)
+  ->  Seq Scan on tasks t  (cost=0.00..89.50 rows=2100 width=56) (actual rows=2100 loops=1)
+  Filter: ((NOT simulated) AND (status = ANY ('{passed,failed}'::text[])))
+  Rows Removed by Filter: 900
+  ->  Hash  (cost=8.75..8.75 rows=300 width=8) (actual rows=300 loops=1)
+  Buckets: 1024  Batches: 1  Memory Usage: 20kB
+  ->  Seq Scan on missions m  (cost=0.00..8.75 rows=300 width=8) (actual rows=300 loops=1)
+  Filter: ((deleted_at IS NULL) AND (NOT demo) AND (tenant_id = 't-1'::text))
+  ->  Hash  (cost=32.00..32.00 rows=1200 width=25) (actual rows=1200 loops=1)
+  Buckets: 2048  Batches: 1  Memory Usage: 85kB
+  ->  Seq Scan on agent_instances i  (cost=0.00..32.00 rows=1200 width=25) (actual rows=1200 loops=1)
+  ->  Hash Left Join  (cost=1499.02..1557.67 rows=3308 width=145) (actual rows=2100 loops=1)
+  Hash Cond: (v.id = moved.task_id)
+  ->  Hash Left Join  (cost=923.66..976.69 rows=2100 width=113) (actual rows=2100 loops=1)
+  Hash Cond: ((v.id = ev.task_id) AND (v.status = ev.status))
+  ->  CTE Scan on vis v  (cost=0.00..42.00 rows=2100 width=105) (actual rows=2100 loops=1)
+  ->  Hash  (cost=921.77..921.77 rows=126 width=46) (actual rows=2100 loops=1)
+  Buckets: 4096 (originally 1024)  Batches: 1 (originally 1)  Memory Usage: 147kB
+  ->  Subquery Scan on ev  (cost=917.68..921.77 rows=126 width=46) (actual rows=2100 loops=1)
+  ->  GroupAggregate  (cost=917.68..920.51 rows=126 width=46) (actual rows=2100 loops=1)
+  Group Key: e.subject_id, ((e.payload ->> 'to'::text))
+  ->  Sort  (cost=917.68..917.99 rows=126 width=46) (actual rows=2100 loops=1)
+  Sort Key: e.subject_id, ((e.payload ->> 'to'::text))
+  Sort Method: quicksort  Memory: 195kB
+  ->  Hash Join  (cost=154.83..913.28 rows=126 width=46) (actual rows=2100 loops=1)
+  Hash Cond: (e.subject_id = vis.id)
+  ->  Bitmap Heap Scan on events e  (cost=103.08..851.96 rows=2992 width=21) (actual rows=3000 loops=1)
+  Recheck Cond: ((tenant_id = 't-1'::text) AND (type = 'task.stateChanged'::text))
+  Heap Blocks: exact=59
+  ->  Bitmap Index Scan on events_tenant_type_subject  (cost=0.00..102.34 rows=2992 width=0) (actual rows=3000 l
+  Index Cond: ((tenant_id = 't-1'::text) AND (type = 'task.stateChanged'::text))
+  ->  Hash  (cost=49.25..49.25 rows=200 width=32) (actual rows=2100 loops=1)
+  Buckets: 4096 (originally 1024)  Batches: 1 (originally 1)  Memory Usage: 116kB
+  ->  HashAggregate  (cost=47.25..49.25 rows=200 width=32) (actual rows=2100 loops=1)
+  Group Key: vis.id
+  Batches: 1  Memory Usage: 257kB
+  ->  CTE Scan on vis  (cost=0.00..42.00 rows=2100 width=32) (actual rows=2100 loops=1)
+  ->  Hash  (cost=571.42..571.42 rows=315 width=38) (actual rows=2100 loops=1)
+  Buckets: 4096 (originally 1024)  Batches: 1 (originally 1)  Memory Usage: 312kB
+  ->  Subquery Scan on moved  (cost=559.60..571.42 rows=315 width=38) (actual rows=2100 loops=1)
+  ->  GroupAggregate  (cost=559.60..568.27 rows=315 width=38) (actual rows=2100 loops=1)
+  Group Key: x.subject
+  ->  Sort  (cost=559.60..560.39 rows=315 width=42) (actual rows=2100 loops=1)
+  Sort Key: x.subject, x.at, x.id
+  Sort Method: quicksort  Memory: 307kB
+  ->  Hash Left Join  (cost=204.79..546.53 rows=315 width=42) (actual rows=2100 loops=1)
+  Hash Cond: ((x.detail ->> 'fromInstanceId'::text) = fi.id)
+  ->  Hash Join  (cost=154.79..495.67 rows=315 width=37) (actual rows=2100 loops=1)
+  Hash Cond: (x.subject = vis_1.id)
+  ->  Bitmap Heap Scan on audit_events x  (cost=103.04..432.54 rows=3000 width=37) (actual rows=3000 loops=1)
+  Recheck Cond: ((tenant_id = 't-1'::text) AND (action = 'task.reassign'::text))
+  Filter: (result = 'ok'::text)
+  Heap Blocks: exact=57
+  ->  Bitmap Index Scan on audit_events_tenant_action_subject  (cost=0.00..102.29 rows=3000 width=0) (actual row
+  Index Cond: ((tenant_id = 't-1'::text) AND (action = 'task.reassign'::text))
+  ->  Hash  (cost=49.25..49.25 rows=200 width=32) (actual rows=2100 loops=1)
+  Buckets: 4096 (originally 1024)  Batches: 1 (originally 1)  Memory Usage: 116kB
+  ->  HashAggregate  (cost=47.25..49.25 rows=200 width=32) (actual rows=2100 loops=1)
+  Group Key: vis_1.id
+  Batches: 1  Memory Usage: 257kB
+  ->  CTE Scan on vis vis_1  (cost=0.00..42.00 rows=2100 width=32) (actual rows=2100 loops=1)
+  ->  Hash  (cost=35.00..35.00 rows=1200 width=29) (actual rows=1200 loops=1)
+  Buckets: 2048  Batches: 1  Memory Usage: 89kB
+  ->  Seq Scan on agent_instances fi  (cost=0.00..35.00 rows=1200 width=29) (actual rows=1200 loops=1)
+  Filter: (tenant_id = 't-1'::text)
+  ->  Hash  (cost=496.14..496.14 rows=3000 width=48) (actual rows=2100 loops=1)
+  Buckets: 4096  Batches: 1  Memory Usage: 214kB
+  ->  Subquery Scan on att  (cost=391.14..496.14 rows=3000 width=48) (actual rows=2100 loops=1)
+  ->  GroupAggregate  (cost=391.14..466.14 rows=3000 width=48) (actual rows=2100 loops=1)
+  Group Key: a.task_id
+  ->  Sort  (cost=391.14..398.64 rows=3000 width=28) (actual rows=4200 loops=1)
+  Sort Key: a.task_id, a.attempt_no
+  Sort Method: quicksort  Memory: 444kB
+  ->  Hash Join  (cost=51.75..217.88 rows=3000 width=28) (actual rows=4200 loops=1)
+  Hash Cond: (a.task_id = vis_2.id)
+  ->  Seq Scan on task_attempts a  (cost=0.00..117.00 rows=6000 width=28) (actual rows=6000 loops=1)
+  ->  Hash  (cost=49.25..49.25 rows=200 width=32) (actual rows=2100 loops=1)
+  Buckets: 4096 (originally 1024)  Batches: 1 (originally 1)  Memory Usage: 116kB
+  ->  HashAggregate  (cost=47.25..49.25 rows=200 width=32) (actual rows=2100 loops=1)
+  Group Key: vis_2.id
+  Batches: 1  Memory Usage: 257kB
+  ->  CTE Scan on vis vis_2  (cost=0.00..42.00 rows=2100 width=32) (actual rows=2100 loops=1)
+  Planning Time: 0.825 ms
+  Execution Time: 26.471 ms
+AFTER2 {"/company/scorecard":{"p50":22.7,"p95":25.8,"bytes":1458},"/agents":{"p50":39.8,"p95":41.2,"bytes":26637},"/missions":{"p50":8.6,"p95":8.9,"bytes":200316},"/agent-instances":{"p50":4.6,"p95":5.1,"bytes":139109}}
+
+## Runs 1 and 2: only the console summary lines were kept at the time (the full output was not saved). Transcribed:
+run1 (migration 0017 not yet written, so BEFORE vs AFTER is the same schema = pure noise):
+BEFORE /company/scorecard p50 30.8 p95 43.9 | /agents p50 62.3 p95 78.1 | /missions p50 14.2 p95 15.8 | /agent-instances p50 7.9 p95 10
+AFTER  /company/scorecard p50 25.3 p95 33.1 | /agents p50 58.3 p95 72.2 | /missions p50 12.9 p95 15.7 | /agent-instances p50 7 p95 9.6
+AFTER2 /company/scorecard p50 27.3 p95 37 | /agents p50 67.3 p95 88.8 | /missions p50 16.3 p95 19.7 | /agent-instances p50 9.3 p95 10.4
+run2 (0017 present):
+BEFORE /company/scorecard p50 41 p95 59 | /agents p50 74.1 p95 100.9 | /missions p50 16.3 p95 20.2 | /agent-instances p50 9.9 p95 12.4
+AFTER  /company/scorecard p50 42.5 p95 53.9 | /agents p50 62.9 p95 84.1 | /missions p50 13.2 p95 14.8 | /agent-instances p50 8.3 p95 10
+AFTER2 /company/scorecard p50 32.5 p95 53.7 | /agents p50 66.2 p95 83.5 | /missions p50 14 p95 15.4 | /agent-instances p50 7.4 p95 9.9
