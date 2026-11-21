@@ -21,11 +21,12 @@ const until = async (f, ms = 10000, step = 100) => { const t0 = Date.now(); for 
 
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
 const ctx = await b.newContext({ viewport: { width: 1600, height: 940 } });
-await ctx.addInitScript(() => {
+await ctx.addInitScript((MINIMAP_OFF) => {
   try { localStorage.setItem('axion.data-mode', 'api'); localStorage.setItem('axion.testhook', '1'); } catch { /* ignore */ }
   window.__lt = [];
+  if (MINIMAP_OFF) try { localStorage.setItem('axion.thread.minimap', '0'); } catch { /* ignore */ }
   try { new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__lt.push([e.startTime, e.duration]); }).observe({ type: 'longtask', buffered: true }); } catch { /* ignore */ }
-});
+}, process.env.MINIMAP === '0'); // MINIMAP=0: diagnosis only (the minimap hidden)
 const p = await ctx.newPage();
 const errors = [];
 p.on('pageerror', (e) => errors.push(e.message));

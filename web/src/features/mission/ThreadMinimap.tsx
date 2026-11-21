@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { AGENT_BY_ID } from '@/data/agents';
 import type { Message, MessageKind } from '@/data/types';
 import { cx } from '@/lib/format';
@@ -16,6 +16,7 @@ interface Item { id: string; top: number; h: number; w: number; side: 'left' | '
 const BLOCK_MIN = 3;
 const MAX_SCALE = .2;  // like VS Code: short threads stay small at the top instead of stretching
 const LANE = 34;      // px width of the block lane
+const SCALE_STEP = 1.03;
 
 export function ThreadMinimap({ scroller, msgs, rows, me, kindHue, deps }: {
   scroller: RefObject<HTMLDivElement | null>; msgs: Message[]; me: string; kindHue: Record<MessageKind, number>; deps: unknown;
@@ -32,18 +33,26 @@ export function ThreadMinimap({ scroller, msgs, rows, me, kindHue, deps }: {
   const idle = useRef<number>(0);
 
   const byId = useMemo(() => new Map(msgs.map((m) => [m.id, m])), [msgs]);
+  // an unchanged message at an unchanged place keeps its item object, so its chunk of blocks is not rendered again
+  const prevItems = useRef<{ list: Item[]; me: string; hue: Record<MessageKind, number> }>({ list: [], me, hue: kindHue });
   const items = useMemo(() => {
     let lastDay = '';
-    return msgs.map((m, i): Item => {
+    const prev = prevItems.current.me === me && prevItems.current.hue === kindHue ? prevItems.current.list : [];
+    const list = msgs.map((m, i): Item => {
       const r = rows[i] ?? { top: 0, h: 0, w: .3 };
       const day = dayOf(m);
       const human = m.from.startsWith('human:');
+      const w = Math.min(LANE - 4, Math.max(8, r.w * LANE)), dd = day !== lastDay ? (lastDay = day) : '';
+      const o = prev[i];
+      if (o && o.id === m.id && o.top === r.top && o.h === r.h && o.w === w && o.day === dd && o.text === m.text && o.kind === m.kind) return o;
       return {
-        id: m.id, top: r.top, h: r.h, w: Math.min(LANE - 4, Math.max(8, r.w * LANE)),
+        id: m.id, top: r.top, h: r.h, w,
         side: human ? 'human' : m.from === me ? 'right' : 'left', hue: kindHue[m.kind], time: clockOf(m),
-        day: day !== lastDay ? (lastDay = day) : '', who: human ? 'You' : AGENT_BY_ID[m.from]?.name ?? m.from, kind: m.kind, text: m.text,
+        day: dd, who: human ? 'You' : AGENT_BY_ID[m.from]?.name ?? m.from, kind: m.kind, text: m.text,
       };
     });
+    prevItems.current = { list, me, hue: kindHue };
+    return list;
   }, [msgs, rows, me, kindHue]);
 
   // the scroll geometry follows the content (rows measured, typing shown) and the scroll position
@@ -67,7 +76,11 @@ export function ThreadMinimap({ scroller, msgs, rows, me, kindHue, deps }: {
     return () => { obs.disconnect(); el.removeEventListener('scroll', onScroll); window.clearTimeout(idle.current); };
   }, [scroller, readGeo]);
 
-  const s = Math.min(railH / geo.height, MAX_SCALE); // content px → rail px
+  // content px → rail px. Improvement cycle 26: rounded down to a 3 % step, so a thread that grows by a message (a live
+  // burst) changes the scale, and so restyles every block, about once per 3 % of growth instead of on every message; the
+  // blocks then end up to 3 % short of the rail's bottom
+  const fit = railH / geo.height;
+  const s = fit >= MAX_SCALE ? MAX_SCALE : fit > 0 ? Math.pow(SCALE_STEP, Math.floor(Math.log(fit) / Math.log(SCALE_STEP))) : 0;
   const sliderTop = geo.top * s, sliderH = Math.max(14, geo.client * s);
   const scrollable = geo.height > geo.client + 2;
 
@@ -79,6 +92,10 @@ export function ThreadMinimap({ scroller, msgs, rows, me, kindHue, deps }: {
   };
   const current = items.length ? at(geo.top + 8) : undefined;
   const visible = (it: Item) => it.top + it.h > geo.top && it.top < geo.top + geo.client;
+  // the blocks in view: [vs, ve) (items are in content order)
+  let vs = items.findIndex(visible), ve = vs;
+  if (vs < 0) vs = ve = 0; else while (ve < items.length && visible(items[ve])) ve++;
+  const cur = current ? items.indexOf(current) : -1;
 
   // time labels: day markers win, then messages in view, then the rest — never overlapping
   const labels = useMemo(() => {
@@ -143,10 +160,10 @@ export function ThreadMinimap({ scroller, msgs, rows, me, kindHue, deps }: {
         aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-valuetext={current ? `${current.time}, ${current.who}` : undefined} tabIndex={0}
         onPointerDown={onPointerDown} onPointerMove={(e) => setHoverY(localY(e))} onPointerLeave={() => setHoverY(null)} onKeyDown={onKey}>
 
-        {items.map((it, i) => (
-          <Block key={it.id} id={it.id} cls={cx('mm-block', it.side, visible(it) && 'in-view', current?.id === it.id && 'current')}
-            top={it.top} h={it.h} w={it.w} left={it.side === 'left' ? 2 : LANE - it.w} hue={it.hue} i={i} />
-        ))}
+        {Array.from({ length: Math.ceil(items.length / CHUNK) }, (_, c) => {
+          const from = c * CHUNK, to = Math.min(items.length, from + CHUNK), clip = (x: number) => Math.min(Math.max(x, from), to);
+          return <BlockChunk key={c} items={items} from={from} to={to} vs={clip(vs)} ve={clip(ve)} cur={cur >= from && cur < to ? cur : -1} />;
+        })}
 
         {items.filter((it) => it.day).map((it) => <span key={'d' + it.id} className="mm-day" style={{ top: Math.max(it.top * s - 2, 0) }} />)}
 
@@ -175,6 +192,26 @@ export function ThreadMinimap({ scroller, msgs, rows, me, kindHue, deps }: {
     </div>
   );
 }
+
+/**
+ * Improvement cycle 26: blocks are rendered in chunks of CHUNK. A chunk renders again only when one of its items changed
+ * (a new message, a measured row) or its in-view / current marks moved, so a live message in a long thread renders one
+ * chunk, not every block.
+ */
+const CHUNK = 64;
+const BlockChunk = memo(function BlockChunk({ items, from, to, vs, ve, cur }: { items: Item[]; from: number; to: number; vs: number; ve: number; cur: number }) {
+  const out: ReactNode[] = [];
+  for (let i = from; i < to; i++) {
+    const it = items[i];
+    out.push(<Block key={it.id} id={it.id} cls={cx('mm-block', it.side, i >= vs && i < ve && 'in-view', i === cur && 'current')}
+      top={it.top} h={it.h} w={it.w} left={it.side === 'left' ? 2 : LANE - it.w} hue={it.hue} i={i} />);
+  }
+  return <>{out}</>;
+}, (a, b) => {
+  if (a.from !== b.from || a.to !== b.to || a.vs !== b.vs || a.ve !== b.ve || a.cur !== b.cur) return false;
+  for (let i = a.from; i < a.to; i++) if (a.items[i] !== b.items[i]) return false;
+  return true;
+});
 
 /**
  * One message block, in content px; the rail's `--s` scales it (improvement cycle 26: appending a message changes the
