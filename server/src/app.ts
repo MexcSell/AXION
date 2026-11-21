@@ -17,6 +17,8 @@ import opsRoutes from './ops/routes.ts';
 import { sweepExpired } from './approvals/service.ts';
 import { tx } from './db.ts';
 import { checkOrigin } from './auth/session.ts';
+import agentRoutes from './agents/routes.ts';
+import { seedCompany } from './agents/seed.ts';
 
 declare module 'fastify' {
   interface FastifyInstance { db: Db; cfg: Required<Pick<Config, 'tenantId'>> & Config; onFirstAdmin?: (userId: string) => Promise<void> }
@@ -68,6 +70,8 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   await app.register(approvalRoutes, { prefix: '/api/v1' });
   await app.register(notificationRoutes, { prefix: '/api/v1' });
   await app.register(opsRoutes, { prefix: '/api/v1' });
+  await app.register(agentRoutes, { prefix: '/api/v1' });
+  await tx(db, (c) => seedCompany(c, app.cfg.tenantId)); // decision E1: company data, idempotent, independent of DEMO_SEED
 
   app.get('/api/v1/health', async () => {
     let up = false;
