@@ -48,7 +48,8 @@ export interface McEntry {
 interface McState { byMission: Record<string, McEntry> }
 export const useMC = create<McState>(() => ({ byMission: {} }));
 
-const patchEntry = (mid: string, f: (e: McEntry) => McEntry) => useMC.setState((s) => ({ byMission: { ...s.byMission, [mid]: f(s.byMission[mid] ?? {}) } }));
+/** Every other writer applies the live events still queued first, so it sees (and keeps) them in arrival order. */
+const patchEntry = (mid: string, f: (e: McEntry) => McEntry) => { flushMissionControlEvents(); useMC.setState((s) => ({ byMission: { ...s.byMission, [mid]: f(s.byMission[mid] ?? {}) } })); };
 const patchThread = (mid: string, tid: string, f: (t: ThreadState) => ThreadState) => patchEntry(mid, (e) => {
   const t = e.threads?.[tid];
   return t ? { ...e, threads: { ...e.threads, [tid]: f(t) } } : e;
@@ -68,6 +69,11 @@ const bySeq = (x: Message, y: Message) => (x.seq ?? Number.MAX_SAFE_INTEGER) - (
 
 /** Insert or replace by id, keep server order (local pending messages last), receipts never go backwards. */
 export function upsert(list: Message[], incoming: Message[]): Message[] {
+  // the common live case: one new message after the newest one loaded (no local pending message at the end)
+  if (incoming.length === 1) {
+    const m = incoming[0], tail = list[list.length - 1];
+    if (m.seq !== undefined && (!tail || (tail.seq !== undefined && m.seq > tail.seq)) && !list.some((x) => x.id === m.id)) return [...list, m];
+  }
   const out = new Map(list.map((m) => [m.id, m]));
   for (const m of incoming) {
     const cur = out.get(m.id);
@@ -170,11 +176,13 @@ export function useMissionControls(missionIds: string[], parts: Part[] = ALL): R
 
 const clearTimersOf = (prefix: string) => { for (const [k, t] of timers) if (k.startsWith(prefix)) { window.clearTimeout(t); timers.delete(k); } };
 export function forget(mid: string) {
+  dropQueued(mid);
   for (const p of ALL) { requested.delete(`${mid}|${p}`); failures.delete(`${mid}|${p}`); nextGen(`${mid}|${p}`); }
   clearTimersOf(`${mid}|`); clearTimersOf(`t:${mid}|`); clearTimersOf(`r:${mid}|`);
   useMC.setState((s) => { if (!s.byMission[mid]) return {}; const b = { ...s.byMission }; delete b[mid]; return { byMission: b }; });
 }
 export function clearMissionControl() {
+  dropQueued();
   // generations keep counting: an answer to a request from the previous session can never match a new one
   for (const k of requested) nextGen(k);
   requested.clear(); failures.clear();
@@ -270,36 +278,73 @@ function refreshSoon(mid: string, parts: Part[]) {
 let meId = '';
 export const setMcUser = (id: string) => { meId = id; };
 
-/** Called by api/events.ts for conversation.*, instance.* and task.* events. */
+/**
+ * Called by api/events.ts for conversation.*, instance.* and task.* events.
+ * Improvement cycle 22: conversation events are queued and applied together, in arrival order, at most every FLUSH_MS
+ * (one store write and one render per batch instead of one per event). A burst of hundreds of messages and receipts used
+ * to re-render the whole open thread once per event, which kept the page busy for tens of seconds. Every other writer of
+ * this store flushes the queue first (patchEntry), and forget / clear drop what is queued for what they remove.
+ */
 export function onMissionControlEvent(type: string, e: DomainEvent) {
   const mid = e.missionId ?? (e.subject.kind === 'instance' ? e.subject.id.split(':')[0] : undefined);
   if (!mid) return;
-  const entry = useMC.getState().byMission[mid];
-  if (type === 'conversation.messageCreated') {
-    const p = e.payload as { threadId: string; message?: MessageDto };
-    const th = entry?.threads?.[p.threadId];
-    if (!th || !p.message) { refreshSoon(mid, ['threads']); return; }
-    const msg = toMsg(p.message);
-    patchThread(mid, p.threadId, (x) => {
-      const known = (x.messages ?? []).some((m) => m.id === msg.id) || (x.early ?? []).some((m) => m.id === msg.id) || (x.mine ?? []).some((m) => m.id === msg.id) || x.last?.id === msg.id;
-      const base = { ...x, last: !x.last || (msg.seq ?? 0) >= (x.last.seq ?? 0) ? msg : x.last, count: x.count + (known || (x.last && (msg.seq ?? 0) <= (x.last.seq ?? 0)) ? 0 : 1) };
-      if (!x.messages) return x.loading ? { ...base, early: [...(x.early ?? []), msg] } : base;
-      // my own post while its POST answer is still out: hold the event copy; the answer's id decides (see sendMissionMessage)
-      if (msg.from === `human:${meId}` && x.messages.some((m) => m.pending) && !x.messages.some((m) => m.id === msg.id)) return { ...base, mine: [...(x.mine ?? []), msg] };
-      return { ...base, messages: upsert(x.messages, [msg]) };
-    });
-  } else if (type === 'conversation.receipt') {
-    const p = e.payload as { threadId: string; messageId: string; state: Message['status'] };
-    patchThread(mid, p.threadId, (x) => ({
-      ...x,
-      messages: x.messages?.map((m) => (m.id === p.messageId ? { ...m, status: laterStatus(m.status, p.state) } : m)) ?? null,
-      mine: x.mine?.map((m) => (m.id === p.messageId ? { ...m, status: laterStatus(m.status, p.state) } : m)),
-      earlyReceipts: !x.messages && x.loading ? { ...x.earlyReceipts, [p.messageId]: laterStatus(x.earlyReceipts?.[p.messageId], p.state) } : x.earlyReceipts,
-      last: x.last?.id === p.messageId ? { ...x.last, status: laterStatus(x.last.status, p.state) } : x.last,
-    }));
+  if (type === 'conversation.messageCreated' || type === 'conversation.receipt') {
+    queued.push({ type, mid, e });
+    if (!flushTimer) flushTimer = window.setTimeout(flushMissionControlEvents, FLUSH_MS);
   } else if (type.startsWith('instance.') || type.startsWith('task.')) {
     refreshSoon(mid, ['hierarchy', 'tasks', 'threads']);
   }
+}
+
+const FLUSH_MS = 60;
+let queued: { type: string; mid: string; e: DomainEvent }[] = [];
+let flushTimer = 0;
+function dropQueued(mid?: string) {
+  queued = mid ? queued.filter((q) => q.mid !== mid) : [];
+  if (!queued.length && flushTimer) { window.clearTimeout(flushTimer); flushTimer = 0; }
+}
+
+/** Apply every queued conversation event in one store write. Also called (first) by every other writer. */
+export function flushMissionControlEvents() {
+  if (flushTimer) { window.clearTimeout(flushTimer); flushTimer = 0; }
+  if (!queued.length) return;
+  const batch = queued;
+  queued = [];
+  const before = useMC.getState().byMission;
+  let byMission = before;
+  const refresh = new Set<string>();
+  for (const { type, mid, e } of batch) {
+    const entry = byMission[mid];
+    const thread = (tid: string, f: (t: ThreadState) => ThreadState) => {
+      const t = byMission[mid]?.threads?.[tid];
+      if (t) byMission = { ...byMission, [mid]: { ...byMission[mid], threads: { ...byMission[mid].threads, [tid]: f(t) } } };
+    };
+    if (type === 'conversation.messageCreated') {
+      const p = e.payload as { threadId: string; message?: MessageDto };
+      const th = entry?.threads?.[p.threadId];
+      if (!th || !p.message) { refresh.add(mid); continue; }
+      const msg = toMsg(p.message);
+      thread(p.threadId, (x) => {
+        const known = (x.messages ?? []).some((m) => m.id === msg.id) || (x.early ?? []).some((m) => m.id === msg.id) || (x.mine ?? []).some((m) => m.id === msg.id) || x.last?.id === msg.id;
+        const base = { ...x, last: !x.last || (msg.seq ?? 0) >= (x.last.seq ?? 0) ? msg : x.last, count: x.count + (known || (x.last && (msg.seq ?? 0) <= (x.last.seq ?? 0)) ? 0 : 1) };
+        if (!x.messages) return x.loading ? { ...base, early: [...(x.early ?? []), msg] } : base;
+        // my own post while its POST answer is still out: hold the event copy; the answer's id decides (see sendMissionMessage)
+        if (msg.from === `human:${meId}` && x.messages.some((m) => m.pending) && !x.messages.some((m) => m.id === msg.id)) return { ...base, mine: [...(x.mine ?? []), msg] };
+        return { ...base, messages: upsert(x.messages, [msg]) };
+      });
+    } else {
+      const p = e.payload as { threadId: string; messageId: string; state: Message['status'] };
+      thread(p.threadId, (x) => ({
+        ...x,
+        messages: x.messages?.map((m) => (m.id === p.messageId ? { ...m, status: laterStatus(m.status, p.state) } : m)) ?? null,
+        mine: x.mine?.map((m) => (m.id === p.messageId ? { ...m, status: laterStatus(m.status, p.state) } : m)),
+        earlyReceipts: !x.messages && x.loading ? { ...x.earlyReceipts, [p.messageId]: laterStatus(x.earlyReceipts?.[p.messageId], p.state) } : x.earlyReceipts,
+        last: x.last?.id === p.messageId ? { ...x.last, status: laterStatus(x.last.status, p.state) } : x.last,
+      }));
+    }
+  }
+  if (byMission !== before) useMC.setState({ byMission });
+  for (const mid of refresh) refreshSoon(mid, ['threads']);
 }
 
 /* ------------------------------------------------------------------ task actions */
