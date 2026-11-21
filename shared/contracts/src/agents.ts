@@ -26,3 +26,15 @@ export interface AgentDto {
 
 export interface OrgEdgeDto { supervisorId: string; subordinateId: string; edgeType: string }
 export interface OrgRevisionDto { id: number; seq: number; note: string; createdBy: string; activeFrom: string }
+
+/** Improvement cycle 1: organisation change proposals (a full proposed set of reporting lines, checked by a dry run). */
+export type OrgProposalStatus = 'pending' | 'approved' | 'rejected' | 'applied' | 'failed' | 'expired' | 'withdrawn';
+export interface OrgIssue { code: string; message: string; agentId?: string; dept?: string }
+/** The server's dry run (validateOrg): stored facts only, no estimates. */
+export interface OrgDryRun { ok: boolean; errors: OrgIssue[]; warnings: OrgIssue[]; added: OrgEdgeDto[]; removed: OrgEdgeDto[] }
+export interface OrgProposalDto {
+  id: string; title: string; why: string; baseRevision: number; edges: OrgEdgeDto[]; sha: string; status: OrgProposalStatus;
+  createdBy: string; createdByName: string; createdAt: string; expiresAt: string;
+  decidedBy: string | null; decidedByName: string | null; decidedAt: string | null; decisionNote: string | null;
+  appliedRevision: number | null; result: OrgDryRun;
+}

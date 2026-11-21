@@ -64,6 +64,12 @@ server (`myapp`, `agentapp`, `ajp`, `ajp_test`, `postgres`) are never read or ch
   `ROLE_TAKEN`/`DUTY_TAKEN`), `PATCH /agents/:id` (admin, If-Match; a model/skills/tools change adds an immutable version),
   `GET /organization/graph`, `GET /organization/revisions`. 24 agents and org revision 1 are seeded on every start (idempotent,
   independent of `DEMO_SEED`; `demo:clear` never removes them).
+- Organisation proposals (improvement cycle 1): `GET /organization/proposals` (everyone; `{proposals, activeRevision}`),
+  `POST /organization/proposals {title, why, baseRevision, edges}` (admin, Idempotency-Key; `?dryRun=1` returns the dry run and
+  stores nothing; 409 `ORG_CHANGED`/`DUPLICATE_PROPOSAL`), `POST /organization/proposals/:id/decision {decision, note?, sha}` (admin,
+  not the author: 403 `SELF_APPROVAL`; 409 `PROPOSAL_CHANGED`/`ORG_CHANGED`/`PROPOSAL_EXPIRED`/`PROPOSAL_NOT_PENDING`, 422
+  `ORG_INVALID`; approve appends one org revision), `POST /organization/proposals/:id/withdraw` (author). Pending proposals expire
+  after 7 days, on read or decision. Events `org.proposalCreated|proposalDecided|revisionApplied` (audience all).
 - Mission instances: `GET /missions/:id/hierarchy`, `GET /missions/:id/tasks`, `GET /agent-instances[?agentId=]`,
   `GET /agent-instances/:id`. Each instance is pinned to the agent version active when it joined. A startup backfill gives
   existing missions their instances, delegations, tasks and (demo) threads; it is idempotent and skips a broken mission.
@@ -95,6 +101,6 @@ Not taken: axor's single-connection SQLite→Postgres shim, ad hoc migrations an
 ## Rollback
 
 1. Web: `?data=demo` (or `VITE_DATA_MODE=demo`) brings back the browser-only prototype.
-2. Data: `npm run migrate -- down 5` removes Stage 6 (migrations 0006–0012) and keeps Stage 5 data; `down 0` empties the
+2. Data: `npm run migrate -- down 12` removes the org proposals (0013); `down 5` removes Stage 6 (migrations 0006–0013) and keeps Stage 5 data; `down 0` empties the
    schema; or restore a dump (`backups/axion-20261121T110311Z.dump` was taken right before the Stage 6 migration).
 3. Remove everything: `dropdb` `axion`, `axion_test`, `axion_e2e`, `axion_restore_check`; `drop role axion`.

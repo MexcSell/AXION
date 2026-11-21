@@ -18,6 +18,7 @@ import { sweepExpired } from './approvals/service.ts';
 import { tx } from './db.ts';
 import { checkOrigin } from './auth/session.ts';
 import agentRoutes from './agents/routes.ts';
+import proposalRoutes from './organization/proposals.ts';
 import { seedCompany } from './agents/seed.ts';
 import instanceRoutes from './instances/routes.ts';
 import taskRoutes from './tasks/routes.ts';
@@ -77,6 +78,7 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   await app.register(notificationRoutes, { prefix: '/api/v1' });
   await app.register(opsRoutes, { prefix: '/api/v1' });
   await app.register(agentRoutes, { prefix: '/api/v1' });
+  await app.register(proposalRoutes, { prefix: '/api/v1' });
   await app.register(instanceRoutes, { prefix: '/api/v1' });
   await app.register(taskRoutes, { prefix: '/api/v1' });
   await app.register(conversationRoutes, { prefix: '/api/v1' });
