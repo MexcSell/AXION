@@ -54,14 +54,21 @@ export function ThreadMinimap({ scroller, msgs, me, kindHue, deps }: {
 
   // re-measure when content or sizes change
   useLayoutEffect(() => { measure(); }, [measure, deps]);
+  // improvement cycle 22: one ResizeObserver for the component's life; new rows are added to it as they arrive (it used to
+  // be rebuilt over every row on each new message), and its callbacks share one measure per frame
+  const latest = useRef(measure);
+  useLayoutEffect(() => { latest.current = measure; }, [measure]);
+  const ro = useRef<ResizeObserver | null>(null);
+  const observed = useRef(new WeakSet<Element>());
   useEffect(() => {
     const el = scroller.current, r = rail.current;
     if (!el || !r) return;
     let raf = 0;
-    const kick = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(measure); };
-    const ro = new ResizeObserver((ents) => { ents.forEach((e) => { if (e.target === r) setRailH(e.contentRect.height); }); kick(); });
-    ro.observe(r); ro.observe(el);
-    el.querySelectorAll('[data-mid]').forEach((c) => ro.observe(c));
+    const kick = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => latest.current()); };
+    const obs = new ResizeObserver((ents) => { ents.forEach((e) => { if (e.target === r) setRailH(e.contentRect.height); }); kick(); });
+    ro.current = obs; observed.current = new WeakSet();
+    obs.observe(r); obs.observe(el);
+    el.querySelectorAll('[data-mid]').forEach((c) => { observed.current.add(c); obs.observe(c); });
     const onScroll = () => {
       setGeo({ top: el.scrollTop, client: el.clientHeight, height: Math.max(el.scrollHeight, 1) });
       setActive(true);
@@ -69,8 +76,13 @@ export function ThreadMinimap({ scroller, msgs, me, kindHue, deps }: {
       idle.current = window.setTimeout(() => setActive(false), 900);
     };
     el.addEventListener('scroll', onScroll, { passive: true });
-    return () => { ro.disconnect(); el.removeEventListener('scroll', onScroll); cancelAnimationFrame(raf); window.clearTimeout(idle.current); };
-  }, [scroller, measure, deps]);
+    return () => { obs.disconnect(); ro.current = null; el.removeEventListener('scroll', onScroll); cancelAnimationFrame(raf); window.clearTimeout(idle.current); };
+  }, [scroller]);
+  useEffect(() => {
+    const el = scroller.current, obs = ro.current;
+    if (!el || !obs) return;
+    el.querySelectorAll('[data-mid]').forEach((c) => { if (!observed.current.has(c)) { observed.current.add(c); obs.observe(c); } });
+  }, [scroller, deps]);
 
   const s = Math.min(railH / geo.height, MAX_SCALE); // content px → rail px
   const sliderTop = geo.top * s, sliderH = Math.max(14, geo.client * s);
