@@ -8,6 +8,7 @@ import { idempotent } from '../idempotency.ts';
 import { VISIBLE_SQL } from '../missions/visibility.ts';
 import { edgesOf, latestRevision, revDto } from '../agents/org.ts';
 import { diffLines } from './validate.ts';
+import { coverageAgents, revisionCoverage } from './coverageRoutes.ts';
 import { createProposal, lockProposals, pendingWithEdges, expireDue } from './proposals.ts';
 import type { OrgDiffDto, OrgEdgeDto, OrgImpactDto, OrgRevisionDetailDto, OrgRevisionSource, OrgRevisionSummaryDto } from '../../../shared/contracts/src/index.ts';
 
@@ -86,8 +87,9 @@ export default async function historyRoutes(app: FastifyInstance) {
     const by = new Map<string, OrgEdgeDto[]>();
     for (const e of edges) { const k = String(e.revision_id); by.set(k, [...(by.get(k) ?? []), { supervisorId: e.supervisor_id, subordinateId: e.subordinate_id, edgeType: e.edge_type }]); }
     let prev: OrgEdgeDto[] = [];
+    const agents = await coverageAgents(app.db, ctx.tenantId); // cycle 20: each revision's lines against today's agents
     return {
-      revisions: rows.map((r) => { const cur = by.get(String(r.id)) ?? []; const s = summary(r, changedCount(prev, cur)); prev = cur; return s; }),
+      revisions: rows.map((r) => { const cur = by.get(String(r.id)) ?? []; const s = { ...summary(r, changedCount(prev, cur)), coverage: revisionCoverage(cur, agents) }; prev = cur; return s; }),
     };
   });
 
