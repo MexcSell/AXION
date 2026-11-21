@@ -46,3 +46,6 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
 
 ### Cycle 4: A2+A3 org history, diff, rollback (lane w2, start 15:55Z)
 - Implementer done (4a51e15, b064925, a501e3a, 5de9b3e, 5180d91 on c04-org-history): no migration. Server 321 → 343; api-improve 104/104; auth 15/15, flows 23/23, stage6 94/94 (one combined run 93/94 on the known agent-edit flake); verify-all green. All 4 threshold items PASS per the implementer. Independent review running.
+
+## Parallel phase (from 16:30Z)
+- Owner: "add 10 more workers; if there is no work, find a new way to update". 14 lanes now run: w2 c04, w3 c05, w4 c06, w5 c07, w6 c08 to w15 c17 (see STATE.md and LANES.md). A gate allows at most 3 concurrent heavy test runs, to protect the shared PostgreSQL server used by other apps.
