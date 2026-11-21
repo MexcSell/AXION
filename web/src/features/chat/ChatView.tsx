@@ -274,9 +274,11 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
   const [focusId, setFocusId] = useState<string | null>(null);
   const [tabId, setTabId] = useState<string | null>(null);
   const fi = focusId ? shown.findIndex((m) => m.id === focusId) : -1;
-  const segs: [number, number][] = !n ? [] : fi < 0 || (fi >= s && fi < e) ? [[s, e]] : fi < s ? [[fi, fi + 1], [s, e]] : [[s, e], [fi, fi + 1]];
   const ti = tabId ? shown.findIndex((m) => m.id === tabId) : -1;
-  const rovingId = ti >= 0 && (segs.some(([a, z]) => ti >= a && ti < z)) ? tabId : shown[e - 1]?.id;
+  // both rows stay mounted wherever they are (one extra row each at most): the window plus these islands, in order
+  const segs: [number, number][] = [];
+  if (n) for (const x of [...new Set([fi, ti, s].filter((x) => x >= 0 && (x < s || x >= e || x === s)))].sort((p, q) => p - q)) segs.push(x === s ? [s, e] : [x, x + 1]);
+  const rovingId = ti >= 0 ? tabId : shown[e - 1]?.id;
   const base = !compact && total !== undefined && total > messages.length ? total - messages.length : 0; // older messages not loaded yet
   const size = base + n;
 
