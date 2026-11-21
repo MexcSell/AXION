@@ -4,7 +4,7 @@ import { requireUser } from './auth/session.ts';
 
 /**
  * Per-session write rate limits (cycle 14). Generous for a person using the app, tight enough to stop a runaway script
- * or a stuck client from flooding messages, proposals or uploads. Counted per signed-in session (the session's token
+ * or a stuck client from flooding messages, governance writes (proposals, rollbacks, mentoring plans) or uploads. Counted per signed-in session (the session's token
  * hash), in a sliding window; every attempt counts, also a refused one. Reads are never limited.
  * Sign-in has its own limiter (FailLimiter in auth/service.ts).
  */
@@ -24,6 +24,16 @@ export const LIMITED_ROUTES: Record<string, WriteBucket> = {
   'POST /api/v1/organization/proposals': 'proposals',
   'POST /api/v1/organization/proposals/:id/decision': 'proposals',
   'POST /api/v1/organization/proposals/:id/withdraw': 'proposals',
+  // merge follow-up (c14 review I1): every governance write shares the proposals budget. The route-table test in
+  // security.test.ts fails when a new message, upload, proposal, rollback or mentoring write route is missing here.
+  'POST /api/v1/organization/revisions/:seq/rollback-proposal': 'proposals', // c04
+  'POST /api/v1/agents/:id/version-proposals': 'proposals', // c05
+  'POST /api/v1/version-proposals/:pid/decision': 'proposals',
+  'POST /api/v1/version-proposals/:pid/withdraw': 'proposals',
+  'POST /api/v1/agents/:id/rollback': 'proposals',
+  'POST /api/v1/agents/:id/mentoring': 'proposals', // c19
+  'POST /api/v1/mentoring/:pid/milestones/:mid/done': 'proposals',
+  'POST /api/v1/mentoring/:pid/close': 'proposals',
   'POST /api/v1/uploads': 'uploads',
 };
 

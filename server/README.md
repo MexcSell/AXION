@@ -35,7 +35,7 @@ server (`myapp`, `agentapp`, `ajp`, `ajp_test`, `postgres`) are never read or ch
 
 | Command | What it does |
 |---|---|
-| `npm test` | 558 Vitest tests against `axion_test` |
+| `npm test` | 560 Vitest tests against `axion_test` |
 | `npm run typecheck` | TypeScript |
 | `npm run migrate [-- down <n>]` | migrations up (default) or down to version n (`down 0` empties the schema) |
 | `npm run admin:approve-device -- <name>` | recovery: approves that user's newest waiting device (e.g. the only admin lost their cookies) |

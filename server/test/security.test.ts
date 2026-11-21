@@ -3,7 +3,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { makeTestApp, withAdmin, Browser, type TestApp } from './helpers.ts';
-import { DEFAULT_WRITE_LIMITS } from '../src/ratelimit.ts';
+import { DEFAULT_WRITE_LIMITS, LIMITED_ROUTES } from '../src/ratelimit.ts';
 
 const cookieOf = (b: Browser) => [...b.jar].map(([k, v]) => `${k}=${v}`).join('; ');
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64, 1)]);
@@ -208,6 +208,39 @@ describe('per-session write rate limits', () => {
     expect(r.statusCode).toBe(429);
     envelope(r.json(), 'RATE_LIMITED');
     expect((await t.pool.query('select count(*)::int n from uploads')).rows[0].n).toBe(before);
+  });
+
+  // Merge follow-up (c14 review I1): the map is hand-kept, so the route table guards it. Every write route of a limited
+  // kind (messages, uploads, and governance writes: proposals of any kind, rollbacks, mentoring plans) must be in
+  // LIMITED_ROUTES, and every key of LIMITED_ROUTES must be a real route.
+  const LIMITED_KIND = /\/messages$|proposal|rollback|mentoring|\/uploads$/;
+  it('route table: every message, upload and governance write route is in LIMITED_ROUTES; every limited route exists', () => {
+    const writes = t.app.routeTable.filter((r) => ['POST', 'PUT', 'PATCH', 'DELETE'].includes(r.method) && r.url.startsWith('/api/v1/')).map((r) => `${r.method} ${r.url}`);
+    const must = writes.filter((k) => LIMITED_KIND.test(k.split(' ')[1]));
+    // the pattern must keep catching the routes it was written for (a weakened pattern fails here)
+    expect(must).toEqual(expect.arrayContaining([
+      'POST /api/v1/threads/:id/messages', 'POST /api/v1/channels/:key/messages', 'POST /api/v1/channels/admin/:userId/messages', 'POST /api/v1/uploads',
+      'POST /api/v1/organization/proposals', 'POST /api/v1/organization/proposals/:id/decision', 'POST /api/v1/organization/proposals/:id/withdraw',
+      'POST /api/v1/organization/revisions/:seq/rollback-proposal',
+      'POST /api/v1/agents/:id/version-proposals', 'POST /api/v1/version-proposals/:pid/decision', 'POST /api/v1/version-proposals/:pid/withdraw', 'POST /api/v1/agents/:id/rollback',
+      'POST /api/v1/agents/:id/mentoring', 'POST /api/v1/mentoring/:pid/milestones/:mid/done', 'POST /api/v1/mentoring/:pid/close',
+    ]));
+    expect(must.filter((k) => !(k in LIMITED_ROUTES))).toEqual([]);
+    expect(Object.keys(LIMITED_ROUTES).filter((k) => !writes.includes(k))).toEqual([]);
+  });
+
+  it('governance: version proposals, agent rollback, org rollback proposals and mentoring writes share the proposals budget', async () => {
+    const b = await sameDevice(admin, 'Luca');
+    const s: number[] = [];
+    s.push((await b.req('POST', '/agents/no-such-agent/version-proposals', {})).status);
+    s.push((await b.req('POST', '/organization/revisions/999/rollback-proposal', {})).status);
+    s.push((await b.req('POST', '/mentoring/no-such-plan/close', {})).status);
+    expect(s.every((x) => x !== 429)).toBe(true);
+    for (const [url, body] of [['/agents/no-such-agent/rollback', {}], ['/version-proposals/no-such/decision', { decision: 'approve' }], ['/agents/no-such-agent/mentoring', {}]] as const) {
+      const r = await b.req('POST', url, body);
+      expect(r.status, url).toBe(429);
+      envelope(r.body, 'RATE_LIMITED');
+    }
   });
 
   it('a request without a valid session is refused as before (401), not counted', async () => {

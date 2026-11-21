@@ -31,7 +31,9 @@ const decide = (by: Browser, p: { id: string; sha: string }, decision: 'promote'
 const pinned = async () => rows(`select id, agent_version_id from agent_instances where agent_id=$1 order by id`, [AG]);
 
 beforeAll(async () => {
-  t = await makeTestApp({ staffingStepMs: 3_600_000, conversationSimMs: 3_600_000 });
+  // c14 merge: these routes now share the per-session proposals budget (30/min). This suite makes more governance writes
+  // per admin session per minute than a person would, so only here the budget is lifted; security.test.ts tests the limit.
+  t = await makeTestApp({ staffingStepMs: 3_600_000, conversationSimMs: 3_600_000, writeLimits: { proposals: { max: 1000, windowMs: 60_000 } } });
   const w = await withAdmin(t.app);
   A = w.admin; aId = w.adminId;
   const b = await w.member('Bea');
