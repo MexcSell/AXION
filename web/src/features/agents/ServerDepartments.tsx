@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Building2, Plus, AlertTriangle, Crown, Users, Briefcase, ListTodo, CheckCircle2, XCircle, RotateCcw, GitCommitHorizontal, Loader, Hourglass } from 'lucide-react';
+import { Building2, Plus, AlertTriangle, Crown, Briefcase, CheckCircle2, XCircle, RotateCcw, GitCommitHorizontal, Loader, Hourglass } from 'lucide-react';
 import { DEPT_MIN_SAMPLE, type DepartmentFacts, type ScorecardWindow } from '@contracts';
 import { Panel } from '@/components/ui/Panel';
 import { Segmented, Switch } from '@/components/ui/Form';
@@ -100,12 +100,12 @@ function DeptCard({ d, i, win, demo, canEdit }: { d: DepartmentFacts; i: number;
       )}
       <div className="dpa-facts">
         <div className="dpa-fact" data-fact="staffed">
-          <span className="dpa-fl"><Users size={12} />Staffed<HelpTrigger k="dept.staffed" /></span>
+          <span className="dpa-fl">Staffed<HelpTrigger k="dept.staffed" /></span>
           <span><b className="tnum" data-v="staffed">{d.staffedAgents}</b><span className="dim"> of {members}</span></span>
           <Link to="/missions?filter=active" className="dpa-link" data-v="missions" aria-label={`${d.activeMissions} active missions`}><Briefcase size={11} />{d.activeMissions} {d.activeMissions === 1 ? 'mission' : 'missions'}</Link>
         </div>
         <div className="dpa-fact" data-fact="open">
-          <span className="dpa-fl"><ListTodo size={12} />Open tasks<HelpTrigger k="dept.openTasks" /></span>
+          <span className="dpa-fl">Open tasks<HelpTrigger k="dept.openTasks" /></span>
           <span className="dpa-open">
             <Tip label="running or verifying"><span className={cx(d.openTasks.running > 0 && 'on')}><Loader size={11} />{d.openTasks.running}</span></Tip>
             <Tip label="waiting for an agent or a person"><span className={cx(d.openTasks.waiting > 0 && 'warn')}><Hourglass size={11} />{d.openTasks.waiting}</span></Tip>
@@ -114,7 +114,7 @@ function DeptCard({ d, i, win, demo, canEdit }: { d: DepartmentFacts; i: number;
           <span className="dim dpa-sub">now</span>
         </div>
         <div className="dpa-fact" data-fact="outcomes">
-          <span className="dpa-fl"><CheckCircle2 size={12} />Outcomes<HelpTrigger k="dept.outcomes" /></span>
+          <span className="dpa-fl">Outcomes<HelpTrigger k="dept.outcomes" /></span>
           <Tip label={<span>{d.evidence}<br /><span className="dim">{scope}</span></span>}>
             <span className="dpa-open">
               <span className={cx(o.passed > 0 && 'good')}><CheckCircle2 size={11} />{o.passed}</span>

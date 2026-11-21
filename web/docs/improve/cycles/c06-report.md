@@ -126,11 +126,17 @@ PASS A live: after the mission is canceled the cards equal the recount again (ba
 PASS user action: an administrator adds an Engineering agent under Coder-01 (a new org revision)
 PASS A live: Engineering shows "rev 2" and one more member, without reload; other departments keep their revision
 PASS M live: Engineering shows "rev 2" and one more member, without reload; other departments keep their revision
+PASS a new department whose only member does not report to the GM shows the amber "No head", live, with a ? on every fact — 201
 PASS fit at 1366×768: the page does not scroll, the departments scroll inside their region — {"over":0,"regions":[367],"hOver":0}
 PASS fit at 1672×941: the page does not scroll, the departments scroll inside their region — {"over":0,"regions":[307],"hOver":0}
+PASS DEMO on at 1366×768: some open-task / outcome counts are non-zero and no fact row clips — clipped 0, nonZero true
 PASS no page errors
-23/23 passed
+25/25 passed
 ```
+(Output trimmed: some long `—` details are cut. The full lines are printed by the script.)
+The "No head" and "DEMO on, non-zero counts" checks were added after a review. The first run of the second one failed
+(`clipped 8`): at 1366 the fact labels, each with an icon and a `?`, were wider than a card in the 3-column layout. I
+fixed it by dropping the label icons; the counts keep theirs.
 The recount is computed from `/agents`, `/missions` and `/agent-instances` (the Overview "Staffed Agents" rule), never from
 `/departments`. "No reload" = a `window.__c06` marker set before the actions survives. The two task rows are fixture rows
 written only into the lane's e2e database (passed/running are system-only states; real missions have no tasks yet, as
@@ -150,22 +156,39 @@ Regression, api mode (events.ts changed): `./scripts/api-e2e.sh` default → `ap
    - staffed agents and active missions equal a server recount on every card, for the admin and for a member — PASS;
    - live update without reload after user actions (a new mission staffed by the simulation; a task reassigned; a task
      canceled; the mission canceled; a new agent / org revision) — PASS;
-   - a member doesn't count missions she can't see (A's private mission and its tasks) — PASS.
-3. **verify-all and fit checks green, demo mode unchanged — PASS for this cycle's scope, with one pre-existing BAD that
-   is not caused by it (details below).**
-   - `BASE=http://127.0.0.1:5490 ./scripts/verify-all.sh` → exit 0 (build ✓, crawls, flows, auth flow 17 PASS + no page
-     errors, u1 flows, dialog ids, help keys "All referenced help keys are defined", fs guard OK).
-     Its logs contain `403 (Forbidden)` lines and dialog smoke reported 1 failure (`agent-evidence no-props`, "Failed to
-     load resource: 403"). Cause: in this lane `web/node_modules` is a symlink to `/home/luca/AXION/web/node_modules`, so
-     the font files are served as `/@fs/home/luca/AXION/web/node_modules/@fontsource-variable/…woff2`, outside Vite's
-     `fs.allow` → 403. It is a lane-setup artifact, not this change. The regenerated `docs/dialog-ledger.txt` was
-     reverted, not committed.
-   - `fit-check.mjs` 1672×941: **ALL FIT** (Departments `mainOver 0`).
-   - `fit-check.mjs 1366 768`: Departments `ok` (`mainOver 0`); **10 views BAD: `/agents/coder-01?tab=*` mainOver 13**.
-     Baseline check: with this cycle's three tracked web edits stashed, `ONLY=agentProfile fit-check 1366 768` gives the
-     same 10 BAD views (mainOver 13), so it predates this cycle (probably the same missing-font fallback metrics in this
-     lane; cycle 3 reported the profile fitting at 1366×768 on the main tree). Not fixed here (out of scope).
-   - Demo mode: `Departments()` renders the old body unchanged (`DemoDepartments`), every new element is api-only.
+   - a member doesn't count missions she can't see (A's private mission and its tasks) — PASS;
+   - also checked: amber "No head" renders (a new department whose only member reports to Coder-01), and non-zero
+     open-task and outcome counts (DEMO on) render without clipping at 1366×768 — PASS.
+3. **verify-all and the fit checks stay green, demo mode unchanged — NOT MET as written, because of a pre-existing
+   1366×768 failure on the Agent Profile that this cycle did not cause and did not fix.** Everything this cycle touches
+   is green. The evidence follows.
+   - **Lane setup first.** In this worktree `web/node_modules` is a symlink to `/home/luca/AXION/web/node_modules`, so
+     fonts are served from `/@fs/home/luca/AXION/web/node_modules/…`, which is outside Vite's `fs.allow` and returns 403.
+     The first `verify-all.sh` run (default config) exited 0, but dialog smoke had 1 failure (`agent-evidence no-props`:
+     403) and the logs were full of 403 lines. I reran on 5490 with a temporary, untracked Vite config that extends the
+     repo config and adds that path to `fs.allow` (deleted afterwards, never committed). The font URL then returned 200.
+   - **With fonts served** (`BASE=http://127.0.0.1:5490`, each script's full output kept):
+     - `npm run build` ✓
+     - `crawl.mjs`: "visited 77 route/tab views · NO PROBLEMS"
+     - `crawl-deep.mjs`: NO PROBLEMS
+     - `flows.mjs`: 21 PASS, 0 FAIL, no console errors
+     - `auth-flow.mjs`: 17 PASS, 0 FAIL, no page errors
+     - `u1-flows.mjs`: 8 PASS, 0 FAIL
+     - `dialog-smoke.mjs`: "106 checks, 0 failures"
+     - `check-dialogs`: all defined
+     - `check-help`: "help entries defined: 324 … All referenced help keys are defined."
+     - `fs-guard`: OK
+     - These scripts don't set a non-zero exit code on FAIL, so the PASS/FAIL lines were counted from the full output.
+       The regenerated `docs/dialog-ledger.txt` was reverted.
+   - **`fit-check.mjs`, demo mode, fonts served:**
+     - 1672×941: **ALL FIT**.
+     - 1366×768: Departments `ok` (mainOver 0). **10 views BAD**: `/agents/coder-01?tab=*`, mainOver 13.
+     - Baseline: with this cycle's three tracked web edits set aside, the same 10 views were BAD with mainOver 13. With
+       fonts loading they are still BAD, so missing fonts are not the cause. The failure predates this cycle. Cycle 3
+       reported the profile fitting at 1366×768, so it probably came in later. Left for the merge review.
+   - **Demo mode:** `Departments()` renders the old body unchanged (`DemoDepartments`), and every new element is
+     api-only.
+   - **Api-mode regression** (`events.ts` changed): `api-auth-flow.mjs` 15/15 and `api-flows.mjs` 23/23.
 
 ## Files changed
 - server: `src/company/departments.ts` (new), `src/company/departments-routes.ts` (new), `src/app.ts` (+2 lines),
@@ -190,8 +213,19 @@ Regression, api mode (events.ts changed): `./scripts/api-e2e.sh` default → `ap
 - **In-place resize**: shrinking the viewport from 1672 to 1366 without reloading leaves the "Agent boards" open (its
   default is decided at mount by `innerHeight >= 880`) and the page then overflows by 263 px; a fresh load fits. This is
   `BottomBoard` behaviour, not new; the c06 check measures fresh loads, like `fit-check.mjs`.
-- **Lane environment**: the symlinked `node_modules` causes the 403 font loads above and likely the pre-existing
-  1366×768 profile overflow seen here; worth re-running `fit-check 1366 768` on the merged tree.
+- **Lane environment:** the symlinked `node_modules` makes every lane's dev server return 403 for fonts, which turns
+  verify-all red. Use a temporary config with a wider `fs.allow`, kept out of git. The 1366×768 profile overflow is a
+  separate problem: it remains with the fonts loaded. Re-run `fit-check 1366 768` on the merged tree.
+- **`git stash` during the profile baseline:** I set the three tracked web edits aside with `git stash push -- <paths>`
+  and popped them a few minutes later, before the controller's "never use git stash" rule arrived. The pop restored
+  exactly my three files: `git status` and the diff against `f7c7bca` match the intended edits. The one stash still in
+  the list (`WIP on c07-bundle-split`) belongs to another lane and was not touched.
+- **Staff ring:** it draws staffed ÷ members as an arc, even for a one-member department. It is labelled with counts
+  ("1/1", no %) and is a current fact, not a rate. The owner may still prefer no arc below a minimum size.
+- **Missions link:** it opens the generic `/missions?filter=active` list, not this department's missions. The Missions
+  page has no department filter yet.
+- **Fixed waits:** the browser check has a few short ones after navigation or resize (layout and animation settle) and
+  one 1.2 s pause before the member's negative check. Every pass condition is a condition wait.
 - `api-improve.mjs` (cycles 1–3) requires a database named exactly `axion_e2e`, so it can't run in this lane; I didn't
   touch it. `server/README.md` test count not updated (other lanes edit it; merge-time).
 - `/agent-instances` returns at most 500 rows; the browser recount relies on it (fine for the e2e data).

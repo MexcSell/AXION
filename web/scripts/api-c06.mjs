@@ -195,6 +195,14 @@ try {
     check(`${who} live: Engineering shows "rev ${g.revision.seq}" and one more member, without reload; other departments keep their revision`, ok && (await cardsOf(X.p)).Operations.rev === revBefore && await noReload(X, 'live'), JSON.stringify((await cardsOf(X.p)).Engineering));
   }
 
+  // ------------------------------------------------------------ a department without a head: amber "No head" (its only member reports to Coder-01)
+  const nl = await A.api('POST', '/agents', { name: 'Counsel-01', role: 'Counsel', dept: 'Legal', duty: 'Contract review (c06 check)', model: 'claude-sonnet-5-5', managerId: 'coder-01' }, { 'idempotency-key': `c06-legal-${Date.now()}` });
+  const legal = A.p.locator('[data-dept="Legal"]');
+  check('a new department whose only member does not report to the GM shows the amber "No head", live, with a ? on every fact',
+    nl.status === 201 && await until(async () => (await legal.locator('[data-head-state="none"]').count()) === 1, 10000)
+      && (await legal.locator('.dpa-nohead').innerText()).includes('No head') && (await legal.evaluate((c) => new Set([...c.querySelectorAll('[data-help-key^="dept."]')].map((h) => h.getAttribute('data-help-key'))).size)) === 6
+      && await noReload(A, 'live'), String(nl.status));
+
   // ------------------------------------------------------------ one-screen fit in api mode
   for (const [w, h] of [[1366, 768], [1672, 941]]) {
     // a fresh load per size, like scripts/fit-check.mjs (the live checks above are done)
@@ -209,6 +217,15 @@ try {
     check(`fit at ${w}×${h}: the page does not scroll, the departments scroll inside their region`, r.over <= 2 && r.regions.length > 0 && r.regions.every((x) => x >= 200) && r.hOver <= 0, JSON.stringify(r));
     await A.p.screenshot({ path: `/tmp/axion-c06-${w}.png` });
   }
+  // ------------------------------------------------------------ non-zero counts (DEMO on: simulated staffing and tasks) do not clip at 1366
+  await A.p.setViewportSize({ width: 1366, height: 768 });
+  await A.p.goto(base + URL_DEPTS, { waitUntil: 'domcontentloaded' }); await settle(A.p); await ready(A.p);
+  await A.p.locator('[data-departments] .sc-demo .switch').click();
+  await A.p.locator('[data-departments="ready"][data-demo="1"]').waitFor({ timeout: 10000 });
+  const clip = await A.p.evaluate(() => [...document.querySelectorAll('[data-dept] .dpa-open, [data-dept] .dpa-fact > span:not(.dpa-sub)')].filter((e) => e.scrollWidth > e.clientWidth + 1).length);
+  const nonZero = await A.p.evaluate(() => [...document.querySelectorAll('[data-dept]')].some((c) => c.getAttribute('data-open') !== '0/0/0' || c.getAttribute('data-outcomes-n') !== '0'));
+  check('DEMO on at 1366×768: some open-task / outcome counts are non-zero and no fact row clips', nonZero && clip === 0, `clipped ${clip}, nonZero ${nonZero}`);
+  await A.p.screenshot({ path: '/tmp/axion-c06-demo-1366.png' });
 } catch (e) {
   check('script ran to the end', false, e.stack);
 } finally {
