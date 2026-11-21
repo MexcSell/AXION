@@ -27,6 +27,14 @@ await ctx.addInitScript((MINIMAP_OFF) => {
   if (MINIMAP_OFF) try { localStorage.setItem('axion.thread.minimap', '0'); } catch { /* ignore */ }
   try { new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__lt.push([e.startTime, e.duration]); }).observe({ type: 'longtask', buffered: true }); } catch { /* ignore */ }
 }, process.env.MINIMAP === '0'); // MINIMAP=0: diagnosis only (the minimap hidden)
+// COMMITS=1 (diagnosis): count React commits and which components rendered in them, through the DevTools hook
+if (process.env.COMMITS === '1') await ctx.addInitScript(() => {
+  window.__commits = { n: 0, by: {} };
+  // like React DevTools: a fiber rendered when it performed work; a subtree whose child list was not cloned bailed out
+  const walk = (f) => { for (let x = f; x; x = x.sibling) { if ((x.flags & 1) && x.type && typeof x.type !== 'string') { const nm = x.type.displayName || x.type.name || x.type.type?.name || x.type.render?.name || '?'; window.__commits.by[nm] = (window.__commits.by[nm] ?? 0) + 1; } if (x.child && !(x.alternate && x.alternate.child === x.child)) walk(x.child); } };
+  window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = { supportsFiber: true, renderers: new Map(), inject() { return 1; }, onScheduleFiberRoot() {}, onCommitFiberUnmount() {}, onPostCommitFiberRoot() {}, checkDCE() {},
+    onCommitFiberRoot(_id, root) { if (!window.__commitsOn) return; window.__commits.n++; walk(root.current.child); } };
+});
 const p = await ctx.newPage();
 const errors = [];
 p.on('pageerror', (e) => errors.push(e.message));
@@ -65,7 +73,7 @@ const burst = async (tid, n, tag) => {
   }
 };
 /** messages the open page holds for the thread (the app's own store, the module the app loaded) */
-const held = (mid, tid) => p.evaluate(async ({ mid, tid }) => (await import('/src/api/missionControl.ts')).useMC.getState().byMission[mid]?.threads?.[tid]?.messages.length ?? 0, { mid, tid });
+const held = (mid, tid) => p.evaluate(async ({ mid, tid }) => (await import('/src/api/missionControl.ts')).useMC.getState().byMission[mid]?.threads?.[tid]?.messages?.length ?? 0, { mid, tid });
 /** the newest message is rendered inside the thread viewport */
 const newestVisible = (text) => p.evaluate((text) => {
   const body = document.querySelector('.conv-main .thread-body');
@@ -164,20 +172,34 @@ for (let rep = 1; rep <= REPS; rep++) {
   const fillMs = Date.now() - tf;
   await p.locator('.conv-main .thread-body').evaluate((el) => { el.scrollTop = el.scrollHeight; });
   await quiet(800, 20000);
+  // FLOOR=<tab> (diagnosis): the same burst with the mission open on another tab (no thread on screen): the cost that does
+  // not come from the thread view at all
+  // FLOOR=1: another conversation partner's thread is shown instead (same page, same store updates, the burst's thread
+  // is not on screen)
+  if (process.env.FLOOR) {
+    const items = p.locator('.conv-main .cp-item');
+    const n = await items.count();
+    for (let i = 0; i < n; i++) { const it = items.nth(i); if (!(await it.evaluate((e) => !!e.querySelector('.cp-sel') || e.getAttribute('aria-current') === 'true' || e.classList.contains('on')))) { await it.click(); break; } }
+    await quiet(1500, 30000);
+    console.log(`  FLOOR: thread on screen now: ${(await p.locator('.conv-main .thread-head').innerText()).replace(/\s+/g, ' ').slice(0, 60)}`);
+  }
   const before = { held: await held(mid, tid), rows: await p.locator('.conv-main .thread-body [data-mid]').count(), blocks: await p.locator('.conv-main .minimap .mm-block').count() };
   const traceFile = `${DIR}/trace-burst-${rep}.json`;
   const loadBefore = load();
   const lt0 = await p.evaluate(() => performance.now());
+  await p.evaluate(() => { window.__commitsOn = true; if (window.__commits) window.__commits = { n: 0, by: {} }; });
   await b.startTracing(p, { path: traceFile, categories: ['toplevel', 'devtools.timeline', 'v8.execute', 'disabled-by-default-v8.cpu_profiler'] });
   const tb = Date.now();
   await burst(tid, BURST, 'live');
   const burstMs = Date.now() - tb;
   // caught up: the store holds the whole burst, then no long task for 1 s (the render backlog is done)
-  const caught = await until(async () => (await held(mid, tid)) >= before.held + BURST, 180000, 100);
+  const caught = process.env.FLOOR ? true : await until(async () => (await held(mid, tid)) >= before.held + BURST, 180000, 100);
   const caughtMs = Date.now() - tb;
   await quiet(1000, 120000);
   const settledMs = Date.now() - tb;
   await b.stopTracing();
+  const commits = await p.evaluate(() => { window.__commitsOn = false; return window.__commits ?? null; });
+  if (commits) console.log(`  React commits during the burst: ${commits.n} · renders by component: ${Object.entries(commits.by).sort((x, y) => y[1] - x[1]).slice(0, 25).map(([k, v]) => `${k} ${v}`).join(', ')}`);
   // still pinned: the newest message is in the viewport without scrolling (the reader was at the bottom)
   const pinned = await newestVisible(`live ${String(BURST).padStart(4, '0')}`) || await p.locator('.conv-main .thread-body').evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight < 60);
   const lt = await p.evaluate((t0) => window.__lt.filter(([s]) => s >= t0), lt0);

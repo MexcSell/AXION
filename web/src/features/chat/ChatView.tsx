@@ -200,6 +200,7 @@ export function ChatComposer({ modes, initialMode, toName, draftKey, disabled, d
 const OVERSCAN = 900;   // px rendered above and below the viewport
 const DRIFT = 300;      // the window follows the scroll position in steps of this many px
 const EST_SAMPLES = 30; // estimates: the mean of the first N measured rows, then fixed (so the spacers do not churn)
+const GEO_WAIT = 100, GEO_MAX_WAIT = 400; // ms: see meter.bump
 
 const ThreadRow = memo(function ThreadRow({ m, sep, gk, right, compact, missionId, label, pos, size, tab, known, live, observe }: {
   m: Message; sep: string | null; gk: string; right: boolean; compact: boolean; missionId?: string; label?: string; pos: number; size: number; tab: boolean;
@@ -300,7 +301,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
       },
       get(): ResizeObserver {
         return (me.ro ??= new ResizeObserver((ents) => {
-          let changed = false;
+          let changed = false, wide = false;
           const sc = scroller.current;
           for (const en of ents) {
             const t = en.target as HTMLElement;
@@ -309,14 +310,24 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
               if (box.current.width && Math.abs(w - box.current.width) > 1) { // text re-wraps: every cached height is stale
                 geo.current.clear();
                 sc.querySelectorAll<HTMLElement>('[data-gk]').forEach((r) => me.row(r));
-                changed = true;
+                changed = wide = true;
               }
               box.current.width = w;
               if (sc.clientHeight !== vpRef.current.h) moveVp(sc);
             } else if (me.row(t)) changed = true;
           }
-          if (changed) setGeoV((v) => v + 1);
+          if (changed) me.bump(wide);
         }));
+      },
+      // a measurement re-renders the thread (window, spacers, minimap) at most every GEO_WAIT ms, and within GEO_MAX_WAIT
+      // during a burst: what is mounted is already laid out by the browser, so only the model catches up
+      t: 0, first: 0,
+      bump(now = false) {
+        window.clearTimeout(me.t);
+        const t = performance.now();
+        if (!me.first) me.first = t;
+        const wait = now ? 0 : Math.max(0, Math.min(GEO_WAIT, me.first + GEO_MAX_WAIT - t));
+        me.t = window.setTimeout(() => { me.first = 0; setGeoV((v) => v + 1); }, wait);
       },
     };
     return me;
@@ -334,7 +345,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
     el.scrollTo({ top: 1e6 });
     moveVp(el);
     setGeoV((v) => v + 1);
-    return () => { o.disconnect(); meter.ro = null; };
+    return () => { o.disconnect(); meter.ro = null; window.clearTimeout(meter.t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meter]);
   const firstId = messages[0]?.id;
@@ -462,7 +473,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
             )}
           </AnimatePresence>
         </div>
-        {mm && <ThreadMinimap scroller={scroller} msgs={shown} rows={mapped} me={mmMe ?? ''} kindHue={KIND_HUE} deps={`${view}:${!!typing}`} />}
+        {mm && <ThreadMinimap scroller={scroller} msgs={shown} rows={mapped} contentH={pad * 2 + layout.total} me={mmMe ?? ''} kindHue={KIND_HUE} />}
       </div>
       <div className="sr-only" role="status">{said}</div>
       <AnimatePresence>

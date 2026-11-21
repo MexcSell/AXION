@@ -18,15 +18,16 @@ const MAX_SCALE = .2;  // like VS Code: short threads stay small at the top inst
 const LANE = 34;      // px width of the block lane
 const SCALE_STEP = 1.03;
 
-export function ThreadMinimap({ scroller, msgs, rows, me, kindHue, deps }: {
-  scroller: RefObject<HTMLDivElement | null>; msgs: Message[]; me: string; kindHue: Record<MessageKind, number>; deps: unknown;
+export function ThreadMinimap({ scroller, msgs, rows, contentH, me, kindHue }: {
+  scroller: RefObject<HTMLDivElement | null>; msgs: Message[]; me: string; kindHue: Record<MessageKind, number>;
   /** improvement cycle 26: where each message sits in the (virtualised) thread, from ChatThreadView's geometry model,
-   *  measured or estimated, so every message gets a block whether or not its row is in the DOM */
-  rows: MapRow[];
+   *  measured or estimated, so every message gets a block whether or not its row is in the DOM; and the thread's height */
+  rows: MapRow[]; contentH: number;
 }) {
   const rail = useRef<HTMLDivElement>(null);
   const [railH, setRailH] = useState(0);
-  const [geo, setGeo] = useState({ top: 0, client: 1, height: 1 });
+  const [pos, setPos] = useState({ top: 0, client: 1 });
+  const geo = { ...pos, height: Math.max(contentH, pos.client, 1) };
   const [hoverY, setHoverY] = useState<number | null>(null);
   const [active, setActive] = useState(false); // scrolling or dragging → show the floating time chip
   const [drag, setDrag] = useState(false);
@@ -55,12 +56,13 @@ export function ThreadMinimap({ scroller, msgs, rows, me, kindHue, deps }: {
     return list;
   }, [msgs, rows, me, kindHue]);
 
-  // the scroll geometry follows the content (rows measured, typing shown) and the scroll position
+  // the scroll position and the viewport's height (the content's height comes from the model: reading scrollHeight after
+  // every new message forced a layout and a second render)
   const readGeo = useCallback(() => {
     const el = scroller.current;
-    if (el) setGeo({ top: el.scrollTop, client: el.clientHeight, height: Math.max(el.scrollHeight, 1) });
+    if (el) setPos((p) => (p.top === el.scrollTop && p.client === el.clientHeight ? p : { top: el.scrollTop, client: el.clientHeight }));
   }, [scroller]);
-  useLayoutEffect(() => { readGeo(); }, [readGeo, rows, deps]);
+  useLayoutEffect(() => { readGeo(); }, [readGeo]);
   useEffect(() => {
     const el = scroller.current, r = rail.current;
     if (!el || !r) return;
@@ -84,23 +86,29 @@ export function ThreadMinimap({ scroller, msgs, rows, me, kindHue, deps }: {
   const sliderTop = geo.top * s, sliderH = Math.max(14, geo.client * s);
   const scrollable = geo.height > geo.client + 2;
 
-  // which message is at the top edge of the viewport / under the pointer
-  const at = (contentY: number) => {
-    let hit = items[0];
-    for (const it of items) { if (it.top <= contentY + 4) hit = it; else break; }
-    return hit;
+  // which message is at the top edge of the viewport / under the pointer (items are in content order: binary search)
+  const atIndex = (contentY: number) => {
+    let lo = 1, hi = items.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (items[mid].top <= contentY + 4) lo = mid + 1; else hi = mid; }
+    return lo - 1;
   };
-  const current = items.length ? at(geo.top + 8) : undefined;
+  const at = (contentY: number) => items[atIndex(contentY)];
+  const cur = items.length ? atIndex(geo.top + 8) : -1;
+  const current = cur >= 0 ? items[cur] : undefined;
   const visible = (it: Item) => it.top + it.h > geo.top && it.top < geo.top + geo.client;
-  // the blocks in view: [vs, ve) (items are in content order)
-  let vs = items.findIndex(visible), ve = vs;
-  if (vs < 0) vs = ve = 0; else while (ve < items.length && visible(items[ve])) ve++;
-  const cur = current ? items.indexOf(current) : -1;
+  // the blocks in view: [vs, ve)
+  let vs = Math.max(0, atIndex(geo.top - 4)), ve = vs;
+  while (vs < items.length && !visible(items[vs]) && items[vs].top < geo.top + geo.client) vs++;
+  ve = vs;
+  while (ve < items.length && visible(items[ve])) ve++;
 
   // time labels: day markers win, then messages in view, then the rest — never overlapping
   const labels = useMemo(() => {
     const placed: { it: Item; y: number; h: number }[] = [];
-    const order = [...items].sort((a, b) => (b.day ? 2 : 0) + (visible(b) ? 1 : 0) - ((a.day ? 2 : 0) + (visible(a) ? 1 : 0)));
+    // (a stable partition, the same order the sort by priority gave, in O(n): it runs on every scroll frame)
+    const tiers: Item[][] = [[], [], [], []];
+    for (const it of items) tiers[3 - ((it.day ? 2 : 0) + (visible(it) ? 1 : 0))].push(it);
+    const order = tiers.flat();
     for (const it of order) {
       const hgt = it.day ? 22 : 11;
       const y = Math.min(Math.max(it.top * s - (it.day ? 11 : 0), 0), Math.max(railH - hgt, 0));
@@ -218,8 +226,9 @@ const BlockChunk = memo(function BlockChunk({ items, from, to, vs, ve, cur }: { 
  * scale, and with the scale in a CSS variable only the new block renders, not all of them). Memoised (cycle 22).
  */
 const Block = memo(function Block({ id, cls, top, h, w, left, hue, i }: { id: string; cls: string; top: number; h: number; w: number; left: number; hue: number; i: number }) {
+  // the entrance is a CSS animation (.mm-block, mission-control.css), the same fade and scale the motion component played:
+  // a plain element renders much more cheaply, and a long thread has one per message
   return (
-    <motion.span className={cls} data-mm={id} style={{ top: `calc(${top}px * var(--s))`, height: `max(${BLOCK_MIN}px, calc(${h}px * var(--s)))`, width: w, left, ['--h' as string]: hue }}
-      initial={{ opacity: 0, scaleX: .3 }} animate={{ opacity: 1, scaleX: 1 }} transition={{ delay: Math.min(i, 20) * .02, duration: .25 }} />
+    <span className={cls} data-mm={id} style={{ top: `calc(${top}px * var(--s))`, height: `max(${BLOCK_MIN}px, calc(${h}px * var(--s)))`, width: w, left, ['--h' as string]: hue, animationDelay: `${Math.min(i, 20) * 20}ms` }} />
   );
 });
