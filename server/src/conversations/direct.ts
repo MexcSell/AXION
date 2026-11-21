@@ -43,7 +43,7 @@ export default async function directRoutes(app: FastifyInstance) {
     const ctx = await requireUser(req);
     const r = await resolve(app.db, ctx, rawKey, userId);
     const th = await findDirectThread(app.db, ctx.tenantId, r.ownerId, r.key);
-    return readPage(app.db, th?.id ?? null, ctx.user.id, req.query as { before?: string; limit?: string });
+    return readPage(app.db, th?.id ?? null, ctx.user.id, req.query as { before?: string; limit?: string; mark?: string });
   };
   app.get('/channels/:key/messages', async (req) => read(req, (req.params as { key: string }).key));
   app.get('/channels/admin/:userId/messages', async (req) => read(req, 'admin', (req.params as { userId: string }).userId));

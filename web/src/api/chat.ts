@@ -133,15 +133,19 @@ function setUnread(id: string, n: number) {
   useChannels.setState((s) => (s.list?.some((c) => c.id === id && c.unread !== n) ? { list: s.list.map((c) => (c.id === id ? { ...c, unread: n } : c)) } : s));
 }
 const lastRead = new Map<string, number>();
+const readTimers = new Map<string, number>();
 /** The channel is on screen and shows its newest messages: clear its unread count here and on the server (one cheap read, throttled). */
 export function markChannelRead(id: string) {
   const path = channelPath(id, meId);
   const have = useChannels.getState().by[id]?.messages;
   if (!path || !have) return;
   setUnread(id, 0);
-  const now = Date.now();
-  if (now - (lastRead.get(id) ?? 0) < 1500) return;
-  lastRead.set(id, now);
+  const wait = 1500 - (Date.now() - (lastRead.get(id) ?? 0));
+  if (wait > 0) { // throttled: one trailing mark, so the newest message is still recorded
+    if (!readTimers.has(id)) readTimers.set(id, window.setTimeout(() => { readTimers.delete(id); markChannelRead(id); }, wait));
+    return;
+  }
+  lastRead.set(id, Date.now());
   void api('GET', `${path}/messages?limit=1`).catch(() => undefined);
 }
 
@@ -153,7 +157,7 @@ export async function refreshLoadedChannels() {
     const path = channelPath(id, meId);
     if (!path) continue;
     try {
-      const r = await api<Page>('GET', `${path}/messages?limit=${PAGE}`);
+      const r = await api<Page>('GET', `${path}/messages?limit=${PAGE}&mark=0`); // a background re-read never marks the channel read
       patchCh(id, (x) => {
         const page = r.messages.map(toMsg);
         const loaded = x.messages ?? [];
@@ -170,7 +174,7 @@ export async function refreshLoadedChannels() {
 export function clearChannels() {
   wantList = false; listFailures = 0;
   for (const k of gens.keys()) nextGen(k);
-  timers.forEach((t) => window.clearTimeout(t)); timers.clear(); lastRead.clear();
+  timers.forEach((t) => window.clearTimeout(t)); timers.clear(); lastRead.clear(); readTimers.forEach((t) => window.clearTimeout(t)); readTimers.clear();
   useChannels.setState({ list: null, listError: undefined, by: {} });
 }
 

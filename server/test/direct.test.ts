@@ -145,6 +145,8 @@ describe('direct channels', () => {
     expect(nt).toBeTruthy();
     expect(nt.route).toBe('/?chat=admin');
     expect(nt.body).toContain('Done, try again.');
+    await mina.b.req('GET', '/channels/admin/messages?mark=0&limit=50'); // a background re-read (stream reconnect) never marks read
+    expect((await mina.b.req('GET', '/channels')).body.channels.find((c: any) => c.kind === 'admin').unread).toBe(1);
     await mina.b.req('GET', '/channels/admin/messages');
     expect((await mina.b.req('GET', '/channels')).body.channels.find((c: any) => c.kind === 'admin').unread).toBe(0);
     // an admin writing in their own line notifies nobody

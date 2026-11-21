@@ -235,7 +235,7 @@ export async function loadOlder(mid: string, tid: string) {
  */
 async function rereadThread(mid: string, tid: string) {
   try {
-    const r = await api<Page>('GET', `/threads/${tid}/messages?limit=${PAGE}`);
+    const r = await api<Page>('GET', `/threads/${tid}/messages?limit=${PAGE}&mark=0`); // a background re-read never marks the thread read
     patchThread(mid, tid, (x) => {
       const page = r.messages.map(toMsg);
       const loaded = x.messages ?? [];

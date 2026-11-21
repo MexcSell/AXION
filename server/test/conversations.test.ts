@@ -134,6 +134,19 @@ describe('visibility', () => {
 });
 
 describe('paging', () => {
+
+  it('a background re-read (mark=0) leaves unread unchanged; a normal read of the newest page marks it read', async () => {
+    const A = await setup();
+    const mid = await realMission(A.admin);
+    const tid = await humanThread(A.admin, mid, `${mid}:gm`);
+    expect((await send(A.admin, tid, { kind: 'command', text: 'hello', to: 'gm' })).status).toBe(201); // the honest system note follows: unread for the sender
+    const unread = async () => ((await A.admin.req('GET', `/missions/${mid}/threads`)).body.threads as any[]).find((x) => x.id === tid)?.unread ?? ((await A.admin.req('GET', `/missions/${mid}/threads`)).body.partners as any[])?.find((x) => x.threadId === tid)?.unread;
+    expect(await unread()).toBe(1);
+    expect((await A.admin.req('GET', `/threads/${tid}/messages?mark=0`)).body.messages.length).toBeGreaterThan(0);
+    expect(await unread()).toBe(1);
+    await A.admin.req('GET', `/threads/${tid}/messages`);
+    expect(await unread()).toBe(0);
+  });
   it('5,000 messages page exactly newest first with no duplicates; limit is capped at 200', async () => {
     const A = await setup();
     const mid = await realMission(A.admin);

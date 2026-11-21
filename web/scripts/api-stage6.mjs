@@ -278,7 +278,7 @@ try {
     // the server's whole thread (id → seq), newest first, page by page
     let before = null;
     for (;;) {
-      const pg = (await apiA('GET', `/threads/${gmThread.id}/messages?limit=200${before ? `&before=${before}` : ''}`)).body;
+      const pg = (await apiA('GET', `/threads/${gmThread.id}/messages?limit=200&mark=0${before ? `&before=${before}` : ''}`)).body;
       for (const m of pg.messages) seqOf.set(m.id, m.seq);
       if (!pg.hasMore) break;
       before = pg.nextBefore;
@@ -286,6 +286,9 @@ try {
     await A.ctx.setOffline(false);
     check('A reconnects after the outage', await until(async () => (await conn(A.p)) === 'live', 45000, 300));
     check('the newest message from the outage appears', await until(async () => (await threadText(A.p)).includes('gap message 060'), 10000));
+    // I4: the reconnect re-read is a background read, so what arrived while offline is still unread on the server
+    const unreadA = ((await apiA('GET', `/missions/${realId}/threads`)).body.threads ?? []).find((t) => t.id === gmThread.id)?.unread ?? 0;
+    check('I4: after the reconnect, messages that arrived while offline still count as unread', unreadA >= 60, `unread ${unreadA}`);
     const shown = (await mids()).map((id) => seqOf.get(id)).filter((x) => x !== undefined).sort((x, y) => x - y);
     const contiguous = shown.every((x, i) => i === 0 || x === shown[i - 1] + 1);
     check('no hole in the thread after the reconnect (loaded messages are contiguous)', shown.length > 0 && contiguous, `${shown.length} shown, seq ${shown[0]}…${shown[shown.length - 1]}`);
@@ -300,6 +303,10 @@ try {
     check('scrolling up after the reconnect reaches the whole thread, without duplicates', after.length === seqOf.size && new Set(after).size === after.length, `${after.length}/${seqOf.size}`);
   } else check('reconnect gap check needs API_PID (run through api-e2e.sh)', false);
 
+  // I2: a real mission has no report; the Reports tab is an honest empty state, not the prototype's invented one
+  await A.p.goto(`${base}/missions/${realId}?tab=reports`, { waitUntil: 'domcontentloaded' });
+  check('I2: a real mission\'s Reports tab says reports arrive when agents start working', await until(async () => (await A.p.getByText(/Reports arrive when agents start working/).count()) > 0, 8000));
+  check('I2: no invented lead report on a real mission', (await A.p.getByText(/Lead synthesized report|Revision 3/).count()) === 0 && (await A.p.locator('.report-doc').count()) === 0);
   // real missions have no results or timeline yet (Stage 8); the empty states say so
   await A.p.goto(`${base}/missions/${realId}?tab=results`, { waitUntil: 'domcontentloaded' });
   check('a real mission\'s Results tab says results arrive in Stage 8', await until(async () => (await A.p.getByText(/Results arrive in Stage 8/).count()) > 0, 8000));

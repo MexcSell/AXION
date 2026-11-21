@@ -101,8 +101,8 @@ export async function loadAttachments(c: Tx, ctx: { tenantId: string; user: { id
   return atts;
 }
 
-/** One page of a thread, newest first (before = seq cursor). A newest-page read records the read position for the user. */
-export async function readPage(c: Tx | Db, threadId: string | null, userId: string, q: { before?: string; limit?: string }) {
+/** One page of a thread, newest first (before = seq cursor). A newest-page read records the read position for the user, unless `mark=0` (background re-reads). */
+export async function readPage(c: Tx | Db, threadId: string | null, userId: string, q: { before?: string; limit?: string; mark?: string }) {
   const bad = (f: string) => new ApiError('VALIDATION', 422, 'Some fields are not valid.', { fieldErrors: { [f]: 'must be a positive integer' } });
   const before = q.before === undefined ? null : /^\d{1,9}$/.test(q.before) ? Number(q.before) : NaN;
   const limit = q.limit === undefined ? 50 : /^\d{1,6}$/.test(q.limit) ? Math.min(200, Number(q.limit)) : NaN;
@@ -111,7 +111,7 @@ export async function readPage(c: Tx | Db, threadId: string | null, userId: stri
   if (!threadId) return { messages: [] as MessageDto[], hasMore: false, nextBefore: null as number | null };
   const rows = await messagesWhere(c, 'm.thread_id=$1 and ($2::int is null or m.seq < $2)', [threadId, before], `order by m.seq desc limit ${limit + 1}`);
   const page = rows.slice(0, limit);
-  if (before === null && page.length) {
+  if (before === null && page.length && q.mark !== '0') {
     await c.query(`insert into thread_reads(thread_id, user_id, last_seq) values ($1,$2,$3)
       on conflict (thread_id, user_id) do update set last_seq = greatest(thread_reads.last_seq, excluded.last_seq)`, [threadId, userId, page[0].seq]);
   }

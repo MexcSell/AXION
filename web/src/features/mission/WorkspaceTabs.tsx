@@ -23,6 +23,7 @@ import { EvidenceThumb } from './Messenger';
 import { ApprovalMini, EventIcon } from './Shared';
 import { useLive } from './live';
 import { isApi } from '@/api/mode';
+import { useAuth } from '@/store/auth';
 import { useMissionControl } from '@/api/missionControl';
 
 /** api mode, real missions: results and the timeline are produced by execution, which arrives in Stage 8. */
@@ -218,16 +219,19 @@ export function ReportsTab({ m }: { m: Mission }) {
   const mc = getMissionControl(m);
   const lead = AGENT_BY_ID[m.leadId];
   const [rev, setRev] = useState('r3');
+  const owner = useAuth((st) => st.accounts.find((a) => a.id === m.ownerId));
+  const ownerName = owner?.name ?? m.owner;
   const claims = [
     { t: `${m.tasksVerified} of ${m.tasksTotal} tasks are independently verified.`, ev: mc.tasks.filter((t) => t.state === 'passed').slice(0, 2).map((t) => t.id) },
     { t: m.criteria.filter((c) => c.done).map((c) => c.text).join('; ') || 'No criteria met yet.', ev: ['T-evidence'] },
     { t: m.summary, ev: mc.timeline.slice(0, 2).map((e) => e.trace) },
   ];
   const md = `# ${m.title} — report ${rev}\n\nLead: ${lead?.name}\nVerified progress: ${m.progress}%\n\n${claims.map((c, i) => `${i + 1}. ${c.t} [evidence: ${c.ev.join(', ')}]`).join('\n')}\n\nQA verdict: ${m.status === 'completed' ? 'PASS' : 'PENDING'}\n`;
+  if (stage8(m)) return <EmptyState icon={FileText} title="No report yet" body="Reports arrive when agents start working. Agents do not execute yet, so nobody has written one for this mission." />;
   return (
     <div className="col" style={{ gap: 12 }}>
       <div className="row wrap" style={{ gap: 8 }}>
-        <FileText size={16} className="info" /><b>Lead synthesized report</b>
+        <FileText size={16} className="info" /><b>Lead synthesized report</b>{isApi() && <DemoTag title="Sample report from the prototype (DEMO mission)." />}
         <select className="select" style={{ width: 150, height: 30 }} value={rev} onChange={(e) => setRev(e.target.value)} aria-label="Report revision"><option value="r3">Revision 3 (latest)</option><option value="r2">Revision 2</option><option value="r1">Revision 1</option></select>
         <span className="spacer" />
         <button className="btn sm" onClick={() => downloadBlob(`${m.id}-report-${rev}.md`, md, 'text/markdown')}><FileDown size={14} />Markdown</button>
@@ -235,7 +239,7 @@ export function ReportsTab({ m }: { m: Mission }) {
         <button className="btn sm" onClick={() => { toast({ tone: 'info', title: 'Print to PDF', body: 'Use the browser print dialog → Save as PDF.' }); window.setTimeout(() => window.print(), 300); }}><FileDown size={14} />PDF</button>
       </div>
       <div className="report-doc">
-        <div className="row" style={{ gap: 10 }}><RobotAvatar role={lead?.role ?? 'manager'} size={40} faceMode="face" /><div><b>{lead?.name}</b> → Luca (Owner)<div className="dim" style={{ fontSize: 12 }}>Executive result · {rev} · {ago(m.summaryAgoMin)}</div></div>
+        <div className="row" style={{ gap: 10 }}><RobotAvatar role={lead?.role ?? 'manager'} size={40} faceMode="face" /><div><b>{lead?.name}</b> → {ownerName} (Owner)<div className="dim" style={{ fontSize: 12 }}>Executive result · {rev} · {ago(m.summaryAgoMin)}</div></div>
           <span className="spacer" /><div className={cx('qa-verdict', m.status === 'completed' ? 'pass' : m.status === 'failed' ? 'fail' : 'pending')}><ShieldCheck size={16} />QA {m.status === 'completed' ? 'PASS' : m.status === 'failed' ? 'FAIL' : 'PENDING'}</div></div>
         <div className="divider" />
         <ol className="claims">

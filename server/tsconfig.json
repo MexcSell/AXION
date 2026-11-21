@@ -3,7 +3,7 @@
     "target": "ES2023",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "paths": { "@/*": ["../web/src/*"] },
+    "paths": { "@/*": ["../web/src/*"], "@contracts": ["../shared/contracts/src/index.ts"] },
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,

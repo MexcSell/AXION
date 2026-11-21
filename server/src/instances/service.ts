@@ -20,6 +20,9 @@ export interface NewInstance {
   taskCount?: number; pending?: number; simulated: boolean; runId?: number | null;
 }
 
+/** Real-mission instances do not execute yet: they are idle with this label (demo ones keep their fixture states). */
+export const IDLE_TASK = 'Staffed, waits for execution';
+
 /** Insert one instance pinned to the agent's active version. Returns false when it already exists or the agent is unknown. */
 export async function insertInstance(c: Tx, i: NewInstance): Promise<boolean> {
   const id = instanceId(i.missionId, i.agentId);
@@ -28,7 +31,7 @@ export async function insertInstance(c: Tx, i: NewInstance): Promise<boolean> {
      select $1,$2,$3,$4,d.id,d.active_version_id,$5,$6,$7,$8,$9,$10,$11 from agent_definitions d
       where d.id=$12 and d.tenant_id=$2 and d.active_version_id is not null
      on conflict (id) do nothing`,
-    [id, i.tenantId, i.missionId, i.runId ?? null, i.managerAgentId ? instanceId(i.missionId, i.managerAgentId) : null, i.state ?? 'working', i.task ?? '',
+    [id, i.tenantId, i.missionId, i.runId ?? null, i.managerAgentId ? instanceId(i.missionId, i.managerAgentId) : null, i.state ?? (i.simulated ? 'working' : 'idle'), i.task ?? (i.simulated ? '' : IDLE_TASK),
       i.progress ?? 0, i.taskCount ?? 0, i.pending ?? 0, i.simulated, i.agentId]);
   return !!r.rowCount;
 }

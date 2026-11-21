@@ -31,7 +31,8 @@ describe('instances created by staffing', () => {
     expect(ins.map((i) => i.id).sort()).toEqual([`${m1}:coder-01`, `${m2}:coder-01`].sort());
     await t.pool.query(`update agent_instances set state='blocked', progress=40 where id=$1`, [`${m1}:coder-01`]);
     const other = (await rows(`select state, progress from agent_instances where id=$1`, [`${m2}:coder-01`]))[0];
-    expect(other.state).toBe('working'); expect(other.progress).toBe(0);
+    expect(other.state).toBe('idle'); expect(other.progress).toBe(0); // real mission: nothing executes, so no instance claims to be working
+    expect((await rows(`select distinct state from agent_instances where mission_id=$1`, [m2])).map((r) => r.state)).toEqual(['idle']);
     // real mission: recorded, not simulated; every non-GM instance has one delegated row from its manager
     expect(ins.every((i) => i.simulated === false)).toBe(true);
     const d = await rows(`select * from mission_delegations where mission_id=$1 and edge_kind='delegated'`, [m1]);
@@ -240,5 +241,20 @@ describe('append-only cascade guard', () => {
     await clearDemo(t.app.db, t.app.cfg.tenantId);
     expect(await count('select count(*)::int n from task_attempts')).toBe(0);
     expect(await count('select count(*)::int n from mission_delegations')).toBe(0);
+  });
+});
+
+describe('migration 0012', () => {
+  it('turns "working" instances of real missions into idle and leaves demo (simulated) ones alone', async () => {
+    t = await makeTestApp({ staffingStepMs: 30 });
+    const A = await withAdmin(t.app);
+    const m = await staffed(A);
+    await t.pool.query(`update agent_instances set state='working', task_label='Coordinating mission plan', progress=5 where mission_id=$1`, [m]);
+    await t.pool.query(`update agent_instances set simulated=true where id=$1`, [`${m}:gm`]);
+    const { readFileSync } = await import('node:fs');
+    await t.pool.query(readFileSync(new URL('../migrations/0012_idle_real_instances.up.sql', import.meta.url), 'utf8'));
+    const r = await rows(`select id, state, task_label from agent_instances where mission_id=$1`, [m]);
+    expect(r.find((x) => x.id === `${m}:gm`)!.state).toBe('working');
+    expect(r.filter((x) => x.id !== `${m}:gm`).every((x) => x.state === 'idle' && x.task_label === 'Staffed, waits for execution')).toBe(true);
   });
 });

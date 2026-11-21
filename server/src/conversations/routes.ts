@@ -45,7 +45,7 @@ export default async function conversationRoutes(app: FastifyInstance) {
   app.get('/threads/:id/messages', async (req) => {
     const ctx = await requireUser(req);
     const { id } = req.params as { id: string };
-    const q = req.query as { before?: string; limit?: string };
+    const q = req.query as { before?: string; limit?: string; mark?: string };
     const th = await getThreadFor(app.db, ctx, id);
     return readPage(app.db, th.id, ctx.user.id, q);
   });

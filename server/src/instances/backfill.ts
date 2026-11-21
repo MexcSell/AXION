@@ -56,7 +56,7 @@ export async function backfillMissionControl(c: Tx, tenantId: string, log?: { in
       for (const a of team) {
         const want = a === 'gm' ? undefined : a === ex ? 'gm' : ex;
         const manager = want && made.has(want) ? want : a !== 'gm' && made.has('gm') ? 'gm' : undefined; // fall back to the GM instance
-        if (!(await insertInstance(c, { tenantId, missionId: m.id, agentId: a, managerAgentId: manager, state: 'working', task: a === 'gm' ? 'Coordinating mission plan' : '', simulated, runId }))) continue;
+        if (!(await insertInstance(c, { tenantId, missionId: m.id, agentId: a, managerAgentId: manager, simulated, runId }))) continue;
         made.add(a);
         part.instances++;
         if (manager) { await insertDelegation(c, { missionId: m.id, from: instanceId(m.id, manager), to: instanceId(m.id, a), kind: 'delegated', simulated }); part.delegations++; }
