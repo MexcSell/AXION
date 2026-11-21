@@ -20,5 +20,6 @@ export type EventType =
   | 'approval.requested' | 'approval.decided' | 'notification.created'
   | 'conversation.messageCreated' | 'conversation.receipt' | 'instance.created' | 'instance.stateChanged' | 'task.delegated' | 'task.stateChanged'
   | 'agent.created' | 'agent.updated' | 'agent.versionCreated'
+  | 'agent.versionProposed' | 'agent.versionPromoted' | 'agent.rolledBack' | 'agent.versionProposalDecided'
   | 'org.proposalCreated' | 'org.proposalDecided' | 'org.revisionApplied'
   | 'user.requested' | 'user.changed' | 'auth.approved';

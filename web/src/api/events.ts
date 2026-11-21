@@ -6,6 +6,7 @@ import { isApi } from './mode';
 import { api, ApiFailure } from './client';
 import { loadAgents, useAgentsVersion, bumpInstances } from './agents';
 import { bumpProposals } from './orgProposals';
+import { bumpVersionProposals } from './versionProposals';
 import { bumpScorecard, clearScorecard } from './scorecard';
 import { onChannelEvent, refreshLoadedChannels, clearChannels, setChatUser } from './chat';
 import { onMissionControlEvent, refreshLoadedMissionControl, clearMissionControl, setMcUser } from './missionControl';
@@ -42,6 +43,7 @@ export function startSync(): () => void {
   const instances = debounceKeyed(() => bumpInstances(), 250);
   const agents = debounceKeyed(() => { void loadAgents().catch(() => undefined); }, 200);
   const proposals = debounceKeyed(() => bumpProposals(), 150);
+  const versions = debounceKeyed(() => bumpVersionProposals(), 150);
   const scorecard = debounceKeyed(() => bumpScorecard(), 400);
   // improvement cycle 3: each agent's measured reliability follows task outcomes and reassignments (the catalog carries it)
   const reliability = debounceKeyed(() => { void loadAgents().catch(() => undefined); }, 400);
@@ -73,6 +75,8 @@ export function startSync(): () => void {
     // improvement cycle 1: organisation proposals; an applied one changes the reporting lines (catalog managers + org graph)
     // every new org revision (an approved proposal, or a new agent's reporting line) changes which proposals are stale
     if (type.startsWith('org.') || type === 'agent.created') proposals('o');
+    // improvement cycle 5: version proposals, promotions and rollbacks (and any new active version: it makes proposals stale)
+    if (type.startsWith('agent.')) versions('v');
     if (type === 'org.revisionApplied') agents('a');
     // improvement cycle 2: the company scorecard follows state changes (and what the viewer can see)
     if (type === 'mission.stateChanged' || type === 'task.stateChanged' || type === 'mission.shared' || type === 'mission.deleted') scorecard('s');
@@ -102,11 +106,11 @@ export function startSync(): () => void {
       set('live');
       // the snapshot is read after the stream's cursor exists, so nothing committed in between is missed
       void loadSnapshot().catch(() => undefined);
-      if (opened++) { agents('a'); instances('i'); proposals('o'); scorecard('s'); refreshLoadedMissionControl(); void refreshLoadedChannels(); } // a reconnect: re-read what this tab already shows
+      if (opened++) { agents('a'); instances('i'); proposals('o'); versions('v'); scorecard('s'); refreshLoadedMissionControl(); void refreshLoadedChannels(); } // a reconnect: re-read what this tab already shows
       else if (useAgentsVersion.getState().failed) agents('a'); // the first catalog load failed: try again now the server answers
     });
     for (const t of ['mission.created', 'mission.revised', 'mission.stateChanged', 'mission.shared', 'mission.deleted', 'staffing.progressed', 'approval.requested', 'approval.decided', 'notification.created', 'user.requested', 'user.changed', 'auth.approved',
-      'agent.created', 'agent.updated', 'agent.versionCreated', 'org.proposalCreated', 'org.proposalDecided', 'org.revisionApplied', 'conversation.messageCreated', 'conversation.receipt', 'instance.created', 'instance.stateChanged', 'task.delegated', 'task.stateChanged'])
+      'agent.created', 'agent.updated', 'agent.versionCreated', 'agent.versionProposed', 'agent.versionPromoted', 'agent.rolledBack', 'agent.versionProposalDecided', 'org.proposalCreated', 'org.proposalDecided', 'org.revisionApplied', 'conversation.messageCreated', 'conversation.receipt', 'instance.created', 'instance.stateChanged', 'task.delegated', 'task.stateChanged'])
       es.addEventListener(t, (ev) => { heard(); onEvent(t, ev as MessageEvent); });
     // the server ends the stream when this session was revoked: re-check, which returns to Connect with the reason
     es.addEventListener('auth', () => {

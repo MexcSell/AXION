@@ -7,7 +7,7 @@ import { requireUser, requireAdmin, type Ctx } from '../auth/session.ts';
 import { parse } from '../auth/routes.ts';
 import { idempotent } from '../idempotency.ts';
 import { emit } from '../events/hooks.ts';
-import { addVersion, getAgent, listAgents, type AgentBase } from './service.ts';
+import { addVersion, getAgent, listAgents, lockAgent, type AgentBase } from './service.ts';
 import { attachReliability } from './reliability.ts';
 import { activeRevision, createOrgRevision, edgesOf, revDto } from './org.ts';
 
@@ -93,6 +93,7 @@ export default async function agentRoutes(app: FastifyInstance) {
     if (ifm === undefined) throw new ApiError('PRECONDITION_REQUIRED', 428, 'Send If-Match with the agent version you edited.');
     const expected = Number(String(ifm).replace(/"/g, ''));
     const agent = await tx(app.db, async (c) => {
+      await lockAgent(c, ctx.tenantId, id); // improvement cycle 5: the same lock as promote and rollback, taken before the read
       const cur = await getAgent(c, ctx.tenantId, id, false, true);
       if (!cur) throw notFound('No such agent.');
       if (cur.rowVersion !== expected) throw stale();

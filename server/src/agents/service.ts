@@ -56,7 +56,31 @@ export async function getAgent(c: Tx | Db, tenantId: string, id: string, withVer
   return out;
 }
 
-/** Insert a version and make it the agent's active one. The caller holds the definition row lock. */
+/**
+ * Improvement cycle 5: the one lock every writer of an agent's active version takes (PATCH /agents/:id, promote,
+ * rollback; proposals take it to read the base). Take it FIRST, as its own statement, and read the agent after it:
+ * a read made before (or in the statement that waits) can miss a version another writer committed meanwhile.
+ */
+export const lockAgent = (c: Tx, tenantId: string, agentId: string) => c.query('select pg_advisory_xact_lock(hashtext($1))', [`agent-ver:${tenantId}:${agentId}`]);
+
+/** Lock the agent, then read it (row-locked). The only way promote and rollback read the agent they change. */
+export async function lockAndReadAgent(c: Tx, tenantId: string, agentId: string) {
+  await lockAgent(c, tenantId, agentId);
+  return getAgent(c, tenantId, agentId, false, true);
+}
+
+/**
+ * Promote and rollback: a new immutable version (through addVersion, the Stage 6 path) that becomes active, and the
+ * definition's row_version moves on, so an edit opened before (If-Match) answers 409 instead of overwriting it.
+ * The caller holds lockAgent.
+ */
+export async function switchVersion(c: Tx, a: { agentId: string; model: string; skills: string[]; tools: string[]; createdBy: string }) {
+  const v = await addVersion(c, a);
+  await c.query('update agent_definitions set row_version=row_version+1 where id=$1', [a.agentId]);
+  return v;
+}
+
+/** Insert a version and make it the agent's active one. The caller holds lockAgent (or, for a new agent, the create lock). */
 export async function addVersion(c: Tx, a: { agentId: string; model: string; skills: string[]; tools: string[]; createdBy: string; label?: string }) {
   const prev = (await c.query('select id, seq, label from agent_versions where agent_id=$1 order by seq desc limit 1', [a.agentId])).rows[0];
   const seq = prev ? prev.seq + 1 : 1;

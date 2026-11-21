@@ -58,3 +58,24 @@ export interface OrgProposalDto {
   decidedBy: string | null; decidedByName: string | null; decidedAt: string | null; decisionNote: string | null;
   appliedRevision: number | null; result: OrgDryRun;
 }
+
+/** Improvement cycle 5: agent version proposals (a candidate model/skills/tools against the active version). */
+export type VersionProposalStatus = 'pending' | 'promoted' | 'rejected' | 'withdrawn' | 'expired';
+export interface VersionConfig { model: string; skills: string[]; tools: string[] }
+/** base → candidate: set differences of skills and tools (order is not a change) and the model change, if any. */
+export interface VersionDiff { skillsAdded: string[]; skillsRemoved: string[]; toolsAdded: string[]; toolsRemoved: string[]; model: { from: string; to: string } | null; changed: boolean }
+export interface VersionProposalDto {
+  id: string; agentId: string; agentName: string; title: string; hypothesis: string;
+  baseVersionId: string; baseVersionLabel: string; baseSha: string; base: VersionConfig;
+  candidate: VersionConfig; candidateSha: string; diff: VersionDiff;
+  /** what a decision is bound to: sha256 of agent, base, candidate, title and hypothesis */
+  sha: string;
+  status: VersionProposalStatus;
+  /** the agent's active version now; `stale` = it is no longer the base (only reject or withdraw remain) */
+  activeVersionId: string; stale: boolean;
+  createdBy: string; createdByName: string; createdAt: string; expiresAt: string;
+  decidedBy: string | null; decidedByName: string | null; decidedAt: string | null; note: string | null;
+  promotedVersionId: string | null; promotedVersionLabel: string | null;
+  /** no evaluation runs yet (agents do not execute): always null, never an invented number */
+  evaluation: null;
+}
