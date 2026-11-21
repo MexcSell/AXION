@@ -1,3 +1,4 @@
+import { LiveStatus } from '@/components/ui/LiveStatus';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
@@ -154,7 +155,7 @@ export function OrgHistory({ switcher, onRolledBack }: { switcher: ReactNode; on
         {!admin && <Chip hue={225} icon={Lock} size="sm" title="Only administrators propose a rollback">Read only</Chip>}
       </div>}>
       {error && <div className="oa-banner" role="alert" style={{ marginBottom: 10 }}><AlertOctagon size={15} /><span>History not loaded: {error}</span><button className="btn sm" onClick={retry}>Retry</button></div>}
-      {!data && !error ? <div className="dim" style={{ padding: 20 }}>Loading history…</div>
+      {!data && !error ? <LiveStatus className="dim" style={{ padding: 20 }}>Loading history…</LiveStatus>
         : revs.length === 0 ? <EmptyState icon={History} title="No revisions yet" body="The organisation chart has no stored revision." />
         : (
           <div className="oa-hist">
