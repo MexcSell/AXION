@@ -34,13 +34,20 @@ export function toAgent(d: AgentDto): Agent {
 }
 
 let gen = 0;
-export async function loadAgents() {
+let latest: Promise<void> = Promise.resolve();
+/** A load that a newer one overtakes does not apply its (older) answer, but it resolves only once the newest load has been
+ *  applied: callers such as updateAgent() await it and then read the current rowVersion from the catalog. */
+export function loadAgents(): Promise<void> {
   const mine = ++gen;
-  const r = await api<{ agents: AgentDto[] }>('GET', '/agents');
-  if (mine !== gen) return; // a newer load started meanwhile
-  applyAgentCatalog(r.agents.map(toAgent));
-  rebuildDepts(); // departments are derived from the catalog: agents created later belong to them too
-  useAgentsVersion.setState((s) => ({ v: s.v + 1, loaded: true, failed: false }));
+  const run = (async () => {
+    const r = await api<{ agents: AgentDto[] }>('GET', '/agents');
+    if (mine !== gen) return latest; // a newer load started meanwhile: wait for it instead of returning with nothing applied
+    applyAgentCatalog(r.agents.map(toAgent));
+    rebuildDepts(); // departments are derived from the catalog: agents created later belong to them too
+    useAgentsVersion.setState((s) => ({ v: s.v + 1, loaded: true, failed: false }));
+  })();
+  latest = run;
+  return run;
 }
 
 /** First load after sign-in. On failure the shell still opens with the built-in catalog (and says so). */
