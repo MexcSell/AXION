@@ -43,7 +43,7 @@ for (const to of routes) {
     };
     requestAnimationFrame(check);
   }), to);
-  if (typeof t === 'string') res.push(`${to}: ${t}`); else { res.push(`${to}: ${t[0].toFixed(0)}ms (mount ${t[1].toFixed(0)}, loaded ${t[2].toFixed(0)})`); times.push(t[0]); }
+  if (typeof t === 'string') { res.push(`${to}: ${t}`); process.exitCode = 1; } else { res.push(`${to}: ${t[0].toFixed(0)}ms (mount ${t[1].toFixed(0)}, loaded ${t[2].toFixed(0)})`); times.push(t[0]); }
   await page.waitForTimeout(700);
 }
 log(res.join('  '));

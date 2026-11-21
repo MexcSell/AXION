@@ -47,3 +47,4 @@ console.log(rows.join('\n'));
 console.log(`\n${ids.length} dialogs × 2 = ${rows.length} checks, ${fails} failures`);
 writeFileSync('docs/dialog-ledger.txt', rows.join('\n') + '\n');
 await b.close();
+process.exit(fails ? 1 : 0);

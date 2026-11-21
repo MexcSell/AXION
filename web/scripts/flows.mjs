@@ -260,3 +260,5 @@ await step('Help popover inside a dialog: Tab stays in popover, Esc closes popov
 console.log(results.join('\n'));
 console.log(errors.length ? 'CONSOLE ERRORS:\n' + errors.join('\n') : 'no console errors');
 await b.close();
+// exit code: non-zero when any check failed or the page logged an error
+process.exit(results.some((r) => r.startsWith('FAIL')) || errors.length ? 1 : 0);

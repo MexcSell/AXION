@@ -93,3 +93,5 @@ if (fixtures) {
 console.log(results.join('\n'));
 console.log(errors.length ? 'ERRORS\n' + errors.join('\n') : 'NO PAGE ERRORS');
 await b.close();
+// exit code: non-zero when any check failed or the page logged an error
+process.exit(results.some((r) => r.startsWith('FAIL')) || errors.length ? 1 : 0);

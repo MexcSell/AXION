@@ -18,3 +18,4 @@ for (const f of files) {
 const missing = [...used.keys()].filter((k) => !defined.has(k));
 console.log(`help entries defined: ${defined.size}, keys referenced: ${used.size}`);
 console.log(missing.length ? 'MISSING:\n' + missing.map((k) => `  ${k}  <- ${used.get(k).join(', ')}`).join('\n') : 'All referenced help keys are defined.');
+process.exit(missing.length ? 1 : 0);
