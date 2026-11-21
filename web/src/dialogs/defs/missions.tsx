@@ -15,7 +15,7 @@ import { useData, useMission } from '@/store/data';
 import { toast, openDialog } from '@/store/ui';
 import { AGENTS, AGENT_BY_ID } from '@/data/agents';
 import { getMissionControl } from '@/data/missions';
-import { useMissionControl, sendMissionMessage } from '@/api/missionControl';
+import { useMissionControl, sendMissionMessage, taskAction } from '@/api/missionControl';
 import { ROLES } from '@/data/roles';
 import type { Mission, Attachment } from '@/data/types';
 import { KIND_META } from '@/features/mission/MissionBits';
@@ -307,14 +307,27 @@ function TaskReassign({ close, props }: DialogComponentProps<{ missionId: string
   useMissionControl(props.missionId); // api mode: fetch and follow this mission's server data
   const [to, setTo] = useState('');
   const [why, setWhy] = useState('');
+  const [busy, setBusy] = useState(false);
   if (!m) return <Missing close={close} />;
   const tasks = getMissionControl(m).tasks;
   const taskId = props.taskId ?? tasks.find((t) => t.state !== 'passed')?.id ?? tasks[0]?.id;
   const task = tasks.find((t) => t.id === taskId);
-  const candidates = AGENTS.filter((a) => a.id !== task?.owner && a.id !== 'gm').slice(0, 14);
+  // api mode: only agents that joined this mission can take a task (the server decides; a stranger is 422)
+  const joined = isApi() ? new Set(getMissionControl(m).nodes.map((n) => n.agentId)) : null;
+  const candidates = AGENTS.filter((a) => a.id !== task?.owner && a.id !== 'gm' && (!joined || joined.has(a.id))).slice(0, 14);
+  const submit = async () => {
+    if (!isApi()) { toast({ tone: 'success', title: 'Reassignment submitted', body: `${AGENT_BY_ID[to]?.name} will receive it after privilege checks. Audited.` }); close(); return; }
+    if (!task || busy) return;
+    setBusy(true);
+    const node = getMissionControl(m).nodes.find((n) => n.agentId === to);
+    const r = node ? await taskAction(m.id, task.id, 'reassign', { toInstanceId: node.instanceId, reason: why.trim() }) : { ok: false as const, message: 'This agent has not joined the mission.' };
+    setBusy(false);
+    if (r.ok) { toast({ tone: 'success', title: 'Task reassigned', body: `${AGENT_BY_ID[to]?.name} owns ${task.id} now. Audited.` }); close(); }
+    else toast({ tone: 'error', title: 'Not reassigned', body: r.message });
+  };
   return (
     <Modal title="Delegate / reassign task" icon={GitBranch} dialogId="DL-12" help="hierarchy.delegation" onClose={close} sub={task ? `${task.id} · ${task.title}` : m.id}
-      footer={<><button className="btn" onClick={close}>Cancel</button><button className="btn primary" disabled={!to || !why.trim()} onClick={() => { toast({ tone: 'success', title: 'Reassignment submitted', body: `${AGENT_BY_ID[to]?.name} will receive it after privilege checks. Audited.` }); close(); }}>Submit Reassignment</button></>}>
+      footer={<><button className="btn" onClick={close}>Cancel</button><button className="btn primary" disabled={!to || !why.trim() || busy} onClick={() => void submit()}>Submit Reassignment</button></>}>
       <Field label="Assign to" required>
         <div className="pick-grid">
           {candidates.map((a) => (
@@ -332,14 +345,24 @@ function TaskReassign({ close, props }: DialogComponentProps<{ missionId: string
 
 function TaskCriteria({ close, props }: DialogComponentProps<{ missionId: string; taskId: string }>) {
   const m = useMission(props.missionId);
+  const [busy, setBusy] = useState(false);
   useMissionControl(props.missionId); // api mode: fetch and follow this mission's server data
   if (!m) return <Missing close={close} />;
   const t = getMissionControl(m).tasks.find((x) => x.id === props.taskId);
   if (!t) return <Missing close={close} />;
   const owner = AGENT_BY_ID[t.owner];
+  const run = async (action: 'retry' | 'cancel') => {
+    if (busy) return;
+    setBusy(true);
+    const r = await taskAction(m.id, t.id, action);
+    setBusy(false);
+    if (r.ok) { toast({ tone: action === 'cancel' ? 'warning' : 'success', title: action === 'cancel' ? `${t.id} canceled` : `${t.id} queued for retry`, body: action === 'retry' ? 'The failed attempt is kept in its history.' : 'Audited.' }); close(); }
+    else toast({ tone: 'error', title: action === 'cancel' ? 'Not canceled' : 'Not retried', body: r.message });
+  };
+  const api_ = isApi();
   return (
     <Modal title={t.title} icon={ListChecks} dialogId="DL-13" help="mission.progress.verified" onClose={close} drawer sub={`${t.id} · weight ${t.weight}`}
-      footer={<><button className="btn" onClick={() => openDialog('task-reassign', { missionId: m.id, taskId: t.id })}>Reassign</button><button className="btn primary" onClick={() => { toast({ tone: 'info', title: 'Verification requested', body: `QA will verify ${t.id} independently.` }); close(); }}>Request Verification</button></>}>
+      footer={<>{api_ && t.state === 'failed' && <button className="btn" disabled={busy} onClick={() => void run('retry')}><RotateCcw size={15} />Retry</button>}{api_ && t.state !== 'passed' && t.state !== 'canceled' && <button className="btn danger" disabled={busy} onClick={() => void run('cancel')}>Cancel task</button>}<button className="btn" onClick={() => openDialog('task-reassign', { missionId: m.id, taskId: t.id })}>Reassign</button><button className="btn primary" onClick={() => { toast({ tone: 'info', title: 'Verification requested', body: `QA will verify ${t.id} independently.` }); close(); }}>Request Verification</button></>}>
       <div className="row" style={{ gap: 8 }}><TaskStateChip state={t.state} /><span className="muted" style={{ fontSize: 12.5 }}>Owner</span><RobotAvatar role={owner?.role ?? 'dev'} size={26} /><b>{owner?.name}</b></div>
       <div className="section-label">Expected result</div>
       <p style={{ fontSize: 13 }}>“{t.title}” is complete when its output is attached, tests pass and an independent verifier accepts the evidence.</p>

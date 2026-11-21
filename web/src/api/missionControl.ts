@@ -302,6 +302,22 @@ export function onMissionControlEvent(type: string, e: DomainEvent) {
   }
 }
 
+/* ------------------------------------------------------------------ task actions */
+export type TaskActionResult = { ok: true; task: Task } | { ok: false; message: string };
+/** retry / reassign / cancel a task (api mode). The server's message is returned as it is for an illegal move; the Task flow refreshes at once. */
+export async function taskAction(mid: string, taskId: string, action: 'retry' | 'reassign' | 'cancel', body: { toInstanceId?: string; reason?: string } = {}): Promise<TaskActionResult> {
+  try {
+    const r = await api<{ task: Task }>('POST', `/tasks/${encodeURIComponent(taskId)}/${action}`, action === 'reassign' ? body : {}, { idempotencyKey: newKey() });
+    patchEntry(mid, (e) => (e.tasks ? { ...e, tasks: e.tasks.map((t) => (t.id === r.task.id ? r.task : t)) } : e));
+    refreshSoon(mid, ['tasks', 'hierarchy']);
+    return { ok: true, task: r.task };
+  } catch (e) {
+    if (e instanceof ApiFailure && e.status === 404 && await confirmMissionGone(mid)) forget(mid);
+    refreshSoon(mid, ['tasks']);
+    return { ok: false, message: msgOf(e) };
+  }
+}
+
 /* ------------------------------------------------------------------ sending */
 export type SendResult = { ok: true } | { ok: false; gone: boolean; message: string };
 let localSeq = 1;

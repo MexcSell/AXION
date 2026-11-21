@@ -160,6 +160,50 @@ try {
   await A.p.locator('.part-status[data-part="tasks"]').getByRole('button', { name: 'Retry' }).click().catch(() => {});
   check('Retry loads the tasks', Array.isArray(tasks127) && tasks127.length > 0 && await until(async () => (await A.p.getByText(tasks127[0].title).count()) > 0 && (await A.p.locator('.part-status').count()) === 0, 10000), `${tasks127.length} tasks`);
 
+  // ------------------------------------------------------------ Task 5: retry, reassign, cancel from the task dialogs
+  const t125 = (await apiA('GET', '/missions/M-125/tasks')).body;
+  const failedT = t125.find((t) => t.state === 'failed');
+  const openTask = async (mid, id) => {
+    await A.p.goto(`${base}/missions/${mid}?tab=task-flow`, { waitUntil: 'domcontentloaded' });
+    const el = A.p.locator(`[aria-label^="${id} "]`).first();
+    await el.waitFor({ timeout: 10000 });
+    await el.click();
+    await A.p.locator('.modal, [role="dialog"]').first().waitFor({ timeout: 5000 });
+  };
+  check('M-125 has a failed task to retry', !!failedT, failedT?.id);
+  if (failedT) {
+    await openTask('M-125', failedT.id);
+    await A.p.locator('[role="dialog"]').getByRole('button', { name: 'Retry' }).click();
+    check('Retry in the task dialog moves the task to queued on the server', await until(async () => (await apiA('GET', `/tasks/${failedT.id}`)).body.task?.state === 'queued', 8000));
+    await openTask('M-125', failedT.id);
+    check('the dialog no longer offers Retry for it, and the Task flow shows it queued', (await A.p.locator('[role="dialog"]').getByRole('button', { name: 'Retry' }).count()) === 0 && /queued/i.test(await A.p.locator('[role="dialog"], .modal').first().innerText()));
+    const again = await apiA('POST', `/tasks/${failedT.id}/retry`, {}, { 'idempotency-key': key() });
+    check('retrying again is an illegal move with the server\'s message', again.status === 409 && again.body.code === 'ILLEGAL_TRANSITION', again.body.message);
+  }
+  const t126 = (await apiA('GET', '/missions/M-126/tasks')).body;
+  const hier126 = (await apiA('GET', '/missions/M-126/hierarchy')).body;
+  const movable = t126.find((t) => t.state !== 'running' && t.state !== 'passed' && t.state !== 'canceled');
+  const newOwner = hier126.nodes.find((n) => n.agentId !== 'gm' && n.agentId !== movable?.owner);
+  check('M-126 has a task and another agent to reassign it to', !!movable && !!newOwner, `${movable?.id} → ${newOwner?.agentId}`);
+  if (movable && newOwner) {
+    await openTask('M-126', movable.id);
+    await A.p.locator('[role="dialog"]').getByRole('button', { name: 'Reassign' }).click();
+    await A.p.getByRole('button', { name: new RegExp(`^.*${(await apiA('GET', '/agents')).body.agents.find((a) => a.id === newOwner.agentId).name}`) }).first().click();
+    await A.p.getByPlaceholder(/needs browser specialist/).fill('stage 6 e2e reassign');
+    await A.p.getByRole('button', { name: 'Submit Reassignment' }).click();
+    check('Reassign in the dialog changes the owner on the server', await until(async () => (await apiA('GET', `/tasks/${movable.id}`)).body.task?.owner === newOwner.agentId, 8000));
+    const ownerName = (await apiA('GET', '/agents')).body.agents.find((a) => a.id === newOwner.agentId).name;
+    check('the Task flow (still open, not reloaded) shows the new owner live', await until(async () => (await A.p.locator(`[aria-label^="${movable.id} "]`).first().innerText()).includes(ownerName), 8000), ownerName);
+  }
+  const running = [...t126, ...(await apiA('GET', '/missions/M-127/tasks')).body].find((t) => t.state === 'running');
+  if (running) {
+    const mid = t126.some((t) => t.id === running.id) ? 'M-126' : 'M-127';
+    const other = (await apiA('GET', `/missions/${mid}/hierarchy`)).body.nodes.find((n) => n.agentId !== running.owner && n.agentId !== 'gm');
+    const r = await apiA('POST', `/tasks/${running.id}/reassign`, { toInstanceId: other.instanceId }, { 'idempotency-key': key() });
+    check('reassigning a running task is refused (409) and the owner stays', r.status === 409 && (await apiA('GET', `/tasks/${running.id}`)).body.task.owner === running.owner, r.body.message);
+  }
+  await A.p.screenshot({ path: `${SHOTS}/stage6-task-actions.png` });
+
   // ------------------------------------------------------------ a real mission: queued, the honest note, no invented reply
   const made = await apiA('POST', '/missions', { text: 'Compare two hosting providers for the company site and list their limits.', files: [], shared: true }, { 'idempotency-key': key() });
   const realId = made.body.mission?.id;

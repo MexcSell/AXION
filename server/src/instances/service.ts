@@ -81,14 +81,21 @@ export async function hierarchy(c: Tx | Db, missionId: string) {
     edges.push({ from: d.to_instance, to: d.from_instance, kind: 'reports' }); // implied, not stored
   }
   for (const d of dels.filter((x) => x.edge_kind !== 'delegated')) edges.push({ from: d.from_instance, to: d.to_instance, kind: d.edge_kind });
-  return { nodes, edges };
+  const seen = new Set<string>();
+  return { nodes, edges: edges.filter((e) => { const k = `${e.from}|${e.to}|${e.kind}`; if (seen.has(k)) return false; seen.add(k); return true; }) };
 }
 
-export async function missionTasks(c: Tx | Db, missionId: string) {
-  const rows = (await c.query(`select t.*, coalesce(i.agent_id, t.owner_agent) as owner,
+const SELECT_TASK = `select t.*, coalesce(i.agent_id, t.owner_agent) as owner,
       coalesce((select jsonb_agg(td.depends_on order by td.depends_on) from task_dependencies td where td.task_id=t.id), '[]'::jsonb) as deps
-    from tasks t left join agent_instances i on i.id = t.owner_instance_id where t.mission_id=$1 order by t.col, t.row, t.id`, [missionId])).rows;
-  return rows.map((t) => ({ id: t.id, title: t.title, owner: t.owner, deps: t.deps, state: TASK_TO_UI[t.status] ?? 'queued', weight: t.weight, evidence: t.evidence, col: t.col, row: t.row }));
+    from tasks t left join agent_instances i on i.id = t.owner_instance_id`;
+export const taskDto = (t: any) => ({ id: t.id, title: t.title, owner: t.owner, deps: t.deps, state: TASK_TO_UI[t.status] ?? 'queued', weight: t.weight, evidence: t.evidence, col: t.col, row: t.row });
+
+export async function missionTasks(c: Tx | Db, missionId: string) {
+  return (await c.query(`${SELECT_TASK} where t.mission_id=$1 order by t.col, t.row, t.id`, [missionId])).rows.map(taskDto);
+}
+export async function taskById(c: Tx | Db, id: string) {
+  const r = (await c.query(`${SELECT_TASK} where t.id=$1`, [id])).rows[0];
+  return r ? taskDto(r) : undefined;
 }
 
 export async function listInstances(c: Tx | Db, ctx: { tenantId: string; user: { id: string; role: string } }, agentId?: string) {
