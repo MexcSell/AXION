@@ -1,0 +1,22 @@
+== server tests
+ Test Files  17 passed (17)
+      Tests  219 passed (219)
+   Duration  16.57s (tests 94%, import 4%, transform 2%)
+wall 17s
+== build
+dist/assets/Missions-j0l4Gi8F.js                                   98.26 kB │ gzip:  27.54 kB
+dist/assets/Chips-BZqCUVYo.js                                     343.25 kB │ gzip: 118.83 kB
+dist/assets/index-BvEGYwJG.js                                     543.93 kB │ gzip: 176.45 kB
+✓ built in 2.30s
+dist bytes 2276860
+== perf-nav dev
+idle /overview: {"fps":60.3,"worstMs":16.8}
+/missions: 329ms (mount 328, loaded 328)  /notifications: 155ms (mount 155, loaded 155)  /settings: 97ms (mount 97, loaded 97)  /overview: 241ms (mount 241, loaded 241)  /missions: 163ms (mount 162, loaded 162)  /settings: 72ms (mount 72, loaded 72)  /overview: 235ms (mount 235, loaded 235)
+median switch ms: 163
+== e2e
+== api-auth-flow.mjs
+15/15 passed
+== api-flows.mjs
+23/23 passed
+== api-stage6.mjs
+94/94 passed
