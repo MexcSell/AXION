@@ -45,3 +45,8 @@ web/scripts/_session.mjs, api-flows, api-improve, api-narrow, api-offline, api-s
 ## Concerns
 - verify-all exit code untrusted (w19); result below is from grepping FAIL lines.
 - No UI screenshots: the only visible change is a tooltip/aria label before help loads.
+
+## Fix round (after review c25-review.md)
+- **I1:** the three negative checks in api-improve.mjs are restored as commented ABSENCE WAITs with their original durations (Missions header "no success rate" 600 ms; scorecard "still 3 finished" after cancel 900 ms; Coder-01 "still not enough evidence" after retry 600 ms). A negative check cannot be gated on a positive signal that would not exist when nothing changes. Api-script sleeps are now 7, all absence waits, all commented. Forced-failure proof: a temporary copy injected the defect into each (header text + " Success 50%", finished value set to 4, reliability text set to "60% (5 of 5)"); the run gave `80/83 passed` with exactly those three checks FAIL. The copy was deleted.
+- **I2:** `inventedNumbers` now flags a number on either side of tokens/coverage/latency and a number followed by ms/s ("4000 tokens saved", "12 ms latency", "3 coverage", "latency 12 ms", "1.5k tokens"), plus the old forms (any %, word then number). selftest-guards gained those cases and two honest-text cases ("Applied by Bea · base rev 2", "Tokens are not measured yet"): 34 PASS, 0 FAIL.
+- **Re-runs:** api-improve 83/83 (through heavy.sh). Full verify-all re-run after the flows.mjs fix (own OUT, exit 0): grep for FAIL gives zero lines; build, 77-view crawl, deep crawl, flows, auth flow, u1 flows, dialog smoke (110 checks, 0 failures), dialog ids, help keys and fs guard all clean.
