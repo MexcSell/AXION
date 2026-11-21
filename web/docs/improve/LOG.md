@@ -5,6 +5,9 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
 ## Owner questions (queued, with the default the loop uses meanwhile)
 - Q1 (from Stage 5): may any member who can see a shared mission decide its approvals? Default: yes (unchanged).
 
+- Q5 (from cycle 5): should direct edits of an agent's model, skills or tools (Stage 6 Edit) require a version proposal and a second admin, as promotions do? Default: no; direct edits stay single-admin, audited and versioned.
+- Q6 (from cycle 6): when several members of a department report to the GM, which one is the department "head"? The current rule is the one with the most members under it, then the lowest id, and the card shows a "1 of N → GM" chip. Default: keep it.
+
 ## Cycles
 
 ### Cycle 1: A1 org change proposals (start 11:41Z)
@@ -54,3 +57,43 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
 - Implementer (163bf0a, 030937f): first-load JS for /missions 307,502 → 243,127 B gzip (−20.9%, threshold −20%). The help registry, command palette and chat dock now load on demand. The "Chips" chunk was a shared bucket holding the whole help registry through HelpTrigger's static import.
 - Review (c07-review.md): spec MET (thin margin), quality GOOD. I1: api-stage6 red under host load (the same failure on baseline). I2: process slips (git stash, one read-only load from 5190), now in LESSONS.
 - Ruling: no code fix round. api-stage6 and the literal perf threshold get re-verified on the integration tree at merge time, with lower load. The same-load A/B (193 vs 192 ms) is accepted as evidence of no regression.
+
+### Cycle 5: C2 agent version proposals (lane w3)
+- Implementer (5b95349, 7f5829a, d9c6f14, bd81462, 148e788): server 321 → 345, api-c05 31/31, verify-all green; all 4 threshold items PASS.
+- Review (c05-review.md): spec PASS. Server design approved: every active-version writer takes the per-agent lock before reading. I1: committed node_modules symlink (blocks the merge). I2: help text overstated the two-admin rule. Fix round dispatched; owner question Q5 queued.
+- Fix round (7a27cc5): symlink untracked, help text corrected (promotions need two admins; direct edits and rollbacks are single-admin, audited and versioned), minors m1, m2 and m4. Controller verified I1 and I2 directly (small diff). Cleared for merge; queued after c07.
+
+### Cycle 13: C3 experiment verdict (lane w11)
+- Implementer (3bc8555): pure verdict() with 39 tests; server 370 green.
+- Review: spec PARTIAL. I1: the policy guard was bypassable (thresholds supplied by the caller). Ruling: thresholds come only from the in-module registry, by version.
+- Fix (0945f6b): registry-only policies plus 4 bypass tests; server 371 green. Controller verified directly. Cleared, merge queued.
+
+### Cycle 6: B3 department facts (lane w4)
+- Implementer (a7423eb, b414a19, fd1c95e, c02006b): server 321 → 352, api-c06 25/25. Item 3 is NOT MET (the Agent Profile overflows at 1366×768; pre-existing, H5).
+- Review (c06-review.md): spec PARTIAL (item 3), quality good, privacy holds.
+  - I2: outcome attribution must follow cycle 3's corrected rule. Ruling: the owner at the time; finish time = greatest(...). Fix round dispatched.
+  - I3: the head rule is queued as Q6.
+- Cycle 4 fix round (6135779, 70d8989): History view now uses its own class; the Policies Revision History panel is pixel-identical to base (byte-identical PNGs); minors m1, m2, m4, m5 done. Server 343, api-improve 105/105, verify-all green. Controller verified the CSS diff. All 4 threshold items PASS. Cleared; merge queued after c13.
+
+### Cycle 9: H1 server minors (lane w7)
+- Implementer (d52f050 RED, f344340, 3e9f79e, 18dd102): items 1 to 7 fixed; server 337, stage6 94/94 on rerun, api-improve 83/83.
+- Review: spec PARTIAL. I1: the Messenger composer still sends the fixture replyTo, so a reply to a backfilled question gets 422. Minors: owner and decider names show the viewer; the read-mark is dropped on close. Fix round dispatched.
+- Lane setup fix (controller): lane Vite overrides allowed the whole worktree, which made fs-guard fail. Narrowed to web/ and shared/ (new-lane.sh updated).
+
+### Cycle 17: owner guide (lane w15)
+- Implementer (03c761f): a "New Features" Help tab with 14 plain-language pages and deep links (api-c17 22/22), 10 light-mode screenshots.
+- Review: I1 "another person approves" must say a second administrator; I2 "instead of editing directly" is too absolute.
+- Ruling: c17 merges after c04, c05 and c06, and its 3 pages are written as available features. Fix round dispatched.
+
+### Cycle 12: B2 trend and throughput (lane w10)
+- Implementer (fbd8930, 11aac51, 4bcb5cd): previous period plus trend on scorecard rows, GET /company/throughput, Overview arrows and chart; server 347, api-c12 10/10, ov-fit NO SCROLL.
+- Review: spec PASS, quality good, privacy OK. I1: throughput double-counted a failed-then-completed mission. Ruling: count once, in the week of its last final transition. Minors: neutral arrow colour, help-text precision. Fix round dispatched.
+
+### Cycle 10: P1 DB indexes and scale (lane w8)
+- Implementer (50b1ca3): migration 0017 (5 indexes) plus a scale benchmark. p95: scorecard 36.5 → 27.4 ms, /agents 47.3 → 42.7 ms (cleanest run); noisy runs were above 50 ms.
+- Review: spec PARTIAL. Ruling: relabel PARTIAL; keep the indexes (they match the hot predicates and are cheap); use exact migration-count assertions; the bench guard accepts only the lane's own DB. Fix round dispatched.
+
+### Cycle 15: Q1 contract tests (lane w13)
+- Implementer (b7cfb46, 02824ee, 38314e7): 56 routes and 23 event types validated; 3 contract drifts fixed on the contract side. The final full suite after a regex fix was not completed (gate queue), so the integrator must run it. Review running.
+- Review: MET for its scope. I1: c09 unifies task.delegated and adds fields, so c15's strict validators would break after merge. Ruling: merge c15 after c09, with validators aligned now. I2: the full suite was never run after the fix. I3: a no-op subagent was dispatched against the rules (recorded). Fix round dispatched.
+- Fix round (cdcc0d1): validators follow c09's contracts; temporary tolerances are marked "remove after c09 merge"; guards coverage widened; full server suite 337/337. Cleared to merge AFTER c09. The integrator must then tighten the tolerances.

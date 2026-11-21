@@ -16,7 +16,7 @@ Lane L lives in `/home/luca/AXION-wL` on its own branch. Port base B is 5000 + L
 
 ## Commands (run from your worktree)
 - **Every heavy run goes through the shared gate:** `/home/luca/AXION-lanes/heavy.sh <command>`. This applies to server
-  tests, browser checks and verify-all. The gate allows at most 3 heavy runs at once on the whole machine, because the
+  tests, browser checks and verify-all. The gate allows at most 6 heavy runs at once on the whole machine, because the
   shared PostgreSQL server (max 100 connections) also serves other apps. Never bypass it. Typecheck (`tsc`) and builds
   don't need it.
 - **Server tests:** `cd server && npx tsc --noEmit -p . && /home/luca/AXION-lanes/heavy.sh npx vitest run`
@@ -49,6 +49,8 @@ Migrations 0001–0013 are on `improve-30h`. Reserved numbers, so lanes never co
 | w10 | 0020 |
 | w11 | 0021 |
 | w12 | 0022 |
+| w17 | 0023 |
+| w18 | 0024 |
 
 Use your number only if you really need a migration.
 
