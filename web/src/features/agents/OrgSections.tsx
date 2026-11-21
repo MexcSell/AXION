@@ -8,6 +8,7 @@ import {
 import { RobotAvatar } from '@/components/art/RobotAvatar';
 import { Panel } from '@/components/ui/Panel';
 import { Segmented, SwitchRow } from '@/components/ui/Form';
+import { isApi } from '@/api/mode';
 import { Chip, DemoTag, AgentStatusChip } from '@/components/ui/Chips';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { Tip } from '@/components/ui/Tip';
@@ -29,7 +30,7 @@ export interface OrgMove { agentId: string; from: string; to: string; }
 export function Departments() {
   const nav = useNavigate();
   return (
-    <Panel icon={Building2} titleSize="lg" title="Departments" help="org.departments" sub="Charter, manager, capacity, skill coverage and KPIs." delay={.05} actions={<button className="btn primary" onClick={() => openDialog('department-create')}><Plus size={15} />New department</button>}>
+    <Panel icon={Building2} titleSize="lg" title="Departments" help="org.departments" sub="Charter, manager, capacity, skill coverage and KPIs." delay={.05} actions={<div className="row" style={{ gap: 8 }}>{isApi() && <DemoTag title="Capacity, coverage and KPIs are prototype numbers until agents are measured" />}<button className="btn primary" onClick={() => openDialog('department-create')}><Plus size={15} />New department</button></div>}>
       <div className="oa-dept-grid">
         {DEPTS.map((d, i) => {
           const mgr = AGENT_BY_ID[d.managerId];

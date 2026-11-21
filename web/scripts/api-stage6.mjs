@@ -373,6 +373,103 @@ try {
     await until(async () => { const t = await dockText(B.p); return t.includes(toAgent) && /can't answer yet — this is stored and will be delivered when execution starts/.test(t); }, 8000));
   check('the agent line is on the server and private to B', (await apiB('GET', '/channels')).body.channels.some((c) => c.kind === 'agent' && c.agentId === 'coder-01') && !(await apiA('GET', '/channels')).body.channels.some((c) => c.kind === 'agent' && c.userId === mina.id));
   await B.p.screenshot({ path: `${SHOTS}/stage6-gm-line-B.png` });
+
+  // ------------------------------------------------------------ Task 7: Agents pages on the server
+  const DIR = `${base}/operations?tab=agents&sub=directory&view=cards`;
+  await A.p.goto(DIR, { waitUntil: 'domcontentloaded' });
+  await B.p.goto(DIR, { waitUntil: 'domcontentloaded' });
+  const cardsOf = (p) => p.locator('.agent-card');
+  await until(async () => (await cardsOf(A.p).count()) > 5 && (await cardsOf(B.p).count()) > 5, 12000);
+  const before = (await apiA('GET', '/agents')).body.agents.length;
+  check('B (member) sees no New Agent button', (await B.p.getByRole('button', { name: 'New Agent' }).count()) === 0 && (await A.p.getByRole('button', { name: 'New Agent' }).count()) === 1);
+  check('the server refuses a member creating an agent (403)', (await apiB('POST', '/agents', { name: 'X', role: 'x', dept: 'QA', duty: 'x duty', model: 'claude-sonnet-5-5' }, { 'idempotency-key': key() })).status === 403);
+  await A.p.getByRole('button', { name: 'New Agent' }).click();
+  const dlg = A.p.locator('[role="dialog"]').first();
+  await dlg.waitFor({ timeout: 5000 });
+  await dlg.getByPlaceholder('Marketer-01').fill('Marketer-01');
+  await dlg.getByLabel('Role', { exact: true }).fill('marketing');
+  await dlg.getByPlaceholder('e.g. Marketing').fill('Marketing outreach');
+  await dlg.getByPlaceholder('copywriting, SEO').fill('copywriting, SEO');
+  await dlg.getByRole('button', { name: 'Create agent', exact: true }).last().click();
+  check('the dialog closes and the server has the new agent', await until(async () => (await dlg.count()) === 0 && (await apiA('GET', '/agents')).body.agents.some((a) => a.id === 'marketer-01'), 8000));
+  check('A\'s Directory shows the new agent without a reload', await until(async () => (await cardsOf(A.p).filter({ hasText: 'Marketer-01' }).count()) === 1, 8000));
+  check('B\'s Directory shows it without a reload (second browser)', await until(async () => (await cardsOf(B.p).filter({ hasText: 'Marketer-01' }).count()) === 1, 8000));
+  const newCard = cardsOf(A.p).filter({ hasText: 'Marketer-01' });
+  check('the new agent says "not enough evidence": no success number, a "0 tasks / 90 days" chip', (await newCard.innerText()).includes('n/a') && (await newCard.locator('[data-provenance="measured"]').innerText()).includes('0 tasks / 90 days'));
+  check('a seeded agent\'s card carries the DEMO chip', (await cardsOf(A.p).filter({ hasText: 'Site-Wanted-KR' }).locator('.demo-tag').count()) > 0);
+  await A.p.screenshot({ path: `${SHOTS}/stage6-agents-directory.png` });
+  await A.p.keyboard.press('Control+k');
+  await A.p.locator('.palette-input').fill('Marketer');
+  check('Ctrl K finds the new agent (A)', await until(async () => (await A.p.locator('.palette-item', { hasText: 'Marketer-01' }).count()) > 0, 5000));
+  await A.p.keyboard.press('Escape');
+  await B.p.keyboard.press('Control+k');
+  await B.p.locator('.palette-input').fill('Marketer');
+  check('Ctrl K finds the new agent (B, no reload)', await until(async () => (await B.p.locator('.palette-item', { hasText: 'Marketer-01' }).count()) > 0, 5000));
+  await B.p.keyboard.press('Escape');
+  // hierarchy, both browsers
+  await A.p.goto(`${base}/operations?tab=agents&sub=directory&view=hierarchy`, { waitUntil: 'domcontentloaded' });
+  await B.p.goto(`${base}/operations?tab=agents&sub=directory&view=hierarchy`, { waitUntil: 'domcontentloaded' });
+  const graph = (await apiA('GET', '/organization/graph')).body;
+  check('the Hierarchy draws the new agent (A) and names the active org revision', await until(async () => (await A.p.locator('.ah-node[data-agent="marketer-01"]').count()) === 1 && (await A.p.locator('[data-org-revision]').count()) === 1, 10000), `revision ${graph.revision?.seq}`);
+  check('the node knows its manager from the graph', (await A.p.locator('.ah-node[data-agent="marketer-01"]').getAttribute('data-manager')) === graph.edges.find((e) => e.subordinateId === 'marketer-01')?.supervisorId);
+  check('B sees the new agent in the Hierarchy too', await until(async () => (await B.p.locator('.ah-node[data-agent="marketer-01"]').count()) === 1, 10000));
+  await A.p.waitForTimeout(900);
+  await A.p.screenshot({ path: `${SHOTS}/stage6-agents-hierarchy.png` });
+  // a live creation while B watches the hierarchy
+  const live = await apiA('POST', '/agents', { name: 'Analyst-X', role: 'analyst-x', dept: 'R&D', duty: 'Funnel analysis', model: 'claude-sonnet-5-5', skills: [], tools: [] }, { 'idempotency-key': key() });
+  check('an agent created over the API appears in B\'s open Hierarchy live', live.status === 201 && await until(async () => (await B.p.locator('.ah-node[data-agent="analyst-x"]').count()) === 1, 10000));
+  // duplicate role: the server's message, inline
+  await A.p.goto(DIR, { waitUntil: 'domcontentloaded' });
+  await cardsOf(A.p).first().waitFor({ timeout: 10000 });
+  const nAgents = (await apiA('GET', '/agents')).body.agents.length;
+  await A.p.getByRole('button', { name: 'New Agent' }).click();
+  const dlg2 = A.p.locator('[role="dialog"]').first();
+  await dlg2.getByPlaceholder('Marketer-01').fill('Marketer-02');
+  await dlg2.getByLabel('Role', { exact: true }).fill('marketing');
+  await dlg2.getByPlaceholder('e.g. Marketing').fill('Brand partnerships');
+  await dlg2.getByRole('button', { name: 'Create agent', exact: true }).last().click();
+  check('a duplicate role shows the server\'s message inline and keeps the dialog open', await until(async () => (await dlg2.getByText('An agent already holds this role').count()) > 0, 8000) && (await dlg2.count()) === 1);
+  check('nothing was created', (await apiA('GET', '/agents')).body.agents.length === nAgents);
+  await dlg2.getByLabel('Role', { exact: true }).fill('partnerships');
+  check('editing the role clears the error', await until(async () => (await dlg2.getByText('An agent already holds this role').count()) === 0, 3000));
+  await dlg2.getByRole('button', { name: 'Cancel' }).click();
+  // edit skills: v(n+1) in Versions, the running mission's instance keeps v(n)
+  const des = (await apiA('GET', '/agents/designer-01')).body.agent;
+  const inst = (await apiA('GET', '/agent-instances?agentId=designer-01')).body.instances;
+  const oldLabel = des.versionLabel;
+  check('designer-01 has a running instance pinned to its current version', inst.length > 0 && inst.every((i) => i.versionLabel === oldLabel), `${inst.length} instances on ${oldLabel}`);
+  await A.p.goto(`${base}/agents/designer-01`, { waitUntil: 'domcontentloaded' });
+  await A.p.getByRole('button', { name: 'Edit', exact: true }).click();
+  const dlg3 = A.p.locator('[role="dialog"]').first();
+  const skillsIn = dlg3.getByLabel('Skills', { exact: true });
+  await skillsIn.fill(`${await skillsIn.inputValue()}, e2e-skill`);
+  await dlg3.getByRole('button', { name: 'Save' }).click();
+  await A.p.waitForTimeout(1500);
+  if (await dlg3.count()) console.log('EDIT DIALOG STILL OPEN:', (await dlg3.innerText()).replace(/\s+/g, ' ').slice(0, 400));
+  check('the server created the next version', await until(async () => { const a = (await apiA('GET', '/agents/designer-01')).body.agent; return a.versionLabel !== oldLabel && a.versions.length === des.versions.length + 1; }, 8000));
+  const newLabel = (await apiA('GET', '/agents/designer-01')).body.agent.versionLabel;
+  await A.p.goto(`${base}/agents/designer-01?tab=evolution`, { waitUntil: 'domcontentloaded' });
+  check('Versions lists v(n+1) as active and v(n) as earlier', await until(async () => (await A.p.locator(`[data-versions] [data-version="${newLabel}"]`).innerText()).includes('active') && (await A.p.locator(`[data-versions] [data-version="${oldLabel}"]`).innerText()).includes('earlier'), 8000), `${oldLabel} → ${newLabel}`);
+  await A.p.screenshot({ path: `${SHOTS}/stage6-agent-versions.png` });
+  await A.p.goto(`${base}/agents/designer-01?tab=instances`, { waitUntil: 'domcontentloaded' });
+  check('the Instances tab still shows the running instance on v(n)', await until(async () => { const t = await A.p.locator('[data-pinned]').allInnerTexts(); return t.length > 0 && t.every((x) => x.trim() === oldLabel); }, 8000));
+  await A.p.goto(`${base}/agents/designer-01?tab=profile`, { waitUntil: 'domcontentloaded' });
+  check('Current missions lists the instance with its pinned version', await until(async () => (await A.p.locator('[data-current-missions] [data-instance]').count()) > 0 && (await A.p.locator('[data-current-missions]').innerText()).includes(oldLabel), 8000));
+  // a stale edit (another admin changed it) is a 409, never an overwrite
+  const stale = await apiA('PATCH', '/agents/designer-01', { description: 'late edit' }, { 'if-match': String(des.rowVersion) });
+  check('a stale edit is refused with 409', stale.status === 409);
+  await A.p.goto(`${base}/operations?tab=agents&sub=live-instances`, { waitUntil: 'domcontentloaded' });
+  check('Live Instances lists the server\'s instances with their pinned versions', await until(async () => (await A.p.locator('[data-live-instances] tbody tr').count()) > 0, 10000));
+  const dRow = await A.p.locator('[data-live-instances] tr[data-agent="designer-01"] [data-pinned]').allInnerTexts();
+  check('designer-01 still shows v(n) in Live Instances', dRow.length > 0 && dRow.every((x) => x.trim() === oldLabel), dRow.join(','));
+  check('Live Instances carries no DEMO tag over the server rows', (await A.p.locator('div:has(> span:text-matches("live instances across")) .demo-tag').count()) === 0);
+  await A.p.screenshot({ path: `${SHOTS}/stage6-agents-live-instances.png` });
+  // member: read-only profile
+  await B.p.goto(`${base}/agents/designer-01?tab=evolution`, { waitUntil: 'domcontentloaded' });
+  check('B sees the versions but no Edit buttons', await until(async () => (await B.p.locator('[data-versions] [data-version]').count()) >= 2, 8000) && (await B.p.getByRole('button', { name: 'Edit', exact: true }).count()) === 0);
+  // a new agent's profile says "not enough evidence"
+  await A.p.goto(`${base}/agents/marketer-01?tab=performance`, { waitUntil: 'domcontentloaded' });
+  check('a new agent\'s profile says "not enough evidence" (no invented numbers)', await until(async () => (await A.p.getByText('Not enough evidence yet').count()) > 0 && (await A.p.locator('[data-provenance="measured"]').count()) > 0, 8000));
 } catch (e) { check('script ran to the end', false, String(e).split('\n')[0]); }
 await A?.p.screenshot({ path: `${SHOTS}/stage6-end-A.png` }).catch(() => {});
 await B?.p.screenshot({ path: `${SHOTS}/stage6-end-B.png` }).catch(() => {});

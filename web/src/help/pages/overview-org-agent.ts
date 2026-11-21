@@ -82,6 +82,8 @@ const entries: Record<string, HelpEntry> = {
   'agent.audit': h('Audit log', 'Immutable record of grants, denied actions, version pins, model routes and report provenance.'),
   // Dialogs
   'dialog.agentCreate': h('Create agent', 'Defines a draft agent with a role, model and bounded tools. It cannot run until evaluated and staffed.'),
+  'dialog.agentRoleKey': h('Role', 'The short name of what the agent is, for example marketing. Only one active agent can hold a role: if it is taken, the server says so and nothing is created.', 'One agent per role keeps responsibility clear.'),
+  'agent.versions': h('Versions', 'Every change to an agent\'s model, skills or tools adds an immutable version; the newest is active. Instances already running keep the version they started with, and new instances use the active one.', 'Running work never changes under you.', 'Edit the agent to create the next version.'),
   'dialog.agentName': h('Agent name', 'Unique name, by convention Role-NN.'),
   'dialog.agentRole': h('New role', 'Each agent owns exactly one role and skill set; two agents never share a role. All built-in roles are already covered, so a new agent defines a new role.', 'Duplicates split verified history and make it unclear who is accountable.', 'Need more capacity for an existing role? Assign that agent to more missions: each mission gets its own instance.'),
   'dialog.agentEdit': h('Edit agent profile', 'Change non-privileged fields: description, skill goals, avatar and the version pinned for new instances.'),

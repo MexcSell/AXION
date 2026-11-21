@@ -19,11 +19,13 @@ import { Tip } from '@/components/ui/Tip';
 import { AGENTS, AGENT_BY_ID, DEV_LEVELS, EVO_PHASES } from '@/data/agents';
 import { ROLES } from '@/data/roles';
 import { DEPTS } from '@/data/orgdemo';
-import type { Agent } from '@/data/types';
+import type { Agent, InstanceState } from '@/data/types';
 import { useTab } from '@/hooks/useTab';
 import { useVisibleMissions } from '@/store/data';
 import { getMissionControl } from '@/data/missions';
-import { useAgentsCatalog } from '@/api/agents';
+import { useAgentsCatalog, useAgentInstances } from '@/api/agents';
+import { useCanEditAgents } from '@/hooks/useCanEditAgents';
+import { ProvenanceChip, needsEvidence, NOT_ENOUGH, provenanceOf } from '@/components/agents/Provenance';
 import { isApi } from '@/api/mode';
 import { useMissionControls } from '@/api/missionControl';
 import { openDialog } from '@/store/ui';
@@ -74,13 +76,17 @@ export function useAgentsSection() {
   const catalog = useAgentsCatalog();
   const STAFF = useMemo(() => staff(), [catalog]); // eslint-disable-line react-hooks/exhaustive-deps
   const COUNTS = useMemo(() => counts(), [catalog]); // eslint-disable-line react-hooks/exhaustive-deps
-  const avg = Math.round((STAFF.reduce((s, a) => s + a.success, 0) / STAFF.length) * 10) / 10;
+  const canEdit = useCanEditAgents();
+  // api mode: an agent whose numbers are measured but not backed by enough tasks does not count into the average
+  const scored = STAFF.filter((a) => !needsEvidence(a));
+  const avg = scored.length ? Math.round((scored.reduce((s, a) => s + a.success, 0) / scored.length) * 10) / 10 : 0;
+  const successFoot = isApi() ? (scored.some((a) => provenanceOf(a).source === 'demo-fixture') ? <DemoTag title="Includes prototype numbers: measured from Stage 9/10" /> : <span className="demo-tag measured">{scored.reduce((s, a) => s + (provenanceOf(a).sample ?? 0), 0)} tasks / 90 days</span>) : undefined;
   const kpis: KpiItem[] = [
     { key: 'all', icon: Bot, value: AGENTS.length, label: 'Agents', hint: 'one per duty · no duplicates', color: '#22d3ee', help: 'agents.kpi.total', onClick: () => { setTab('Directory'); setFilter('all'); } },
     { key: 'work', icon: Activity, value: COUNTS.working, label: 'Working', hint: `${COUNTS['in-mission']} in missions · ${COUNTS.idle} idle`, color: '#3b82f6', help: 'agents.kpi.working', onClick: () => { setTab('Directory'); setFilter('working'); } },
     { key: 'learn', icon: GraduationCap, value: COUNTS.learning, label: 'Learning', hint: 'mentor exercises running', color: '#38bdf8', help: 'agents.kpi.learning', onClick: () => setTab('Development') },
     { key: 'evo', icon: Dna, value: COUNTS.evolving, label: 'Evolving', hint: 'candidates in the pipeline', color: '#c084fc', help: 'agents.kpi.evolving', onClick: () => setTab('Development') },
-    { key: 'succ', icon: Trophy, value: avg, decimals: 1, suffix: '%', label: 'Verified Success', delta: '+1.2%', color: '#facc15', help: 'agents.kpi.success', onClick: () => { setTab('Directory'); setView('list'); } },
+    { key: 'succ', icon: Trophy, value: avg, decimals: 1, suffix: '%', label: 'Verified Success', ...(isApi() ? { foot: successFoot } : { delta: '+1.2%' }), color: '#facc15', help: 'agents.kpi.success', onClick: () => { setTab('Directory'); setView('list'); } },
   ];
 
   const dir = tab === 'Directory';
@@ -109,7 +115,7 @@ export function useAgentsSection() {
     kpis,
     actions: <>
       <button className="btn" onClick={() => openDialog('department-create')}><Building2 size={15} />New department</button>
-      <button className="btn primary" onClick={() => openDialog('agent-create')}><Plus size={16} />New Agent</button>
+      {canEdit && <button className="btn primary" onClick={() => openDialog('agent-create')}><Plus size={16} />New Agent</button>}
     </>,
     sub: { tabs, value: tab, onChange: setTab, icons: TAB_ICONS, counts: { Development: COUNTS.learning + COUNTS.evolving } },
     toolbar,
@@ -176,7 +182,7 @@ function AgentTable({ list, onOpen }: { list: Agent[]; onOpen: (id: string) => v
               <td><LevelPips level={a.level} xp={a.xp} /></td>
               <td><EvoTrack agent={a} /></td>
               <td className="mono">{a.version}{a.candidate && <span className="dim"> → {a.candidate}</span>}</td>
-              <td className="tnum"><b>{a.success}%</b> <span className="dim">({a.sample})</span></td>
+              <td className="tnum">{needsEvidence(a) ? <span className="dim" title={NOT_ENOUGH}>not enough evidence</span> : <><b>{a.success}%</b> <span className="dim">({a.sample})</span></>} <ProvenanceChip agent={a} /></td>
             </motion.tr>
           ))}
         </tbody>
@@ -254,33 +260,43 @@ function LiveInstances() {
   const missions = useVisibleMissions();
   const nav = useNavigate();
   const live = useMemo(() => missions.filter((m) => !['archived', 'completed', 'draft'].includes(m.status)), [missions]);
-  const byMission = useMissionControls(live.map((m) => m.id), ['hierarchy']); // api mode: each mission's server instances
-  const rows = useMemo(() => live.flatMap((m) => getMissionControl(m).nodes.map((n) => ({ m, n }))).filter(({ n }) => AGENT_BY_ID[n.agentId]), [live, byMission]); // eslint-disable-line react-hooks/exhaustive-deps
+  const byMission = useMissionControls(isApi() ? [] : live.map((m) => m.id), ['hierarchy']); // demo mode: each mission's fixture instances
+  const srv = useAgentInstances(); // api mode: GET /agent-instances
+  interface Row { mid: string; instanceId: string; agentId: string; task: string; state: InstanceState; progress: number; versionLabel?: string; simulated?: boolean }
+  const rows: Row[] = useMemo(() => {
+    if (isApi()) {
+      const liveIds = new Set(live.map((m) => m.id));
+      return (srv.data ?? []).filter((i) => liveIds.has(i.missionId) && AGENT_BY_ID[i.agentId]).map((i) => ({ mid: i.missionId, instanceId: i.id, agentId: i.agentId, task: i.task, state: i.state as InstanceState, progress: i.progress, versionLabel: i.versionLabel, simulated: i.simulated }));
+    }
+    return live.flatMap((m) => getMissionControl(m).nodes.map((n) => ({ mid: m.id, instanceId: n.instanceId, agentId: n.agentId, task: n.task, state: n.state, progress: n.progress, versionLabel: n.versionLabel }))).filter((r) => AGENT_BY_ID[r.agentId]);
+  }, [live, byMission, srv.data]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="col" style={{ gap: 10 }}>
-      <div className="row" style={{ gap: 8 }}><span className="muted" style={{ fontSize: 13 }}>{rows.length} live instances across {new Set(rows.map((r) => r.m.id)).size} missions. One agent can run in several missions; each instance has its own memory, grants and pinned version.</span><HelpTrigger k="agent.instance" /><span className="spacer" />{!isApi() && <DemoTag />}</div>
+      <div className="row" style={{ gap: 8 }}><span className="muted" style={{ fontSize: 13 }}>{rows.length} live instances across {new Set(rows.map((r) => r.mid)).size} missions. One agent can run in several missions; each instance has its own memory, grants and pinned version.</span><HelpTrigger k="agent.instance" /><span className="spacer" />{!isApi() && <DemoTag />}</div>
+      {isApi() && srv.error && <div className="oa-banner" role="alert"><span>The instance list could not be read: {srv.error}</span><button className="btn sm" onClick={srv.retry}>Retry</button></div>}
+      {isApi() && !srv.data && !srv.error ? <div className="dim" style={{ fontSize: 13 }} data-state="loading">Loading instances…</div> : rows.length === 0 && isApi() ? <EmptyState icon={Box} title="No live instances" body="Instances appear when a mission is staffed. Missions that are archived, completed or drafts are not listed." /> : (
       <div className="table-wrap">
-        <table className="table">
+        <table className="table" data-live-instances>
           <thead><tr><th>Instance</th><th>Agent</th><th>Mission</th><th>Current task</th><th>State</th><th>Pinned</th><th>Progress</th><th /></tr></thead>
           <tbody>
-            {rows.map(({ m, n }) => {
+            {rows.map((n) => {
               const a = AGENT_BY_ID[n.agentId];
               return (
-                <tr key={n.instanceId}>
-                  <td className="mono dim">{n.instanceId}</td>
+                <tr key={n.instanceId} data-agent={n.agentId}>
+                  <td className="mono dim">{n.instanceId}{n.simulated && <span className="sim-tag" title="Simulated on a DEMO mission. Agents do not execute yet." style={{ marginLeft: 6 }}>Simulated</span>}</td>
                   <td><span className="row"><RobotAvatar role={a.role} size={26} /><b>{a.name}</b></span></td>
-                  <td><button className="btn ghost sm" onClick={() => nav(`/missions/${m.id}?tab=hierarchy&agent=${n.agentId}`)}>{m.id}</button></td>
+                  <td><button className="btn ghost sm" onClick={() => nav(`/missions/${n.mid}?tab=hierarchy&agent=${n.agentId}`)}>{n.mid}</button></td>
                   <td className="ellipsis" style={{ maxWidth: 220 }}>{n.task}</td>
                   <td><InstanceStateChip state={n.state} size="sm" /></td>
-                  <td className="mono">{n.versionLabel ?? a.version}</td>
+                  <td className="mono" data-pinned>{n.versionLabel ?? a.version}</td>
                   <td style={{ width: 120 }}><div className="bar thin"><i style={{ width: `${n.progress}%` }} /></div></td>
-                  <td><IconButton icon={ArrowRight} label="Open in Missions" size="sm" onClick={() => nav(`/missions/${m.id}?tab=hierarchy&agent=${n.agentId}`)} /></td>
+                  <td><IconButton icon={ArrowRight} label="Open in Missions" size="sm" onClick={() => nav(`/missions/${n.mid}?tab=hierarchy&agent=${n.agentId}`)} /></td>
                 </tr>
               );
             })}
           </tbody>
         </table>
-      </div>
+      </div>)}
     </div>
   );
 }
@@ -290,8 +306,9 @@ function LiveInstances() {
 /* ------------------------------------------------------------------ */
 function Lifecycle() {
   const nav = useNavigate();
+  const canEdit = useCanEditAgents();
   const steps = [
-    { label: 'Create', icon: Box, hue: 165, n: AGENTS.filter((a) => a.createdAgo <= 14).length, go: () => openDialog('agent-create') },
+    { label: 'Create', icon: Box, hue: 165, n: AGENTS.filter((a) => a.createdAgo <= 14).length, go: () => (canEdit ? openDialog('agent-create') : nav('/agents')) },
     { label: 'Learn', icon: Sparkles, hue: 195, n: counts().learning, go: () => nav('/agents?tab=development') },
     { label: 'Deploy', icon: Rocket, hue: 215, n: counts().working, go: () => nav('/agents?tab=live-instances') },
     { label: 'Evolve', icon: Layers, hue: 285, n: counts().evolving, go: () => nav('/agents?tab=development') },
@@ -338,7 +355,7 @@ function StageBoard() {
 
 function TopPerformers() {
   const nav = useNavigate();
-  const list = staff().sort((a, b) => b.success - a.success || b.sample - a.sample).slice(0, 5);
+  const list = staff().filter((a) => !needsEvidence(a)).sort((a, b) => b.success - a.success || b.sample - a.sample).slice(0, 5);
   return (
     <Panel icon={Gauge} title={<>Agent Performance <span className="dim" style={{ fontSize: 13, fontWeight: 500 }}>(Top 5)</span></>} help="agents.performance" delay={.25} className="bottom-panel">
       <div className="col" style={{ gap: 7 }}>

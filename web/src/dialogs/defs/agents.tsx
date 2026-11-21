@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { Bot, PencilLine, Target, GraduationCap, Gauge, KeyRound, GitPullRequest, Building2, ArrowRight, Plus, Minus, ShieldAlert } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
@@ -12,6 +12,8 @@ import { DEPTS, DEPT_BY_NAME, METRIC_KEYS, METRIC_LABELS, metricSample, toolsFor
 import type { RoleKey, AgentMetrics } from '@/data/types';
 import { useVisibleMissions } from '@/store/data';
 import { toast } from '@/store/ui';
+import { isApi } from '@/api/mode';
+import { createAgent, newKey, updateAgent } from '@/api/agents';
 import { cx } from '@/lib/format';
 import type { DialogComponentProps } from '@/dialogs/DialogHost';
 import '@/theme/pages/overview-org-agent.css';
@@ -32,28 +34,51 @@ function AgentCreate({ close }: DialogComponentProps) {
   const [model, setModel] = useState('claude-sonnet-5-5');
   const [tools, setTools] = useState<string[]>(['Mission messaging']);
   const [touched, setTouched] = useState(false);
+  // api mode (Stage 6): the agent is created on the server: it needs a role, a duty and a department
+  const api_ = isApi();
+  const [roleKey, setRoleKey] = useState('');
+  const [dept, setDept] = useState('Operations');
+  const [busy, setBusy] = useState(false);
+  const [srv, setSrv] = useState<{ message: string; fields: Record<string, string> } | null>(null);
+  const submitKey = useRef(newKey()); // one key per dialog: a double click or a retry creates one agent
   const err = !name.trim() ? 'Name is required' : AGENTS.some((a) => a.name.toLowerCase() === name.trim().toLowerCase()) ? 'An agent with this name exists' : '';
   const roleErr = !roleName.trim() ? 'Name the new duty' : holder(roleName) ? `“${holder(roleName)!.duty}” is already the duty of ${holder(roleName)!.name}. No agent holds a duty twice: assign ${holder(roleName)!.name} to more missions, or derive a specialist from it.` : '';
   const toolList = ['Mission messaging', 'Test runner', 'Managed browser', 'Web search', 'Git branch', 'Knowledge read'];
-  const submit = () => {
+  const submit = async () => {
     setTouched(true);
     if (err || roleErr) return;
+    if (api_) {
+      if (!roleKey.trim() || busy) return;
+      setBusy(true); setSrv(null);
+      const r = await createAgent({
+        name: name.trim(), role: roleKey.trim(), dept, duty: roleName.trim(), description: desc.trim(), model,
+        skills: spec.split(',').map((x) => x.trim()).filter(Boolean), tools,
+      }, submitKey.current);
+      setBusy(false);
+      if (!r.ok) { setSrv({ message: r.message, fields: r.fieldErrors ?? {} }); if (r.code !== 'ROLE_TAKEN' && r.code !== 'DUTY_TAKEN') submitKey.current = newKey(); return; }
+      toast({ tone: 'success', title: `${r.agent.name} created`, body: `Role ${r.agent.role}, ${r.agent.versionLabel}. It has no instances yet and shows "not enough evidence" until its tasks are measured.` });
+      close();
+      return;
+    }
     toast({ tone: 'success', title: `Draft agent "${name.trim()}" (${roleName.trim()}) saved (demo)`, body: 'It is a draft: no grants, no instances. Run its evaluation before assigning it.' });
     close();
   };
   return (
-    <Modal title="Create agent" icon={Bot} help="dialog.agentCreate" dialogId="DL-34" size="lg" onClose={close} sub="Saves a draft. Nothing runs until it is evaluated and staffed." footer={<Footer close={close} label="Save draft agent" onOk={submit} />}>
+    <Modal title="Create agent" icon={Bot} help="dialog.agentCreate" dialogId="DL-34" size="lg" onClose={close}  sub={api_ ? 'Created on the server with its first version. Nothing runs until agents execute (a later stage).' : 'Saves a draft. Nothing runs until it is evaluated and staffed.'} footer={<Footer close={close} label={api_ ? (busy ? 'Creating…' : 'Create agent') : 'Save draft agent'} disabled={busy} onOk={() => void submit()} />}>
       <div className="oa-form-grid">
         <div className="col" style={{ gap: 12 }}>
           <Field label="Name" required error={touched ? err : undefined} hint="Convention: Role-01, for example Marketer-01" help="dialog.agentName"><input data-autofocus className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Marketer-01" /></Field>
-          <Field label="New duty" required error={touched || roleName ? roleErr || undefined : undefined} hint="Every agent owns a unique duty." help="dialog.agentRole"><input className="input" value={roleName} onChange={(e) => setRoleName(e.target.value)} placeholder="e.g. Marketing" /></Field>
+          {api_ && <Field label="Role" required error={srv?.fields.role ? srv.message : touched && !roleKey.trim() ? 'Name the role' : undefined} hint="One active agent per role, for example marketing." help="dialog.agentRoleKey"><input className="input" aria-label="Role" value={roleKey} onChange={(e) => { setRoleKey(e.target.value); if (srv) setSrv(null); }} placeholder="marketing" /></Field>}
+          <Field label="New duty" required error={srv?.fields.duty ? srv.message : touched || roleName ? roleErr || undefined : undefined} hint="Every agent owns a unique duty." help="dialog.agentRole"><input className="input" value={roleName} onChange={(e) => { setRoleName(e.target.value); if (srv) setSrv(null); }} placeholder="e.g. Marketing" /></Field>
+          {api_ && <Field label="Department"><select className="select" aria-label="Department" value={dept} onChange={(e) => setDept(e.target.value)}>{DEPTS.filter((d) => d.name !== 'Executive').map((d) => <option key={d.name}>{d.name}</option>)}</select></Field>}
           <div className="dim" style={{ fontSize: 11.5, marginTop: -6 }}>Taken: {Object.values(ROLES).map((r) => r.label).join(' · ')}</div>
-          <Field label="Specialty"><input className="input" value={spec} onChange={(e) => setSpec(e.target.value)} placeholder="e.g. Checkout-flow forms" /></Field>
+          <Field label={api_ ? 'Skills' : 'Specialty'} hint={api_ ? 'Comma separated.' : undefined}><input className="input" value={spec} onChange={(e) => setSpec(e.target.value)} placeholder={api_ ? 'copywriting, SEO' : 'e.g. Checkout-flow forms'} /></Field>
           <Field label="Description"><textarea className="textarea" rows={3} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="What should this agent be trusted to do?" /></Field>
           <Field label="Model route" help="models.route"><select className="select" value={model} onChange={(e) => setModel(e.target.value)}>{['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'local/llama-4-70b'].map((m) => <option key={m}>{m}</option>)}</select></Field>
         </div>
         <div className="col" style={{ gap: 12 }}>
-          <div className="oa-preview"><RobotAvatar role={role} size={120} faceMode="face" animated /><b className="display">{name || 'New agent'}</b><Chip hue={ROLES[role].hue}>{roleName.trim() || 'New role'}</Chip><span className="dim" style={{ fontSize: 12 }}>Owner: Luca · v0.1.0 draft</span></div>
+          {srv && !srv.fields.role && !srv.fields.duty && <div className="oa-banner" role="alert"><ShieldAlert size={15} /><span>{srv.message}</span></div>}
+          <div className="oa-preview"><RobotAvatar role={role} size={120} faceMode="face" animated /><b className="display">{name || 'New agent'}</b><Chip hue={ROLES[role].hue}>{roleName.trim() || 'New role'}</Chip><span className="dim" style={{ fontSize: 12 }}>{api_ ? 'First version v1.0.0' : 'Owner: Luca · v0.1.0 draft'}</span></div>
           <Field label="Bounded tools" help="agent.tools" hint="Capabilities only. Grants are requested separately.">
             <div className="row wrap" style={{ gap: 6 }}>{toolList.map((t) => { const on = tools.includes(t); return <button key={t} type="button" className={cx('oa-filter', on && 'on')} aria-pressed={on} onClick={() => setTools(on ? tools.filter((x) => x !== t) : [...tools, t])}>{t}</button>; })}</div>
           </Field>
@@ -70,17 +95,41 @@ function AgentEdit({ close, props }: DialogComponentProps<{ agentId?: string }>)
   const [goals, setGoals] = useState(a.skills.slice(0, 2).join(', '));
   const [pin, setPin] = useState(a.version);
   const [hue, setHue] = useState(0);
-  const err = desc.trim().length < 10 ? 'Describe the agent in at least 10 characters' : '';
+  // api mode: description, model and skills are saved on the server; a changed model or skills makes the next version
+  const api_ = isApi();
+  const [model, setModel] = useState(a.model);
+  const [skills, setSkills] = useState(a.skills.join(', '));
+  const startVersion = useRef(a.version); // the catalog objects are refreshed in place, so remember the version I opened
+  const openedAt = useRef(a.rowVersion ?? 1); // the version I started editing: a change by someone else meanwhile answers 409, never overwritten
+  const [busy, setBusy] = useState(false);
+  const [srvErr, setSrvErr] = useState('');
+  const save = async () => {
+    if (busy) return;
+    setBusy(true); setSrvErr('');
+    const list = skills.split(',').map((x) => x.trim()).filter(Boolean);
+    const r = await updateAgent(a.id, openedAt.current, { description: desc.trim(), model, skills: list });
+    setBusy(false);
+    if (!r.ok) { setSrvErr(r.message); return; }
+    const changed = r.agent.versionLabel !== startVersion.current;
+    toast({ tone: 'success', title: `${a.name} saved`, body: changed ? `New version ${r.agent.versionLabel}. Running instances stay on ${startVersion.current}; new instances use ${r.agent.versionLabel}.` : 'Profile updated. No new version was needed.' });
+    close();
+  };
+  const err = !api_ && desc.trim().length < 10 ? 'Describe the agent in at least 10 characters' : '';
   return (
-    <Modal title={`Edit ${a.name}`} icon={PencilLine} help="dialog.agentEdit" dialogId="DL-35" size="md" onClose={close} sub="Non-privileged fields only. Tools and grants are not editable here." footer={<Footer close={close} label="Save profile revision" disabled={!!err} onOk={() => { toast({ tone: 'success', title: `${a.name}: profile revision saved (demo)`, body: `Version ${pin} pinned for new instances only.` }); close(); }} />}>
+    <Modal title={`Edit ${a.name}`} icon={PencilLine} help="dialog.agentEdit" dialogId="DL-35" size="md" onClose={close} sub="Non-privileged fields only. Tools and grants are not editable here." footer={<Footer close={close} label={api_ ? (busy ? 'Saving…' : 'Save') : 'Save profile revision'} disabled={!!err || busy} onOk={() => { if (api_) { void save(); return; } toast({ tone: 'success', title: `${a.name}: profile revision saved (demo)`, body: `Version ${pin} pinned for new instances only.` }); close(); }} />}>
       <div className="row" style={{ gap: 14, marginBottom: 12 }}><RobotAvatar role={a.role} size={70} hue={ROLES[a.role].hue + hue} faceMode="face" /><div><b>{a.name}</b><div className="dim" style={{ fontSize: 12 }}>{ROLES[a.role].label} · {a.dept}</div></div></div>
       <div className="col" style={{ gap: 12 }}>
-        <Field label="Description" error={err || undefined} required><textarea data-autofocus className="textarea" rows={3} value={desc} onChange={(e) => setDesc(e.target.value)} /></Field>
+        {srvErr && <div className="oa-banner" role="alert"><ShieldAlert size={15} /><span>{srvErr}</span></div>}
+        <Field label="Description" error={err || undefined} required={!api_}><textarea data-autofocus className="textarea" rows={3} value={desc} onChange={(e) => setDesc(e.target.value)} /></Field>
+        {api_ ? <>
+          <Field label="Skills" hint="Comma separated. Changing the skills or the model creates the next version; running instances keep theirs."><input className="input" aria-label="Skills" value={skills} onChange={(e) => setSkills(e.target.value)} /></Field>
+          <Field label="Model route" help="models.route"><select className="select" aria-label="Model route" value={model} onChange={(e) => setModel(e.target.value)}>{Array.from(new Set([a.model, 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'local/llama-4-70b'])).map((m) => <option key={m}>{m}</option>)}</select></Field>
+        </> : <>
         <Field label="Skill goals" hint="Comma separated. Goals feed mentoring plans."><input className="input" value={goals} onChange={(e) => setGoals(e.target.value)} /></Field>
         <div className="grid g-2">
           <Field label="Pinned version" help="evolution.promotion"><select className="select" value={pin} onChange={(e) => setPin(e.target.value)}>{[a.version, 'v2.3.0', 'v2.2.0'].filter((v, i, x) => x.indexOf(v) === i).map((v) => <option key={v}>{v}</option>)}</select></Field>
           <Field label="Avatar hue shift" help="settings.faces"><input type="range" min={-60} max={60} value={hue} onChange={(e) => setHue(+e.target.value)} aria-label="Avatar hue shift" /></Field>
-        </div>
+        </div></>}
       </div>
     </Modal>
   );

@@ -17,6 +17,11 @@ export interface Agent {
   version: string;
   status: AgentStatus;
   missions: number;
+  /** api mode (Stage 6): where this agent's numbers come from */
+  provenance?: import('@contracts').Provenance;
+  /** api mode: the definition's compare-and-set version (If-Match on edit) and its bounded tools */
+  rowVersion?: number;
+  tools?: string[];
   success: number; // percent, verified
   sample: number; // evaluated tasks behind the success number
   grade: 'S' | 'A' | 'B' | 'C';

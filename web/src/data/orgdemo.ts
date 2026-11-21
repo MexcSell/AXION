@@ -22,8 +22,13 @@ const DEPT_META: Record<string, { short: string; role: RoleKey; hue: number; cha
   QA: { short: 'QA', role: 'qa', hue: 172, charter: 'Independently verifies outputs, and coaches agents with assessed exercises.' },
 };
 
-export const DEPTS: Dept[] = Object.keys(DEPT_META).map((name) => {
-  const m = DEPT_META[name];
+/** A department an administrator named that this UI has no charter for (api mode): a neutral entry that keeps its name. */
+const metaOf = (name: string) => DEPT_META[name] ?? { short: name.replace(/[^A-Za-z0-9]/g, '').slice(0, 3).toUpperCase() || 'DEP', role: (AGENTS.find((a) => a.dept === name)?.role ?? 'manager') as RoleKey, hue: 210, charter: 'Created with its first agent.' };
+
+function buildDepts(): Dept[] {
+  const names = [...Object.keys(DEPT_META), ...Array.from(new Set(AGENTS.map((a) => a.dept))).filter((n) => !(n in DEPT_META))];
+  return names.map((name) => {
+  const m = metaOf(name);
   const members = AGENTS.filter((a) => a.dept === name);
   const mgr = [...members].sort((a, b) => b.success - a.success || b.sample - a.sample)[0];
   const r = seeded('dept' + name);
@@ -41,8 +46,17 @@ export const DEPTS: Dept[] = Object.keys(DEPT_META).map((name) => {
       { label: 'Rework rate', value: +(1 + r() * 4).toFixed(1), unit: '%', delta: -+(r() * 1.2).toFixed(1) },
     ],
   };
-});
+  });
+}
+
+export const DEPTS: Dept[] = buildDepts();
 export const DEPT_BY_NAME: Record<string, Dept> = Object.fromEntries(DEPTS.map((d) => [d.name, d]));
+/** api mode (Stage 6): the catalog changed, so recompute the departments in place (agents created later are members too). */
+export function rebuildDepts() {
+  DEPTS.splice(0, DEPTS.length, ...buildDepts());
+  for (const k of Object.keys(DEPT_BY_NAME)) delete DEPT_BY_NAME[k];
+  for (const d of DEPTS) DEPT_BY_NAME[d.name] = d;
+}
 
 /* ------------------------------------------------------------------ */
 /* Policies, proposals                                                  */

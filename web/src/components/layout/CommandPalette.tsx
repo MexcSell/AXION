@@ -58,7 +58,7 @@ export function CommandPalette() {
       { id: 'a-chat-gm', group: 'Actions', label: 'Chat with the General Manager', icon: Crown, run: act(() => me && useUI.getState().openChat(channelId.gm(me.id))) },
       { id: 'a-chat-admin', group: 'Actions', label: 'Message the administrators', icon: ShieldCheck, run: act(() => me && useUI.getState().openChat(channelId.admin(me.id))) },
       { id: 'a-users', group: 'Actions', label: admin ? 'Approve users & devices' : 'My profile, password & devices', hint: 'Settings › Users', icon: UserPlus, run: go('/settings?tab=users') },
-      { id: 'a-new-agent', group: 'Actions', label: 'New agent', hint: 'a new, unique duty', icon: Bot, run: act(() => openDialog('agent-create')) },
+      ...(!isApi() || admin ? [{ id: 'a-new-agent', group: 'Actions', label: 'New agent', hint: 'a new, unique duty', icon: Bot, run: act(() => openDialog('agent-create')) }] : []),
       { id: 'a-add-model', group: 'Actions', label: 'Add model / provider', icon: Boxes, run: act(() => openDialog('model-add')) },
       { id: 'a-vm', group: 'Actions', label: 'Create VM', hint: 'System Operations › VMs', icon: Server, run: go('/operations?tab=vms') },
       { id: 'a-news', group: 'Actions', label: 'Add news / ask agents to search', icon: Newspaper, run: go('/notifications?tab=news') },

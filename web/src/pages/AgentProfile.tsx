@@ -1,5 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { useAgentsCatalog } from '@/api/agents';
+import { useAgentsCatalog, useAgentInstances, useAgentVersions } from '@/api/agents';
+import { useCanEditAgents } from '@/hooks/useCanEditAgents';
+import { ProvenanceChip, ProvTag, needsEvidence, NOT_ENOUGH } from '@/components/agents/Provenance';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
@@ -26,7 +28,7 @@ import { AGENTS, AGENT_BY_ID } from '@/data/agents';
 import { ROLES } from '@/data/roles';
 import { getMissionControl } from '@/data/missions';
 import { useMissionControls } from '@/api/missionControl';
-import { hasDemoActivity } from '@/api/mode';
+import { hasDemoActivity, isApi } from '@/api/mode';
 import { METRIC_KEYS, METRIC_LABELS, DEPT_BY_NAME, metricSample, toolsFor, memoryFor, auditFor, evolutionFor, mentoringFor, perfSeries } from '@/data/orgdemo';
 import type { Agent } from '@/data/types';
 import { useTab } from '@/hooks/useTab';
@@ -59,6 +61,8 @@ function Profile({ agent }: { agent: Agent }) {
   const ICONS = [Bot, RadarIcon, Wrench, Boxes, MessagesSquare, Brain, Gauge, GraduationCap, Dna, ScrollText];
   const R = ROLES[agent.role];
   const G = grade(agent.grade);
+  const canEdit = useCanEditAgents();
+  const noEv = needsEvidence(agent); // api mode: measured, but fewer than 5 evaluated tasks
   const overall = Math.round(Object.values(agent.metrics).reduce((s, v) => s + v, 0) / 8);
   const top = METRIC_KEYS.slice().sort((a, b) => agent.metrics[b] - agent.metrics[a]).slice(0, 6);
   const mgr = agent.managerId ? AGENT_BY_ID[agent.managerId] : undefined;
@@ -78,9 +82,9 @@ function Profile({ agent }: { agent: Agent }) {
               <RobotAvatar role={agent.role} size={196} faceMode="face" animated status={agent.status === 'idle' ? 'muted' : 'good'} />
             </motion.div>
             <motion.div className="oa-grade" style={{ ['--gh' as string]: G.hue }} initial={{ scale: 0, rotate: -40 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: 'spring', stiffness: 260, damping: 14, delay: .3 }} title={`Grade ${agent.grade}, based on verified success over ${agent.sample} tasks`}>
-              <b>{G.label}</b><span>GRADE</span>
+              <b>{noEv ? '–' : G.label}</b><span>GRADE</span>
             </motion.div>
-            <div className="oa-overall"><b className="display"><CountUp value={overall} /></b><span>OVR</span></div>
+            <div className="oa-overall"><b className="display">{noEv ? '–' : <CountUp value={overall} />}</b><span>OVR</span></div>
           </div>
           <div className="oa-hero-main">
             <div className="row wrap" style={{ gap: 10 }}>
@@ -99,21 +103,22 @@ function Profile({ agent }: { agent: Agent }) {
               <HelpTrigger k="agents.devStages" />
             </div>
             <p className="muted" style={{ maxWidth: 560, margin: '10px 0 14px', fontSize: 13.5 }}>{agent.description}</p>
-            <div className="oa-stats">
+            {isApi() && <div className="row wrap" style={{ gap: 8, margin: '-4px 0 8px' }}><ProvenanceChip agent={agent} />{noEv && <span className="dim" style={{ fontSize: 12.5 }} data-evidence="none">{NOT_ENOUGH}</span>}</div>}
+            {!noEv && <div className="oa-stats">
               {top.map((k, i) => (
                 <motion.button key={k} className="oa-stat" onClick={() => openDialog('agent-evidence', { agentId: agent.id, metric: k })} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .25 + i * .05 }} aria-label={`${METRIC_LABELS[k]} ${agent.metrics[k]}, open evidence`}>
                   <b className="display"><CountUp value={agent.metrics[k]} /></b><span>{METRIC_LABELS[k]}</span>
                   <i className="oa-stat-bar"><motion.em initial={{ width: 0 }} animate={{ width: `${agent.metrics[k]}%` }} transition={{ duration: 1, delay: .4 + i * .05 }} /></i>
                 </motion.button>
               ))}
-            </div>
+            </div>}
           </div>
           <div className="oa-hero-side">
-            <div className="oa-kv-big"><div><b className="display tnum"><CountUp value={agent.success} suffix="%" /></b><span>Verified success</span></div><div><b className="display tnum">{agent.sample}</b><span>Tasks evaluated</span></div><div><b className="display tnum">{agent.missions}</b><span>Missions</span></div><div><b className="display tnum">{agent.load}%</b><span>Load</span></div></div>
+            <div className="oa-kv-big"><div><b className="display tnum">{noEv ? '–' : <CountUp value={agent.success} suffix="%" />}</b><span>Verified success</span></div><div><b className="display tnum">{agent.sample}</b><span>Tasks evaluated</span></div><div><b className="display tnum">{agent.missions}</b><span>Missions</span></div><div><b className="display tnum">{agent.load}%</b><span>Load</span></div></div>
             <div className="row wrap" style={{ gap: 8 }}>
               <button className="btn primary" onClick={() => openDialog('agent-assign', { agentId: agent.id })}><Target size={15} />Assign to mission</button>
               <button className="btn" onClick={() => openDialog('mentoring-session', { agentId: agent.id })}><GraduationCap size={15} />Mentor</button>
-              <button className="btn" onClick={() => openDialog('agent-edit', { agentId: agent.id })}><PencilLine size={15} />Edit</button>
+              {canEdit && <button className="btn" onClick={() => openDialog('agent-edit', { agentId: agent.id })}><PencilLine size={15} />Edit</button>}
               <Menu trigger={<button className="icon-btn" aria-label="More actions"><MoreHorizontal size={16} /></button>} items={[
                 { label: 'Open org chart', icon: Crown, onSelect: () => nav('/agents?view=hierarchy') },
                 { label: 'Request tool grant', icon: KeyRound, onSelect: () => openDialog('tools-permission', { agentId: agent.id }) },
@@ -155,6 +160,8 @@ function useAgentMissions(a: Agent) {
 function ProfileTab({ a }: { a: Agent }) {
   const nav = useNavigate();
   const ms = useAgentMissions(a);
+  const inst = useAgentInstances(isApi() ? a.id : undefined); // api mode: this agent's instances, each with its pinned version
+  const allMissions = useVisibleMissions();
   const dept = DEPT_BY_NAME[a.dept];
   const mgr = a.managerId ? AGENT_BY_ID[a.managerId] : undefined;
   const eligible = ms.filter((m) => ['running', 'planning', 'verifying', 'waiting'].includes(m.status)).length;
@@ -184,7 +191,20 @@ function ProfileTab({ a }: { a: Agent }) {
         {dept && <div className="oa-deptline"><span className="dim" style={{ fontSize: 12 }}>Department capacity</span><div className="bar thin" style={{ flex: 1 }}><motion.i initial={{ width: 0 }} animate={{ width: `${dept.capacity}%` }} transition={{ duration: .9 }} /></div><b className="tnum">{dept.capacity}%</b></div>}
       </Panel>
       <Panel icon={Boxes} title="Current Missions" help="agent.missions" delay={.15} className="oa-span2">
-        {ms.length === 0 ? <EmptyState icon={Boxes} title="No missions yet" body="Assign this agent to a mission to create its first instance." action={<button className="btn primary" onClick={() => openDialog('agent-assign', { agentId: a.id })}>Assign to mission</button>} /> : (
+        {isApi() ? (
+          inst.error && !inst.data ? <div className="oa-banner" role="alert"><span>The instances could not be read: {inst.error}</span><button className="btn sm" onClick={inst.retry}>Retry</button></div>
+          : !inst.data ? <div className="dim" style={{ fontSize: 13 }} data-state="loading">Loading instances…</div>
+          : inst.data.filter((i) => allMissions.some((m) => m.id === i.missionId)).length === 0 ? <EmptyState icon={Boxes} title="No missions yet" body="Assign this agent to a mission to create its first instance." />
+          : <div className="oa-mission-chips" data-current-missions>
+              {inst.data.map((i) => ({ i, m: allMissions.find((m) => m.id === i.missionId) })).filter((x) => x.m).slice(0, 6).map(({ i, m }, k) => (
+                <motion.button key={i.id} className="subpanel glass-card hoverable oa-mchip" data-instance={i.id} onClick={() => nav(`/missions/${m!.id}`)} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .2 + k * .05 }}>
+                  <div className="row" style={{ gap: 6 }}><span className="mono dim" style={{ fontSize: 11 }}>{m!.id}</span><span className="spacer" /><Chip hue={225} size="sm" className="mono">{i.versionLabel}</Chip></div>
+                  <div className="clamp-2" style={{ fontWeight: 600, fontSize: 13, textAlign: 'left', margin: '4px 0 8px' }}>{m!.title}</div>
+                  <div className="row" style={{ gap: 6 }}><InstanceStateChip state={i.state as never} size="sm" /><div className="bar thin good" style={{ flex: 1 }}><i style={{ width: `${i.progress}%` }} /></div><b className="tnum" style={{ fontSize: 12 }}>{i.progress}%</b></div>
+                </motion.button>
+              ))}
+            </div>
+        ) : ms.length === 0 ? <EmptyState icon={Boxes} title="No missions yet" body="Assign this agent to a mission to create its first instance." action={<button className="btn primary" onClick={() => openDialog('agent-assign', { agentId: a.id })}>Assign to mission</button>} /> : (
           <div className="oa-mission-chips">
             {ms.slice(0, 6).map((m, i) => (
               <motion.button key={m.id} className="subpanel glass-card hoverable oa-mchip" onClick={() => nav(`/missions/${m.id}`)} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .2 + i * .05 }}>
@@ -204,13 +224,14 @@ function CapabilitiesTab({ a }: { a: Agent }) {
   const [cmp, setCmp] = useState<'none' | 'dept'>('dept');
   const peers = AGENTS.filter((x) => x.dept === a.dept && x.id !== a.id);
   const avg = METRIC_KEYS.map((k) => Math.round(peers.reduce((s, x) => s + x.metrics[k], 0) / Math.max(1, peers.length)));
+  if (needsEvidence(a)) return <Panel icon={Gauge} titleSize="lg" title="Capabilities" help="agent.metricEvidence" actions={<ProvenanceChip agent={a} />}><EmptyState icon={Gauge} title="Not enough evidence yet" body={`${NOT_ENOUGH}. Scores come from verified tasks and are never guessed.`} /></Panel>;
   return (
     <div className="oa-grid-2b">
-      <Panel icon={RadarIcon} title="Capability Radar" help="agent.capabilities" delay={.05} actions={<div className="row" style={{ gap: 8 }}><Segmented ariaLabel="Compare" size="sm" value={cmp} onChange={setCmp} options={[{ key: 'none', label: 'Agent' }, { key: 'dept', label: 'vs dept' }]} /><DemoTag /></div>}>
+      <Panel icon={RadarIcon} title="Capability Radar" help="agent.capabilities" delay={.05} actions={<div className="row" style={{ gap: 8 }}><Segmented ariaLabel="Compare" size="sm" value={cmp} onChange={setCmp} options={[{ key: 'none', label: 'Agent' }, { key: 'dept', label: 'vs dept' }]} /><ProvTag agent={a} /></div>}>
         <div className="oa-radar"><Radar axes={METRIC_KEYS.map((k) => METRIC_LABELS[k].replace('Tool precision', 'Precision'))} values={METRIC_KEYS.map((k) => a.metrics[k])} compare={cmp === 'dept' ? avg : undefined} size={340} color={`hsl(${ROLES[a.role].hue} 95% 66%)`} /></div>
         <div className="dim" style={{ fontSize: 12, textAlign: 'center' }}>Scores come from tests and verified missions. They never grant permissions.</div>
       </Panel>
-      <Panel icon={Gauge} title="Metrics with evidence" help="agent.metricEvidence" delay={.1} sub="click a row to inspect">
+      <Panel icon={Gauge} title="Metrics with evidence" help="agent.metricEvidence" delay={.1} sub="click a row to inspect" actions={<ProvenanceChip agent={a} />}>
         <div className="col" style={{ gap: 4 }}>
           {METRIC_KEYS.map((k, i) => {
             const v = a.metrics[k]; const n = metricSample(a, k);
@@ -262,19 +283,24 @@ function ToolsTab({ a }: { a: Agent }) {
 function InstancesTab({ a }: { a: Agent }) {
   const nav = useNavigate();
   const ms = useAgentMissions(a);
-  useMissionControls(ms.map((m) => m.id), ['hierarchy']); // api mode: re-renders as the server's instances arrive
-  const rows = ms.flatMap((m) => getMissionControl(m).nodes.filter((n) => n.agentId === a.id).map((n) => ({ m, n })));
+  const allMissions = useVisibleMissions();
+  useMissionControls(isApi() ? [] : ms.map((m) => m.id), ['hierarchy']); // demo mode: the fixture's instances
+  const srv = useAgentInstances(isApi() ? a.id : undefined); // api mode: GET /agent-instances?agentId=
+  const rows = isApi()
+    ? (srv.data ?? []).flatMap((i) => { const m = allMissions.find((x) => x.id === i.missionId); return m ? [{ m, n: { instanceId: i.id, agentId: i.agentId, task: i.task, state: i.state as never, progress: i.progress, versionLabel: i.versionLabel, simulated: i.simulated } }] : []; })
+    : ms.flatMap((m) => getMissionControl(m).nodes.filter((n) => n.agentId === a.id).map((n) => ({ m, n: { ...n, simulated: false } })));
+  if (isApi() && !srv.data) return <Panel icon={Boxes} titleSize="lg" title="Instances" help="agent.instance" delay={.05}>{srv.error ? <div className="oa-banner" role="alert"><span>The instances could not be read: {srv.error}</span><button className="btn sm" onClick={srv.retry}>Retry</button></div> : <div className="dim" style={{ fontSize: 13 }} data-state="loading">Loading instances…</div>}</Panel>;
   return (
     <Panel icon={Boxes} titleSize="lg" title="Instances" help="agent.instance" sub="Each mission gets its own memory, grants and pinned version." delay={.05} actions={<button className="btn primary" onClick={() => openDialog('agent-assign', { agentId: a.id })}><Target size={15} />New instance</button>}>
       {rows.length === 0 ? <EmptyState icon={Boxes} title="No instances" body="This agent has not been staffed on a mission yet." /> : (
         <div className="oa-inst-grid">
           {rows.map(({ m, n }, i) => (
             <motion.div key={n.instanceId} className="subpanel glass-card hoverable oa-inst" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * .05 }}>
-              <div className="row" style={{ gap: 8 }}><span className="mono dim" style={{ fontSize: 11.5 }}>{n.instanceId}</span><span className="spacer" /><InstanceStateChip state={n.state} size="sm" /></div>
+              <div className="row" style={{ gap: 8 }}><span className="mono dim" style={{ fontSize: 11.5 }}>{n.instanceId}</span>{n.simulated && <span className="sim-tag" title="Simulated on a DEMO mission. Agents do not execute yet.">Simulated</span>}<span className="spacer" /><InstanceStateChip state={n.state} size="sm" /></div>
               <b className="clamp-2" style={{ margin: '6px 0 2px', fontSize: 13.5 }}>{m.title}</b>
               <div className="dim ellipsis" style={{ fontSize: 12 }}>{n.task}</div>
               <div className="row" style={{ gap: 6, margin: '10px 0' }}><div className="bar thin good" style={{ flex: 1 }}><motion.i initial={{ width: 0 }} animate={{ width: `${n.progress}%` }} transition={{ duration: .8, delay: .1 + i * .04 }} /></div><b className="tnum" style={{ fontSize: 12 }}>{n.progress}%</b></div>
-              <dl className="kv oa-kv sm"><dt>Pinned</dt><dd className="mono">{n.versionLabel ?? a.version}</dd><dt>Memory</dt><dd>scope {m.id} (isolated)</dd><dt>Tokens</dt><dd>{hasDemoActivity(m) ? fmtTokens(activityFor(m, a.id).tokens) : <span className="dim" title="Measured once agents execute (Stage 9/10)">not measured yet</span>}</dd><dt>Tasks</dt><dd>{n.tasks} · {n.pending} pending</dd></dl>
+              <dl className="kv oa-kv sm"><dt>Pinned</dt><dd className="mono" data-pinned>{n.versionLabel ?? a.version}</dd><dt>Memory</dt><dd>scope {m.id} (isolated)</dd><dt>Tokens</dt><dd>{hasDemoActivity(m) ? fmtTokens(activityFor(m, a.id).tokens) : <span className="dim" title="Measured once agents execute (Stage 9/10)">not measured yet</span>}</dd><dt>Tasks</dt><dd>{'tasks' in n ? `${n.tasks} · ${n.pending} pending` : <span className="dim">in the mission</span>}</dd></dl>
               <div className="row" style={{ gap: 6, marginTop: 8 }}><button className="btn sm" onClick={() => nav(`/missions/${m.id}?tab=hierarchy&agent=${a.id}`)}>Open in mission</button><button className="btn sm ghost" onClick={() => toast({ tone: 'info', title: 'Migration is a controlled change (demo)', body: 'Running instances stay pinned unless a migration is approved.' })}>Migrate version</button></div>
             </motion.div>
           ))}
@@ -379,8 +405,10 @@ function PerformanceTab({ a }: { a: Agent }) {
     { l: 'Error rate', v: `${(100 - a.success) / 2}%`, d: perfSeries(a, 'err', 16, 12, 8), c: 'var(--warn)' },
     { l: 'Tokens per task', v: `${(8 + (100 - a.success) * .9).toFixed(1)}k`, d: perfSeries(a, 'cost', 16, 50, 12), c: 'var(--violet)' },
   ];
+  if (needsEvidence(a)) return <Panel icon={TrendingUp} titleSize="lg" title="Performance" help="agent.perfTrend" actions={<ProvenanceChip agent={a} />}><EmptyState icon={TrendingUp} title="Not enough evidence yet" body={`${NOT_ENOUGH}. Trends appear once its tasks have been verified.`} /></Panel>;
   return (
     <>
+      {isApi() && <div className="row" style={{ gap: 8 }}><ProvenanceChip agent={a} /></div>}
       <div className="oa-grid-4s">
         {mini.map((m, i) => (
           <Panel key={m.l} delay={.05 + i * .05} className="oa-mini-perf">
@@ -443,12 +471,48 @@ function MentoringTab({ a }: { a: Agent }) {
   );
 }
 
+function VersionsPanel({ a }: { a: Agent }) {
+  const v = useAgentVersions(a.id);
+  const canEdit = useCanEditAgents();
+  const list = v.data ?? [];
+  return (
+    <Panel icon={Dna} title="Versions" help="agent.versions" delay={.05} actions={canEdit ? <button className="btn" onClick={() => openDialog('agent-edit', { agentId: a.id })}>Edit</button> : undefined}>
+      {v.error && !v.data ? <div className="oa-banner" role="alert"><span>The versions could not be read: {v.error}</span><button className="btn sm" onClick={v.retry}>Retry</button></div>
+        : !v.data ? <div className="dim" style={{ fontSize: 13 }} data-state="loading">Loading versions…</div>
+        : <div className="col" style={{ gap: 8 }} data-versions>
+          {list.slice().reverse().map((x, i, all) => {
+            const active = x.label === a.version;
+            return (
+              <motion.div key={x.id} className={cx('oa-ver', active && 'stable')} data-version={x.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, textAlign: 'left', padding: '10px 12px' }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .1 + i * .05 }}>
+                <b className="mono">{x.label}</b>{active ? <Chip hue={145} size="sm">active</Chip> : <Chip hue={225} size="sm">earlier</Chip>}
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div className="ellipsis" style={{ fontSize: 12.5 }}>{x.model} · {x.skills.length ? x.skills.join(', ') : 'no skills'}</div>
+                  <div className="dim" style={{ fontSize: 11.5 }}>{new Date(x.createdAt).toLocaleString()}{i === all.length - 1 ? ' · first version' : ''}</div>
+                </div>
+              </motion.div>
+            );
+          })}
+          <div className="dim" style={{ fontSize: 12 }}>A change to the model, skills or tools adds a version. Instances already running keep theirs; new instances use the active one.</div>
+        </div>}
+    </Panel>
+  );
+}
+
 function EvolutionTab({ a }: { a: Agent }) {
   const nav = useNavigate();
   const e = useMemo(() => evolutionFor(a), [a]);
+  const canEdit = useCanEditAgents();
+  if (isApi()) return (
+    <div className="oa-grid-2b">
+      <VersionsPanel a={a} />
+      <Panel icon={FlaskConical} title="Candidate Experiment" help="agent.experiment" delay={.1} actions={<ProvTag agent={a} />}>
+        <EmptyState icon={FlaskConical} title="No experiments yet" body="Candidate versions, benchmarks and promotions arrive with the evolution pipeline (a later stage)." />
+      </Panel>
+    </div>
+  );
   return (
     <div className="oa-grid-2b">
-      <Panel icon={Dna} title="Version Lineage" help="agent.lineage" delay={.05} actions={<button className="btn" onClick={() => openDialog('agent-edit', { agentId: a.id })}>Propose revision</button>}>
+      <Panel icon={Dna} title="Version Lineage" help="agent.lineage" delay={.05} actions={canEdit ? <button className="btn" onClick={() => openDialog('agent-edit', { agentId: a.id })}>Propose revision</button> : undefined}>
         <div className="oa-lineage">
           {e.lineage.map((v, i) => (
             <div key={v.v} className="row" style={{ gap: 6 }}>

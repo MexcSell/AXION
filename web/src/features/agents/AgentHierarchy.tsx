@@ -1,5 +1,6 @@
 import { motion } from 'motion/react';
-import { useAgentsCatalog } from '@/api/agents';
+import { useAgentsCatalog, useOrgGraph } from '@/api/agents';
+import { isApi } from '@/api/mode';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ZoomIn, ZoomOut, Maximize2, Crown, Move, RotateCcw } from 'lucide-react';
@@ -20,7 +21,7 @@ interface View { x: number; y: number; k: number }
 const KMIN = 0.3, KMAX = 2.2;
 const clampK = (k: number) => Math.min(KMAX, Math.max(KMIN, k));
 
-export function ZoomCanvas({ width, height, children, label }: { width: number; height: number; children: ReactNode; label: string }) {
+export function ZoomCanvas({ width, height, children, label, note }: { width: number; height: number; children: ReactNode; label: string; note?: ReactNode }) {
   const host = useRef<HTMLDivElement>(null);
   const [v, setV] = useState<View>({ x: 0, y: 0, k: 1 });
   const vRef = useRef(v); vRef.current = v;
@@ -114,6 +115,7 @@ export function ZoomCanvas({ width, height, children, label }: { width: number; 
         <IconButton icon={RotateCcw} label="Reset view" size="sm" onClick={() => { touched.current = false; fitWidth(); }} />
         <HelpTrigger k="agents.hierarchy" />
       </div>
+      {note && <div className="zc-note">{note}</div>}
       <div className="zc-hint" aria-hidden><Move size={12} />Scroll to zoom · drag to pan</div>
     </div>
   );
@@ -127,10 +129,19 @@ const COL = 236, GAP = 28, NODE_H = 118, NODE_GAP = 18, DEPT_Y = 200, DEPT_H = 7
 export function AgentHierarchy({ agents = AGENTS, highlight }: { agents?: Agent[]; highlight?: (a: Agent) => boolean }) {
   const nav = useNavigate();
   const catalog = useAgentsCatalog(); // api mode: the server's catalog, live (Stage 6)
+  const org = useOrgGraph(); // api mode: the active organization revision (reporting lines)
   const gm = agents.find((a) => a.id === 'gm') ?? AGENTS[0];
+  const edges = isApi() ? org.data?.edges : undefined;
+  const managerOf = (id: string) => edges?.find((e) => e.subordinateId === id)?.supervisorId;
   const depts = useMemo(() => DEPTS.filter((d) => d.name !== 'Executive').map((d) => ({
     d, members: AGENTS.filter((a) => a.id !== 'gm' && a.dept === d.name).sort((a, b) => (a.id === d.managerId ? -1 : b.id === d.managerId ? 1 : b.success - a.success)),
-  })).filter((x) => x.members.length > 0), [catalog]); // eslint-disable-line react-hooks/exhaustive-deps
+  })).filter((x) => x.members.length > 0).map((x) => {
+    // api mode: the department head is who reports from outside the department (the active revision's reporting lines)
+    if (!edges) return x;
+    const ids = new Set(x.members.map((m) => m.id));
+    const head = x.members.find((m) => { const sup = managerOf(m.id); return !sup || !ids.has(sup); });
+    return head ? { ...x, d: { ...x.d, managerId: head.id }, members: [head, ...x.members.filter((m) => m !== head)] } : x;
+  }), [catalog, edges]); // eslint-disable-line react-hooks/exhaustive-deps
   const W = depts.length * COL + (depts.length - 1) * GAP;
   const maxN = Math.max(...depts.map((x) => x.members.length));
   const H = AG_Y + maxN * (NODE_H + NODE_GAP) + 10;
@@ -139,7 +150,7 @@ export function AgentHierarchy({ agents = AGENTS, highlight }: { agents?: Agent[
   const dim = (a: Agent) => highlight && !highlight(a);
 
   return (
-    <ZoomCanvas width={W} height={H} label="Agent hierarchy">
+    <ZoomCanvas width={W} height={H} label="Agent hierarchy" note={isApi() && (org.data?.revision ? <span data-org-revision={org.data.revision.seq} title={org.data.revision.note}>Org revision {org.data.revision.seq} · {org.data.revision.note || 'active'}</span> : org.error ? <span role="alert">Reporting lines not loaded</span> : null)}>
       <svg className="ah-links" width={W} height={H} aria-hidden>
         <defs>
           <filter id="ah-glow"><feGaussianBlur stdDeviation="2.4" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
@@ -191,7 +202,7 @@ export function AgentHierarchy({ agents = AGENTS, highlight }: { agents?: Agent[
                 <motion.button key={a.id} className={cx('ah-node', a.growth, dim(a) && 'dim')} onClick={() => nav(`/agents/${a.id}`)}
                   style={{ left: x + 30, top: AG_Y + k * (NODE_H + NODE_GAP), width: COL - 30, height: NODE_H, ['--rh' as string]: ROLES[a.role].hue, ['--gh' as string]: GROWTH[a.growth].hue }}
                   initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: .55 + i * .04 + k * .05 }}
-                  aria-label={`${a.name}, ${ROLES[a.role].label}, ${st.label}, ${GROWTH[a.growth].label}. Open profile`}>
+                  aria-label={`${a.name}, ${ROLES[a.role].label}, ${st.label}, ${GROWTH[a.growth].label}. Open profile`} data-agent={a.id} data-manager={managerOf(a.id)} title={managerOf(a.id) ? `Reports to ${AGENTS.find((x) => x.id === managerOf(a.id))?.name ?? managerOf(a.id)}` : undefined}>
                   <div className="row" style={{ gap: 8, minWidth: 0 }}>
                     <RobotAvatar role={a.role} size={42} animated={a.growth === 'evolving'} status={st.tone === 'violet' ? 'violet' : st.tone === 'neutral' ? 'muted' : 'good'} />
                     <div style={{ minWidth: 0, flex: 1, textAlign: 'left' }}>

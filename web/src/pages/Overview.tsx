@@ -18,7 +18,6 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Tip } from '@/components/ui/Tip';
 import { Segmented } from '@/components/ui/Form';
 import { AreaChart, ColumnBars, Sparkline } from '@/components/viz/Charts';
-import { missionTotals, fmtTokens } from '@/data/activity';
 import { AGENTS, AGENT_BY_ID, seeded } from '@/data/agents';
 import { ROLES } from '@/data/roles';
 import { getMissionControl } from '@/data/missions';
@@ -303,7 +302,7 @@ function Portfolio() {
         </div>
       )}
       <div className="ov-pager dim">
-        <span>{rows.length} missions · {fmtTokens(rows.reduce((s, m) => s + missionTotals(m).tokens, 0))} tokens recorded</span>
+        <span>{rows.length} missions</span>
         <span className="spacer" />
         {pages > 1 && <>
           <span className="tnum">{pg * per + 1}–{Math.min(rows.length, pg * per + per)} of {rows.length}</span>

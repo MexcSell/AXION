@@ -1,8 +1,11 @@
+import { useEffect, useState } from 'react';
 import { create } from 'zustand';
-import type { AgentDto } from '@contracts';
+import type { AgentDto, AgentVersionDto, OrgEdgeDto, OrgRevisionDto } from '@contracts';
 import { applyAgentCatalog, AGENTS } from '@/data/agents';
 import type { Agent, AgentMetrics, RoleKey } from '@/data/types';
-import { api } from './client';
+import { rebuildDepts } from '@/data/orgdemo';
+import { api, ApiFailure, newKey } from './client';
+import { isApi } from './mode';
 
 /**
  * Agent catalog (Stage 6). In api mode the company's agents come from GET /agents: after sign-in and before the shell
@@ -36,6 +39,7 @@ export async function loadAgents() {
   const r = await api<{ agents: AgentDto[] }>('GET', '/agents');
   if (mine !== gen) return; // a newer load started meanwhile
   applyAgentCatalog(r.agents.map(toAgent));
+  rebuildDepts(); // departments are derived from the catalog: agents created later belong to them too
   useAgentsVersion.setState((s) => ({ v: s.v + 1, loaded: true, failed: false }));
 }
 
@@ -51,4 +55,67 @@ export async function loadAgentsOnce() {
     const { toast } = await import('@/store/ui');
     toast({ tone: 'warning', title: 'Agent list not loaded', body: `Showing the built-in list of ${AGENTS.length} agents until the server answers.` });
   }
+}
+
+/* ------------------------------------------------------------------ writes (administrators) */
+export type AgentWrite = { ok: true; agent: AgentDto } | { ok: false; message: string; code: string; fieldErrors?: Record<string, string> };
+const fail = (e: unknown): AgentWrite => (e instanceof ApiFailure ? { ok: false, message: e.message, code: e.code, fieldErrors: e.fieldErrors } : { ok: false, message: 'Something went wrong.', code: 'UNKNOWN' });
+
+export interface NewAgentBody { name: string; role: string; dept: string; duty: string; description: string; model: string; skills: string[]; tools: string[] }
+/** One key per dialog submit: pressing the button twice (or a retry) creates one agent. */
+export async function createAgent(body: NewAgentBody, idempotencyKey: string): Promise<AgentWrite> {
+  try {
+    const r = await api<{ agent: AgentDto }>('POST', '/agents', body, { idempotencyKey });
+    await loadAgents().catch(() => undefined);
+    return { ok: true, agent: r.agent };
+  } catch (e) { return fail(e); }
+}
+export async function updateAgent(id: string, rowVersion: number, body: Partial<Pick<NewAgentBody, 'name' | 'description' | 'model' | 'skills' | 'tools' | 'dept'>>): Promise<AgentWrite> {
+  try {
+    const r = await api<{ agent: AgentDto }>('PATCH', `/agents/${id}`, body, { ifMatch: rowVersion });
+    await loadAgents().catch(() => undefined);
+    return { ok: true, agent: r.agent };
+  } catch (e) {
+    if (e instanceof ApiFailure && e.status === 409) void loadAgents().catch(() => undefined); // someone else changed it: show the current state
+    return fail(e);
+  }
+}
+export { newKey };
+
+/* ------------------------------------------------------------------ reads that follow events */
+export interface InstanceRow { id: string; missionId: string; agentId: string; versionId: string; versionLabel: string; state: string; task: string; progress: number; simulated: boolean; createdAt: string; endedAt: string | null }
+/** instance.*, task.* and mission.* events (and a stream reconnect) make instance lists re-read. */
+const useInstTick = create<{ n: number }>(() => ({ n: 0 }));
+export const bumpInstances = () => useInstTick.setState((s) => ({ n: s.n + 1 }));
+
+interface Read<T> { data: T | null; error: string | null; retry: () => void }
+/** GET `path`, again when any of `deps` changes. A failed read keeps the last data and says so (never shown as empty). */
+function useRead<T>(path: string | null, pick: (r: any) => T, deps: unknown[]): Read<T> { // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [st, setSt] = useState<{ path: string | null; data: T | null; error: string | null }>({ path, data: null, error: null });
+  const [manual, setManual] = useState(0);
+  useEffect(() => {
+    if (!path || !isApiMode()) return;
+    let live = true;
+    api<unknown>('GET', path).then((r) => { if (live) setSt({ path, data: pick(r), error: null }); })
+      .catch((e) => { if (live) setSt((x) => ({ path, data: x.path === path ? x.data : null, error: e instanceof ApiFailure ? e.message : 'Something went wrong.' })); });
+    return () => { live = false; };
+  }, [path, manual, ...deps]); // eslint-disable-line react-hooks/exhaustive-deps
+  return { data: st.path === path ? st.data : null, error: st.error, retry: () => setManual((n) => n + 1) };
+}
+const isApiMode = () => isApi();
+
+/** Agent instances visible to me (GET /agent-instances), one agent or all. */
+export function useAgentInstances(agentId?: string): Read<InstanceRow[]> {
+  const tick = useInstTick((s) => s.n);
+  return useRead<InstanceRow[]>(`/agent-instances${agentId ? `?agentId=${encodeURIComponent(agentId)}` : ''}`, (r) => r.instances, [tick]);
+}
+/** An agent's immutable versions, newest last (GET /agents/:id). */
+export function useAgentVersions(agentId: string): Read<AgentVersionDto[]> {
+  const v = useAgentsCatalog();
+  return useRead<AgentVersionDto[]>(`/agents/${agentId}`, (r) => r.agent.versions ?? [], [v]);
+}
+/** The active organization revision and its reporting lines (GET /organization/graph). */
+export function useOrgGraph(): Read<{ revision: OrgRevisionDto | null; edges: OrgEdgeDto[] }> {
+  const v = useAgentsCatalog();
+  return useRead(`/organization/graph`, (r) => ({ revision: r.revision, edges: r.edges ?? [] }), [v]);
 }
