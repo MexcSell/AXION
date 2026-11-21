@@ -10,12 +10,13 @@ import { Tip } from './Tip';
 export function HelpTrigger({ k, entry, label }: { k?: string; entry?: HelpEntry; label?: string }) {
   const reg = useHelpRegistry();
   const e = entry ?? (reg ? reg.getHelp(k ?? '') : LOADING_HELP);
+  const title = entry || reg ? e.title : 'this topic'; // before the help text loads: not "Help: Help"
   const warm = () => { void loadHelp(); };
   return (
     <P.Root>
-      <Tip label={label ?? `Help: ${e.title}`}>
+      <Tip label={label ?? `Help: ${title}`}>
         <P.Trigger asChild>
-          <button type="button" className="help-btn" aria-label={`Help: ${e.title}`} data-help-key={k} onPointerEnter={warm} onFocus={warm} onClick={warm}>?</button>
+          <button type="button" className="help-btn" aria-label={`Help: ${title}`} data-help-key={k} onPointerEnter={warm} onFocus={warm} onClick={warm}>?</button>
         </P.Trigger>
       </Tip>
       <P.Portal>

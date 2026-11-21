@@ -1,6 +1,7 @@
 // Stage 5, api mode: missions, sharing, live updates, approvals and a server restart, with two users in two browsers.
 // Run through scripts/api-e2e.sh (API 5192 on axion_e2e, reset on start, DEMO seed on; Vite 5193). Needs API_PID.
 import { chromium } from 'playwright';
+import { calm } from './_session.mjs';
 import { writeFileSync } from 'node:fs';
 const base = process.env.BASE || 'http://127.0.0.1:5193';
 const API_PID = Number(process.env.API_PID || 0);
@@ -62,6 +63,7 @@ check('A lands on the new mission', await until(async () => /\/missions\/M-\d+/.
 newId = (A.p.url().match(/\/missions\/(M-\d+)/) || [])[1];
 check('new mission id comes from the server (above M-136)', !!newId && Number(newId.slice(2)) > 136, newId);
 check('staffing runs on the server (GM appoints the executor, agents join)', await until(async () => (await A.p.getByText(/appointed|brought|joined/i).count()) > 0, 10000));
+// ABSENCE WAIT (kept): asserting that a live event does NOT reach B; no condition can signal "never".
 await B.p.waitForTimeout(800);
 check('B does not see A\'s private mission', !(await hasRow(B.p, newId)));
 
@@ -131,7 +133,7 @@ check('B no longer lists it', await until(async () => !(await hasRow(B.p, newId)
   const dis = A.p.getByRole('button', { name: 'Disable Mina' });
   await dis.waitFor({ timeout: 8000 });
   await dis.click();
-  await A.p.waitForTimeout(500);
+  await until(async () => (await A.p.getByRole('button', { name: 'Enable Mina' }).count()) > 0, 8000); // the row shows the disabled state
   await B.ctx.setOffline(false);
   check('a user disabled while offline returns to Connect once back online', await until(async () => (await B.p.getByRole('heading', { name: 'Connect' }).count()) > 0, 45000, 300));
 } catch (e) { check('script ran to the end', false, String(e).split('\n')[0]); }

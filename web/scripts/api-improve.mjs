@@ -14,6 +14,7 @@
 import { chromium } from 'playwright';
 import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { calm, requireE2eDatabase, inventedNumbers, DECISION_BUTTON } from './_session.mjs';
 const base = process.env.BASE || 'http://127.0.0.1:5193';
 const SHOTS = process.env.SHOTS || '/tmp/axion-api-e2e';
 // the committed screenshots are written only on request: DOC_SHOT=docs/screenshots/improve-c01-proposals-dark.png,
@@ -99,7 +100,7 @@ try {
   for (const [t, titles] of Object.entries(demoPanels)) {
     await A.p.goto(base + `/overview?tab=${t}`, { waitUntil: 'domcontentloaded' });
     await A.p.locator('[data-scorecard="ready"]').waitFor({ timeout: 15000 });
-    await A.p.waitForTimeout(400);
+    await calm(A.p);
     for (const title of titles) {
       const panel = A.p.locator('section.panel', { has: A.p.locator('h2.panel-title', { hasText: title }) }).first();
       if ((await panel.locator('.panel-head .demo-tag').count()) === 0) untagged.push(`${t}: ${title}`);
@@ -111,7 +112,7 @@ try {
   check('c02 the scorecard panel lists all 8 rows with a ? each', (await A.p.locator('[data-scorecard="ready"] [data-row]').count()) === 8 && (await A.p.locator('[data-scorecard="ready"] [data-row] [data-help-key^="scorecard."]').count()) === 8);
   await A.p.goto(base + '/missions', { waitUntil: 'domcontentloaded' });
   await A.p.locator('.mw-list-head').waitFor({ timeout: 10000 });
-  await A.p.waitForTimeout(600);
+  await calm(A.p);
   check('c02 fresh database: the Missions list header shows no success rate', !/%|success/.test(await A.p.locator('.mw-list-head').innerText()));
   const join = async (label, name, pass, admin) => {
     const X = await browser(label);
@@ -166,7 +167,7 @@ try {
       && (await card(A.p, P1.id).getByText('base rev 1').count()) === 1 && (await card(A.p, P1.id).getByRole('button', { name: 'Withdraw', exact: true }).count()) === 1
       && (await card(A.p, P1.id).getByRole('button', { name: 'Approve', exact: true }).count()) === 0, 8000));
   check('C (member) sees the new proposal arrive live, without any decision buttons',
-    await until(async () => (await card(C.p, P1.id).count()) === 1, 10000) && (await card(C.p, P1.id).locator('button').count()) === 0);
+    await until(async () => (await card(C.p, P1.id).count()) === 1, 10000) && (await card(C.p, P1.id).getByRole('button', { name: DECISION_BUTTON }).count()) === 0 && (await card(C.p, P1.id).getByLabel(/Decision note/).count()) === 0);
 
   // ------------------------------------------------------------ a second proposal on the same base (made through the API)
   const P2r = await apiA('POST', '/organization/proposals', { title: 'Writer-01 under Ops-01', why: '', baseRevision: 1, edges: g0.edges.map((e) => (e.subordinateId === 'writer-01' ? { ...e, supervisorId: 'ops-01' } : e)) }, { 'idempotency-key': `c01-${Date.now()}` });
@@ -206,7 +207,7 @@ try {
     `revision ${await C.p.locator('[data-org-revision]').getAttribute('data-org-revision').catch(() => '?')}, manager ${await C.p.locator('[data-agent="coder-01"]').getAttribute('data-manager').catch(() => '?')}`);
   check('C did not reload or navigate', (await C.p.evaluate(() => window.__noReload)) === 'c01' && cNavs === 0, `${cNavs} navigations`);
   check('C draws the new line Ops-01 → Coder-01', (await C.p.locator('path[data-from="ops-01"][data-to="coder-01"]').count()) === 1);
-  await C.p.waitForTimeout(700);
+  await calm(C.p);
   await C.p.screenshot({ path: `${SHOTS}/improve-c01-hierarchy-C.png` });
 
   // ------------------------------------------------------------ stale P2: shown as stale, can't be approved, can be rejected
@@ -220,8 +221,7 @@ try {
 
   // ------------------------------------------------------------ expiry: the server's message stays on the card after its status changes
   // Only the e2e database (axion_e2e, emptied on every API start) is touched, to move one proposal's expiry into the past.
-  const e2eUrl = /^E2E_DATABASE_URL=(.*)$/m.exec(readFileSync(new URL('../../server/.env', import.meta.url), 'utf8'))?.[1]?.trim().replace(/^['"]|['"]$/g, '');
-  if (!e2eUrl || !/\/axion_e2e\d*(\?|$)/.test(e2eUrl)) throw new Error('E2E_DATABASE_URL must point at axion_e2e');
+  const e2eUrl = requireE2eDatabase();
   const g2 = (await apiA('GET', '/organization/graph')).body;
   const P3 = (await apiA('POST', '/organization/proposals', { title: 'Designer-01 under Ops-01', why: '', baseRevision: g2.revision.seq, edges: g2.edges.map((e) => (e.subordinateId === 'designer-01' ? { ...e, supervisorId: 'ops-01' } : e)) }, { 'idempotency-key': `c01-p3-${Date.now()}` })).body.proposal;
   await B.p.getByRole('radio', { name: /^Pending/ }).click();
@@ -257,10 +257,10 @@ try {
   check('A sees both decisions live (Applied, Rejected) without reload', await until(async () => (await A.p.locator(`[data-proposal="${P1.id}"][data-status="applied"]`).count()) === 1 && (await A.p.locator(`[data-proposal="${P2.id}"][data-status="rejected"]`).count()) === 1, 10000));
   check('A\'s card shows who decided and the note', (await card(A.p, P1.id).innerText()).includes('Applied by Bea') && (await card(A.p, P1.id).innerText()).includes('Agreed in the Monday review.'));
   const txt = await A.p.locator('[data-proposals]').innerText();
-  check('nothing invented: no percentages (coverage, latency, tokens) on the proposal cards', !/\d+\s*%/.test(txt) && !/coverage|latency|tokens/i.test(txt));
+  check('nothing invented: no percentage and no number beside coverage, latency or tokens on the proposal cards', inventedNumbers(txt).length === 0, inventedNumbers(txt).join(' | '));
   check('member C reading via the API gets the same four proposals', (await apiOf(C.p)('GET', '/organization/proposals')).body.proposals?.length === 4);
   await A.p.getByRole('button', { name: /agent boards/i }).first().click({ timeout: 2000 }).catch(() => {}); // more room for the cards
-  await A.p.waitForTimeout(900);
+  await calm(A.p);
   if (DOC_SHOT) await A.p.screenshot({ path: DOC_SHOT });
   await A.p.screenshot({ path: `${SHOTS}/improve-c01-proposals-A.png` });
 
@@ -299,11 +299,11 @@ try {
   check('c02 the evidence sentence is the server\'s', by1.verified_success_rate.evidence === '0 of 3 finished missions verified · 0 completed unverified');
   check('c02 A did not reload', (await A.p.evaluate(() => window.__noReload)) === 'c02');
   await A.p.setViewportSize({ width: 1366, height: 650 }); // short screens hide tile hints: the n must stay visible
-  await A.p.waitForTimeout(500);
+  await calm(A.p);
   check('c02 at 1366x650 the tile still shows its n (n=3 beside 0.0%)', await tile(A.p).locator('[data-kpi-n="3"]').isVisible());
   await A.p.screenshot({ path: `${SHOTS}/improve-c02-overview-1366x650.png` });
   await A.p.setViewportSize({ width: 1600, height: 940 });
-  await A.p.waitForTimeout(400);
+  await calm(A.p);
 
   // ------------------------------------------------------------ c02: DEMO missions are excluded by default
   const all = (await apiA('GET', '/missions')).body.missions;
@@ -313,7 +313,7 @@ try {
   const sc2d = await apiA('GET', '/company/scorecard?includeDemo=1');
   const by2d = Object.fromEntries(sc2d.body.rows.map((r) => [r.key, r]));
   check(`c02 a canceled DEMO mission (${dm.id}) is not counted by default; with includeDemo=1 it is`, sc2.finished.value === 3 && by2d.finished.value === 4 && sc2d.body.includeDemo === true, `default ${sc2.finished.value}, with DEMO ${by2d.finished.value}`);
-  await A.p.waitForTimeout(900);
+  await calm(A.p);
   check('c02 the panel still shows 3 finished (DEMO off) and no DEMO tag', (await scRow(A.p, 'finished').locator('.sc-val').innerText()) === '3' && (await A.p.locator('[data-scorecard] .demo-tag').count()) === 0);
   await A.p.getByRole('switch', { name: 'Include DEMO missions' }).click();
   check('c02 "include DEMO missions" on: the panel is tagged DEMO and counts 4 finished (the server value)',
@@ -324,7 +324,7 @@ try {
   await A.p.getByRole('radio', { name: '30d' }).click();
   await A.p.getByRole('switch', { name: 'Include DEMO missions' }).click();
   await until(async () => (await A.p.locator('[data-scorecard="ready"][data-demo="0"][data-window="30d"]').count()) === 1, 8000);
-  await A.p.waitForTimeout(900);
+  await calm(A.p);
   if (DOC_SHOT_C02) await A.p.screenshot({ path: DOC_SHOT_C02 });
   await A.p.screenshot({ path: `${SHOTS}/improve-c02-overview-A.png` });
   await A.p.goto(base + '/missions', { waitUntil: 'domcontentloaded' });
@@ -408,7 +408,7 @@ try {
     rt.status === 200 && await until(async () => agentReads > reads1, 6000), `status ${rt.status}`);
   check(`c03 server, with DEMO tasks: the retried task is open again, so it left the evidence of ${fromAgent} (open tasks are not evidence)`,
     (await relOfApi(apiA, fromAgent, '?includeSimulated=1')).n === before.n - 1 && (await relOfApi(apiA, 'coder-01', '?includeSimulated=1')).n === coderSim.n);
-  await A.p.waitForTimeout(600);
+  await calm(A.p);
   check('c03 Coder-01 profile still says "not enough evidence (0 of 5)" (real tasks only), no reload', (await relText(A.p)) === 'not enough evidence (0 of 5)' && (await A.p.evaluate(() => window.__noReload)) === 'c03');
 
   // ------------------------------------------------------------ c03 SUPPLEMENTARY fixture step (axion_e2e only; not evidence for 3b)
@@ -442,7 +442,7 @@ try {
     && (await relStat(p).getAttribute('data-reliability-n')) === String(n) && (await relStat(p).locator('.oa-rel-val b').innerText()).trim() === `${value}%` && (await relText(p)) === `n=${n} · last 90 days`;
   check('c03 supplementary: the profile renders the server\'s value and n (60%, n=5 · last 90 days)', await until(() => shows(A.p, 60, 5), 8000), await relText(A.p).catch(() => '?'));
   check(`c03 ${exec.agentId}'s DEMO fixture numbers keep their DEMO chip next to the measured value`, (await A.p.locator('.oa-hero-main .demo-tag', { hasText: 'DEMO' }).count()) >= 1);
-  await A.p.waitForTimeout(900);
+  await calm(A.p);
   if (DOC_SHOT_C03) await A.p.screenshot({ path: DOC_SHOT_C03 });
   await A.p.screenshot({ path: `${SHOTS}/improve-c03-profile-A.png` });
   // user action: the GM's failed task R6 is reassigned to the executor. Fix round I2: the failure stays the GM's; the executor gets none
@@ -456,12 +456,12 @@ try {
   check('c03 live: the profile re-reads after task.delegated and still shows 60%, n=5 (no reload)', await until(async () => agentReads > readsR6, 6000) && await until(() => shows(A.p, 60, 5), 4000) && (await A.p.evaluate(() => window.__noReload)) === 'c03b');
   // fit: the profile still fits one screen at 1366x768 with the stat (hero + tab bar visible, no page scroll)
   await A.p.setViewportSize({ width: 1366, height: 768 });
-  await A.p.waitForTimeout(600);
+  await calm(A.p);
   const fit = await A.p.evaluate(() => { const d = document.scrollingElement; const tb = document.querySelector('.oa-tabbar')?.getBoundingClientRect(); return { over: d.scrollHeight - d.clientHeight, tabBottom: tb ? Math.round(tb.bottom) : -1, h: innerHeight }; });
   check('c03 at 1366x768 the profile fits (no page scroll) and the stat and the tab bar are on screen', fit.over <= 1 && fit.tabBottom > 0 && fit.tabBottom <= fit.h && await relStat(A.p).isVisible(), JSON.stringify(fit));
   await A.p.screenshot({ path: `${SHOTS}/improve-c03-profile-1366x768.png` });
   await A.p.setViewportSize({ width: 1600, height: 940 });
-  await A.p.waitForTimeout(400);
+  await calm(A.p);
   // the member C cannot see the admin's private mission: her view of the same agent has no evidence
   const cRel = await relOfApi(apiOf(C.p), exec.agentId);
   check('c03 member C does not count the admin\'s private mission (server: n=0)', cRel?.n === 0 && cRel.value === null);

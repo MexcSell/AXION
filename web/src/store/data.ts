@@ -142,13 +142,6 @@ export function useMission(id: string | undefined) {
   return useData((s) => s.missions.find((m) => m.id === id));
 }
 
-export function threadMessages(missionId: string, a: string, b: string, extra: Record<string, Message[]>): Message[] {
-  const m = useData.getState().missions.find((x) => x.id === missionId);
-  if (!m) return [];
-  const base = getMissionControl(m).threads[threadKey(a, b)] ?? [];
-  return isApi() ? base : [...base, ...(extra[`${missionId}::${threadKey(a, b)}`] ?? [])]; // api mode: the server's thread only
-}
-
 export function allApprovals(missions: Mission[], decisions: Record<string, 'approved' | 'denied'>): Approval[] {
   if (isApi()) {
     // server approvals; `decisions` changes whenever they reload, so callers' memos stay fresh

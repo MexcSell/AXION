@@ -2,6 +2,7 @@
 // Two users in two browsers. Run through scripts/api-e2e.sh (API 5192 on axion_e2e, reset on start, DEMO seed on; Vite 5193).
 // Tasks 5–7 extend this script. Screenshots: SHOTS (default /tmp/axion-api-e2e).
 import { chromium } from 'playwright';
+import { calm } from './_session.mjs';
 import { writeFileSync, mkdirSync } from 'node:fs';
 const base = process.env.BASE || 'http://127.0.0.1:5193';
 const SHOTS = process.env.SHOTS || '/tmp/axion-api-e2e';
@@ -90,7 +91,7 @@ try {
   const verTexts = await A.p.locator('.hnode .hnode-ver').allInnerTexts();
   check('Hierarchy shows the server nodes', await until(async () => (await A.p.locator('.hnode').count()) === hier.nodes.length), `${await A.p.locator('.hnode').count()} of ${hier.nodes.length}`);
   check('each node shows the version its instance is pinned to', verTexts.length === hier.nodes.length && hier.nodes.every((n) => verTexts.includes(n.versionLabel)), verTexts.slice(0, 4).join(', '));
-  await A.p.waitForTimeout(900);
+  await calm(A.p);
   await A.p.screenshot({ path: `${SHOTS}/stage6-hierarchy.png` });
 
   // ------------------------------------------------------------ conversations: threads, a command with an image, live in B
@@ -110,7 +111,7 @@ try {
   const ackRow = (p) => p.locator('.conv-main .bubble-row', { has: p.locator('.sim-tag') }).filter({ hasText: 'ACK' });
   check('the DEMO acknowledgement arrives tagged Simulated (A and B)', await until(async () => (await ackRow(A.p).count()) > 0 && (await ackRow(B.p).count()) > 0, 12000));
   check('A\'s status chip follows the receipts to acknowledged', await until(async () => (await A.p.locator('.conv-main .bubble-row.right', { hasText: cmd }).locator('.bubble-status').innerText()).includes('acknowledged'), 8000));
-  await B.p.waitForTimeout(600);
+  await calm(B.p);
   await B.p.screenshot({ path: `${SHOTS}/stage6-thread-demo.png` });
   await pickPartner(B.p, 'Superior');
   check('the Simulated report reaches Designer-01\'s superior thread (B, live)', await until(async () => {
@@ -120,7 +121,7 @@ try {
 
   // ------------------------------------------------------------ fix round 1: failed sends keep the draft; a missing instance is not "mission gone"
   await pickPartner(A.p, 'You (Owner)');
-  await A.p.waitForTimeout(300);
+  await calm(A.p);
   const failOnce = { n: 0 };
   await A.ctx.route(/\/api\/v1\/threads\/[^/]+\/messages$/, (route) => {
     if (route.request().method() !== 'POST' || failOnce.n++) return route.continue();
@@ -215,6 +216,7 @@ try {
   await sendIn(A.p, realCmd);
   check('the command shows queued', await until(async () => (await A.p.locator('.conv-main .bubble-row.right', { hasText: realCmd }).locator('.bubble-status').innerText()).includes('queued'), 8000));
   check('the honest system note is shown', await until(async () => (await A.p.locator('.conv-main .bubble-note', { hasText: "Agents don't act yet" }).count()) === 1, 8000));
+  // ABSENCE WAIT (kept): asserting that no agent reply ever arrives; no condition can signal "never".
   await A.p.waitForTimeout(3500);
   const agentBubbles = await A.p.locator('.conv-main .thread-body .bubble-row.left:not(.system)').count();
   const gmThread = ((await apiA('GET', `/missions/${realId}/threads`)).body.threads ?? []).find((t) => t.a === 'human' || t.b === 'human');
@@ -248,12 +250,12 @@ try {
       return { id: first.getAttribute('data-mid'), top: first.getBoundingClientRect().top - box.top };
     });
     const grew = await until(async () => (await mids()).length > before, 8000);
-    await A.p.waitForTimeout(400);
+    await calm(A.p);
     const after = await A.p.locator('.conv-main .thread-body').evaluate((el, id) => { const n = el.querySelector(`[data-mid="${id}"]`); return n ? n.getBoundingClientRect().top - el.getBoundingClientRect().top : null; }, anchor.id);
     if (grew) pages++;
     worst = Math.max(worst, after == null ? 999 : Math.abs(after - anchor.top));
     await A.p.locator('.conv-main .thread-body').evaluate((el) => { el.scrollTop += 300; }); // leave the top before the next round
-    await A.p.waitForTimeout(200);
+    await calm(A.p);
   }
   const all = await mids();
   check('scrolling up loads older pages', pages >= 2 && all.length === total, `${pages} pages · ${all.length}/${total} messages`);
@@ -297,7 +299,7 @@ try {
       await A.p.locator('.conv-main .thread-body').evaluate((el) => { el.scrollTop = 0; });
       await until(async () => (await mids()).length > n0, 6000);
       await A.p.locator('.conv-main .thread-body').evaluate((el) => { el.scrollTop += 300; });
-      await A.p.waitForTimeout(200);
+      await calm(A.p);
     }
     const after = await mids();
     check('scrolling up after the reconnect reaches the whole thread, without duplicates', after.length === seqOf.size && new Set(after).size === after.length, `${after.length}/${seqOf.size}`);
@@ -319,7 +321,7 @@ try {
   let holdOne = true; // hold the event-triggered re-read only; the composer's own confirmation (GET → 404) goes through
   await B.ctx.route(new RegExp(`/api/v1/missions/${realId}$`), (route) => { if (route.request().method() !== 'GET' || !holdOne) return route.continue(); holdOne = false; held.push(route); });
   const un = await apiA('POST', `/missions/${realId}/share`, { shared: false });
-  await B.p.waitForTimeout(1200);
+  await until(async () => held.length > 0, 4000); // the un-share event's re-read is held (condition, not a sleep)
   const stillThere = B.p.url().includes(realId);
   await sendIn(B.p, 'Are you still there?');
   check('B\'s send gets the 404 handling: a toast, and B leaves the mission',
@@ -422,7 +424,7 @@ try {
   const stored = graph.edges.find((e) => e.subordinateId === 'marketer-01')?.supervisorId;
   check('the Hierarchy draws the agent\'s reporting line from the supervisor the server stored', !!stored && (await A.p.locator(`svg.ah-links path[data-to="marketer-01"][data-from="${stored}"]`).count()) === 1, `supervisor ${stored}`);
   check('B sees the new agent in the Hierarchy too', await until(async () => (await B.p.locator('.ah-node[data-agent="marketer-01"]').count()) === 1, 10000));
-  await A.p.waitForTimeout(900);
+  await calm(A.p);
   await A.p.screenshot({ path: `${SHOTS}/stage6-agents-hierarchy.png` });
   // a live creation while B watches the hierarchy
   const live = await apiA('POST', '/agents', { name: 'Analyst-X', role: 'analyst-x', dept: 'R&D', duty: 'Funnel analysis', model: 'claude-sonnet-5-5', skills: [], tools: [] }, { 'idempotency-key': key() });

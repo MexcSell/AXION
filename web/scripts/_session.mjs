@@ -4,15 +4,37 @@
 // DATA_MODE=api (Stage 5, run through scripts/api-e2e.sh): signs in on the e2e server through its API; the first name
 // becomes the administrator, any other name is approved by that administrator first.
 import { request } from 'playwright';
+import { readFileSync } from 'node:fs';
 
 const API = process.env.DATA_MODE === 'api';
 const BASE = () => process.env.BASE || 'http://127.0.0.1:5190';
 /** `networkidle` never fires while the live event stream is open, so api runs wait for the DOM and then settle(). */
 export const navWait = () => (API ? 'domcontentloaded' : 'networkidle');
-export async function settle(p, ms = 500) {
+/** Condition wait, not a sleep: every finite CSS/Web animation has finished and two frames have painted (capped at 3 s). */
+export async function calm(p) {
+  try {
+    await p.evaluate(() => Promise.race([
+      Promise.all(document.getAnimations().filter((a) => Number.isFinite(a.effect?.getComputedTiming().endTime)).map((a) => a.finished.catch(() => {}))),
+      new Promise((r) => setTimeout(r, 3000)),
+    ]).then(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))));
+  } catch { /* page closed or navigating: the caller's next check reports it */ }
+}
+export async function settle(p) {
   if (!API) return;
   try { await p.waitForSelector('.rail-nav', { timeout: 15000 }); await p.waitForSelector('.conn-badge[data-conn="live"]', { timeout: 15000 }); } catch { /* the caller reports what it sees */ }
-  await p.waitForTimeout(ms);
+  await calm(p);
+}
+
+/** The one lane-database guard: only axion_e2e or axion_e2e<N> (the throw-away e2e databases) pass. Pure, so it can be self-tested. */
+export const isE2eDatabaseUrl = (url) => typeof url === 'string' && /\/axion_e2e\d*(\?|$)/.test(url);
+/** Reads E2E_DATABASE_URL (the environment, else server/.env) and throws unless it is an e2e database. Returns the URL. */
+export function requireE2eDatabase() {
+  let url = process.env.E2E_DATABASE_URL;
+  if (!url) {
+    try { url = /^E2E_DATABASE_URL=(.*)$/m.exec(readFileSync(new URL('../../server/.env', import.meta.url), 'utf8'))?.[1]?.trim().replace(/^['"]|['"]$/g, ''); } catch { /* no .env */ }
+  }
+  if (!isE2eDatabaseUrl(url)) throw new Error('E2E_DATABASE_URL must point at axion_e2e or axion_e2e<N>; refusing to touch any other database');
+  return url;
 }
 
 export async function demoMode(ctx) {
@@ -54,3 +76,8 @@ export async function signIn(ctx, name = process.env.LOGIN_AS || 'Luca') {
   await admin.dispose();
   await remember();
 }
+
+/** Decision controls on a proposal card: members must see none of these (and no note field). */
+export const DECISION_BUTTON = /^(Approve|Reject|Withdraw)$/;
+/** Invented numbers on a proposal card: any percentage, or a number written right beside coverage/latency/tokens. The words alone are fine. */
+export const inventedNumbers = (txt) => [...String(txt).matchAll(/\d+(?:\.\d+)?\s*%|\b(?:coverage|latency|tokens)\b\s*:?\s*[+\-−]?\d+/gi)].map((m) => m[0]);

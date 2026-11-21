@@ -215,11 +215,14 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
   }, [messages.length, lastId, atBottom]);
   // older pages: remember the first visible message and where it sat, then put it back there once the page is in
   const anchor = useRef<{ id: string; top: number } | null>(null);
-  const requestOlder = (el: HTMLDivElement) => {
-    if (!onLoadOlder || !hasOlder || loadingOlder || !armed.current) return;
+  const captureAnchor = (el: HTMLDivElement) => {
     const box = el.getBoundingClientRect();
     const first = Array.from(el.querySelectorAll<HTMLElement>('[data-mid]')).find((n) => n.getBoundingClientRect().bottom > box.top);
     anchor.current = first ? { id: first.dataset.mid!, top: first.getBoundingClientRect().top - box.top } : null;
+  };
+  const requestOlder = (el: HTMLDivElement) => {
+    if (!onLoadOlder || !hasOlder || loadingOlder || !armed.current) return;
+    captureAnchor(el);
     onLoadOlder();
   };
   useLayoutEffect(() => {
@@ -248,7 +251,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
       </div>
       <div className={cx('thread-scroll', mm && 'with-minimap')}>
         {loadingOlder && <div className="thread-older" role="status"><Loader2 size={12} className="spin" /> Loading older messages…</div>}
-        <div className="thread-body" ref={scroller} onScroll={(e) => { const el = e.currentTarget; const b = el.scrollHeight - el.scrollTop - el.clientHeight < 40; setAtBottom(b); if (b) setNewCount(0); if (el.scrollTop < 80) requestOlder(el); }} role="log" aria-label="Conversation" aria-live="polite" data-has-older={hasOlder ? '1' : undefined}>
+        <div className="thread-body" ref={scroller} onScroll={(e) => { const el = e.currentTarget; const b = el.scrollHeight - el.scrollTop - el.clientHeight < 40; setAtBottom(b); if (b) setNewCount(0); if (loadingOlder && anchor.current) captureAnchor(el); /* a slow page: the person kept scrolling, so the anchor follows */ if (el.scrollTop < 80) requestOlder(el); }} role="log" aria-label="Conversation" aria-live="polite" data-has-older={hasOlder ? '1' : undefined}>
           {shown.length === 0 && <div className="empty" style={{ padding: 30 }}><div className="empty-icon"><Send size={22} /></div><h4>{emptyTitle ?? 'No messages yet'}</h4>{emptyText && typeof emptyText === 'object' ? <div className="thread-empty-body">{emptyText}</div> : <p>{emptyText ?? 'Write the first message.'}</p>}</div>}
           <AnimatePresence initial={false}>
             {shown.map((m) => {
