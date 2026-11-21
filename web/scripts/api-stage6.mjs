@@ -321,6 +321,58 @@ try {
   check('the server answers 404 to B for that mission now', bPost.status === 404);
   await B.ctx.unroute(new RegExp(`/api/v1/missions/${realId}$`));
   for (const r of held.splice(0)) await r.abort().catch(() => {});
+
+  // ------------------------------------------------------------ Task 6: direct channels (administrators line, GM) on the server
+  const dock = (p) => p.locator('[data-dialog="chat-dock"]');
+  const dockText = (p) => dock(p).locator('.thread-body').first().innerText();
+  const openDock = async (p) => { await p.locator('button[aria-label^="Chat with the General Manager"]').click(); await dock(p).waitFor({ timeout: 8000 }); };
+  const dockSend = async (p, text) => { const c = dock(p).locator('.composer').first(); await c.locator('textarea').fill(text); await c.getByRole('button', { name: 'Send message' }).click(); };
+  await B.p.goto(base + '/', { waitUntil: 'domcontentloaded' });
+  await A.p.goto(base + '/', { waitUntil: 'domcontentloaded' });
+  await B.p.locator('.rail-nav').first().waitFor({ timeout: 15000 }); await A.p.locator('.rail-nav').first().waitFor({ timeout: 15000 });
+  await until(async () => (await conn(B.p)) === 'live' && (await conn(A.p)) === 'live', 15000);
+  await openDock(A.p); // A (administrator) is watching before B writes
+  await openDock(B.p);
+  await dock(B.p).locator('.chat-ch', { hasText: 'Administrators' }).first().click();
+  const toAdmins = `Stage6 admin line: can I get a second device? ${Date.now()}`;
+  await dockSend(B.p, toAdmins);
+  check('B writes to the administrators and sees the message in the dock', await until(async () => (await dockText(B.p)).includes(toAdmins), 8000));
+  check('A (administrator) gets a "Users to administrators" line with B\'s message, live',
+    await until(async () => (await dock(A.p).locator('.chat-dock-sec', { hasText: 'Users → administrators' }).count()) > 0 && (await dock(A.p).locator('.chat-ch', { hasText: 'Mina' }).count()) > 0, 10000));
+  await dock(A.p).locator('.chat-ch', { hasText: 'Mina' }).first().click();
+  check('A reads it in that line', await until(async () => (await dockText(A.p)).includes(toAdmins), 8000));
+  const answer = `Yes, approve it in Settings > Devices ${Date.now()}`;
+  await dockSend(A.p, answer);
+  check('B sees the administrator\'s answer live (a real human reply, authored by Luca)', await until(async () => { const t = await dockText(B.p); return t.includes(answer) && t.includes('Luca'); }, 10000));
+  const notes = (await apiB('GET', '/notifications')).body.notifications ?? [];
+  const note = notes.find((n) => /administrator answered/i.test(n.title));
+  check('B gets a notification with a route to the chat', !!note && note.route === '/?chat=admin' && note.body.includes('approve it in Settings'), note ? note.route : 'none');
+  await B.p.screenshot({ path: `${SHOTS}/stage6-admin-line-B.png` });
+  await A.p.screenshot({ path: `${SHOTS}/stage6-admin-line-A.png` });
+  await B.p.goto(base + '/?chat=admin', { waitUntil: 'domcontentloaded' });
+  check('following the notification opens the administrators line', await until(async () => (await dock(B.p).count()) > 0 && (await dockText(B.p)).includes(answer) && !B.p.url().includes('chat=admin'), 12000));
+  // the GM line: stored, honest note, no invented reply; the administrator never sees it
+  await dock(B.p).locator('.chat-ch', { hasText: 'General Manager' }).first().click();
+  const toGm = `Stage6 GM line: plan my week ${Date.now()}`;
+  await dockSend(B.p, toGm);
+  check('B writes to the General Manager: stored, with the honest note and no invented reply',
+    await until(async () => { const t = await dockText(B.p); return t.includes(toGm) && t.includes("can't answer yet"); }, 8000));
+  await B.p.waitForTimeout(4500); // the demo store would have replied within ~2 s
+  const gmText = await dockText(B.p);
+  check('nothing answered as the General Manager (no simulated reply)', !/Noted,|Understood\. To start|Short status/.test(gmText) && (await B.p.locator('[data-dialog="chat-dock"] .bubble-row.left .bubble-meta b', { hasText: 'General Manager' }).count()) === 0);
+  const aChans = (await apiA('GET', '/channels')).body.channels ?? [];
+  check('the administrator\'s channel list has Mina\'s admin line but never her GM line', aChans.some((c) => c.kind === 'admin' && c.userId === mina.id) && !aChans.some((c) => c.userId === mina.id && c.kind !== 'admin'));
+  const aGm = await apiA('GET', `/channels/admin/${mina.id}/messages`);
+  check('an administrator reads the admin line but the GM line has no admin path', aGm.status === 200 && (await apiA('GET', `/channels/gm/${mina.id}/messages`)).status === 404);
+  // one agent: the picker opens the channel; the honest note names the agent
+  await dock(B.p).locator('select[aria-label="Start a chat with an agent"]').selectOption({ label: 'Coder-01' });
+  await dock(B.p).getByRole('button', { name: 'Open chat' }).click();
+  const toAgent = `Stage6 agent line: write a test ${Date.now()}`;
+  await dockSend(B.p, toAgent);
+  check('B writes to an agent: stored (queued) with the agent\'s honest note',
+    await until(async () => { const t = await dockText(B.p); return t.includes(toAgent) && /can't answer yet — this is stored and will be delivered when execution starts/.test(t); }, 8000));
+  check('the agent line is on the server and private to B', (await apiB('GET', '/channels')).body.channels.some((c) => c.kind === 'agent' && c.agentId === 'coder-01') && !(await apiA('GET', '/channels')).body.channels.some((c) => c.kind === 'agent' && c.userId === mina.id));
+  await B.p.screenshot({ path: `${SHOTS}/stage6-gm-line-B.png` });
 } catch (e) { check('script ran to the end', false, String(e).split('\n')[0]); }
 await A?.p.screenshot({ path: `${SHOTS}/stage6-end-A.png` }).catch(() => {});
 await B?.p.screenshot({ path: `${SHOTS}/stage6-end-B.png` }).catch(() => {});

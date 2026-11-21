@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Crown, ShieldCheck, MessagesSquare, X, Minus, Maximize2, Plus, Target, Puzzle, ChevronLeft } from 'lucide-react';
 import { RobotAvatar } from '@/components/art/RobotAvatar';
 import { UserAvatar } from '@/components/ui/UserAvatar';
@@ -14,13 +14,22 @@ import { useUI } from '@/store/ui';
 import { useVisibleMissions } from '@/store/data';
 import { ChannelChat } from './ChannelChat';
 import { cx } from '@/lib/format';
+import { isApi } from '@/api/mode';
+import { useChannelList } from '@/api/chat';
 
 /** Channels this account takes part in (admins also see every user's administrator line). */
 export function useMyChannels(me?: Account) {
   const channels = useChat((s) => s.channels);
   const reads = useChat((s) => s.reads);
+  const { list: server } = useChannelList(); // api mode: GM, administrator and agent channels come from the server
   return useMemo(() => {
     if (!me) return [];
+    if (isApi()) {
+      const out = (server ?? []).map((c) => ({ id: c.id, info: parseChannel(c.id), last: c.last ?? undefined, unread: c.unread, userName: c.userName as string | undefined }));
+      for (const id of [channelId.gm(me.id), channelId.admin(me.id)]) if (!out.some((o) => o.id === id)) out.unshift({ id, info: parseChannel(id), last: undefined, unread: 0, userName: undefined });
+      for (const id of Object.keys(channels)) { const c = parseChannel(id); if (c.kind === 'plugin' && c.userId === me.id) { const msgs = channels[id] ?? []; out.push({ id, info: c, last: msgs[msgs.length - 1], unread: msgs.slice(reads[`${me.id}|${id}`] ?? 0).filter((m) => m.from !== `human:${me.id}`).length, userName: undefined }); } }
+      return out;
+    }
     const ids = new Set<string>([channelId.gm(me.id), channelId.admin(me.id)]);
     for (const id of Object.keys(channels)) {
       const c = parseChannel(id);
@@ -31,9 +40,9 @@ export function useMyChannels(me?: Account) {
       const msgs = channels[id] ?? [];
       const read = reads[`${me.id}|${id}`] ?? 0;
       const unread = msgs.slice(read).filter((m) => m.from !== `human:${me.id}`).length;
-      return { id, info: parseChannel(id), last: msgs[msgs.length - 1], unread };
+      return { id, info: parseChannel(id), last: msgs[msgs.length - 1], unread, userName: undefined as string | undefined };
     });
-  }, [channels, reads, me]);
+  }, [channels, reads, me, server]);
 }
 export function useChatUnread() {
   const me = useMe();
@@ -53,6 +62,13 @@ export function ChatDock() {
   const [min, setMin] = useState(false);
   const [showList, setShowList] = useState(false);
   const [pick, setPick] = useState('');
+  // a notification's route (/?chat=admin) opens the line to the administrators
+  const loc = useLocation();
+  useEffect(() => {
+    if (!me || new URLSearchParams(loc.search).get('chat') !== 'admin') return;
+    openChat(channelId.admin(me.id));
+    nav(loc.pathname, { replace: true });
+  }, [loc.search, loc.pathname, me, openChat, nav]);
   if (!me) return null;
   const cur = channel ?? channelId.gm(me.id);
   const company = list.filter((c) => (c.info.kind === 'gm' || c.info.kind === 'admin') && c.info.userId === me.id);
@@ -64,7 +80,7 @@ export function ChatDock() {
   const Item = ({ c }: { c: (typeof list)[number] }) => {
     const ag = c.info.agentId ? AGENT_BY_ID[c.info.agentId] : undefined;
     const user = accounts.find((a) => a.id === c.info.userId);
-    const ttl = c.info.kind === 'gm' ? 'General Manager' : c.info.kind === 'admin' ? (c.info.userId === me.id ? 'Administrators' : user?.name ?? 'User') : ag?.name ?? 'Agent';
+    const ttl = c.info.kind === 'gm' ? 'General Manager' : c.info.kind === 'admin' ? (c.info.userId === me.id ? 'Administrators' : user?.name ?? c.userName ?? 'User') : ag?.name ?? 'Agent';
     const sub = c.last ? c.last.text : c.info.kind === 'gm' ? 'Ask, plan or check missions' : c.info.kind === 'admin' ? (c.info.userId === me.id ? 'Access, devices, problems' : 'wrote to the administrators') : ag?.description ?? '';
     return (
       <button className={cx('chat-ch', cur === c.id && 'on')} onClick={() => { openChat(c.id); setShowList(false); }} aria-current={cur === c.id || undefined}>

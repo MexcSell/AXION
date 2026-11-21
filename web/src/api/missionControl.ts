@@ -56,14 +56,14 @@ const patchThread = (mid: string, tid: string, f: (t: ThreadState) => ThreadStat
 const msgOf = (e: unknown) => (e instanceof ApiFailure ? e.message : 'Something went wrong.');
 
 /* ------------------------------------------------------------------ messages */
-const toMsg = (d: MessageDto): Message => ({
+export const toMsg = (d: MessageDto): Message => ({
   id: d.id, from: d.from, to: d.to, kind: d.kind, text: d.text, agoMin: d.agoMin, ts: d.ts, seq: d.seq, simulated: d.simulated, authorName: d.author?.name,
   ...(d.taskId ? { taskId: d.taskId } : {}), ...(d.replyTo ? { replyTo: d.replyTo } : {}), ...(d.status ? { status: d.status } : {}),
   ...(d.attachments?.length ? { attachments: d.attachments } : {}),
 });
 const RANK: Record<string, number> = { sent: 0, queued: 1, delivered: 2, acknowledged: 3 };
 /** Receipts only move forward (an event may arrive after a fresher page). */
-const laterStatus = (a?: Message['status'], b?: Message['status']) => (RANK[b ?? 'sent'] >= RANK[a ?? 'sent'] ? b ?? a : a);
+export const laterStatus = (a?: Message['status'], b?: Message['status']) => (RANK[b ?? 'sent'] >= RANK[a ?? 'sent'] ? b ?? a : a);
 const bySeq = (x: Message, y: Message) => (x.seq ?? Number.MAX_SAFE_INTEGER) - (y.seq ?? Number.MAX_SAFE_INTEGER);
 
 /** Insert or replace by id, keep server order (local pending messages last), receipts never go backwards. */

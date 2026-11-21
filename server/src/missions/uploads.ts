@@ -111,6 +111,11 @@ export default async function uploadRoutes(app: FastifyInstance) {
           where a.upload_id=$1 and m.tenant_id=$2 and m.deleted_at is null and ${VISIBLE_SQL('$3', '$4')} limit 1`,
         [id, ctx.tenantId, ctx.user.role === 'admin', ctx.user.id])).rowCount;
     }
+    if (!ok) { // a file attached in one of my own direct channels (e.g. an administrator's answer in my admin line)
+      ok = !!(await app.db.query(
+        `select 1 from message_attachments a join messages x on x.id=a.message_id join conversation_threads c on c.id=x.thread_id
+          where a.upload_id=$1 and c.tenant_id=$2 and c.scope='direct' and c.owner_user_id=$3 limit 1`, [id, ctx.tenantId, ctx.user.id])).rowCount;
+    }
     if (!ok) throw notFound();
     const inline = ['image', 'audio', 'video', 'pdf', 'txt'].includes(f.kind);
     reply.header('content-type', f.mime);

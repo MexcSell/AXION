@@ -6,8 +6,8 @@ import { appendMessage } from './service.ts';
  * Decision E5: real missions have no agent replies. The first command in a thread gets exactly one honest system note
  * (author 'system', kind 'system', simulated=false). The caller holds the thread row lock, so concurrent posts add it once.
  */
-export async function ensureHonestNote(c: Tx, thread: { id: string; tenant_id: string; mission_id: string | null }) {
+export async function ensureHonestNote(c: Tx, thread: { id: string; tenant_id: string; mission_id: string | null; scope?: string; kind?: string; a?: string; b?: string; owner_user_id?: string | null }, text: string = HONEST_NOTE) {
   const has = (await c.query(`select 1 from messages where thread_id=$1 and author_kind='system' and author_id='system' and kind='system' limit 1`, [thread.id])).rowCount;
   if (has) return null;
-  return appendMessage(c, { thread, authorKind: 'system', authorId: 'system', recipient: 'human', kind: 'system', body: HONEST_NOTE, simulated: false });
+  return appendMessage(c, { thread, authorKind: 'system', authorId: 'system', recipient: 'human', kind: 'system', body: text, simulated: false });
 }

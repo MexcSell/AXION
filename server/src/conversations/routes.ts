@@ -7,7 +7,7 @@ import { requireUser } from '../auth/session.ts';
 import { idempotent } from '../idempotency.ts';
 import { getVisibleRow } from '../missions/service.ts';
 import { HUMAN_POST_KINDS, MAX_BODY } from '../../../shared/contracts/src/conversations.ts';
-import { addReceipt, appendMessage, ensureThread, getThreadFor, messagesWhere, missionThreads, sizeLabel, uiAttachmentKind } from './service.ts';
+import { addReceipt, appendMessage, ensureThread, getThreadFor, loadAttachments, missionThreads, readPage } from './service.ts';
 import { ensureHonestNote } from './honest.ts';
 
 declare module 'fastify' { interface FastifyInstance { onMessagePosted?: (messageId: string) => void } }
@@ -47,16 +47,7 @@ export default async function conversationRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const q = req.query as { before?: string; limit?: string };
     const th = await getThreadFor(app.db, ctx, id);
-    const before = q.before === undefined ? null : /^\d{1,9}$/.test(q.before) ? Number(q.before) : NaN;
-    const limit = q.limit === undefined ? 50 : /^\d{1,6}$/.test(q.limit) ? Math.min(200, Number(q.limit)) : NaN;
-    if (Number.isNaN(before) || Number.isNaN(limit) || limit < 1) throw invalid({ [Number.isNaN(before) ? 'before' : 'limit']: 'must be a positive integer' });
-    const rows = await messagesWhere(app.db, 'm.thread_id=$1 and ($2::int is null or m.seq < $2)', [th.id, before], `order by m.seq desc limit ${limit + 1}`);
-    const page = rows.slice(0, limit);
-    if (before === null && page.length) {
-      await app.db.query(`insert into thread_reads(thread_id, user_id, last_seq) values ($1,$2,$3)
-        on conflict (thread_id, user_id) do update set last_seq = greatest(thread_reads.last_seq, excluded.last_seq)`, [th.id, ctx.user.id, page[0].seq]);
-    }
-    return { messages: page, hasMore: rows.length > limit, nextBefore: rows.length > limit ? page[page.length - 1].seq : null };
+    return readPage(app.db, th.id, ctx.user.id, q);
   });
 
   app.post('/threads/:id/messages', async (req, reply) => {
@@ -78,12 +69,7 @@ export default async function conversationRoutes(app: FastifyInstance) {
       const parts = (await c.query(`select p.id, i.agent_id from (values ($1::text), ($2::text)) p(id) left join agent_instances i on i.id=p.id`, [th.a, th.b])).rows;
       const target = parts.find((x) => x.id !== 'human' && (x.id === b.to || x.agent_id === b.to));
       if (!target) throw invalid({ to: 'must be an agent in this conversation' });
-      const atts: { uploadId: string; name: string; kind: string; size: string }[] = [];
-      for (const uid of [...new Set(b.uploadIds)]) {
-        const f = (await c.query('select id, name, kind, size from uploads where id=$1 and tenant_id=$2 and owner_id=$3', [uid, ctx.tenantId, ctx.user.id])).rows[0];
-        if (!f) throw notFound('No such file.'); // not yours is the same as not there
-        atts.push({ uploadId: f.id, name: f.name, kind: uiAttachmentKind(f.kind), size: sizeLabel(Number(f.size)) });
-      }
+      const atts = await loadAttachments(c, ctx, b.uploadIds);
       const msg = await appendMessage(c, { thread: th, authorKind: 'human', authorId: ctx.user.id, recipient: target.id, kind: b.kind, body: text, replyTo: b.replyTo ?? null,
         simulated: false, attachments: atts, correlationId: ctx.correlationId, status: th.demo ? undefined : 'queued' });
       if (!th.demo) { // E5: real mission, nothing acts. queued receipt plus one honest note per thread

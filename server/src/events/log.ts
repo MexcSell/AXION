@@ -1,7 +1,7 @@
 import type { Tx } from '../db.ts';
 import type { DomainEvent } from '../../../shared/contracts/src/index.ts';
 
-export type Audience = 'all' | 'admins' | 'user' | 'mission';
+export type Audience = 'all' | 'admins' | 'user' | 'mission' | 'owner';
 export interface AppendInput {
   tenantId: string;
   type: string;

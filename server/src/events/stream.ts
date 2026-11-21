@@ -105,6 +105,7 @@ export default async function streamRoutes(app: FastifyInstance) {
             let ok = false;
             if (r.audience === 'all') ok = true;
             else if (r.audience === 'admins') ok = admin;
+            else if (r.audience === 'owner') ok = r.audience_user === ctx.user.id; // a private channel: never an administrator, unless it is theirs
             else if (r.audience === 'user') ok = admin || r.audience_user === ctx.user.id;
             else if (r.audience === 'mission') {
               const m = ms.get(r.mission_id);

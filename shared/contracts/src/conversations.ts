@@ -4,6 +4,18 @@ export const HUMAN_POST_KINDS = ['command', 'reply'] as const;
 export const MAX_BODY = 8000;
 export const HONEST_NOTE = "Agents don't act yet — this message is stored and will be delivered when execution starts.";
 
+export const HONEST_NOTE_GM = "The General Manager can't answer yet — this is stored and will be answered when agents start working.";
+export const honestNoteAgent = (name: string) => `${name} can't answer yet — this is stored and will be delivered when execution starts.`;
+
+/** A user's direct channel (Stage 6, E6): their General Manager line, their line to the administrators, or one agent. */
+export interface ChannelDto {
+  kind: 'gm' | 'admin' | 'agent';
+  /** the user the channel belongs to (an administrator also sees other users' admin lines) */
+  userId: string; userName?: string;
+  agentId?: string; threadId: string | null;
+  count: number; unread: number; last: MessageDto | null;
+}
+
 export interface AttachmentDto { id: string; name: string; kind: 'image' | 'audio' | 'video' | 'doc' | 'file' | 'link'; size?: string; url?: string }
 export interface MessageDto {
   id: string; seq: number; threadId: string;

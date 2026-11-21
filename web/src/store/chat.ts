@@ -31,10 +31,12 @@ export const channelId = {
 };
 
 /** Greeting shown in an empty channel (not stored until someone writes). */
-export function greeting(id: string, userName: string): Message[] {
+export function greeting(id: string, userName: string, server = false): Message[] {
   const c = parseChannel(id);
   const at = Date.now() - 60_000;
   const g = (from: string, text: string): Message => ({ id: `greet-${id}`, from, to: `human:${c.userId}`, kind: 'system', text, agoMin: 1, ts: at });
+  if (server && c.kind === 'gm') return [g('gm', `Hi ${userName}. This is your line to the General Manager. Agents don't act yet, so nothing answers here: what you write is stored and delivered when execution starts.`)];
+  if (server && c.kind === 'agent' && c.agentId) { const a = AGENT_BY_ID[c.agentId]; return a ? [g(a.id, `${a.name}: ${a.description} Agents don't act yet, so nothing answers here: what you write is stored and delivered when execution starts.`)] : []; }
   if (c.kind === 'gm') return [g('gm', `Hi ${userName}. I am the General Manager. Tell me what you need: I can turn it into a mission, appoint an executor, or tell you how any mission is going.`)];
   if (c.kind === 'admin') return [g('system', `This is your line to the administrators of this site. Ask for access, a new device, or report a problem.`)];
   if (c.kind === 'agent' && c.agentId) { const a = AGENT_BY_ID[c.agentId]; return a ? [g(a.id, `Hi ${userName}, I am ${a.name}. Chat with me, or switch to Task to give me an individual task. ${a.description}`)] : []; }

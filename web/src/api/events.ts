@@ -5,6 +5,7 @@ import { authApi, useAuth } from '@/store/auth';
 import { isApi } from './mode';
 import { api, ApiFailure } from './client';
 import { loadAgents, useAgentsVersion } from './agents';
+import { onChannelEvent, refreshLoadedChannels, clearChannels, setChatUser } from './chat';
 import { onMissionControlEvent, refreshLoadedMissionControl, clearMissionControl, setMcUser } from './missionControl';
 
 /**
@@ -62,6 +63,7 @@ export function startSync(): () => void {
     if (type.startsWith('user.') || type.startsWith('auth.')) people('p');
     // Stage 6: the agent catalog, and each mission's hierarchy, tasks and conversations
     if (type.startsWith('agent.')) agents('a');
+    if (type === 'conversation.messageCreated' && onChannelEvent(e)) return; // a direct channel (GM, administrators, one agent), not a mission thread
     if (type.startsWith('conversation.') || type.startsWith('instance.') || type.startsWith('task.')) onMissionControlEvent(type, e);
   };
 
@@ -85,7 +87,7 @@ export function startSync(): () => void {
       set('live');
       // the snapshot is read after the stream's cursor exists, so nothing committed in between is missed
       void loadSnapshot().catch(() => undefined);
-      if (opened++) { agents('a'); refreshLoadedMissionControl(); } // a reconnect: re-read what this tab already shows
+      if (opened++) { agents('a'); refreshLoadedMissionControl(); void refreshLoadedChannels(); } // a reconnect: re-read what this tab already shows
       else if (useAgentsVersion.getState().failed) agents('a'); // the first catalog load failed: try again now the server answers
     });
     for (const t of ['mission.created', 'mission.revised', 'mission.stateChanged', 'mission.shared', 'mission.deleted', 'staffing.progressed', 'approval.requested', 'approval.decided', 'notification.created', 'user.requested', 'user.changed', 'auth.approved',
@@ -120,8 +122,8 @@ export function useServerSync() {
   const meId = useAuth((s) => (s.server.phase === 'connected' ? s.server.meId : ''));
   useEffect(() => {
     if (!isApi() || !meId) return;
-    setMcUser(meId);
+    setMcUser(meId); setChatUser(meId);
     const stop = startSync();
-    return () => { stop(); clearServerData(); clearMissionControl(); };
+    return () => { stop(); clearServerData(); clearMissionControl(); clearChannels(); };
   }, [meId]);
 }
