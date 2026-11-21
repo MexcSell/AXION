@@ -1,0 +1,1162 @@
+{
+ "M-118": {
+  "team": {
+   "agentIds": [
+    "writer-01",
+    "integrator-01"
+   ],
+   "leadId": "writer-01",
+   "executorId": "writer-01"
+  },
+  "hierarchy": {
+   "nodes": [
+    {
+     "instanceId": "M-118:writer-01",
+     "agentId": "writer-01",
+     "task": "Coordinating mission plan",
+     "state": "done",
+     "tasks": 9,
+     "pending": 0,
+     "progress": 100,
+     "versionLabel": "v2.3.9"
+    },
+    {
+     "instanceId": "M-118:integrator-01",
+     "agentId": "integrator-01",
+     "parent": "M-118:writer-01",
+     "task": "Define page inventory",
+     "state": "done",
+     "tasks": 9,
+     "pending": 0,
+     "progress": 86,
+     "versionLabel": "v2.4.0"
+    }
+   ],
+   "edges": [
+    {
+     "from": "M-118:writer-01",
+     "to": "M-118:integrator-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-118:integrator-01",
+     "to": "M-118:writer-01",
+     "kind": "reports"
+    }
+   ]
+  }
+ },
+ "M-125": {
+  "team": {
+   "agentIds": [
+    "designer-01",
+    "coder-01",
+    "optimizer-01"
+   ],
+   "leadId": "designer-01",
+   "executorId": "designer-01"
+  },
+  "hierarchy": {
+   "nodes": [
+    {
+     "instanceId": "M-125:designer-01",
+     "agentId": "designer-01",
+     "task": "Coordinating mission plan",
+     "state": "working",
+     "tasks": 9,
+     "pending": 0,
+     "progress": 66,
+     "versionLabel": "v2.4.0"
+    },
+    {
+     "instanceId": "M-125:coder-01",
+     "agentId": "coder-01",
+     "parent": "M-125:designer-01",
+     "task": "Define page inventory",
+     "state": "working",
+     "tasks": 5,
+     "pending": 0,
+     "progress": 61,
+     "versionLabel": "v2.4.0"
+    },
+    {
+     "instanceId": "M-125:optimizer-01",
+     "agentId": "optimizer-01",
+     "parent": "M-125:coder-01",
+     "task": "Build navigation shell",
+     "state": "verifying",
+     "tasks": 4,
+     "pending": 0,
+     "progress": 93,
+     "versionLabel": "v2.4.0"
+    }
+   ],
+   "edges": [
+    {
+     "from": "M-125:designer-01",
+     "to": "M-125:coder-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-125:coder-01",
+     "to": "M-125:designer-01",
+     "kind": "reports"
+    },
+    {
+     "from": "M-125:coder-01",
+     "to": "M-125:optimizer-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-125:optimizer-01",
+     "to": "M-125:coder-01",
+     "kind": "reports"
+    }
+   ]
+  }
+ },
+ "M-126": {
+  "team": {
+   "agentIds": [
+    "gm",
+    "planner-01",
+    "coder-01",
+    "designer-01",
+    "browser-01",
+    "tester-01",
+    "writer-01"
+   ],
+   "leadId": "gm",
+   "executorId": "planner-01"
+  },
+  "hierarchy": {
+   "nodes": [
+    {
+     "instanceId": "M-126:gm",
+     "agentId": "gm",
+     "task": "Coordinating mission plan",
+     "state": "working",
+     "tasks": 9,
+     "pending": 1,
+     "progress": 76,
+     "versionLabel": "v3.2.0"
+    },
+    {
+     "instanceId": "M-126:planner-01",
+     "agentId": "planner-01",
+     "parent": "M-126:gm",
+     "task": "Define page inventory",
+     "state": "working",
+     "tasks": 6,
+     "pending": 3,
+     "progress": 71,
+     "versionLabel": "v2.4.0"
+    },
+    {
+     "instanceId": "M-126:coder-01",
+     "agentId": "coder-01",
+     "parent": "M-126:gm",
+     "task": "Design tokens & themes",
+     "state": "working",
+     "tasks": 5,
+     "pending": 0,
+     "progress": 49,
+     "versionLabel": "v2.4.0"
+    },
+    {
+     "instanceId": "M-126:designer-01",
+     "agentId": "designer-01",
+     "parent": "M-126:planner-01",
+     "task": "Build navigation shell",
+     "state": "verifying",
+     "tasks": 2,
+     "pending": 0,
+     "progress": 99,
+     "versionLabel": "v2.4.0"
+    },
+    {
+     "instanceId": "M-126:browser-01",
+     "agentId": "browser-01",
+     "parent": "M-126:coder-01",
+     "task": "Migrate account pages",
+     "state": "waiting",
+     "tasks": 2,
+     "pending": 0,
+     "progress": 23,
+     "versionLabel": "v2.4.0"
+    },
+    {
+     "instanceId": "M-126:tester-01",
+     "agentId": "tester-01",
+     "parent": "M-126:planner-01",
+     "task": "Migrate checkout pages",
+     "state": "reporting",
+     "tasks": 4,
+     "pending": 0,
+     "progress": 22,
+     "versionLabel": "v2.3.9"
+    },
+    {
+     "instanceId": "M-126:writer-01",
+     "agentId": "writer-01",
+     "parent": "M-126:coder-01",
+     "task": "Visual regression suite",
+     "state": "idle",
+     "tasks": 2,
+     "pending": 0,
+     "progress": 90,
+     "versionLabel": "v2.3.9"
+    }
+   ],
+   "edges": [
+    {
+     "from": "M-126:gm",
+     "to": "M-126:planner-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-126:planner-01",
+     "to": "M-126:gm",
+     "kind": "reports"
+    },
+    {
+     "from": "M-126:gm",
+     "to": "M-126:coder-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-126:coder-01",
+     "to": "M-126:gm",
+     "kind": "reports"
+    },
+    {
+     "from": "M-126:planner-01",
+     "to": "M-126:designer-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-126:designer-01",
+     "to": "M-126:planner-01",
+     "kind": "reports"
+    },
+    {
+     "from": "M-126:coder-01",
+     "to": "M-126:browser-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-126:browser-01",
+     "to": "M-126:coder-01",
+     "kind": "reports"
+    },
+    {
+     "from": "M-126:planner-01",
+     "to": "M-126:tester-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-126:tester-01",
+     "to": "M-126:planner-01",
+     "kind": "reports"
+    },
+    {
+     "from": "M-126:coder-01",
+     "to": "M-126:writer-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-126:writer-01",
+     "to": "M-126:coder-01",
+     "kind": "reports"
+    },
+    {
+     "from": "M-126:designer-01",
+     "to": "M-126:browser-01",
+     "kind": "consults"
+    },
+    {
+     "from": "M-126:tester-01",
+     "to": "M-126:designer-01",
+     "kind": "verifies"
+    }
+   ]
+  }
+ },
+ "M-127": {
+  "team": {
+   "agentIds": [
+    "mentor-01",
+    "browser-01",
+    "tester-01",
+    "optimizer-01"
+   ],
+   "leadId": "mentor-01",
+   "executorId": "mentor-01"
+  },
+  "hierarchy": {
+   "nodes": [
+    {
+     "instanceId": "M-127:mentor-01",
+     "agentId": "mentor-01",
+     "task": "Coordinating mission plan",
+     "state": "working",
+     "tasks": 7,
+     "pending": 0,
+     "progress": 52,
+     "versionLabel": "v2.4.0"
+    },
+    {
+     "instanceId": "M-127:browser-01",
+     "agentId": "browser-01",
+     "parent": "M-127:mentor-01",
+     "task": "Pick failure clusters",
+     "state": "working",
+     "tasks": 4,
+     "pending": 1,
+     "progress": 42,
+     "versionLabel": "v2.4.0"
+    },
+    {
+     "instanceId": "M-127:tester-01",
+     "agentId": "tester-01",
+     "parent": "M-127:browser-01",
+     "task": "Run exercise set",
+     "state": "verifying",
+     "tasks": 4,
+     "pending": 0,
+     "progress": 50,
+     "versionLabel": "v2.3.9"
+    },
+    {
+     "instanceId": "M-127:optimizer-01",
+     "agentId": "optimizer-01",
+     "parent": "M-127:browser-01",
+     "task": "Fresh challenge set",
+     "state": "waiting",
+     "tasks": 2,
+     "pending": 0,
+     "progress": 66,
+     "versionLabel": "v2.4.0"
+    }
+   ],
+   "edges": [
+    {
+     "from": "M-127:mentor-01",
+     "to": "M-127:browser-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-127:browser-01",
+     "to": "M-127:mentor-01",
+     "kind": "reports"
+    },
+    {
+     "from": "M-127:browser-01",
+     "to": "M-127:tester-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-127:tester-01",
+     "to": "M-127:browser-01",
+     "kind": "reports"
+    },
+    {
+     "from": "M-127:browser-01",
+     "to": "M-127:optimizer-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-127:optimizer-01",
+     "to": "M-127:browser-01",
+     "kind": "reports"
+    },
+    {
+     "from": "M-127:tester-01",
+     "to": "M-127:optimizer-01",
+     "kind": "consults"
+    },
+    {
+     "from": "M-127:tester-01",
+     "to": "M-127:optimizer-01",
+     "kind": "verifies"
+    },
+    {
+     "from": "M-127:mentor-01",
+     "to": "M-127:tester-01",
+     "kind": "mentors"
+    },
+    {
+     "from": "M-127:mentor-01",
+     "to": "M-127:optimizer-01",
+     "kind": "mentors"
+    }
+   ]
+  }
+ },
+ "M-128": {
+  "team": {
+   "agentIds": [
+    "gm",
+    "designer-01",
+    "coder-01",
+    "writer-01",
+    "release-01"
+   ],
+   "leadId": "gm",
+   "executorId": "designer-01"
+  },
+  "hierarchy": {
+   "nodes": [
+    {
+     "instanceId": "M-128:gm",
+     "agentId": "gm",
+     "task": "Coordinating mission plan",
+     "state": "waiting",
+     "tasks": 6,
+     "pending": 1,
+     "progress": 91,
+     "versionLabel": "v3.2.0"
+    },
+    {
+     "instanceId": "M-128:designer-01",
+     "agentId": "designer-01",
+     "parent": "M-128:gm",
+     "task": "Draft new structure",
+     "state": "waiting",
+     "tasks": 4,
+     "pending": 2,
+     "progress": 80,
+     "versionLabel": "v2.4.0"
+    },
+    {
+     "instanceId": "M-128:coder-01",
+     "agentId": "coder-01",
+     "parent": "M-128:designer-01",
+     "task": "Build preview",
+     "state": "verifying",
+     "tasks": 2,
+     "pending": 0,
+     "progress": 81,
+     "versionLabel": "v2.4.0"
+    },
+    {
+     "instanceId": "M-128:writer-01",
+     "agentId": "writer-01",
+     "parent": "M-128:designer-01",
+     "task": "Review diff",
+     "state": "waiting",
+     "tasks": 1,
+     "pending": 0,
+     "progress": 32,
+     "versionLabel": "v2.3.9"
+    },
+    {
+     "instanceId": "M-128:release-01",
+     "agentId": "release-01",
+     "parent": "M-128:designer-01",
+     "task": "Owner decision",
+     "state": "reporting",
+     "tasks": 1,
+     "pending": 0,
+     "progress": 65,
+     "versionLabel": "v2.4.0"
+    }
+   ],
+   "edges": [
+    {
+     "from": "M-128:gm",
+     "to": "M-128:designer-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-128:designer-01",
+     "to": "M-128:gm",
+     "kind": "reports"
+    },
+    {
+     "from": "M-128:designer-01",
+     "to": "M-128:coder-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-128:coder-01",
+     "to": "M-128:designer-01",
+     "kind": "reports"
+    },
+    {
+     "from": "M-128:designer-01",
+     "to": "M-128:writer-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-128:writer-01",
+     "to": "M-128:designer-01",
+     "kind": "reports"
+    },
+    {
+     "from": "M-128:designer-01",
+     "to": "M-128:release-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-128:release-01",
+     "to": "M-128:designer-01",
+     "kind": "reports"
+    },
+    {
+     "from": "M-128:coder-01",
+     "to": "M-128:writer-01",
+     "kind": "consults"
+    }
+   ]
+  }
+ },
+ "M-129": {
+  "team": {
+   "agentIds": [
+    "gm",
+    "coder-01",
+    "tester-01",
+    "security-01",
+    "release-01"
+   ],
+   "leadId": "gm",
+   "executorId": "coder-01"
+  },
+  "hierarchy": {
+   "nodes": [
+    {
+     "instanceId": "M-129:gm",
+     "agentId": "gm",
+     "task": "Coordinating mission plan",
+     "state": "working",
+     "tasks": 7,
+     "pending": 0,
+     "progress": 68,
+     "versionLabel": "v3.2.0"
+    },
+    {
+     "instanceId": "M-129:coder-01",
+     "agentId": "coder-01",
+     "parent": "M-129:gm",
+     "task": "Create branch",
+     "state": "working",
+     "tasks": 3,
+     "pending": 0,
+     "progress": 92,
+     "versionLabel": "v2.4.0"
+    },
+    {
+     "instanceId": "M-129:tester-01",
+     "agentId": "tester-01",
+     "parent": "M-129:coder-01",
+     "task": "Unit + E2E tests",
+     "state": "verifying",
+     "tasks": 3,
+     "pending": 0,
+     "progress": 22,
+     "versionLabel": "v2.3.9"
+    },
+    {
+     "instanceId": "M-129:security-01",
+     "agentId": "security-01",
+     "parent": "M-129:coder-01",
+     "task": "Policy-diff review",
+     "state": "waiting",
+     "tasks": 3,
+     "pending": 0,
+     "progress": 61,
+     "versionLabel": "v2.4.0"
+    },
+    {
+     "instanceId": "M-129:release-01",
+     "agentId": "release-01",
+     "parent": "M-129:coder-01",
+     "task": "Independent QA",
+     "state": "reporting",
+     "tasks": 2,
+     "pending": 0,
+     "progress": 63,
+     "versionLabel": "v2.4.0"
+    }
+   ],
+   "edges": [
+    {
+     "from": "M-129:gm",
+     "to": "M-129:coder-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-129:coder-01",
+     "to": "M-129:gm",
+     "kind": "reports"
+    },
+    {
+     "from": "M-129:coder-01",
+     "to": "M-129:tester-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-129:tester-01",
+     "to": "M-129:coder-01",
+     "kind": "reports"
+    },
+    {
+     "from": "M-129:coder-01",
+     "to": "M-129:security-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-129:security-01",
+     "to": "M-129:coder-01",
+     "kind": "reports"
+    },
+    {
+     "from": "M-129:coder-01",
+     "to": "M-129:release-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-129:release-01",
+     "to": "M-129:coder-01",
+     "kind": "reports"
+    },
+    {
+     "from": "M-129:tester-01",
+     "to": "M-129:security-01",
+     "kind": "consults"
+    },
+    {
+     "from": "M-129:tester-01",
+     "to": "M-129:security-01",
+     "kind": "verifies"
+    }
+   ]
+  }
+ },
+ "M-130": {
+  "team": {
+   "agentIds": [
+    "researcher-01",
+    "analyst-01",
+    "writer-01",
+    "browser-01"
+   ],
+   "leadId": "researcher-01",
+   "executorId": "researcher-01"
+  },
+  "hierarchy": {
+   "nodes": [
+    {
+     "instanceId": "M-130:researcher-01",
+     "agentId": "researcher-01",
+     "task": "Coordinating mission plan",
+     "state": "working",
+     "tasks": 6,
+     "pending": 0,
+     "progress": 42,
+     "versionLabel": "v2.4.0"
+    },
+    {
+     "instanceId": "M-130:analyst-01",
+     "agentId": "analyst-01",
+     "parent": "M-130:researcher-01",
+     "task": "Collect sources",
+     "state": "working",
+     "tasks": 5,
+     "pending": 1,
+     "progress": 77,
+     "versionLabel": "v2.4.0"
+    },
+    {
+     "instanceId": "M-130:writer-01",
+     "agentId": "writer-01",
+     "parent": "M-130:analyst-01",
+     "task": "Pricing matrix",
+     "state": "verifying",
+     "tasks": 2,
+     "pending": 0,
+     "progress": 24,
+     "versionLabel": "v2.3.9"
+    },
+    {
+     "instanceId": "M-130:browser-01",
+     "agentId": "browser-01",
+     "parent": "M-130:analyst-01",
+     "task": "Cite & verify",
+     "state": "waiting",
+     "tasks": 2,
+     "pending": 0,
+     "progress": 22,
+     "versionLabel": "v2.4.0"
+    }
+   ],
+   "edges": [
+    {
+     "from": "M-130:researcher-01",
+     "to": "M-130:analyst-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-130:analyst-01",
+     "to": "M-130:researcher-01",
+     "kind": "reports"
+    },
+    {
+     "from": "M-130:analyst-01",
+     "to": "M-130:writer-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-130:writer-01",
+     "to": "M-130:analyst-01",
+     "kind": "reports"
+    },
+    {
+     "from": "M-130:analyst-01",
+     "to": "M-130:browser-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-130:browser-01",
+     "to": "M-130:analyst-01",
+     "kind": "reports"
+    },
+    {
+     "from": "M-130:writer-01",
+     "to": "M-130:browser-01",
+     "kind": "consults"
+    }
+   ]
+  }
+ },
+ "M-131": {
+  "team": {
+   "agentIds": [
+    "knowledge-01",
+    "researcher-01",
+    "tester-01"
+   ],
+   "leadId": "knowledge-01",
+   "executorId": "knowledge-01"
+  },
+  "hierarchy": {
+   "nodes": [
+    {
+     "instanceId": "M-131:knowledge-01",
+     "agentId": "knowledge-01",
+     "task": "Coordinating mission plan",
+     "state": "working",
+     "tasks": 6,
+     "pending": 0,
+     "progress": 64,
+     "versionLabel": "v2.4.0"
+    },
+    {
+     "instanceId": "M-131:researcher-01",
+     "agentId": "researcher-01",
+     "parent": "M-131:knowledge-01",
+     "task": "Extract records",
+     "state": "working",
+     "tasks": 5,
+     "pending": 0,
+     "progress": 78,
+     "versionLabel": "v2.4.0"
+    },
+    {
+     "instanceId": "M-131:tester-01",
+     "agentId": "tester-01",
+     "parent": "M-131:researcher-01",
+     "task": "Deduplicate",
+     "state": "verifying",
+     "tasks": 3,
+     "pending": 0,
+     "progress": 34,
+     "versionLabel": "v2.3.9"
+    }
+   ],
+   "edges": [
+    {
+     "from": "M-131:knowledge-01",
+     "to": "M-131:researcher-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-131:researcher-01",
+     "to": "M-131:knowledge-01",
+     "kind": "reports"
+    },
+    {
+     "from": "M-131:researcher-01",
+     "to": "M-131:tester-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-131:tester-01",
+     "to": "M-131:researcher-01",
+     "kind": "reports"
+    }
+   ]
+  }
+ },
+ "M-132": {
+  "team": {
+   "agentIds": [
+    "security-01",
+    "browser-01",
+    "coder-01"
+   ],
+   "leadId": "security-01",
+   "executorId": "security-01"
+  },
+  "hierarchy": {
+   "nodes": [
+    {
+     "instanceId": "M-132:security-01",
+     "agentId": "security-01",
+     "task": "Coordinating mission plan",
+     "state": "waiting",
+     "tasks": 5,
+     "pending": 2,
+     "progress": 58,
+     "versionLabel": "v2.4.0"
+    },
+    {
+     "instanceId": "M-132:browser-01",
+     "agentId": "browser-01",
+     "parent": "M-132:security-01",
+     "task": "Crawl pages",
+     "state": "waiting",
+     "tasks": 4,
+     "pending": 2,
+     "progress": 85,
+     "versionLabel": "v2.4.0"
+    },
+    {
+     "instanceId": "M-132:coder-01",
+     "agentId": "coder-01",
+     "parent": "M-132:browser-01",
+     "task": "Draft fixes",
+     "state": "verifying",
+     "tasks": 3,
+     "pending": 0,
+     "progress": 94,
+     "versionLabel": "v2.4.0"
+    }
+   ],
+   "edges": [
+    {
+     "from": "M-132:security-01",
+     "to": "M-132:browser-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-132:browser-01",
+     "to": "M-132:security-01",
+     "kind": "reports"
+    },
+    {
+     "from": "M-132:browser-01",
+     "to": "M-132:coder-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-132:coder-01",
+     "to": "M-132:browser-01",
+     "kind": "reports"
+    },
+    {
+     "from": "M-132:security-01",
+     "to": "M-132:coder-01",
+     "kind": "verifies"
+    }
+   ]
+  }
+ },
+ "M-133": {
+  "team": {
+   "agentIds": [
+    "mentor-01",
+    "tester-01"
+   ],
+   "leadId": "mentor-01",
+   "executorId": "mentor-01"
+  },
+  "hierarchy": {
+   "nodes": [
+    {
+     "instanceId": "M-133:mentor-01",
+     "agentId": "mentor-01",
+     "task": "Coordinating mission plan",
+     "state": "done",
+     "tasks": 7,
+     "pending": 0,
+     "progress": 100,
+     "versionLabel": "v2.4.0"
+    },
+    {
+     "instanceId": "M-133:tester-01",
+     "agentId": "tester-01",
+     "parent": "M-133:mentor-01",
+     "task": "Pick failure clusters",
+     "state": "done",
+     "tasks": 7,
+     "pending": 0,
+     "progress": 45,
+     "versionLabel": "v2.3.9"
+    }
+   ],
+   "edges": [
+    {
+     "from": "M-133:mentor-01",
+     "to": "M-133:tester-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-133:tester-01",
+     "to": "M-133:mentor-01",
+     "kind": "reports"
+    }
+   ]
+  }
+ },
+ "M-134": {
+  "team": {
+   "agentIds": [
+    "gm",
+    "planner-01",
+    "analyst-01"
+   ],
+   "leadId": "gm",
+   "executorId": "planner-01"
+  },
+  "hierarchy": {
+   "nodes": [
+    {
+     "instanceId": "M-134:gm",
+     "agentId": "gm",
+     "task": "Coordinating mission plan",
+     "state": "working",
+     "tasks": 6,
+     "pending": 0,
+     "progress": 12,
+     "versionLabel": "v3.2.0"
+    },
+    {
+     "instanceId": "M-134:planner-01",
+     "agentId": "planner-01",
+     "parent": "M-134:gm",
+     "task": "Draft new structure",
+     "state": "working",
+     "tasks": 3,
+     "pending": 0,
+     "progress": 78,
+     "versionLabel": "v2.4.0"
+    },
+    {
+     "instanceId": "M-134:analyst-01",
+     "agentId": "analyst-01",
+     "parent": "M-134:planner-01",
+     "task": "Build preview",
+     "state": "verifying",
+     "tasks": 3,
+     "pending": 0,
+     "progress": 26,
+     "versionLabel": "v2.4.0"
+    }
+   ],
+   "edges": [
+    {
+     "from": "M-134:gm",
+     "to": "M-134:planner-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-134:planner-01",
+     "to": "M-134:gm",
+     "kind": "reports"
+    },
+    {
+     "from": "M-134:planner-01",
+     "to": "M-134:analyst-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-134:analyst-01",
+     "to": "M-134:planner-01",
+     "kind": "reports"
+    }
+   ]
+  }
+ },
+ "M-135": {
+  "team": {
+   "agentIds": [
+    "comms-01",
+    "writer-01",
+    "knowledge-01"
+   ],
+   "leadId": "comms-01",
+   "executorId": "comms-01"
+  },
+  "hierarchy": {
+   "nodes": [
+    {
+     "instanceId": "M-135:comms-01",
+     "agentId": "comms-01",
+     "task": "Coordinating mission plan",
+     "state": "working",
+     "tasks": 5,
+     "pending": 0,
+     "progress": 35,
+     "versionLabel": "v2.3.8"
+    },
+    {
+     "instanceId": "M-135:writer-01",
+     "agentId": "writer-01",
+     "parent": "M-135:comms-01",
+     "task": "Crawl pages",
+     "state": "idle",
+     "tasks": 5,
+     "pending": 0,
+     "progress": 66,
+     "versionLabel": "v2.3.9"
+    },
+    {
+     "instanceId": "M-135:knowledge-01",
+     "agentId": "knowledge-01",
+     "parent": "M-135:writer-01",
+     "task": "Draft fixes",
+     "state": "idle",
+     "tasks": 3,
+     "pending": 0,
+     "progress": 92,
+     "versionLabel": "v2.4.0"
+    }
+   ],
+   "edges": [
+    {
+     "from": "M-135:comms-01",
+     "to": "M-135:writer-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-135:writer-01",
+     "to": "M-135:comms-01",
+     "kind": "reports"
+    },
+    {
+     "from": "M-135:writer-01",
+     "to": "M-135:knowledge-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-135:knowledge-01",
+     "to": "M-135:writer-01",
+     "kind": "reports"
+    }
+   ]
+  }
+ },
+ "M-136": {
+  "team": {
+   "agentIds": [
+    "integrator-01",
+    "browser-01",
+    "analyst-01",
+    "tester-01"
+   ],
+   "leadId": "integrator-01",
+   "executorId": "integrator-01"
+  },
+  "hierarchy": {
+   "nodes": [
+    {
+     "instanceId": "M-136:integrator-01",
+     "agentId": "integrator-01",
+     "task": "Coordinating mission plan",
+     "state": "done",
+     "tasks": 6,
+     "pending": 0,
+     "progress": 100,
+     "versionLabel": "v2.4.0"
+    },
+    {
+     "instanceId": "M-136:browser-01",
+     "agentId": "browser-01",
+     "parent": "M-136:integrator-01",
+     "task": "Extract records",
+     "state": "done",
+     "tasks": 5,
+     "pending": 0,
+     "progress": 75,
+     "versionLabel": "v2.4.0"
+    },
+    {
+     "instanceId": "M-136:analyst-01",
+     "agentId": "analyst-01",
+     "parent": "M-136:browser-01",
+     "task": "Deduplicate",
+     "state": "done",
+     "tasks": 2,
+     "pending": 0,
+     "progress": 98,
+     "versionLabel": "v2.4.0"
+    },
+    {
+     "instanceId": "M-136:tester-01",
+     "agentId": "tester-01",
+     "parent": "M-136:browser-01",
+     "task": "Sample audit",
+     "state": "done",
+     "tasks": 3,
+     "pending": 0,
+     "progress": 89,
+     "versionLabel": "v2.3.9"
+    }
+   ],
+   "edges": [
+    {
+     "from": "M-136:integrator-01",
+     "to": "M-136:browser-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-136:browser-01",
+     "to": "M-136:integrator-01",
+     "kind": "reports"
+    },
+    {
+     "from": "M-136:browser-01",
+     "to": "M-136:analyst-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-136:analyst-01",
+     "to": "M-136:browser-01",
+     "kind": "reports"
+    },
+    {
+     "from": "M-136:browser-01",
+     "to": "M-136:tester-01",
+     "kind": "delegated"
+    },
+    {
+     "from": "M-136:tester-01",
+     "to": "M-136:browser-01",
+     "kind": "reports"
+    },
+    {
+     "from": "M-136:analyst-01",
+     "to": "M-136:tester-01",
+     "kind": "consults"
+    },
+    {
+     "from": "M-136:tester-01",
+     "to": "M-136:analyst-01",
+     "kind": "verifies"
+    }
+   ]
+  }
+ }
+}
