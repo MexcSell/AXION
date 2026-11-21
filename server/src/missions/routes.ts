@@ -10,6 +10,7 @@ import { emit } from '../events/hooks.ts';
 import { transition, USER_ACTIONS, type MissionStatus, type MissionAction } from './machine.ts';
 import { canManage } from './visibility.ts';
 import { SELECT_MISSION, conflict, defaultPresentation, filesFor, getVisibleRow, listVisible, loadRow, missionDto, nextMissionId } from './service.ts';
+import { readOrgView } from './staffing-org.ts';
 
 const CreateIn = z.object({ text: z.string().max(20_000).default(''), files: z.array(z.string().max(40)).max(10).default([]), shared: z.boolean().default(false) });
 const PatchIn = z.object({
@@ -43,7 +44,7 @@ export default async function missionRoutes(app: FastifyInstance) {
       const m = await (async () => {
         const files = await filesFor(c, ctx, b.files);
         const id = await nextMissionId(c);
-        const d = defaultPresentation(b.text, files, ctx.user.name);
+        const d = defaultPresentation(b.text, files, ctx.user.name, Date.now(), await readOrgView(c, ctx.tenantId)); // cycle 11: staffed by the active org
         // draft → submit → plan in one transaction (spec §10.6; the GM starts staffing at once)
         let status: MissionStatus = 'draft';
         status = transition(status, 'submit');

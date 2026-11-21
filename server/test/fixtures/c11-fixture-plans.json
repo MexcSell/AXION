@@ -1,0 +1,316 @@
+{
+ "website": {
+  "executorId": "coder-01",
+  "plan": [
+   {
+    "agentId": "planner-01",
+    "why": "plans pages and order of work"
+   },
+   {
+    "agentId": "designer-01",
+    "why": "designs the screens"
+   },
+   {
+    "agentId": "browser-01",
+    "why": "checks the live site in a granted browser"
+   },
+   {
+    "agentId": "tester-01",
+    "why": "verifies every page independently"
+   },
+   {
+    "agentId": "writer-01",
+    "why": "writes the on-page copy"
+   }
+  ]
+ },
+ "website+model": {
+  "executorId": "coder-01",
+  "plan": [
+   {
+    "agentId": "planner-01",
+    "why": "plans pages and order of work"
+   },
+   {
+    "agentId": "designer-01",
+    "why": "designs the screens"
+   },
+   {
+    "agentId": "browser-01",
+    "why": "checks the live site in a granted browser"
+   },
+   {
+    "agentId": "tester-01",
+    "why": "verifies every page independently"
+   },
+   {
+    "agentId": "writer-01",
+    "why": "writes the on-page copy"
+   },
+   {
+    "agentId": "loader-01",
+    "why": "picks the right model for each agent"
+   }
+  ]
+ },
+ "research": {
+  "executorId": "researcher-01",
+  "plan": [
+   {
+    "agentId": "analyst-01",
+    "why": "turns findings into numbers"
+   },
+   {
+    "agentId": "browser-01",
+    "why": "reads sources in granted sites"
+   },
+   {
+    "agentId": "knowledge-01",
+    "why": "keeps sources and citations"
+   },
+   {
+    "agentId": "writer-01",
+    "why": "writes the final report"
+   },
+   {
+    "agentId": "tester-01",
+    "why": "fact-checks every claim"
+   }
+  ]
+ },
+ "research+model": {
+  "executorId": "researcher-01",
+  "plan": [
+   {
+    "agentId": "analyst-01",
+    "why": "turns findings into numbers"
+   },
+   {
+    "agentId": "browser-01",
+    "why": "reads sources in granted sites"
+   },
+   {
+    "agentId": "knowledge-01",
+    "why": "keeps sources and citations"
+   },
+   {
+    "agentId": "writer-01",
+    "why": "writes the final report"
+   },
+   {
+    "agentId": "tester-01",
+    "why": "fact-checks every claim"
+   },
+   {
+    "agentId": "loader-01",
+    "why": "picks the right model for each agent"
+   }
+  ]
+ },
+ "training": {
+  "executorId": "mentor-01",
+  "plan": [
+   {
+    "agentId": "tester-01",
+    "why": "builds the evaluation set"
+   },
+   {
+    "agentId": "optimizer-01",
+    "why": "tunes prompts and recipes"
+   },
+   {
+    "agentId": "analyst-01",
+    "why": "measures before and after"
+   }
+  ]
+ },
+ "training+model": {
+  "executorId": "mentor-01",
+  "plan": [
+   {
+    "agentId": "tester-01",
+    "why": "builds the evaluation set"
+   },
+   {
+    "agentId": "optimizer-01",
+    "why": "tunes prompts and recipes"
+   },
+   {
+    "agentId": "analyst-01",
+    "why": "measures before and after"
+   },
+   {
+    "agentId": "loader-01",
+    "why": "picks the right model for each agent"
+   }
+  ]
+ },
+ "data": {
+  "executorId": "analyst-01",
+  "plan": [
+   {
+    "agentId": "integrator-01",
+    "why": "connects the data sources"
+   },
+   {
+    "agentId": "knowledge-01",
+    "why": "deduplicates and indexes"
+   },
+   {
+    "agentId": "tester-01",
+    "why": "validates the output"
+   }
+  ]
+ },
+ "data+model": {
+  "executorId": "analyst-01",
+  "plan": [
+   {
+    "agentId": "integrator-01",
+    "why": "connects the data sources"
+   },
+   {
+    "agentId": "knowledge-01",
+    "why": "deduplicates and indexes"
+   },
+   {
+    "agentId": "tester-01",
+    "why": "validates the output"
+   },
+   {
+    "agentId": "loader-01",
+    "why": "picks the right model for each agent"
+   }
+  ]
+ },
+ "automation": {
+  "executorId": "integrator-01",
+  "plan": [
+   {
+    "agentId": "browser-01",
+    "why": "operates the target sites"
+   },
+   {
+    "agentId": "security-01",
+    "why": "reviews risky actions first"
+   },
+   {
+    "agentId": "tester-01",
+    "why": "verifies each run"
+   },
+   {
+    "agentId": "ops-01",
+    "why": "schedules and monitors the job"
+   }
+  ]
+ },
+ "automation+model": {
+  "executorId": "integrator-01",
+  "plan": [
+   {
+    "agentId": "browser-01",
+    "why": "operates the target sites"
+   },
+   {
+    "agentId": "security-01",
+    "why": "reviews risky actions first"
+   },
+   {
+    "agentId": "tester-01",
+    "why": "verifies each run"
+   },
+   {
+    "agentId": "ops-01",
+    "why": "schedules and monitors the job"
+   },
+   {
+    "agentId": "loader-01",
+    "why": "picks the right model for each agent"
+   }
+  ]
+ },
+ "structure": {
+  "executorId": "planner-01",
+  "plan": [
+   {
+    "agentId": "analyst-01",
+    "why": "simulates the impact"
+   },
+   {
+    "agentId": "security-01",
+    "why": "checks access changes"
+   },
+   {
+    "agentId": "comms-01",
+    "why": "explains the change to everyone"
+   }
+  ]
+ },
+ "structure+model": {
+  "executorId": "planner-01",
+  "plan": [
+   {
+    "agentId": "analyst-01",
+    "why": "simulates the impact"
+   },
+   {
+    "agentId": "security-01",
+    "why": "checks access changes"
+   },
+   {
+    "agentId": "comms-01",
+    "why": "explains the change to everyone"
+   },
+   {
+    "agentId": "loader-01",
+    "why": "picks the right model for each agent"
+   }
+  ]
+ },
+ "self-update": {
+  "executorId": "coder-01",
+  "plan": [
+   {
+    "agentId": "designer-01",
+    "why": "designs the change"
+   },
+   {
+    "agentId": "tester-01",
+    "why": "runs every test suite"
+   },
+   {
+    "agentId": "security-01",
+    "why": "reviews the patch"
+   },
+   {
+    "agentId": "release-01",
+    "why": "prepares a safe rollout"
+   }
+  ]
+ },
+ "self-update+model": {
+  "executorId": "coder-01",
+  "plan": [
+   {
+    "agentId": "designer-01",
+    "why": "designs the change"
+   },
+   {
+    "agentId": "tester-01",
+    "why": "runs every test suite"
+   },
+   {
+    "agentId": "security-01",
+    "why": "reviews the patch"
+   },
+   {
+    "agentId": "release-01",
+    "why": "prepares a safe rollout"
+   },
+   {
+    "agentId": "loader-01",
+    "why": "picks the right model for each agent"
+   }
+  ]
+ }
+}

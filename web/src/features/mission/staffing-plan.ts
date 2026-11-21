@@ -12,7 +12,14 @@ import type { Mission, MissionFile, MissionFileKind } from '../../data/types';
 
 export type StaffStage = 'reading' | 'appointing' | 'recruiting' | 'working';
 export interface StaffLog { at: number; text: string; agentId?: string; by?: string }
-export interface Staffing { stage: StaffStage; plan: { agentId: string; why: string }[]; joined: number; log: StaffLog[] }
+/**
+ * `plan[].managerId` and `org` exist only on real missions created from cycle 11 on (staffed by the active organisation,
+ * see ./staffing-org): the agent the planned one joins under, and where the executor came from. Demo staffing never sets them.
+ */
+export interface Staffing {
+  stage: StaffStage; plan: { agentId: string; why: string; managerId?: string }[]; joined: number; log: StaffLog[];
+  org?: { revision?: number; dept: string; executorFrom: 'head' | 'fixture' };
+}
 
 const KIND_WORDS: [Mission['kind'], RegExp][] = [
   ['self-update', /\b(axion|dashboard|this (app|site|ui)|self[- ]?update|plug-?in)\b/i],
@@ -93,7 +100,7 @@ export function advance(m: Mission, now: number): Partial<Mission> | null {
     const ex = m.executorId!;
     return {
       agentIds: m.agentIds.includes(ex) ? m.agentIds : [...m.agentIds, ex],
-      staffing: { ...s, stage: 'appointing', log: [...s.log, { at: now, by: 'gm', agentId: ex, text: `GM appointed ${name(ex)} as the general executor` }] },
+      staffing: { ...s, stage: 'appointing', log: [...s.log, { at: now, by: 'gm', agentId: ex, text: `GM appointed ${name(ex)}${s.org?.executorFrom === 'head' ? ` (head of ${s.org.dept}${s.org.revision !== undefined ? `, org rev ${s.org.revision}` : ''})` : ''} as the general executor` }] },
       lastEvent: `GM appointed ${name(ex)} as executor`, lastEventAgoMin: 0,
     };
   }
@@ -101,7 +108,7 @@ export function advance(m: Mission, now: number): Partial<Mission> | null {
     const next = s.plan[s.joined];
     return {
       agentIds: m.agentIds.includes(next.agentId) ? m.agentIds : [...m.agentIds, next.agentId],
-      staffing: { ...s, stage: 'recruiting', joined: s.joined + 1, log: [...s.log, { at: now, by: m.executorId, agentId: next.agentId, text: `${name(m.executorId)} brought ${name(next.agentId)} — ${next.why}` }] },
+      staffing: { ...s, stage: 'recruiting', joined: s.joined + 1, log: [...s.log, { at: now, by: m.executorId, agentId: next.agentId, text: `${name(m.executorId)} brought ${name(next.agentId)}${next.managerId && next.managerId !== m.executorId ? ` under ${name(next.managerId)}` : ''} — ${next.why}` }] },
       lastEvent: `${name(next.agentId)} joined`, lastEventAgoMin: 0,
     };
   }
