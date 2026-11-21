@@ -1,10 +1,11 @@
 // Improvement cycle 12 (theme B2), api mode: previous-period trend and weekly throughput on the Overview scorecard.
 // A fresh database shows no trend arrow on any row and an all-zero chart; three real missions (start, cancel: the honest terminal
 // state reachable by user actions) then appear in the chart's last week, equal to the server's /company/throughput counts, live.
-// Run: ./scripts/api-e2e.sh "DATA_MODE=api node scripts/api-c12.mjs"   (ports via E2E_API_PORT / E2E_WEB_PORT)
+// Run: ./scripts/api-e2e.sh api-c12.mjs   (ports via E2E_API_PORT / E2E_WEB_PORT)
 import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
-import { signIn, settle } from './_session.mjs';
+process.env.DATA_MODE = 'api'; // _session.mjs reads it at import time
+const { signIn, settle } = await import('./_session.mjs');
 const base = process.env.BASE;
 const SHOTS = process.env.SHOTS || '/tmp/axion-c12'; mkdirSync(SHOTS, { recursive: true });
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
@@ -54,7 +55,7 @@ try {
   await p.locator('[data-scorecard="ready"]').waitFor({ timeout: 15000 });
   check('a non-null trend shows its arrow and previous value, only on that row', await until(async () => (await p.locator('.sc-prev.on').count()) === 1 && /↑\s*40\.0%/.test(await p.locator('[data-row="failure_rate"] .sc-prev').innerText())));
   await p.screenshot({ path: `${SHOTS}/c12-overview.png` });
-} catch (e) { bad++; console.log('FAIL exception — ' + e.message); }
+} catch (e) { bad++; console.log('FAIL exception — ' + e.message); try { console.log('URL', p.url(), (await p.locator('body').innerText()).slice(0, 400).replace(/\n/g, ' / ')); } catch { /* ignore */ } }
 check('no page errors', errors.length === 0, errors.join(' | '));
 await b.close();
 console.log(bad ? `${bad} FAILED` : 'ALL PASS');

@@ -33,3 +33,10 @@ Branch `improve-30h` lane w10. No migration, no new event, no loosened rule. The
 - A count row's trend needs n >= 3 on both sides, where n is the count itself (`started`, `finished`) or completions (`completed_unverified`).
 - Throughput weeks use the scorecard's "last final transition at or before the week end", so a mission that fails then retries and completes can count as finished in two different weeks. This is the same rule as the windowed scorecard.
 - A stash `stash@{0}` (WIP on c07-bundle-split) exists in the shared repo. It is not mine. Early in this task I ran one `git stash push` / `pop` pair on my own files for the RED run, before the no-stash rule arrived. My pop restored only my files, and I used no stash after that.
+
+## Fix round (review c12-review.md)
+- **I1 throughput counts once.** `computeThroughput` now takes each mission's last terminal transition as of now (same rule as the scorecard, restores excluded) and places it in the week of that transition. The most recent week equals the 7-day scorecard's finished count, and the chart sum equals the distinct finished missions in the span. New test: fail 5 weeks ago, retry, complete 8 days ago counts once, in week 6, and a mission that finished before the 8 weeks is not counted. Help `scorecard.throughput` says so.
+- **Trend colour:** neutral (the arrow states direction only, no good/bad colour).
+- **Help text:** the `company.scorecard` help now gives the flat rule per unit: 1 point for rates, 0.1 h for times, equal for counts.
+- `api-c12.mjs` sets `DATA_MODE=api` itself, so `api-e2e.sh api-c12.mjs` runs as given (the earlier command form still works). It also prints the page text on failure.
+- **Evidence:** server tsc clean; full server suite 26 files, 348 tests pass (run alone: two runs of mine overlapping on the same test database had produced spurious failures, my mistake, not code); web tsc clean; api-c12 ALL PASS (10 checks); ov-fit NO SCROLL in demo and api mode; verify-all: crawl, deep crawl, flows, u1 flows, dialog smoke (0 failures), dialog ids, help keys and fs guard (OK) all green.
