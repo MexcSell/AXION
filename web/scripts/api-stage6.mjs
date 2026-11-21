@@ -259,8 +259,10 @@ try {
     const before = (await loaded()).length;
     if (before >= total) break;
     // scroll to the top; remember the message at the top and its offset
-    const anchor = await A.p.locator('.conv-main .thread-body').evaluate((el) => {
+    const anchor = await A.p.locator('.conv-main .thread-body').evaluate(async (el) => {
+      // cycle 26: the thread is virtualised; the rows at the top render on the frame after the jump (the reader sees them then)
       el.scrollTop = 0;
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       const box = el.getBoundingClientRect();
       const first = [...el.querySelectorAll('[data-mid]')].find((n) => n.getBoundingClientRect().bottom > box.top);
       return { id: first.getAttribute('data-mid'), top: first.getBoundingClientRect().top - box.top };

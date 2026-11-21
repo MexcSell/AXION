@@ -160,8 +160,10 @@ async function behaviour(n, mid, tid) {
   await p.locator('.conv-main .composer textarea').fill('');
   await until(async () => (await loaded()).length >= 50, 10000);
   const before = (await loaded()).length;
-  const a = await body.evaluate((el) => {
+  const a = await body.evaluate(async (el) => {
+    // cycle 26: the thread is virtualised; the rows at the top render on the frame after the jump (the reader sees them then)
     el.scrollTop = 0;
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     const box = el.getBoundingClientRect();
     const first = [...el.querySelectorAll('[data-mid]')].find((x) => x.getBoundingClientRect().bottom > box.top);
     return { id: first.getAttribute('data-mid'), top: first.getBoundingClientRect().top - box.top };

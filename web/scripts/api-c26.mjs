@@ -261,6 +261,16 @@ let last = runs[runs.length - 1];
 if (process.env.CHECKS !== '0') {
   try {
     if (!last) { const t = await freshThread(); await burst(t.tid, FILL, 'fill'); await until(async () => (await held(t.mid, t.tid)) >= FILL + 1, 180000, 250); await quiet(1000, 120000); last = t; }
+    // SHOT=<file.png> (report): the conversation pane, pinned to the bottom, then scrolled to the middle (<file>-mid.png)
+    if (process.env.SHOT) {
+      const pane = p.locator('.conv-main').first();
+      await p.locator('.conv-main .thread-body').evaluate((el) => { el.scrollTop = el.scrollHeight; });
+      await p.waitForTimeout(1200);
+      await pane.screenshot({ path: process.env.SHOT });
+      await p.locator('.conv-main .thread-body').evaluate((el) => { el.scrollTop = Math.round(el.scrollHeight * 0.5); });
+      await p.waitForTimeout(1500);
+      await pane.screenshot({ path: process.env.SHOT.replace(/\.png$/, '-mid.png') });
+    }
     await behaviour(last.mid, last.tid);
   } catch (e) { check('behaviour checks ran', false, e.message.split('\n')[0]); }
   console.log(`behaviour checks: ${checks.filter((c) => c.ok).length}/${checks.length} passed`);
