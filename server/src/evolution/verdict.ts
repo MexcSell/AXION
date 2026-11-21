@@ -12,8 +12,6 @@ export interface EvaluationPolicy {
   readonly tieBand: number;
   /** where this policy came from; recorded in every verdict */
   readonly source: string;
-  /** who set it (when not built in); never the candidate author */
-  readonly setBy?: string;
 }
 
 export const EVALUATION_POLICY_V1: EvaluationPolicy = Object.freeze({
@@ -22,6 +20,14 @@ export const EVALUATION_POLICY_V1: EvaluationPolicy = Object.freeze({
   margin: 5,
   tieBand: 0.5,
   source: 'built-in',
+});
+
+/**
+ * Trusted registry: the only place thresholds come from. A caller names a version; it never supplies thresholds,
+ * so a candidate's author cannot loosen the rules. New policies are added here by a code change, as a new version.
+ */
+export const EVALUATION_POLICIES: Readonly<Record<number, EvaluationPolicy>> = Object.freeze({
+  1: EVALUATION_POLICY_V1,
 });
 
 export interface CaseScore {
@@ -37,8 +43,10 @@ export interface VerdictInput {
   candidateDatasetHash: string;
   authorId: string;
   evaluatorId: string;
-  /** optional; defaults to the built-in policy. Its source is echoed in the output. */
-  policy?: EvaluationPolicy;
+  /** version in EVALUATION_POLICIES; defaults to 1. Unknown versions are rejected. */
+  policyVersion?: number;
+  /** never accepted: thresholds cannot come from the caller (present only so it can be rejected with a reason) */
+  policy?: never;
 }
 
 export interface Detectable {
@@ -93,28 +101,16 @@ export function detectableGain(sd: number, n: number, margin: number): Detectabl
   return { n, sd: r3(sd), se: r3(se), gain: r1(margin + Z * se), falseVerify: r3(falseVerify) };
 }
 
-function policyProblem(p: EvaluationPolicy, authorId: string): string | null {
-  if (
-    !Number.isFinite(p.version) ||
-    !Number.isInteger(p.minCases) ||
-    p.minCases < 1 ||
-    !Number.isFinite(p.margin) ||
-    p.margin < 0 ||
-    !Number.isFinite(p.tieBand) ||
-    p.tieBand < 0 ||
-    !p.source
-  ) {
-    return 'the evaluation policy is invalid';
-  }
-  if (p.setBy !== undefined && authorId && norm(p.setBy) === norm(authorId)) {
-    return 'the evaluation policy was set by the candidate author; the author cannot set the rules';
-  }
-  return null;
-}
-
 export function verdict(input: VerdictInput): Verdict {
-  const policy = input.policy ?? EVALUATION_POLICY_V1;
   const reasons: string[] = [];
+  const asked = input.policyVersion ?? 1;
+  const registered = Object.prototype.hasOwnProperty.call(EVALUATION_POLICIES, asked) ? EVALUATION_POLICIES[asked] : undefined;
+  // an unknown version falls back to the strictest known (latest) policy only to compute numbers; it is never verified
+  const policy = registered ?? EVALUATION_POLICIES[Math.max(...Object.keys(EVALUATION_POLICIES).map(Number))];
+  if (!registered) reasons.push(`unknown evaluation policy version ${String(asked)}`);
+  if ((input as { policy?: unknown }).policy !== undefined) {
+    reasons.push('a caller-supplied policy is not accepted; pass a policyVersion from the registry');
+  }
   const policyOut = {
     version: policy.version,
     minCases: policy.minCases,
@@ -122,9 +118,6 @@ export function verdict(input: VerdictInput): Verdict {
     tieBand: policy.tieBand,
     source: policy.source,
   };
-
-  const pol = policyProblem(policy, input.authorId);
-  if (pol) reasons.push(pol);
 
   // identity rules
   if (!norm(input.authorId)) reasons.push('the author of the candidate is missing');

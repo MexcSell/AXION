@@ -28,3 +28,13 @@ unpaired/duplicate cases, out-of-range scores. The frozen built-in policy v1 has
 - minCases 5 and margin 5 are my chosen defaults (reference uses 3 and 5). Adjust via a new policy version.
 - Policy "cannot be changed by the author" is enforced only when setBy is supplied; the future caller must pass it.
 - Never used git stash.
+
+## Fix round (review I1)
+- Thresholds now come only from the in-module registry `EVALUATION_POLICIES[version]`. The caller passes `policyVersion` (default 1), never thresholds.
+  Unknown versions get a reason. A caller-supplied `policy` field is ignored for the numbers and rejected with a reason, so a forged
+  version-1 policy, thresholds without `setBy`, or `setBy` equal to the author can no longer verify. Custom policies were dropped (the simple option);
+  `setBy` is gone from the type.
+- Tests: the two old policy tests that accepted custom policies were replaced by tests for the four bypasses (custom thresholds without setBy,
+  altered v1, unknown versions 0/2/99/-1/NaN, setBy equal to author) plus an explicit registered version. The margin test that relied on a custom policy was removed.
+- Purity test: kept. The execution guard in approvals.test.ts:102 already covers verdict.ts (my earlier concern was wrong); mine also forbids
+  any package import, which the guard does not check.

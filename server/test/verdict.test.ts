@@ -33,20 +33,32 @@ describe('policy', () => {
     const r = verdict(mk(P.minCases, 50, 50 + P.margin + 1));
     expect(r.policy).toEqual({ version: 1, minCases: P.minCases, margin: P.margin, tieBand: P.tieBand, source: 'built-in' });
   });
-  it('a custom policy keeps its stated source', () => {
-    const r = verdict(mk(3, 50, 70, { policy: { version: 7, minCases: 3, margin: 2, tieBand: 0.5, source: 'admin:alice' } }));
-    expect(r.policy.source).toBe('admin:alice');
-    expect(r.policy.version).toBe(7);
-  });
-  it('refuses a policy set by the candidate author', () => {
-    const r = verdict(mk(5, 10, 90, { policy: { version: 2, minCases: 1, margin: 0, tieBand: 0.5, source: 'author', setBy: 'author' } }));
+  it('custom thresholds without setBy are rejected', () => {
+    const forged = { minCases: 1, margin: 0, tieBand: 0.5, source: 'x' };
+    const r = verdict(mk(5, 10, 90, { policy: forged } as unknown as Partial<VerdictInput>));
     expect(r.verified).toBe(false);
-    expect(r.reasons.join(' ')).toMatch(/author.*policy|policy.*author/i);
+    expect(r.reasons.join(' ')).toMatch(/caller-supplied policy/i);
   });
-  it('refuses an invalid policy', () => {
-    const r = verdict(mk(5, 10, 90, { policy: { version: 2, minCases: 0, margin: -1, tieBand: 0.5, source: 'x' } }));
+  it('a version-1 policy with altered thresholds is rejected', () => {
+    const forged = { version: 1, minCases: 1, margin: 0, tieBand: 0.5, source: 'built-in' };
+    const r = verdict(mk(2, 50, 50, { policy: forged } as unknown as Partial<VerdictInput>));
     expect(r.verified).toBe(false);
-    expect(r.reasons.join(' ')).toMatch(/policy is invalid/i);
+    expect(r.policy.minCases).toBe(P.minCases); // the registry values were used, not the forged ones
+  });
+  it('an unknown policy version is rejected', () => {
+    for (const v of [0, 2, 99, -1, NaN]) {
+      const r = verdict(mk(5, 10, 90, { policyVersion: v }));
+      expect(r.verified).toBe(false);
+      expect(r.reasons.join(' ')).toMatch(/unknown evaluation policy version/i);
+    }
+  });
+  it('setBy equal to the author is rejected', () => {
+    const forged = { version: 2, minCases: 1, margin: 0, tieBand: 0.5, source: 'author', setBy: 'author' };
+    const r = verdict(mk(5, 10, 90, { policy: forged } as unknown as Partial<VerdictInput>));
+    expect(r.verified).toBe(false);
+  });
+  it('an explicit registered version works', () => {
+    expect(verdict(mk(P.minCases, 50, 90, { policyVersion: 1 })).verified).toBe(true);
   });
 });
 
@@ -98,10 +110,6 @@ describe('margin', () => {
     const r = verdict(mk(5, 60, 50));
     expect(r.verified).toBe(false);
     expect(r.reasons.join(' ')).toContain('-10.0 points');
-  });
-  it('mean delta can pass while the margin of a different policy fails', () => {
-    const r = verdict(mk(5, 50, 58, { policy: { version: 3, minCases: 3, margin: 10, tieBand: 0.5, source: 'admin:bob' } }));
-    expect(r.verified).toBe(false);
   });
 });
 
