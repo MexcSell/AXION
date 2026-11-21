@@ -141,6 +141,35 @@ function summarise(file, marks) {
   };
 }
 
+/** No behaviour change (rep 1 of each size, after the idle reload): draft kept, pinned to the bottom, minimap, paging anchor. */
+const checks = [];
+const check = (name, ok, detail = '') => { checks.push({ name, ok: !!ok, detail }); console.log(`  ${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ' — ' + detail : ''}`); };
+async function behaviour(n) {
+  const body = p.locator('.conv-main .thread-body');
+  const mids = () => p.locator('.conv-main .thread-body [data-mid]').evaluateAll((els) => els.map((e) => e.getAttribute('data-mid')));
+  check(`N=${n}: after the reload the thread is pinned to the bottom`, await until(() => body.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight < 60), 5000));
+  const blocks = async () => [await p.locator('.conv-main .minimap .mm-block').count(), (await mids()).length];
+  check(`N=${n}: the minimap has one block per loaded message`, await until(async () => { const [b, m] = await blocks(); return b === m && m > 0; }, 5000), (await blocks()).join(' blocks / ') + ' rows');
+  const draft = `c22 draft ${Date.now()}`;
+  await p.locator('.conv-main .composer textarea').fill(draft);
+  await p.reload({ waitUntil: 'domcontentloaded' });
+  check(`N=${n}: an unsent draft survives a reload`, await until(async () => (await p.locator('.conv-main .composer textarea').inputValue()) === draft, 15000));
+  await p.locator('.conv-main .composer textarea').fill('');
+  await until(async () => (await mids()).length >= 50, 10000);
+  const before = (await mids()).length;
+  const a = await body.evaluate((el) => {
+    el.scrollTop = 0;
+    const box = el.getBoundingClientRect();
+    const first = [...el.querySelectorAll('[data-mid]')].find((x) => x.getBoundingClientRect().bottom > box.top);
+    return { id: first.getAttribute('data-mid'), top: first.getBoundingClientRect().top - box.top };
+  });
+  const grew = await until(async () => (await mids()).length > before, 8000);
+  await p.waitForTimeout(400);
+  const after = await body.evaluate((el, id) => { const x = el.querySelector(`[data-mid="${id}"]`); return x ? x.getBoundingClientRect().top - el.getBoundingClientRect().top : null; }, a.id);
+  const all = await mids();
+  check(`N=${n}: scrolling up loads the next older page, the top message stays put, no duplicates`, grew && after != null && Math.abs(after - a.top) <= 4 && new Set(all).size === all.length, `${before} → ${all.length} rows, shift ${after == null ? '-' : Math.abs(after - a.top).toFixed(1)} px`);
+}
+
 const out = { base, at: new Date().toISOString(), runs: [] };
 try {
 for (const n of SIZES) {
@@ -174,11 +203,14 @@ for (const n of SIZES) {
       }
     }
     out.runs.push({ n, rep: tracing ? 'traced' : rep, mid, load: loadBefore, burstMs, afterBurst, idle, trace });
+    if (rep === 1 && idle.interactive != null && process.env.CHECKS !== '0') { try { await behaviour(n); } catch (e) { check(`N=${n}: behaviour checks ran`, false, e.message.split('\n')[0]); } }
     if (afterBurst.interactive == null) { console.log(`  (not interactive within the ${CAP} ms cap: reported as >cap; the page is replaced)`); await replacePage(); }
   }
 }
 } finally {
 out.errors = errors;
+out.checks = checks;
+if (checks.length) console.log(`behaviour checks: ${checks.filter((c) => c.ok).length}/${checks.length} passed`);
 writeFileSync(`${DIR}/c22-${Date.now()}.json`, JSON.stringify(out, null, 1));
 console.log(`page errors: ${errors.length}${errors.length ? ' — ' + errors.slice(0, 3).join(' | ') : ''}`);
 await b.close();
