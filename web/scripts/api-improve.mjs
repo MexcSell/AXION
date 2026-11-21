@@ -226,21 +226,25 @@ try {
   const P3 = (await apiA('POST', '/organization/proposals', { title: 'Designer-01 under Ops-01', why: '', baseRevision: g2.revision.seq, edges: g2.edges.map((e) => (e.subordinateId === 'designer-01' ? { ...e, supervisorId: 'ops-01' } : e)) }, { 'idempotency-key': `c01-p3-${Date.now()}` })).body.proposal;
   await B.p.getByRole('radio', { name: /^Pending/ }).click();
   await card(B.p, P3.id).waitFor({ timeout: 10000 });
-  // every browser's re-read after org.proposalCreated must be done first: a read after the expiry below expires P3 on the
-  // server and takes the card out of B's Pending filter before the Approve click (a race seen in cycle 2 runs).
-  // Condition: A and B both show P3 as pending, and no browser has a proposals read in flight, twice 300 ms apart.
-  const settledP3 = async () => (await A.p.locator(`[data-proposal="${P3.id}"][data-status="pending"]`).count()) === 1
-    && (await B.p.locator(`[data-proposal="${P3.id}"][data-status="pending"]`).count()) === 1
-    && [A, B, C].every((X) => X.p.proposalReads() === 0);
-  check('c01 expiry step: P3 is pending in A and B and no proposals read is in flight', await until(async () => (await settledP3()) && (await new Promise((r) => setTimeout(r, 300)), await settledP3()), 10000));
+  // Deterministic, no timing luck (cycle 8): any read of the proposals list that B's page makes after the expiry below would
+  // expire P3 on the server and take its card out of the Pending filter before the Approve click. So B's reads of that list are
+  // held at the network from here until the click has been made; the decision POST is not held. Every read B made earlier has
+  // already been answered with P3 pending (the card is on screen), and nothing else can change B's DOM.
+  let openGate; const gate = new Promise((r) => { openGate = r; });
+  const holdReads = async (route) => { if (route.request().method() !== 'GET') return route.continue(); await gate; await route.continue().catch(() => undefined); };
+  await B.p.route(/\/api\/v1\/organization\/proposals(\?.*)?$/, holdReads);
+  check('c01 expiry step: P3 is pending in A and B', await until(async () => (await A.p.locator(`[data-proposal="${P3.id}"][data-status="pending"]`).count()) === 1
+    && (await B.p.locator(`[data-proposal="${P3.id}"][data-status="pending"]`).count()) === 1, 10000));
   const pg = createRequire(new URL('../../server/package.json', import.meta.url))('pg');
   const db = new pg.Client({ connectionString: e2eUrl });
   await db.connect();
   await db.query(`update org_proposals set expires_at = now() - interval '1 minute' where id=$1 and status='pending'`, [P3.id]);
   await db.end();
   await card(B.p, P3.id).getByRole('button', { name: 'Approve', exact: true }).click();
+  openGate(); // the decision is on its way; B's re-reads may now be answered (P3 is expired on the server)
   check('PROPOSAL_EXPIRED: the server message stays on the card although it left the Pending filter, and the card says Expired',
     await until(async () => (await card(B.p, P3.id).locator('[role="alert"]').innerText()).includes('expired') && (await card(B.p, P3.id).getAttribute('data-status')) === 'expired', 8000));
+  await B.p.unroute(/\/api\/v1\/organization\/proposals(\?.*)?$/, holdReads);
   await B.p.getByRole('radio', { name: 'All', exact: true }).click();
 
   // ------------------------------------------------------------ fix round: a new agent is a new org revision, so a pending proposal turns stale live

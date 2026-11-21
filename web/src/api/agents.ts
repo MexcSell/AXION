@@ -39,7 +39,8 @@ let latest: Promise<void> = Promise.resolve();
  *  applied: callers such as updateAgent() await it and then read the current rowVersion from the catalog. */
 export function loadAgents(): Promise<void> {
   const mine = ++gen;
-  const run: Promise<void> = (async (): Promise<void> => {
+  let run!: Promise<void>;
+  run = (async (): Promise<void> => {
     const r = await api<{ agents: AgentDto[] }>('GET', '/agents');
     if (mine !== gen) return latest === run ? undefined : latest; // a newer load started meanwhile: wait for it instead of returning with nothing applied
     applyAgentCatalog(r.agents.map(toAgent));
