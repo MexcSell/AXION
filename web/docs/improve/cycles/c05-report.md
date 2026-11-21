@@ -226,3 +226,42 @@ with its diff and "No evaluation yet").
   - `proposals.test.ts:306` and `events.ts`'s subscribe list may conflict textually.
 - **New events and errors**: `agent.versionProposalDecided` and five error codes are additions beyond the brief's list.
 - **Per-agent proposal list**: on the profile it defaults to "All", while Development defaults to "Pending".
+
+## Fix round (after `c05-review.md`)
+
+**Fixed**
+- **I1.** `server/node_modules`, a symlink to the main worktree's directory, had been committed again in `7f5829a`, because
+  `git add server` picked it up. It is now untracked with `git rm --cached`; the symlink stays on disk.
+  `git ls-tree -r --name-only HEAD | grep node_modules` prints nothing after the fix commit, and `web/node_modules` is still
+  untracked.
+- **I2.** I reworded the help entries `agent.version.proposals` (why) and `agent.version.decide` (why). A promotion needs a
+  second administrator and never its author. Direct edits (Edit, PATCH) and rollbacks are single-administrator actions; they are
+  audited and create a new version. Running missions stay pinned. Behaviour is unchanged; the controller has queued the owner
+  question "should direct edits require a proposal?".
+- **m1.** The SAME_CONFIG rollback test now also asserts `body.code === 'SAME_CONFIG'`.
+- **m2.** Race test 2 now also asserts that the `agent.rollback` audit row's `detail.fromVersionId` is the PATCHed version.
+  This proves the rollback read the agent after the lock, not only that it queued on it.
+- **m4.** `api-c05.mjs` has no fixed sleeps left. Both `waitForTimeout` calls are replaced by a condition wait,
+  `settled(p)`: no running, finite Web Animations.
+- I deleted the untracked `web/.lane-vite.config.ts` (the w2 file) from this worktree, as instructed.
+
+**Evidence**
+
+```
+$ cd server && npx vitest run test/version-proposals.test.ts   → 24 passed (24)
+$ cd server && npx tsc --noEmit -p . ; cd web && npx tsc --noEmit -p .   → clean
+$ cd web && E2E_API_PORT=5392 E2E_WEB_PORT=5393 /home/luca/AXION-lanes/heavy.sh ./scripts/api-e2e.sh api-c05.mjs   → 31/31 passed, no page errors
+```
+
+**Deferred** (not one-line fixes, or not mine to decide)
+- **m2 (rest).** Race tests for a promote queued behind a PATCH (expected 409 `AGENT_CHANGED`) and a rollback racing a promote.
+- **m3.** The pinned-instance evidence comes only from DEMO missions, because real missions have only idle instances today.
+- **m5.** Before the merge, re-run `api-stage6.mjs` and `api-improve.mjs` against `axion_e2e` on a quiet machine. That is the
+  controller's merge gate.
+- **m6.** Audit refused rollbacks as `denied`. This needs moving the 422 checks out of the `idempotent` transaction, following
+  cycle 1's refuse pattern.
+- **m7.** Rollback `why` is in an audience-`all` event. Keep it or restrict it: owner or controller decision.
+- **m8.** "Last good" after a rollback, and its emphasised button: an owner question once evaluations exist.
+- **m9.** Fixture growth and candidate texts sit next to real version data in api mode: a follow-up to tag or hide them.
+- **m10.** Expiry on read could deadlock between concurrent readers. Theoretical; accepted for the "no timers" design.
+- **m11.** Merge points: README test count, `events.ts` subscribe list, lane 0014 migration numbers.

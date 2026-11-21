@@ -292,6 +292,7 @@ describe('rollback', () => {
     expect(r.body.code).toBe('ALREADY_ACTIVE');
     const same = await A.req('POST', `/agents/${AG}/rollback`, { toVersionId: cur.versions[0].id, why: 'x' }, key()); // v1 = the active config
     expect(same.status).toBe(422);
+    expect(same.body.code).toBe('SAME_CONFIG');
     const other = (await agent('designer-01')).versionId;
     const o = await A.req('POST', `/agents/${AG}/rollback`, { toVersionId: other, why: 'x' }, key());
     expect(o.status).toBe(422);
@@ -362,6 +363,9 @@ describe('one lock for every writer of the active version', () => {
     expect(ro.status).toBe(200);
     const v = (await rows('select * from agent_versions where id=$1', [ro.body.agent.versionId]))[0];
     expect(v.parent_version_id).toBe(pa.body.agent.versionId);
+    // the rollback read the agent AFTER the lock: its audit row names the PATCHed version as the one it rolled away from
+    const au = (await rows(`select detail from audit_events where action='agent.rollback' and subject=$1 order by id desc limit 1`, [AG]))[0];
+    expect(au.detail.fromVersionId).toBe(pa.body.agent.versionId);
   });
 });
 

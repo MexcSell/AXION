@@ -41,6 +41,8 @@ const apiOf = (p) => {
   };
 };
 const DEV = '/operations?tab=agents&sub=development';
+/** No running Web Animations (motion's entrance tweens and CSS keyframes that end; infinite pulses are ignored). */
+const settled = (p) => until(async () => (await p.evaluate(() => document.getAnimations().filter((a) => a.playState === 'running' && a.effect?.getComputedTiming().iterations !== Infinity).length)) === 0, 8000, 100);
 let k = 0;
 const key = () => ({ 'idempotency-key': `c05-${Date.now()}-${k++}` });
 let A, B, C;
@@ -185,14 +187,14 @@ try {
   await A.p.goto(base + `/agents/${X}?tab=evolution`, { waitUntil: 'domcontentloaded' });
   await A.p.locator(`[data-versions] [data-active="1"]`).waitFor({ timeout: 15000 });
   await until(async () => (await A.p.locator('[data-version-proposals="ready"] [data-version-proposal]').count()) >= 2, 8000);
-  await A.p.waitForTimeout(900); // entrance animations
+  await settled(A.p); // entrance animations finished (condition, not a fixed sleep)
   await A.p.screenshot({ path: `${SHOTS}/improve-c05-versions-dark.png` });
   if (DOC_SHOT) await A.p.screenshot({ path: DOC_SHOT });
   const overflow = async (p) => p.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1 || [...document.querySelectorAll('[data-versions] [data-version], [data-version-proposal]')].some((e) => e.scrollWidth > e.clientWidth + 1));
   check(`no horizontal overflow on Evolution (A) at ${process.env.VW || 1600}px`, !(await overflow(A.p)));
   await B.p.goto(base + DEV, { waitUntil: 'domcontentloaded' });
   await B.p.locator('[data-version-proposals="ready"]').waitFor({ timeout: 15000 });
-  await B.p.waitForTimeout(600);
+  await settled(B.p);
   check(`no horizontal overflow on Development (B) at ${process.env.VW || 1600}px`, !(await overflow(B.p)));
   await B.p.screenshot({ path: `${SHOTS}/improve-c05-development-dark.png` });
 } catch (e) { check('script ran to the end', false, String(e).split('\n')[0]); }
