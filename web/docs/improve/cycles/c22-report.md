@@ -166,3 +166,23 @@ No UI change, so there are no screenshots.
   and the reconnect gap.
 - `TopBar` and `Rail` show 0.5–0.6 s inclusive in single traces of the cold load (dev-mode hooks). I did not investigate
   them.
+
+## Fix round (review c22-review.md)
+| Item | Change | Evidence |
+|---|---|---|
+| **I1** minimap stops watching a row replaced at the same length | `ThreadMinimap.tsx`: the effect that observes new rows now re-runs on every `msgs` change, not only when the count, view or typing state changes. There is still one ResizeObserver; rows already observed are skipped (a `Set`), and rows no longer in the DOM are unobserved, so nothing is retained. Commit 5c2a32e. | New `api-c22` check: send a message, so the local copy is replaced by the server copy at the same length; then grow that row and assert its minimap block grows and every block lines up with its row. **RED** on 15ef55c (checks from cc55d91): block 3.1 → 3.1 px, script rc 1. **GREEN** on 5c2a32e. |
+| **M1** the "N new" pill over-counts | `ChatView.tsx`: counts only rows after the last one seen, so an older page landing in the same render no longer adds 50. Commit 5c2a32e. | One line. No check forces the race. |
+| **M3** no test of batching order | `api-c22` `batching()` runs on the app's own store in the page: it imports `/src/api/missionControl.ts`, the module the app loaded, which the first check confirms. Commit cc55d91. | 4 checks, all PASS on both the RED and GREEN runs. (1) Nothing is applied before the flush. (2) A receipt before its message is a no-op; a receipt after it applies; receipts never go back; order, count and last are kept. (3) A gap reset (reconnect re-read with more than a page missing, served by a routed page) with a batch still queued applies the queued event first, then restarts from the fresh page: 50 rows, seq 111…160, hasMore, nextBefore 111, count 5. Nothing stale lands afterwards. |
+| **M4** the script's exit code | `api-c22` exits 1 on any FAIL check, page error, or threshold miss (`MAX_MS`, default `130:3000,1000:5000`; prints `THRESHOLD MISS`). | The RED run exited rc 1; the GREEN run exited rc 0. |
+| **M2** lost layout animation of neighbouring rows | Deferred. It is disclosed above under Concerns and should be recorded in LESSONS/LOG by the integrator; I do not write to the integration tree. | — |
+| Residual live freeze at 1,000 | Deferred to the queue: adaptive flush or windowing, coordinated with lane w6. | — |
+
+The checks for I1, M3 and M4 are in cc55d91.
+
+### Runs after the fix (5c2a32e, all through heavy.sh)
+- **`api-c22`** (SIZES=130,1000, REPS=3): rc 0, behaviour checks 14/14, page errors 0.
+  - Reload → interactive after the burst: N=130 2.0 / 1.7 / 1.8 s (load 15–16); N=1,000 2.7 / 2.8 / 3.3 s (load 16–19).
+  - Thresholds are 3 s and 5 s.
+- **`api-stage6`**: run 1 was 4/5. It failed at the very start (`locator.waitFor` 15 s on the second user's Connect page, before any thread code), while my verify-all was starting its build and crawl next to it. Re-run once: **94/94**. The designer-01 Edit flake did not appear.
+- **`api-improve`**: 83/83.
+- **`verify-all`** (OUT=/tmp/axion-verify-w20): rc 0, **0 FAIL lines**. Build, crawl (77 views) and deep crawl NO PROBLEMS; flows, auth flow and u1 flows all PASS with no console errors; dialog smoke 110 checks, 0 failures; dialog ids, help keys and the fs guard OK.
