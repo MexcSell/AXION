@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useAgentsCatalog, useAgentInstances, useAgentVersions } from '@/api/agents';
 import { useCanEditAgents } from '@/hooks/useCanEditAgents';
 import { ProvenanceChip, ProvTag, needsEvidence, NOT_ENOUGH } from '@/components/agents/Provenance';
+import { ReliabilityStat } from '@/components/agents/Reliability';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
@@ -114,6 +115,7 @@ function Profile({ agent }: { agent: Agent }) {
             </div>}
           </div>
           <div className="oa-hero-side">
+            <ReliabilityStat agent={agent} />
             <div className="oa-kv-big"><div><b className="display tnum">{noEv ? '–' : <CountUp value={agent.success} suffix="%" />}</b><span>Verified success</span></div><div><b className="display tnum">{agent.sample}</b><span>Tasks evaluated</span></div><div><b className="display tnum">{agent.missions}</b><span>Missions</span></div><div><b className="display tnum">{agent.load}%</b><span>Load</span></div></div>
             <div className="row wrap" style={{ gap: 8 }}>
               <button className="btn primary" onClick={() => openDialog('agent-assign', { agentId: agent.id })}><Target size={15} />Assign to mission</button>

@@ -35,7 +35,7 @@ server (`myapp`, `agentapp`, `ajp`, `ajp_test`, `postgres`) are never read or ch
 
 | Command | What it does |
 |---|---|
-| `npm test` | 284 Vitest tests against `axion_test` |
+| `npm test` | 321 Vitest tests against `axion_test` |
 | `npm run typecheck` | TypeScript |
 | `npm run migrate [-- down <n>]` | migrations up (default) or down to version n (`down 0` empties the schema) |
 | `npm run admin:approve-device -- <name>` | recovery: approves that user's newest waiting device (e.g. the only admin lost their cookies) |
@@ -75,6 +75,14 @@ server (`myapp`, `agentapp`, `ajp`, `ajp_test`, `postgres`) are never read or ch
   Computed by a pure function (`src/company/scorecard.ts`) only from the caller's visible missions (tenant, not deleted,
   `VISIBLE_SQL`) and their runs, `mission.stateChanged` events, tasks, task attempts, approval decisions and `verifies`
   delegations. Rates and medians need n ≥ 3, otherwise `value: null, state: 'none'`. No new table, no new event.
+- Agent reliability (improvement cycle 3): `GET /agents` and `GET /agents/:id` carry `reliability {value|null, n, window: '90d',
+  evidence, includesSimulated}` (`?includeSimulated=1` adds simulated DEMO tasks). Pure function `src/agents/reliability.ts`, one
+  query for all agents over the caller's visible missions (tenant, not deleted, `VISIBLE_SQL`). Evidence = tasks now `passed`/`failed`
+  whose finish (latest `task.stateChanged` into that state, else the latest attempt time or creation as a lower bound) is in the last
+  90 days, charged to the final owner, and once to every agent it was reassigned away from (read from the `task.reassign` audit
+  rows: the `delegated` row names the mission lead, not the previous owner). Reliable = passed, ≤ 1 attempt, never taken from the
+  agent; unreliable = failed, passed after a retry, reassigned away. Canceled and open tasks don't count. `value` is a whole
+  percentage, null while n < 5. No migration.
 - Mission instances: `GET /missions/:id/hierarchy`, `GET /missions/:id/tasks`, `GET /agent-instances[?agentId=]`,
   `GET /agent-instances/:id`. Each instance is pinned to the agent version active when it joined. A startup backfill gives
   existing missions their instances, delegations, tasks and (demo) threads; it is idempotent and skips a broken mission.

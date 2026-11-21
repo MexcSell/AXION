@@ -1,4 +1,5 @@
 import { ProvenanceChip, needsEvidence, NOT_ENOUGH } from '@/components/agents/Provenance';
+import { ReliabilityChip } from '@/components/agents/Reliability';
 import { useCanEditAgents } from '@/hooks/useCanEditAgents';
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
@@ -10,6 +11,7 @@ import { openDialog, toast } from '@/store/ui';
 import type { Agent } from '@/data/types';
 import { AGENT_STATUS, ROLES } from '@/data/roles';
 import { DevStrip } from '@/features/agents/Growth';
+import { isApi } from '@/api/mode';
 
 /** Player-card style agent tile (40-4 grid). */
 export function AgentCard({ agent, index = 0 }: { agent: Agent; index?: number }) {
@@ -55,6 +57,7 @@ export function AgentCard({ agent, index = 0 }: { agent: Agent; index?: number }
       <DevStrip agent={agent} />
       <div className="agent-card-stats">
         <span>Missions</span><b className="tnum">{agent.missions}</b>
+        {isApi() && <><span className="sep" /><ReliabilityChip agent={agent} /></>}
         <span className="sep" />
         <span>Success</span>{needsEvidence(agent) ? <b className="tnum dim" title={NOT_ENOUGH}>n/a</b> : <b className="tnum">{agent.success}%</b>}<span style={{ position: 'absolute', right: 8, top: -9, zIndex: 1 }}><ProvenanceChip agent={agent} /></span>
       </div>

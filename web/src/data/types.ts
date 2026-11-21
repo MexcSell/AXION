@@ -19,6 +19,8 @@ export interface Agent {
   missions: number;
   /** api mode (Stage 6): where this agent's numbers come from */
   provenance?: import('@contracts').Provenance;
+  /** api mode (improvement cycle 3): reliability measured by the server from recorded tasks (never a fixture number) */
+  reliability?: import('@contracts').AgentReliability;
   /** api mode: the definition's compare-and-set version (If-Match on edit) and its bounded tools */
   rowVersion?: number;
   tools?: string[];

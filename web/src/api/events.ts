@@ -43,6 +43,8 @@ export function startSync(): () => void {
   const agents = debounceKeyed(() => { void loadAgents().catch(() => undefined); }, 200);
   const proposals = debounceKeyed(() => bumpProposals(), 150);
   const scorecard = debounceKeyed(() => bumpScorecard(), 400);
+  // improvement cycle 3: each agent's measured reliability follows task outcomes and reassignments (the catalog carries it)
+  const reliability = debounceKeyed(() => { void loadAgents().catch(() => undefined); }, 400);
 
   let retries = 0;
   let opened = 0;
@@ -74,6 +76,7 @@ export function startSync(): () => void {
     if (type === 'org.revisionApplied') agents('a');
     // improvement cycle 2: the company scorecard follows state changes (and what the viewer can see)
     if (type === 'mission.stateChanged' || type === 'task.stateChanged' || type === 'mission.shared' || type === 'mission.deleted') scorecard('s');
+    if (type === 'task.stateChanged' || type === 'task.delegated' || type === 'mission.shared' || type === 'mission.deleted') reliability('r');
     if (/^(instance|task|mission)\./.test(type)) instances('i'); // Agents pages: Live Instances and each profile's missions
     if (type === 'conversation.messageCreated' && onChannelEvent(e)) return; // a direct channel (GM, administrators, one agent), not a mission thread
     if (type.startsWith('conversation.') || type.startsWith('instance.') || type.startsWith('task.')) onMissionControlEvent(type, e);
@@ -124,7 +127,7 @@ export function startSync(): () => void {
   const fallback = window.setTimeout(() => { if (!useData.getState().loaded) void loadSnapshot().catch(() => undefined); }, 3000);
   return () => {
     closed = true; es?.close(); window.clearTimeout(staleTimer); window.clearTimeout(fallback); window.clearInterval(watchdog);
-    mission.cancel(); approvals.cancel(); notices.cancel(); people.cancel(); agents.cancel(); instances.cancel(); proposals.cancel(); scorecard.cancel(); // no refresh fires after sign-out
+    mission.cancel(); approvals.cancel(); notices.cancel(); people.cancel(); agents.cancel(); instances.cancel(); proposals.cancel(); scorecard.cancel(); reliability.cancel(); // no refresh fires after sign-out
     set('off');
   };
 }

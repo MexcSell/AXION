@@ -69,6 +69,11 @@
 .agent-card-stats b { color: var(--text); margin-left: auto; }
 .agent-card-stats .sep { width: 1px; height: 14px; background: var(--border); margin: 0 4px; }
 .agent-card-stats span:nth-of-type(3) { margin-left: 0; }
+/* improvement cycle 3: measured reliability chip (api mode; n in the tooltip) */
+.rel-chip { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border-radius: 6px; font-size: 11.5px; font-weight: 700;
+  font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--accent); background: rgba(var(--accent-rgb), .1); border: 1px solid rgba(var(--accent-rgb), .45); }
+.rel-chip.none { color: var(--text-muted); background: var(--panel-2); border-color: var(--border); }
+.rel-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* bottom row */
 .agents-bottom { display: grid; grid-template-columns: 1.12fr 1.18fr .95fr 1fr; gap: var(--gap); }
