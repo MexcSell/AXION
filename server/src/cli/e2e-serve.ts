@@ -15,7 +15,7 @@ const uploadDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'dat
 rmSync(uploadDir, { recursive: true, force: true });
 
 const url = process.env.E2E_DATABASE_URL;
-if (!url || !/\/axion_e2e(\?|$)/.test(url)) throw new Error('E2E_DATABASE_URL must point at axion_e2e');
+if (!url || !/\/axion_e2e\d*(\?|$)/.test(url)) throw new Error('E2E_DATABASE_URL must point at axion_e2e or axion_e2e<N> (a parallel lane)');
 const pool = makePool(url, undefined, 1);
 await migrate(pool, 'down', 0);
 await migrate(pool, 'up');
