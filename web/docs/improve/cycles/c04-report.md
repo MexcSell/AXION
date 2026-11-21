@@ -15,8 +15,8 @@ Implementer report for `c04-brief.md`. Lane worktree `/home/luca/AXION-w2`, bran
     (every line is added). An unknown `seq` or `against` (also another tenant's) is 404; a non-number is 400.
   - `POST /organization/revisions/:seq/rollback-proposal {why?}`: admin only, Idempotency-Key. Checks in order: 403
     (member), 400 (no key), 404 (no such revision in this tenant), 422 `NOTHING_TO_ROLL_BACK` (the latest revision, **or** a
-    revision whose lines equal the latest's), 409 `DUPLICATE_PROPOSAL` (a pending proposal whose stored lines equal revision
-    N's, whatever its title or why), then the shared create path.
+    revision whose lines equal the latest's), 409 `DUPLICATE_PROPOSAL` (a pending proposal on the latest base whose stored
+    lines equal revision N's, whatever its title or why), then the shared create path.
 - **One create path.** The body of `POST /organization/proposals` was extracted into `createProposal(c, ctx, body, {rollbackTo?})`
   in `proposals.ts` (lock, expire, stale-base check, sha duplicate check, dry run, insert, audit, event). Both routes call it
   inside `idempotent()`. The rollback passes `title "Roll back to revision N"`, `why` (default "Restores the reporting lines of
@@ -67,8 +67,10 @@ Implementer report for `c04-brief.md`. Lane worktree `/home/luca/AXION-w2`, bran
   created: a rollback past an agent created later fails the dry run (`NO_MANAGER`), see Concerns.
 
 ## Decisions where the brief left a choice
-- **D1, duplicate rollback = same lines pending**, not only the same sha. The cycle 1 sha includes `why`, so the same rollback
-  with another reason would otherwise be a second pending proposal with identical lines. The cycle 1 sha check still runs too.
+- **D1, duplicate rollback = same lines pending on the same (latest) base**, not only the same sha. The cycle 1 sha includes
+  `why`, so the same rollback with another reason would otherwise be a second pending proposal with identical lines. A stale
+  pending proposal (older base) does not block a fresh one: it can only be rejected or withdrawn. The cycle 1 sha check
+  still runs too.
 - **D2, "nothing to roll back" includes a revision with the same lines as the latest** (e.g. revision 1 after it was restored
   as revision 3). A proposal that changes nothing would only add an identical revision.
 - **D3, no `baseRevision` in the rollback body.** The brief fixes base = latest, read under the proposal lock in the same
@@ -94,13 +96,21 @@ Implementer report for `c04-brief.md`. Lane worktree `/home/luca/AXION-w2`, bran
   mission (`VISIBLE_SQL`); the test now expects H1, H2, H7 for the admin and H2, H7 for the member.
 - **Full server suite:** `cd server && npx tsc --noEmit -p . && npx vitest run` → tsc clean, `Test Files 25 passed (25) ·
   Tests 343 passed (343)` (321 → 343, 0 failures). Re-run on the final code: same.
+- **Review fix (before handback):** the duplicate check first ignored the base revision, so a stale pending rollback would
+  have blocked the same rollback on the new base. It now matches `base_revision` = latest; the stale-base test leaves its
+  stale proposal pending and the next test's identical rollback on base 4 must be 201 (with the stale one still pending).
+  With the base condition removed again, that test fails (1 failed, 21 passed); restored: 22/22, full suite 343/343.
 - **Mutation check:** with the impact query's final-status filter and `VISIBLE_SQL` replaced by always-true conditions, and the
   "latest revision" 422 disabled, `org-history.test.ts` gave 2 failed (the two impact tests). The "latest" 422 is still
   caught by the second guard (same lines as the latest), so that mutation alone is invisible by design. Code restored.
-- **Browser (api mode)**, lane ports: `cd web && npx tsc --noEmit -p . && E2E_API_PORT=5292 E2E_WEB_PORT=5293
+- **Browser (api mode)**, lane ports, final code: `cd web && npx tsc --noEmit -p . && E2E_API_PORT=5292 E2E_WEB_PORT=5293
   ./scripts/api-e2e.sh api-auth-flow.mjs api-flows.mjs api-stage6.mjs api-improve.mjs` → TSC-OK, `api-auth-flow 15/15`,
-  `api-flows 23/23`, `api-stage6 93/94`, `api-improve 104/104`, no page errors in any.
-  - The one failure was api-stage6 "after the 409 the next Save succeeds (the new version was adopted)", an agent edit
+  `api-flows 23/23`, `api-stage6 94/94`, `api-improve 104/104`, no page errors in any, **EXIT 0** in one run. After that
+  run only the screenshot wait changed (it now also waits for the agent boards to finish folding); `api-improve.mjs` alone
+  then: 104/104, no page errors. The c04 section uses condition waits only (no `waitForTimeout`): the screenshot waits for
+  no toast, the boards folded and the diff card settled; the 1366×768 fit check waits for `innerWidth === 1366` and no
+  overflow.
+  - An earlier combined run (before the review fix) gave `api-stage6 93/94`. The one failure was api-stage6 "after the 409 the next Save succeeds (the new version was adopted)", an agent edit
     dialog check that does not touch the organisation or the proposals. `api-stage6.mjs` alone right after: **94/94**, no page
     errors. The same kind of one-off stage6 failure in the combined run was recorded in cycle 2 (`c02-report.md`).
   - `api-improve.mjs` passed on its first run with the c04 section (103/103), and 104/104 on the two runs after the
@@ -185,8 +195,8 @@ Implementer report for `c04-brief.md`. Lane worktree `/home/luca/AXION-w2`, bran
   this (or real `node_modules`) for other lanes.
 - **Impact counts DEMO missions** (tagged DEMO in the UI), because they are real rows the caller can see; there is no
   `includeDemo` switch here. Instances are listed whatever their own state (D4).
-- **api-stage6 one-off failure** in the combined run (agent edit dialog, unrelated to this cycle); 94/94 alone. Same pattern as
-  cycle 2.
+- **api-stage6 one-off failure** in one combined run (agent edit dialog "after the 409 the next Save succeeds", unrelated to
+  this cycle); 94/94 alone and 94/94 in the final combined run. Same pattern as cycle 2: a timing-sensitive check there.
 - `GET /organization/revisions` reads all edges of the tenant to count changes: fine at today's size (a few revisions of
   ~25 lines); it would want a limit or a stored count if revisions grow into the thousands.
 - Not done here (steps for the controller): independent review, LOG/LESSONS entries, merge, live-server restart (the
