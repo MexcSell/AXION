@@ -1,0 +1,34 @@
+/* Improvement cycle 6: Agents › Departments in api mode (server-counted facts). */
+.dpa-actions { gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.dpa-empty { padding: 18px 4px; font-size: 13px; }
+.dpa-card { display: flex; flex-direction: column; gap: 8px; }
+.dpa-head { margin: 0; padding: 5px 8px; }
+.dpa-head { cursor: default; }
+.dpa-head .dim svg { vertical-align: -1px; }
+.dpa-head-btn { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; }
+.dpa-head-btn:hover b { text-decoration: underline; }
+.dpa-nohead { cursor: default; gap: 8px; color: var(--warn); border-color: color-mix(in oklab, var(--warn) 45%, transparent); background: color-mix(in oklab, var(--warn) 10%, var(--panel-2)); }
+.dpa-warn-chip { font-size: 10.5px; font-weight: 700; padding: 2px 6px; border-radius: 999px; color: var(--warn); background: color-mix(in oklab, var(--warn) 14%, transparent); white-space: nowrap; }
+.dpa-members { display: flex; align-items: center; gap: 0; padding-left: 7px; min-height: 24px; margin-top: 2px; }
+.dpa-members .help-btn { margin-left: 6px; }
+.dpa-av { margin-left: -7px; padding: 0; border: 0; background: none; cursor: pointer; border-radius: 50%; transition: transform .15s; }
+.dpa-av:hover, .dpa-av:focus-visible { transform: translateY(-2px); z-index: 1; }
+.dpa-more { margin-left: 4px; font-size: 11.5px; font-weight: 700; color: var(--text-muted); }
+.dpa-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.dpa-fact { display: flex; overflow: hidden; flex-direction: column; gap: 3px; min-width: 0; padding: 6px 8px; border-radius: 9px; background: var(--panel-2); border: 1px solid var(--border-soft); }
+.dpa-fl { display: flex; align-items: center; gap: 4px; font-size: 10.5px; color: var(--text-muted); white-space: nowrap; }
+.dpa-fl .help-btn { margin-left: auto; }
+.dpa-fact b { font-size: 16px; }
+.dpa-open { display: flex; gap: 5px; font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text-muted); flex-wrap: nowrap; white-space: nowrap; }
+.dpa-open > span { display: inline-flex; align-items: center; gap: 1px; }
+.dpa-open .on { color: var(--accent-2); } .dpa-open .warn { color: var(--warn); } .dpa-open .bad { color: var(--bad); } .dpa-open .good { color: var(--good); }
+.dpa-sub { font-size: 10.5px; line-height: 1.25; }
+.dpa-few { font-style: normal; color: var(--warn); }
+.dpa-link { display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; color: var(--accent-2); text-decoration: none; white-space: nowrap; }
+.dpa-link:hover { text-decoration: underline; }
+.dpa-foot { gap: 6px; row-gap: 6px; align-items: center; flex-wrap: wrap; }
+.dpa-foot .dpa-btns { display: flex; gap: 6px; margin-left: auto; }
+.dpa-rev { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; white-space: nowrap; }
+.dpa-ring { position: relative; flex: none; }
+.dpa-ring-t { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--text-muted); }
+.dpa-ring-t b { font-size: 16px; color: var(--text); }

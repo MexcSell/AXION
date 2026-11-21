@@ -6,3 +6,4 @@ export * from './agents.ts';
 export * from './conversations.ts';
 export * from './tasks.ts';
 export * from './company.ts';
+export * from './departments.ts';
