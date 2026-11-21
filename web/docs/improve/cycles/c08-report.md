@@ -16,7 +16,7 @@
 3. **flows.mjs "Hierarchy: click agent → conversation pane" (test).** Reproduced on the first run. The app does switch: polling
    showed the pane still on the previous agent at 1.1 s after the click and on Tester-01 at 1.5 s (AnimatePresence mode="wait":
    exit animation, then enter, on a loaded machine), while the check slept a fixed 500 ms and then counted immediately.
-   Fix: `waitFor` (10 s) on the expected header before the unchanged assertions; same for "Conversations: mission agents pane".
+   Fixed in c25 (lane w23, 15f8d0b, same diagnosis and same kind of fix); I dropped my duplicate change to that step to avoid a merge conflict. My change keeps only the same condition wait for "Conversations: mission agents pane" (same fixed 500 ms sleep).
    The "v1 → v2 migration" step lives in `auth-flow.mjs`, not flows.mjs, and did not fail in my runs; not touched.
 4. **Lane portability (test).** `api-improve.mjs` required the database name to be exactly `axion_e2e`; lane databases are
    `axion_e2eN`, so every lane run died at the expiry step. The pattern now accepts `axion_e2e\d*` (still never the real `axion`).
