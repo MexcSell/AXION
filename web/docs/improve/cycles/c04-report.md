@@ -201,3 +201,71 @@ Implementer report for `c04-brief.md`. Lane worktree `/home/luca/AXION-w2`, bran
   ~25 lines); it would want a limit or a stored count if revisions grow into the thousands.
 - Not done here (steps for the controller): independent review, LOG/LESSONS entries, merge, live-server restart (the
   routes changed; no migration).
+
+## Fix round (after `c04-review.md`)
+
+### I1: the History timeline's CSS leaked into Agents › Policies "Revision History": fixed
+- The cause: `.oa-timeline` already existed (Policies › Revision History, `OrgSections.tsx:166`, both modes). The second,
+  unscoped rule added for the History view gave that panel a `max-height` and overflow, new padding, and a `::before` line
+  between the dots and the text.
+- The fix: the History view uses its own class, `oa-htimeline` (`OrgHistory.tsx`, `overview-org-agent.css`). The original
+  `.oa-timeline` rule is unchanged. None of the cycle's other new classes existed at the base: `git grep` at `f7c7bca` finds
+  no use of `oa-htimeline`, `oa-hist`, `oa-rev*`, `oa-hdiff`, `oa-hsec`, `oa-hmove(s)`, `oa-old`, `oa-new`, `oa-impact*`,
+  `oa-rollback` or `oa-hl`.
+- **Proof (demo mode, the lane dev server on 5290 with the fs.allow workaround).** An element screenshot of the Policies
+  "Revision History" panel at 1600×940, dark, reduced motion, taken once every row is fully shown and no finite animation is
+  running. The script waits for conditions only; it is kept in my scratchpad as `policy-shot.mjs`.
+  - Base `f7c7bca` (worktree detached there, then switched back):
+    `web/docs/screenshots/improve-c04-fix-policies-base-f7c7bca.png`. Computed: `max-height none`, `overflow-y visible`,
+    `padding 0px`, `::before none`, 623×289.
+  - Before the fix (`5180d91`): `web/docs/screenshots/improve-c04-fix-policies-prefix-5180d91.png`. Computed: `max-height
+    520px`, `overflow-y auto`, `padding 2px 4px 2px 0px`, `::before ""`, 623×293. The stray vertical line is visible beside
+    the dots.
+  - After the fix (final code): `web/docs/screenshots/improve-c04-fix-policies-fixed.png`. Computed exactly as the base.
+  - Comparison (Pillow `ImageChops.difference`): base against fixed gives **0 differing pixels** (the two PNG files are
+    also byte-identical, per `cmp`). Base against before-the-fix differs in size (289 vs 293 px).
+
+### Minors
+- **m1, done.** The diff against 0 (the first revision) lists no affected mission: every line is new, so no agent's manager
+  changed (`history.ts`). The UI says "The first revision: every line is new, so no agent's manager changed." The test
+  asserts `impact: []` for revision 1, and so does a browser check.
+- **m2, done.** `canceled` (H8) and `failed` (H9) fixtures were added to `org-history.test.ts`. Mutation: with `canceled`
+  dropped from `FINAL`, 2 tests fail; restored, 22/22.
+- **m3, partly done.** The `agent.create` source lookup now casts inside `case when jsonb_typeof(...) = 'number' then … end`,
+  so the cast no longer depends on evaluation order. **Deferred:** a bound or stored source for the per-revision lookup
+  over `audit_events`, and for the edges read in the list route. Both are fine at today's size.
+- **m4, done.** The browser 422 is now the natural one, with no request interception. After revision 3 (= revision 1's
+  lines), A selects revision 1 and clicks rollback, and the server's message ("same reporting lines as the active revision
+  3: there is nothing to roll back") shows inline.
+- **m5, done.** `Line` moved to `web/src/features/agents/OrgLine.tsx` with the same markup. `ServerProposals.tsx` and
+  `OrgHistory.tsx` import it from there; there is no circular import any more.
+- **m6, deferred (accepted as designed, D2).** The rollback button is still offered on a revision whose lines equal the
+  active one's, and the click gives a clear 422. Hiding it needs a diff against the latest per selection.
+- **m7, partly done.** The `org.history.rollback` help now says that a rollback past an agent added later is stored with a
+  dry-run error and cannot be approved. **Deferred (backlog):** a rollback that reverses only the selected revision's
+  diff on top of the latest lines.
+- Also: the member check in the browser flow now uses revision 2 (an earlier, non-seed revision). It compares the exact
+  list of missions C can see with the server's, and C sees no rollback button there.
+
+### Commands and output (fix round, final code)
+- `cd server && npx tsc --noEmit -p . && npx vitest run` → tsc clean, `Test Files 25 passed (25) · Tests 343 passed (343)`.
+- `cd web && npx tsc --noEmit -p .` → clean.
+- `E2E_API_PORT=5292 E2E_WEB_PORT=5293 ./scripts/api-e2e.sh api-improve.mjs` (with `DOC_SHOT_C04`, screenshot
+  regenerated) → EXIT 0, **105/105**, no page errors. That includes 24 c04 checks (one new: revision 1 lists no affected
+  mission).
+- `BASE=http://127.0.0.1:5290 ./scripts/verify-all.sh` (lane dev server, fs.allow workaround) → EXIT 0: build ✓, crawl 77 views NO
+  PROBLEMS, deep crawl NO PROBLEMS, flows / auth flow / u1 flows no errors (46 PASS lines, 0 FAIL), dialog smoke 106 checks 0
+  failures, dialog ids and help keys all defined, fs guard OK.
+  - The first run of it in this round was red: the deep crawl logged `net::ERR_NETWORK_CHANGED` on `/missions/M-131?tab=timeline`
+    and `auth-flow.mjs` then timed out waiting for `.mission-row`. That is a host network hiccup, in pages this cycle does not
+    touch. A rerun right after, on a fresh lane dev server and unchanged code, is the green result above.
+- **Process note: `git stash`.** For the base screenshot I used `git stash` / `git stash pop` once, before the controller's
+  rule against it arrived. The pop restored my own entry: my working tree afterwards held only my two c04 files. The one
+  remaining stash, `WIP on c07-bundle-split` (another lane's), was not touched. I have not used stash since; work in
+  progress is committed instead.
+
+### Files changed in the fix round
+`web/src/theme/pages/overview-org-agent.css`, `web/src/features/agents/OrgHistory.tsx`,
+`web/src/features/agents/ServerProposals.tsx`, `web/src/features/agents/OrgLine.tsx` (new),
+`web/src/help/pages/overview-org-agent.ts`, `web/scripts/api-improve.mjs`, `server/src/organization/history.ts`,
+`server/test/org-history.test.ts`, the three `improve-c04-fix-policies-*.png`, `improve-c04-history-dark.png`, this report.
