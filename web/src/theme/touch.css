@@ -1,14 +1,18 @@
 /* Touch sizing (c24): on phones and tablets every tappable control is at least 40 px.
-   Desktop (> 900 px) is untouched.  Exceptions: inline ? help dots and text-line links. */
+   Desktop (> 900 px) is untouched.  Exceptions: inline ? help dots, the fold handle. */
 @media (max-width: 900px) {
-  .icon-btn, .icon-btn.sm, .icon-btn.xs { width: 40px; height: 40px; }
+  .icon-btn, .icon-btn.sm, .icon-btn.xs { min-width: 40px; min-height: 40px; }
   .brand { min-height: 40px; }
   .avatar-btn, .uav-btn { min-width: 40px; min-height: 40px; }
   .nav-item { height: 42px; }
-  .tab { min-height: 40px; }
-  .btn.sm { min-height: 40px; }
+  .tab { min-height: 40px; min-width: 40px; justify-content: center; }
+  .btn, .btn.sm { min-height: 40px; }
   .select, .input { min-height: 40px; }
   .mw-share { min-height: 40px; }
   .tb-toggle { height: 24px; min-width: 56px; }
   .tb-toggle:hover, .tb-toggle:focus-visible { height: 28px; }
+}
+/* the 40 px top-bar buttons plus the wordmark do not fit 390 px: keep the logo mark, drop the word */
+@media (max-width: 440px) {
+  .topbar-inner .brand-word { display: none; }
 }
