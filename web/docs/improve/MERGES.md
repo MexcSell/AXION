@@ -128,3 +128,20 @@ Integrator log: one entry per merge request. Times are UTC.
 - `docs/dialog-ledger.txt` was not left modified by this run.
 
 **Follow-up commits:** none. Controller files committed with this entry: LOG.md, QUEUE.md (modified), cycles/c22-review.md (new).
+
+## Batch 2c: c23 (live regions)
+
+- **Merged:** 2026-11-21 ~22:03 UTC. Pre-batch commit `2eca0e3`.
+- **Merge commit:** `3440698` c23-live-regions (acc0c0e), `--no-ff`.
+- **Conflicts:**
+  - `web/scripts/a11y-check.mjs` (add/add with c16): took c23's, a superset of c16's script.
+  - `web/src/features/agents/ServerProposals.tsx` (imports): c23's `LiveStatus` import added next to c04's react import line.
+- **Server:** tsc OK; vitest 30 files 472/472. **web:** tsc OK.
+- **api-e2e:** api-auth-flow 15/15; api-flows 23/23; **api-stage6 94/94** (the reload step passed this run; c22 not merged yet); api-improve 107/107; **a11y-check (api) 40 views, 55 dialogs, 0 violations** (112.5 s).
+- **verify-all:** exit 0, "ALL 10 STEPS PASSED", no FAIL lines (flows 21/21, auth 17/17, u1 8/8, dialog smoke 110/0).
+- **fit-check:** 77/77 ALL FIT. **ov-fit:** 32/32, no scroll anywhere.
+- **a11y-check (demo):** 50 views, 55 dialogs, 0 violations (141.8 s).
+
+**Observation (not fixed):** c04's `OrgHistory.tsx:157` "Loading history…" is a plain div, not c23's `LiveStatus`. a11y-check does not open the History switch, so nothing flags it. One-line follow-up for a later lane.
+
+**Follow-up commits:** none. Controller files committed with this entry: LOG.md, QUEUE.md (modified), cycles/c24-review.md (new).

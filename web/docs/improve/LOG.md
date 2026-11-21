@@ -185,3 +185,8 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
 - Remaining: a LIVE 1,000-message burst still keeps the page busy while it arrives (needs virtualisation; backlog). Review (opus) running.
 - c23 fix round 2 (acc0c0e): the twin and aria-hidden are removed; the ChatView empty/error block is itself the live region, and the thread drops role=log while in that state (layout unchanged, 8 of 1.57M pixels differ); new HIDDENFOCUS check; a11y 0 violations in demo and api; verify-all 0 FAIL lines. Controller verified. Cleared (batch 2c).
 - c22 review: spec PASS, quality PASS; batching correct (arrival order, flush-before-write, cleared on sign-out and mission-gone). I1: the minimap does not re-measure when a row is replaced at the same count. Fix round dispatched.
+- c22 fix round (cc55d91, 5c2a32e, 665d71a): the minimap re-measures when messages change (RED on 15ef55c, GREEN after); "N new" counter fixed; batching-order checks; the script exits 1 on a miss. 130 msgs 1.7–2.0 s, 1,000 msgs 2.7–3.3 s; api-c22 14/14; stage6 94/94; verify-all 0 FAIL lines. Controller verified. Cleared (batch 2d); the stage6 exception ends there.
+
+### Cycle 24: phone-width fit (lane w22)
+- Implementer (8bab3dd to bb0551b): touch.css gated at ≤900 px; at 390×844, FAIL lines 14 → 0 (dialogs larger than the screen, clipped controls); page overflow 0 at both sizes; desktop untouched.
+- Review: PASS/PASS. Ruling on the claim: only the 390 px numbers are a valid before/after (same harness). The 900 px "291 → 109 small targets" is NOT a valid gain claim (different harness and state count) and is reported as "109 remaining, listed". Cleared (batch 5c).
