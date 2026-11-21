@@ -39,3 +39,10 @@ RED evidence: before the fixes the script's api-mode probe found the loading tex
 - Note: live regions that mount already filled are announced unreliably by some screen readers; accepted.
 - Results: a11y script api 40 views / 55 dialogs 0 violations; demo 50 / 55, 0; api-improve 83/83; api-stage6 34/35 (the one failure is the known `page.reload` 30 s stall); verify-all (own OUT /tmp/axion-verify-w21): 0 FAIL lines, all stages ran to the end (typecheck+build, crawls, flows, auth flow, dialog smoke 110 checks 0 failures, ids, help keys, fs guard).
 - Not re-measured: the pixel comparison was taken before the fix round; the fix round changes only attributes, sr-only nodes (absolute, 1px) and one span wrapper around two dialog chips.
+
+## Fix round 2 (re-review)
+- Problem: the first fix put `aria-hidden` on the visible chat error block (it holds the error detail and a focusable Retry) and spoke only the title through an sr-only twin.
+- Fix: the twin and `aria-hidden` are gone. The empty/error block itself is the live region (`role=alert` for error, `role=status` for loading), so its title, detail and Retry stay visible and reachable. To avoid nesting it in `role=log` without moving it (which would change the layout), the `.thread-body` drops `role=log` / `aria-live` only while `emptyState` is set; it is a plain container then, and the log returns once messages load. The element and styles are unchanged (the coordinator suggested a sibling outside the log; this reaches the same result with no layout risk).
+- Screenshot before/after of the failed conversation (mission M-125 conversations, mocked 500; `scripts/shot-c23.mjs`): 8 of 1.57 M pixels differ, overview 2: no visual change. The error block shows title, "Request failed (500)." and Retry.
+- a11y script: new `HIDDENFOCUS` check (no focusable element inside `[aria-hidden=true]`) in the per-view audit and the dialogs.
+- Results: a11y api 40 views / 55 dialogs 0 violations; demo 50 / 55, 0; api-improve 83/83; api-stage6 34/35 (known `page.reload` 30 s stall); verify-all (own OUT): 0 FAIL lines, all stages ran, dialog smoke 110 checks 0 failures.
