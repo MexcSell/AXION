@@ -105,6 +105,12 @@ export default async function uploadRoutes(app: FastifyInstance) {
         `select 1 from missions m join mission_revisions r on r.mission_id=m.id where m.tenant_id=$1 and m.deleted_at is null and ${VISIBLE_SQL('$2', '$3')} and r.files @> $4::jsonb limit 1`,
         [ctx.tenantId, ctx.user.role === 'admin', ctx.user.id, JSON.stringify([{ id }])])).rowCount;
     }
+    if (!ok) { // a file attached to a message in a conversation the user can see
+      ok = !!(await app.db.query(
+        `select 1 from message_attachments a join messages x on x.id=a.message_id join conversation_threads c on c.id=x.thread_id join missions m on m.id=c.mission_id
+          where a.upload_id=$1 and m.tenant_id=$2 and m.deleted_at is null and ${VISIBLE_SQL('$3', '$4')} limit 1`,
+        [id, ctx.tenantId, ctx.user.role === 'admin', ctx.user.id])).rowCount;
+    }
     if (!ok) throw notFound();
     const inline = ['image', 'audio', 'video', 'pdf', 'txt'].includes(f.kind);
     reply.header('content-type', f.mime);

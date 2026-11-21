@@ -103,8 +103,8 @@ describe('execution guard (Stage 5: nothing executes)', () => {
     const files: string[] = [];
     const walk = (d: string) => { for (const f of readdirSync(d)) { const p = join(d, f); if (statSync(p).isDirectory()) walk(p); else if (p.endsWith('.ts')) files.push(p); } };
     walk(join(import.meta.dirname, '..', 'src'));
-    files.push(join(import.meta.dirname, '..', '..', 'web', 'src', 'features', 'mission', 'staffing-plan.ts'));
-    const banned = /from ['"](node:)?(child_process|worker_threads|cluster)['"]|from ['"](playwright|puppeteer|openai|@anthropic-ai\/[^'"]+|ollama|bullmq|pg-boss)['"]|\bspawn\(|\bexecFile?\(/;
+    for (const f of ['features/mission/staffing-plan.ts', 'data/agents.ts', 'data/missions.ts', 'data/types.ts']) files.push(join(import.meta.dirname, '..', '..', 'web', 'src', f)); // the web files the server imports
+    const banned = /from ['"](node:)?(child_process|worker_threads|cluster)['"]|from ['"](playwright|puppeteer|openai|@anthropic-ai\/[^'"]+|ollama|bullmq|pg-boss)['"]|\bspawn\(|\bexecFile?\(|\bfetch\(/;
     const hits = files.filter((f) => banned.test(readFileSync(f, 'utf8')));
     expect(hits).toEqual([]);
     expect(files.length).toBeGreaterThan(15);

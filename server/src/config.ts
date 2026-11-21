@@ -7,6 +7,8 @@ export interface Config {
   uploadDir?: string;
   /** staffing simulation step in ms (tests shorten it) */
   staffingStepMs?: number;
+  /** DEMO conversation simulation step in ms (tests shorten it) */
+  conversationSimMs?: number;
   /** where db-backup.sh writes dumps (Operations › Health shows the newest) */
   backupDir?: string;
   /** SSE ping interval (tests shorten it) */

@@ -20,6 +20,8 @@ import { checkOrigin } from './auth/session.ts';
 import agentRoutes from './agents/routes.ts';
 import { seedCompany } from './agents/seed.ts';
 import instanceRoutes from './instances/routes.ts';
+import conversationRoutes from './conversations/routes.ts';
+import { startConversationSim } from './conversations/sim.ts';
 import { backfillMissionControl } from './instances/backfill.ts';
 
 declare module 'fastify' {
@@ -74,6 +76,7 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   await app.register(opsRoutes, { prefix: '/api/v1' });
   await app.register(agentRoutes, { prefix: '/api/v1' });
   await app.register(instanceRoutes, { prefix: '/api/v1' });
+  await app.register(conversationRoutes, { prefix: '/api/v1' });
   await tx(db, (c) => seedCompany(c, app.cfg.tenantId)); // decision E1: company data, idempotent, independent of DEMO_SEED
   await tx(db, (c) => backfillMissionControl(c, app.cfg.tenantId, app.log)); // Stage 6: instances, delegations and tasks for missions that predate them (idempotent)
 
@@ -84,6 +87,7 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   });
 
   startStaffingSim(app, cfg.staffingStepMs ?? 1500);
+  startConversationSim(app, cfg.conversationSimMs ?? 1200);
   // review I4: expired approvals are settled every minute, even when nobody opens the approvals list
   const sweep = setInterval(() => { void tx(db, (c) => sweepExpired(c)).then((ids) => ids.forEach((id) => app.onMissionChanged?.(id, 'running'))).catch(() => {}); }, 60_000);
   sweep.unref();
