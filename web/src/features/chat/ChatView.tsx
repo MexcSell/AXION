@@ -249,7 +249,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
       <div className={cx('thread-scroll', mm && 'with-minimap')}>
         {loadingOlder && <div className="thread-older" role="status"><Loader2 size={12} className="spin" /> Loading older messages…</div>}
         <div className="thread-body" ref={scroller} onScroll={(e) => { const el = e.currentTarget; const b = el.scrollHeight - el.scrollTop - el.clientHeight < 40; setAtBottom(b); if (b) setNewCount(0); if (el.scrollTop < 80) requestOlder(el); }} role="log" aria-label="Conversation" aria-live="polite" data-has-older={hasOlder ? '1' : undefined}>
-          {shown.length === 0 && <div className="empty" style={{ padding: 30 }}><div className="empty-icon"><Send size={22} /></div><h4>{emptyTitle ?? 'No messages yet'}</h4>{emptyText && typeof emptyText === 'object' ? <div className="thread-empty-body">{emptyText}</div> : <p>{emptyText ?? 'Write the first message.'}</p>}</div>}
+          {shown.length === 0 && <div className="empty" style={{ padding: 30 }} {...(typeof emptyTitle === 'string' && /^(Loading|Could not)/.test(emptyTitle) ? { role: /^Could/.test(emptyTitle) ? 'alert' : 'status' } : {})}><div className="empty-icon"><Send size={22} /></div><h4>{emptyTitle ?? 'No messages yet'}</h4>{emptyText && typeof emptyText === 'object' ? <div className="thread-empty-body">{emptyText}</div> : <p>{emptyText ?? 'Write the first message.'}</p>}</div>}
           <AnimatePresence initial={false}>
             {shown.map((m) => {
               const day = dateLabel(m.agoMin, m.ts);

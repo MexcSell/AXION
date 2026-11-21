@@ -54,7 +54,7 @@ export function KpiTile({ k, i = 0 }: { k: KpiItem; i?: number }) {
       <div className="kt-body">
         <div className="kt-top">
           {k.text != null
-            ? <span className="kpi-val kt-text">{k.text}</span>
+            ? <span className="kpi-val kt-text" {...(/…$/.test(k.text) ? { role: 'status' } : {})}>{k.text}</span>
             : <span className="kpi-val"><CountUp value={k.value} decimals={k.decimals} prefix={k.prefix} suffix={k.suffix} /></span>}
           {k.badge != null && <span className="kt-badge">{k.badge}</span>}
           {k.delta && <span className="kpi-delta">{k.down ? <ArrowDown size={13} strokeWidth={3} /> : <ArrowUp size={13} strokeWidth={3} />}{k.delta}</span>}

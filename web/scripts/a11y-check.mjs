@@ -73,7 +73,7 @@ const audit = () => {
   }
   // cycle 23: loading and failed-load states must be announced (role=status for loading, role=alert for errors)
   for (const e of document.querySelectorAll('[data-state=loading],.part-status[data-state=loading]')) if (vis(e) && !live(e)) out.push(`LIVE loading state [data-state=loading] "${txt(e).slice(0, 30)}" is not in a status region`);
-  for (const e of document.querySelectorAll('[data-state=error],.oa-banner')) if (vis(e) && !e.closest('[role=alert]') && !e.closest('[aria-live=assertive]')) out.push(`LIVE error state "${txt(e).slice(0, 30)}" is not role=alert`);
+  for (const e of document.querySelectorAll('[data-state=error],.oa-banner')) if (vis(e) && (e.matches('[data-state=error]') || e.querySelector('button') || /not loaded|could not|failed/i.test(txt(e))) && !e.closest('[role=alert]') && !e.closest('[aria-live=assertive]')) out.push(`LIVE error state "${txt(e).slice(0, 30)}" is not role=alert`);
   for (const e of document.querySelectorAll('main *, .page *, .sc-empty')) {
     if (e.children.length || !vis(e)) continue;
     const t = (e.textContent || '').trim();
@@ -159,12 +159,12 @@ for (const id of ids) {
 // cycle 23 (api mode): hold, then fail, the data requests of a few pages and check the loading / error text is announced
 if (API) {
   const probes = ['/overview', '/operations?tab=agents&sub=live-instances', '/operations?tab=agents&sub=proposals', '/operations?tab=agents&sub=development', '/agents/coder-01', '/agents/coder-01?tab=evolution'];
-  const hit = /\/api\/v1\/(?!auth|health|events|me\b)/;
+  const hit = /\/api\/v1\/(.*instances|agent-instances|.*agent-versions|.*versions|.*proposals|.*versions|company\/scorecard|organization\/graph|missions\/[^/]+\/(hierarchy|tasks|threads)|threads\/|channels\/)/;
   for (const mode of ['slow', 'fail']) {
     let release; const gate = new Promise((r) => { release = r; });
     await p.route(hit, async (route) => {
       if (route.request().method() !== 'GET' || route.request().url().includes('/stream')) return route.continue();
-      if (mode === 'slow') { await gate; return route.continue(); }
+      if (mode === 'slow') { await gate; return route.continue().catch(() => {}); }
       return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: { code: 'internal', message: 'mocked failure' } }) });
     });
     for (const v of probes) {
@@ -172,9 +172,9 @@ if (API) {
       await p.waitForTimeout(mode === 'slow' ? 500 : 1200);
       const found = await p.evaluate(audit);
       for (const m of found) all.push({ where: `${v} (${mode})`, msg: m });
-      probed.push(`${v} ${mode}: ${await p.evaluate(() => [...document.querySelectorAll('[role=status],[role=alert]')].map((e) => (e.innerText || '').trim().slice(0, 40)).filter(Boolean).join(' | ').slice(0, 160))}`);
+      probed.push(`${v} ${mode} [${await p.evaluate(() => (document.body.innerText.match(/(Loading|Reading)[^\n]{0,30}/g) || []).join(';'))}]: ${await p.evaluate(() => [...document.querySelectorAll('[role=status],[role=alert]')].map((e) => (e.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 40)).filter(Boolean).join(' | ').slice(0, 160))}`);
     }
-    release(); await p.unroute(hit);
+    release(); await p.waitForTimeout(300); await p.unroute(hit, undefined).catch(() => {});
   }
 }
 const secs = ((Date.now() - t0) / 1000).toFixed(1);

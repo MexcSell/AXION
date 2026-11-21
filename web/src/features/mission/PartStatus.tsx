@@ -13,9 +13,9 @@ export function usePartStatus(missionId: string, part: Part, what: string) {
   if (!isApi()) return null;
   const st = partState(entry, part);
   if (st === 'ready') return null;
-  if (st === 'loading') return <div className="part-status" data-part={part} data-state="loading"><EmptyState icon={Loader2} title={`Loading ${what}…`} body="Reading it from the AXION server." /></div>;
+  if (st === 'loading') return <div className="part-status" data-part={part} data-state="loading" role="status"><EmptyState icon={Loader2} title={`Loading ${what}…`} body="Reading it from the AXION server." /></div>;
   return (
-    <div className="part-status" data-part={part} data-state="error">
+    <div className="part-status" data-part={part} data-state="error" role="alert">
       <EmptyState icon={CloudOff} title={`Could not load ${what}`} body={<>{entry?.errors?.[part]} It is retried automatically; nothing here means "empty".</>}
         action={<button className="btn" onClick={() => retryPart(missionId, part)}><RotateCcw size={14} />Retry</button>} />
     </div>

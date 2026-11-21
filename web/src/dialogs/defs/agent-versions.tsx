@@ -105,7 +105,7 @@ function AgentVersionPropose({ close, props }: DialogComponentProps<{ agentId?: 
         </div>
         <div className="col" style={{ gap: 12 }}>
           <div className="row" style={{ gap: 8 }}><div className="section-label" style={{ margin: 0 }}>Before → after</div>{base && <Chip hue={225} size="sm" className="mono">{base.label}</Chip>}<ArrowRight size={12} className="dim" aria-hidden /><Chip hue={290} size="sm">candidate</Chip><HelpTrigger k="agent.version.diff" /></div>
-          <div data-dialog-diff>{diff ? <VersionDiffView d={diff} empty="No change yet: edit the model, a skill or a tool." /> : <span className="dim" style={{ fontSize: 12.5 }}>Loading…</span>}</div>
+          <div data-dialog-diff>{diff ? <VersionDiffView d={diff} empty="No change yet: edit the model, a skill or a tool." /> : <span className="dim" style={{ fontSize: 12.5 }} role="status">Loading…</span>}</div>
           <NoEvaluation />
           <Field label="Hypothesis" htmlFor="vp-hyp" required hint="Why should the candidate be better? Shown to the administrator who decides."><textarea id="vp-hyp" data-autofocus className="textarea" rows={3} maxLength={2000} value={hypothesis} onChange={(e) => { setSrvErr(null); setHypothesis(e.target.value); }} placeholder="e.g. Fewer review rounds on frontend tasks." /></Field>
           <Field label="Title" htmlFor="vp-title" hint={`Optional. Default: “${autoTitle}”`}><input id="vp-title" className="input" value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} placeholder={autoTitle} /></Field>

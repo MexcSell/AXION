@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
+import { LiveStatus } from '@/components/ui/LiveStatus';
 import { useAgentsCatalog, useAgentInstances } from '@/api/agents';
 import { useNavigate } from 'react-router-dom';
 import { Target, Users, ClipboardList, Trophy, Database, HeartPulse, CheckCircle2, Scale, PlayCircle, Flag, BadgeCheck, ShieldQuestion, Timer, XCircle, RotateCcw, Hourglass } from 'lucide-react';
@@ -104,7 +105,7 @@ export function CompanyScorecard() {
             </Tip>
           );
         })}
-        {!shown && <div className="dim sc-empty">{error ?? 'Reading the scorecard…'}</div>}
+        {!shown && <LiveStatus kind={error ? 'error' : 'loading'} className="dim sc-empty">{error ?? 'Reading the scorecard…'}</LiveStatus>}
       </div>
       <footer className="sc-foot">
         <span className="dim ellipsis">{shown ? range(shown) : WINDOW_LABEL[win]} · visible missions</span>

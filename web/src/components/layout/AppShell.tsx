@@ -154,7 +154,7 @@ export function AppShell() {
 
 export function PageSkeleton() {
   return (
-    <div className="page" aria-busy="true" aria-label="Loading">
+    <div className="page" role="status" aria-label="Loading">
       <div className="skeleton" style={{ height: 120 }} />
       <div className="grid g-3"><div className="skeleton" style={{ height: 220 }} /><div className="skeleton" style={{ height: 220 }} /><div className="skeleton" style={{ height: 220 }} /></div>
     </div>
