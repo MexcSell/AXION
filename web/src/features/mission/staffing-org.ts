@@ -101,15 +101,18 @@ export function orgStaffing(kind: Mission['kind'], base: { executorId: string; p
     const sup = up.get(p.agentId);
     return { ...p, managerId: sup && sup !== GM && sup !== p.agentId && members.has(sup) ? sup : executorId };
   });
-  // join order: stable, managers first
+  // join order: fixture order, except that an agent whose manager has not joined yet waits and joins right after it
   const plan: PlannedAgent[] = [];
   const joined = new Set([executorId]);
-  let rest = withManager;
-  while (rest.length) {
-    const ready = rest.filter((p) => joined.has(p.managerId!));
-    if (!ready.length) { for (const p of rest) plan.push({ ...p, managerId: executorId }); break; } // cannot happen on a valid chart
-    for (const p of ready) { plan.push(p); joined.add(p.agentId); }
-    rest = rest.filter((p) => !joined.has(p.agentId));
-  }
+  let waiting: PlannedAgent[] = [];
+  const add = (p: PlannedAgent) => {
+    plan.push(p);
+    joined.add(p.agentId);
+    const now = waiting.filter((w) => w.managerId === p.agentId);
+    waiting = waiting.filter((w) => w.managerId !== p.agentId);
+    now.forEach(add);
+  };
+  for (const p of withManager) if (joined.has(p.managerId!)) add(p); else waiting.push(p);
+  for (const p of waiting) plan.push({ ...p, managerId: executorId }); // cannot happen on a valid chart (no loops)
   return { executorId, plan, origin: { ...(org.revision !== undefined ? { revision: org.revision } : {}), dept: KIND_DEPT[kind], executorFrom: head ? 'head' : 'fixture' } };
 }
