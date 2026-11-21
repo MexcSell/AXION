@@ -56,3 +56,5 @@ Placement: Evolution Lab and Governance pages were removed in u1, so features li
 ## Planned order
 
 A1 → B1 → C1 → A3 → B3 → C2 → A2 → B2 → C3 → A5 → B4 → C4 → A4 → C5 → H1. The order is adjusted by lessons.
+
+| H3 | Race: POST /agents reads the org edges before taking the org-revision lock, so an agent created while a proposal is approved can silently revert it (found in cycle 1). One-line fix in agents/routes.ts. | 5 | 5 | 4 | 14 |

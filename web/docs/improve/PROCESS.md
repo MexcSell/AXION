@@ -27,7 +27,8 @@ The themes take turns (A → B → C → A …), so each one moves forward.
    records. Write them down before touching code.
 3. **Study.** Read the relevant part of the design spec and the existing code, plus patterns from the reference backend
    (`/home/thomas/subnet-scout`, read only). Pick candidates from `BACKLOG.md` and score each one on value, effort and risk.
-4. **Decide one change.** It must be small enough to build, test and review in one cycle. Write down:
+4. **Decide one change.** It must be small enough to build, test and review in one cycle. If it adds a new writer of
+   existing data, list the other writers of that data, so they all share one safe path. Write down:
    - the **hypothesis** (what gets better and for whom);
    - the **measure** (which number or check shows it);
    - the **pass threshold**, fixed now and never lowered after seeing results.

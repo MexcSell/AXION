@@ -1,0 +1,12 @@
+# Cycle 1 re-review (fix round ded4043..8c4cc3a)
+
+Verdicts
+- I-1 ADDRESSED. `server/src/agents/org.ts` `createOrgRevision` now does lockOrg, then `latestRevision` (max(seq)), then builds edges (callback form), then validates, then inserts seq+1. `server/src/agents/routes.ts:66-70` passes `(latest) => [...latest, line]` and no longer reads before the lock. `proposals.ts:121` locks first and approval passes `expectSeq`. The seed uses the same path (`seed.ts:31`). Deterministic regression: `server/test/proposals.test.ts` "POST /agents waiting on the org lock..." holds the advisory lock, waits on pg_locks, commits a later-started revision from a second connection, then asserts the moved line is kept. It was RED before the fix.
+- I-2 ADDRESSED. `server/src/organization/validate.ts` adds RETIRED_MANAGER (:34-36), GM_HAS_MANAGER (:37), NOT_UNDER_GM (:86-97), DUPLICATE_LINE; one unit test each in `server/test/org-validate.test.ts` (retired manager, unknown manager, GM as subordinate, detached chain, 3-cycle, 64/65, duplicate). `createOrgRevision` runs `validateOrg` and throws 422 ORG_INVALID (`org.ts`, after assertAcyclic); `proposals.test.ts` covers it.
+- Minors ADDRESSED. `web/src/api/events.ts:71` refreshes proposals on org.* and agent.created, and POST /agents now emits org.revisionApplied. Ids are `randomBytes(16)` (`proposals.ts:96`). The 3-agent cycle test exists. Also done: tenant_id on CAS and one(), `<` comparison for the sha sort, edgeType restricted to reports_to.
+
+New breakage: none Critical or Important.
+- Lock order is safe. POST /agents holds agent-create then org-rev; approval holds org-rev then the proposal row; the advisory lock is re-entrant within one transaction. No cycle.
+- The seed and POST /agents pass the fixture chart (258 server tests pass). No retire route exists in src, so the retired-manager check cannot block a normal flow.
+- Low risk, behaviour change only: any tenant whose latest chart already has an active agent without a manager now makes every POST /agents (and a seed run onto pre-existing custom agents) fail 422 NO_MANAGER. This only arises with data created outside the API paths.
+- Flake (api-stage6 92/94, designer-01 Edit dialog): nothing in the diff touches agent PATCH, versions or row_version. The only plausible link is that POST /agents now emits an extra org.revisionApplied, which triggers one more coalesced catalog reload (`events.ts:72`) near agent-creation steps. That could race a dialog save in a timing-sensitive step. I rate it unlikely; watch for a recurrence.
