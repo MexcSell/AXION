@@ -253,6 +253,35 @@ describe('lifecycle', () => {
   });
 });
 
+describe('rollback privacy and audit (cycle 27, c05 m6 and m7)', () => {
+  const AG2 = 'designer-01';
+  const rb = (toVersionId: string, why: string, h: Record<string, string> | undefined = key()) => A.req('POST', `/agents/${AG2}/rollback`, { toVersionId, why }, h);
+  it('m7: the reason stays in the audit row; the event everyone can read does not carry it', async () => {
+    const a = await agent(AG2);
+    expect((await A.req('PATCH', `/agents/${AG2}`, { skills: [...a.skills, 'Rollback-privacy'] }, { 'if-match': String(a.rowVersion) })).status).toBe(200);
+    const why = 'Priya reviewed badly, undo it.';
+    expect((await rb(a.versionId, why)).status).toBe(200);
+    const ev = await rows(`select payload from events where type='agent.rolledBack' and subject_id=$1 order by id desc limit 1`, [AG2]);
+    expect(ev.length).toBe(1);
+    expect(JSON.stringify(ev[0].payload)).not.toContain('Priya');
+    expect(ev[0].payload).not.toHaveProperty('why');
+    const au = await rows(`select detail from audit_events where action='agent.rollback' and subject=$1 order by id desc limit 1`, [AG2]);
+    expect(au[0].detail.why).toBe(why); // the audit row (administrators only) keeps it
+  });
+  it('m6: a refused rollback is audited as denied, with the code and without the reason', async () => {
+    const cur = await agent(AG2);
+    const denied = async () => rows(`select detail from audit_events where action='agent.rollback' and result='denied' and subject=$1 order by id`, [AG2]);
+    const n0 = (await denied()).length;
+    const r = await rb(cur.versionId, 'secret reason');
+    expect(r.status).toBe(422);
+    const d = await denied();
+    expect(d.length).toBe(n0 + 1);
+    expect(d[d.length - 1].detail).toEqual({ code: 'ALREADY_ACTIVE' });
+    expect((await rb(cur.versionId, 'x', {})).body.code).toBe('IDEMPOTENCY_KEY_REQUIRED'); // not a refusal of the rollback itself
+    expect((await denied()).length).toBe(n0 + 1);
+  });
+});
+
 describe('rollback', () => {
   it('creates a NEW version equal to the target, parent = the active one; old rows unchanged; audited with the reason', async () => {
     const cur = await agent();

@@ -109,6 +109,8 @@ async function announceVersion(c: Tx, ctx: Ctx, agentId: string, v: AgentVersion
 const viewerOf = (ctx: Ctx) => ({ tenantId: ctx.tenantId, admin: ctx.user.role === 'admin', userId: ctx.user.id });
 const withRel = async (c: Tx, ctx: Ctx, a: AgentBase) => (await attachReliability(c, viewerOf(ctx), [a], false))[0];
 
+const ROLLBACK_REFUSALS = new Set(['VERSION_NOT_OF_AGENT', 'ALREADY_ACTIVE', 'SAME_CONFIG']);
+
 export default async function versionRoutes(app: FastifyInstance) {
   app.get('/version-proposals', async (req) => {
     const ctx = await requireUser(req);
@@ -247,9 +249,13 @@ export default async function versionRoutes(app: FastifyInstance) {
       const v = await switchVersion(c, { agentId: id, ...to, createdBy: ctx.user.id }); // a NEW version: nothing is deleted or reused
       const detail = { why: b.why, fromVersionId: cur.versionId, fromLabel: cur.versionLabel, toVersionId: target.id, toLabel: target.label, newVersionId: v.id, newLabel: v.label };
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'agent.rollback', subject: id, result: 'ok', correlationId: ctx.correlationId, detail });
-      await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'agent.rolledBack', subject: id, subjectKind: 'agent', payload: { versionId: v.id, label: v.label, toVersionId: target.id, toLabel: target.label, previousVersionId: cur.versionId, why: b.why } });
+      await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'agent.rolledBack', subject: id, subjectKind: 'agent', payload: { versionId: v.id, label: v.label, toVersionId: target.id, toLabel: target.label, previousVersionId: cur.versionId } }); // the reason may name people: it stays in the audit row (administrators), never in an event everyone reads
       await announceVersion(c, ctx, id, v, cur.versionId, diff, { rollbackOf: target.id });
       return { status: 200, body: { agent: await withRel(c, ctx, (await getAgent(c, ctx.tenantId, id))!), version: v } };
+    }).catch(async (e) => {
+      // review c05 m6: the transaction rolled back, so a refusal is audited on its own (code only: the reason may name people)
+      if (e instanceof ApiError && ROLLBACK_REFUSALS.has(e.code)) await audit(app.db, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'agent.rollback', subject: id, result: 'denied', correlationId: ctx.correlationId, detail: { code: e.code } });
+      throw e;
     });
     return out.body;
   });
