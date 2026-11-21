@@ -63,13 +63,15 @@ export default async function agentRoutes(app: FastifyInstance) {
       const v = await addVersion(c, { agentId: id, model: b.model, skills: b.skills, tools: b.tools, createdBy: ctx.user.id });
       // the new agent needs a place in the organization: a new revision = the active edges + its reporting line
       const manager = b.managerId ?? (b.parentId ?? 'gm');
-      const rev = await activeRevision(c, ctx.tenantId);
-      if ((await c.query('select 1 from agent_definitions where id=$1', [manager])).rowCount) {
-        const edges = rev ? await edgesOf(c, rev.id) : [];
-        await createOrgRevision(c, { tenantId: ctx.tenantId, edges: [...edges, { supervisorId: manager, subordinateId: id }], note: `Added ${b.name}`, createdBy: ctx.user.id });
+      // review I-1: createOrgRevision locks the organisation, THEN reads the latest revision and adds this line to it
+      let org: { seq: number; previous: number } | null = null;
+      if ((await c.query('select 1 from agent_definitions where tenant_id=$1 and id=$2', [ctx.tenantId, manager])).rowCount) {
+        const rev = await createOrgRevision(c, { tenantId: ctx.tenantId, edges: (latest) => [...latest, { supervisorId: manager, subordinateId: id }], note: `Added ${b.name}`, createdBy: ctx.user.id });
+        org = { seq: rev.seq, previous: rev.seq - 1 };
       } else if (b.managerId) throw new ApiError('VALIDATION', 400, 'The manager does not exist.', { fieldErrors: { managerId: 'unknown' } });
-      await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'agent.create', subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { role: b.role, version: v.label } });
+      await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'agent.create', subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { role: b.role, version: v.label, revision: org?.seq ?? null } });
       await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'agent.created', subject: id, payload: { versionId: v.id, label: v.label } });
+      if (org) await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'org.revisionApplied', subject: String(org.seq), subjectKind: 'org', payload: { revision: org.seq, previous: org.previous, agentId: id } });
       return { status: 201, body: { agent: await getAgent(c, ctx.tenantId, id) } };
     });
     return reply.status(out.status).send(out.body);

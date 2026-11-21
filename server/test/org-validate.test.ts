@@ -84,4 +84,62 @@ describe('validateOrg (dry run)', () => {
     expect(r.ok).toBe(true);
     expect(r.warnings).toEqual([expect.objectContaining({ code: 'DEPT_WITHOUT_HEAD', dept: 'Operations' })]);
   });
+
+  // ---- fix round (review I-2, minors): the chart must be one tree under the GM
+  it('error: a retired agent as a manager (and the active agent under it is not under the GM)', () => {
+    const ag = [...AG, { id: 'b', status: 'active', dept: 'Operations' }];
+    const r = validateOrg([...BASE, e('old', 'b')], ag, BASE);
+    expect(r.ok).toBe(false);
+    expect(codes(r.errors)).toEqual(['RETIRED_MANAGER', 'NOT_UNDER_GM']);
+    const nu = r.errors.find((x) => x.code === 'NOT_UNDER_GM')!;
+    expect(nu.agentId).toBe('old'); // the top of the detached chain
+    expect(nu.message).toContain('b');
+  });
+
+  it('error: an unknown agent as a manager of an active agent', () => {
+    const ag = [...AG, { id: 'b', status: 'active', dept: 'Operations' }];
+    const r = validateOrg([...BASE, e('ghost', 'b')], ag, BASE);
+    expect(codes(r.errors)).toContain('UNKNOWN_AGENT');
+    expect(codes(r.errors)).toContain('NOT_UNDER_GM');
+  });
+
+  it('error: the GM as a subordinate', () => {
+    const r = validateOrg([...BASE, e('old', 'gm')], AG, BASE);
+    expect(r.ok).toBe(false);
+    expect(codes(r.errors)).toContain('GM_HAS_MANAGER');
+  });
+
+  it('error: an active chain that does not end at the GM', () => {
+    // eng-head loses its manager: it is NO_MANAGER, and coder and tester under it are not under the GM
+    const r = validateOrg(BASE.filter((x) => x.subordinateId !== 'eng-head'), AG, BASE);
+    expect(r.ok).toBe(false);
+    expect(codes(r.errors)).toContain('NO_MANAGER');
+    expect(r.errors.filter((x) => x.code === 'NOT_UNDER_GM').map((x) => x.agentId)).toEqual(['eng-head']);
+    expect(r.errors.find((x) => x.code === 'NOT_UNDER_GM')!.message).toMatch(/coder.*tester|tester.*coder/);
+  });
+
+  it('error: a 3-agent cycle is reported once, naming its members', () => {
+    const next = [e('gm', 'ops-head'), e('tester', 'eng-head'), e('eng-head', 'coder'), e('coder', 'tester')];
+    const r = validateOrg(next, AG, BASE);
+    expect(r.ok).toBe(false);
+    const cyc = r.errors.filter((x) => x.code === 'CYCLE');
+    expect(cyc.length).toBe(1);
+    for (const id of ['eng-head', 'coder', 'tester']) expect(cyc[0].message).toContain(id);
+  });
+
+  it('the depth boundary: 64 levels below the GM is fine, 65 is CYCLE', () => {
+    const mk = (n: number) => ({
+      ag: [{ id: 'gm', status: 'active', dept: 'Executive' }, ...Array.from({ length: n }, (_, i) => ({ id: `d${i}`, status: 'active', dept: 'Deep' }))],
+      ed: [e('gm', 'd0'), ...Array.from({ length: n - 1 }, (_, i) => e(`d${i}`, `d${i + 1}`))],
+    });
+    const a = mk(64), b = mk(65);
+    expect(validateOrg(a.ed, a.ag).ok).toBe(true);
+    expect(codes(validateOrg(b.ed, b.ag).errors)).toContain('CYCLE');
+  });
+
+  it('a duplicated identical line is DUPLICATE_LINE, not MULTIPLE_MANAGERS', () => {
+    const r = validateOrg([...BASE, e('eng-head', 'coder')], AG, BASE);
+    expect(codes(r.errors)).toEqual(['DUPLICATE_LINE']);
+  });
 });
+

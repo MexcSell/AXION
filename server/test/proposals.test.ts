@@ -2,6 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { makeTestApp, withAdmin, type TestApp, type Browser } from './helpers.ts';
 import { migrate } from '../src/migrate.ts';
 import { seedDemo } from '../src/seed/demo.ts';
+import { createOrgRevision } from '../src/agents/org.ts';
+import { tx } from '../src/db.ts';
 
 // Improvement cycle 1: organisation change proposals (brief web/docs/improve/cycles/c01-brief.md, "Tests").
 let t: TestApp;
@@ -13,6 +15,7 @@ let n = 0;
 const key = () => ({ 'idempotency-key': 'p' + n++ });
 const rows = async (sql: string, p: unknown[] = []) => (await t.pool.query(sql, p)).rows;
 const count = async (sql: string, p: unknown[] = []) => (await rows(sql, p))[0].n as number;
+const until = async (f: () => Promise<boolean>, ms = 6000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await f()) return true; await new Promise((r) => setTimeout(r, 25)); } return false; };
 
 type Edge = { supervisorId: string; subordinateId: string; edgeType?: string };
 const graph = async () => (await A.req('GET', '/organization/graph')).body as { revision: { id: number; seq: number }; edges: Edge[] };
@@ -217,6 +220,62 @@ describe('lifecycle', () => {
     expect((await A.req('POST', `/organization/proposals/${p.id}/withdraw`)).body.code).toBe('PROPOSAL_NOT_PENDING');
     expect(await count(`select count(*)::int n from audit_events where action='org.proposal.withdraw' and subject=$1 and result='ok'`, [p.id])).toBe(1);
     expect(await count(`select count(*)::int n from audit_events where action='org.proposal.withdraw' and subject=$1 and result='denied'`, [p.id])).toBe(2); // B, then A on a withdrawn one
+  });
+});
+
+describe('fix round: the chart stays one tree under the GM, on every writer', () => {
+  it('createOrgRevision (the apply path) refuses an invalid chart with 422 ORG_INVALID', async () => {
+    const g = await graph();
+    const revs = await count('select count(*)::int n from org_revisions');
+    await expect(tx(t.app.db, (c) => createOrgRevision(c, { tenantId: 't-1', edges: g.edges.filter((e) => e.subordinateId !== 'tester-01'), note: 'x', createdBy: 'u' })))
+      .rejects.toMatchObject({ code: 'ORG_INVALID', status: 422 });
+    await expect(tx(t.app.db, (c) => createOrgRevision(c, { tenantId: 't-1', edges: [...g.edges, { supervisorId: 'ops-01', subordinateId: 'gm' }], note: 'x', createdBy: 'u' })))
+      .rejects.toMatchObject({ status: 422 });
+    expect(await count('select count(*)::int n from org_revisions')).toBe(revs);
+  });
+
+  it('a retired manager is a dry-run error, and approving it is 422', async () => {
+    await t.pool.query(`update agent_definitions set status='retired' where id='security-01'`);
+    try {
+      const p = (await propose(A, 'designer-01', 'security-01', 'Under a retired manager')).body.proposal;
+      expect(p.result.ok).toBe(false);
+      expect(p.result.errors.map((e: { code: string }) => e.code)).toContain('RETIRED_MANAGER');
+      const d = await decide(B, p, 'approve');
+      expect(d.status).toBe(422);
+      expect(d.body.code).toBe('ORG_INVALID');
+      await A.req('POST', `/organization/proposals/${p.id}/withdraw`);
+    } finally { await t.pool.query(`update agent_definitions set status='active' where id='security-01'`); }
+  });
+
+  it('POST /agents waiting on the org lock builds on a revision committed meanwhile (no silent undo)', async () => {
+    const X = await t.pool.connect();
+    await X.query('begin');
+    await X.query(`select pg_advisory_xact_lock(hashtext('org-rev:t-1'))`);
+    const created = A.req('POST', '/agents', { id: 'race-01', name: 'Race-01', role: 'racer', dept: 'Operations', duty: 'Race regression check', model: 'claude-sonnet-5-5' }, key());
+    // POST /agents is blocked on the org lock (old code: after it already read the org; new code: before)
+    const waiting = async () => (await rows(`select count(*)::int n from pg_locks where locktype='advisory' and not granted and objsubid=1 and objid=((hashtext('org-rev:t-1')::bigint) & 4294967295)::oid`))[0].n > 0;
+    expect(await until(waiting)).toBe(true);
+    // a revision that moves writer-01 under ops-01 commits meanwhile, from a transaction that starts after POST's
+    const Y = await t.pool.connect();
+    let moved: { id: string; seq: number };
+    try {
+      await Y.query('begin');
+      const cur = (await Y.query(`select id, seq from org_revisions where tenant_id='t-1' order by seq desc limit 1`)).rows[0];
+      moved = (await Y.query(`insert into org_revisions(tenant_id, seq, note, created_by) values ('t-1',$1,'moved meanwhile','test') returning id, seq`, [cur.seq + 1])).rows[0];
+      await Y.query(`insert into org_edges(revision_id, supervisor_id, subordinate_id, edge_type)
+                     select $1, case when subordinate_id='writer-01' then 'ops-01' else supervisor_id end, subordinate_id, edge_type from org_edges where revision_id=$2`, [moved.id, cur.id]);
+      await Y.query('commit');
+    } finally { Y.release(); }
+    await X.query('commit');
+    X.release();
+    const r = await created;
+    expect(r.status).toBe(201);
+    const g = await graph();
+    expect(g.revision.seq).toBe(moved!.seq + 1);
+    expect(g.edges.find((e) => e.subordinateId === 'writer-01')!.supervisorId).toBe('ops-01'); // the line moved meanwhile is kept
+    expect(g.edges.find((e) => e.subordinateId === 'race-01')!.supervisorId).toBe('gm');
+    // every revision writer announces it: the Proposals list refreshes (stale chip) on this too
+    expect(await count(`select count(*)::int n from events where type='org.revisionApplied' and subject_id=$1 and subject_kind='org'`, [String(g.revision.seq)])).toBe(1);
   });
 });
 
