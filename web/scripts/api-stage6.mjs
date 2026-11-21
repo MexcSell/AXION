@@ -224,6 +224,7 @@ try {
   check('no invented agent reply (UI and server)', agentBubbles === 0 && kinds.every((x) => x === 'command' || x === 'system') && !(await A.p.locator('.conv-main .sim-tag').count()), `${agentBubbles} agent bubbles · kinds ${kinds.join(',')}`);
   const actText = async () => A.p.locator('.mc-budget, .mw-min-budget').first().innerText();
   const act1 = await actText();
+  // ABSENCE WAIT (kept): asserting that nothing ticks over 2.5 s; no condition can signal "never".
   await A.p.waitForTimeout(2500);
   check('E8: a real mission\'s Activity says "not measured yet", with no numbers and nothing ticking',
     (await A.p.locator('[data-activity="not-measured"]').count()) > 0 && /not measured yet/i.test(act1) && !/\d+(\.\d+)?k? tok/i.test(act1) && act1 === await actText(), act1.replace(/\s+/g, ' '));
