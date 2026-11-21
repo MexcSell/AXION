@@ -51,15 +51,18 @@ try {
     await p.locator('.conv-main .thread-body').first().waitFor({ timeout: 10000 });
     check('the thread shows the question', await until(async () => (await p.locator('.conv-main .thread-body').first().innerText()).includes(found.q.text.slice(0, 30)), 10000));
     const c = p.locator('.conv-main .composer').first();
+    // the composer mounts before the thread loads, so it starts in Command mode: the person picks Reply (as the dialog would)
+    await c.getByRole('radio', { name: 'Reply' }).or(c.getByRole('button', { name: 'Reply', exact: true })).first().click();
     const text = `Approved, go ahead ${Date.now()}`;
     await c.locator('textarea').fill(text);
     const posted = p.waitForResponse((r) => r.request().method() === 'POST' && /\/api\/v1\/threads\/[^/]+\/messages$/.test(r.url()), { timeout: 10000 });
     await c.getByRole('button', { name: 'Send message' }).click();
     const resp = await posted.catch(() => null);
+    const sent = resp ? resp.request().postData() : '';
     check('the reply is accepted (201, not 422)', !!resp && resp.status() === 201, resp ? String(resp.status()) : 'no request');
     check('the reply shows in the thread and no "Not sent" appears', await until(async () => (await p.locator('.conv-main .thread-body').first().innerText()).includes(text), 8000) && (await p.getByText('Not sent').count()) === 0);
     const stored = ((await api('GET', `/threads/${found.thread}/messages?limit=50&mark=0`)).body.messages ?? []).find((x) => x.text === text);
-    check('the server stored it as a reply to the question\'s real message id', !!stored && stored.kind === 'reply' && String(stored.replyTo) === String(found.q.id), stored ? `replyTo=${stored.replyTo}` : 'not stored');
+    check('the server stored it as a reply to the question\'s real message id', !!stored && stored.kind === 'reply' && String(stored.replyTo) === String(found.q.id), stored ? `replyTo=${stored.replyTo} kind=${stored.kind}; request ${String(sent).slice(0, 160)}; question ${found.q.id} from ${found.q.from}` : 'not stored');
     await p.screenshot({ path: `${SHOTS}/c09-reply.png` });
   }
 } catch (e) { check('script ran to the end', false, String(e)); }
