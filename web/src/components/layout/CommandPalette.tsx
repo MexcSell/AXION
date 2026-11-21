@@ -48,7 +48,13 @@ export function CommandPalette() {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { if (open) { setQ(''); setSel(0); window.setTimeout(() => inputRef.current?.focus(), 20); } }, [open]);
+  // The query is reset when the palette has finished closing, never on open: the palette is lazy, so it mounts already open and
+  // an on-open reset would run after a fast typist's first keystrokes and wipe them (cycle 28).
+  useEffect(() => { if (open) { const t = window.setTimeout(() => inputRef.current?.focus(), 20); return () => window.clearTimeout(t); } }, [open]);
+  const reset = () => { setQ(''); setSel(0); };
+  /** Enter pressed while the lazy help registry is still loading: act once it arrived, on the results for the query typed. */
+  const pendingEnter = useRef(false);
+  const latest = useRef({ results: [] as Cmd[], sel: 0 });
 
   const catalog = useAgentsCatalog(); // the search index follows the agent catalog (api mode, Stage 6)
   const all = useMemo<Cmd[]>(() => {
@@ -127,19 +133,27 @@ export function CommandPalette() {
     return out.sort((x, y) => GROUP_ORDER.indexOf(x.group) - GROUP_ORDER.indexOf(y.group)).slice(0, 80);
   }, [q, all]);
 
+  latest.current = { results, sel };
   useEffect(() => { setSel(0); }, [q]);
+  useEffect(() => { if (helpReg && pendingEnter.current) { pendingEnter.current = false; results[sel]?.run(); } }, [helpReg]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }); }, [sel]);
 
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setSel((x) => Math.min(results.length - 1, x + 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setSel((x) => Math.max(0, x - 1)); }
-    else if (e.key === 'Enter') { e.preventDefault(); results[sel]?.run(); }
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (!helpReg && q.trim() && !pendingEnter.current) { // the help entries are not searchable yet: they could change the first result
+        pendingEnter.current = true;
+        loadHelp().catch(() => { if (pendingEnter.current) { pendingEnter.current = false; latest.current.results[latest.current.sel]?.run(); } });
+      } else if (!pendingEnter.current) results[sel]?.run();
+    }
     else if (e.key === 'Escape') { e.preventDefault(); setOpen(false); }
   };
 
   let lastGroup = '';
   return createPortal(
-    <AnimatePresence>
+    <AnimatePresence onExitComplete={reset}>
       {open && (
         <div className="palette-layer" onKeyDown={onKey}>
           <motion.div className="modal-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setOpen(false)} />
