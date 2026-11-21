@@ -96,3 +96,17 @@ export interface OrgMoveDto { subordinate: string; from: string; to: string }
 export interface OrgImpactDto { missionId: string; title: string; agentId: string; instanceId: string; demo: boolean }
 /** GET /organization/revisions/:seq/diff?against=: `against` 0 = before any revision. Pure computation. */
 export interface OrgDiffDto { seq: number; against: number; added: OrgEdgeDto[]; removed: OrgEdgeDto[]; moved: OrgMoveDto[]; impact: OrgImpactDto[] }
+
+/* Improvement cycle 19: mentoring plans. Only recorded facts: no score, no skill gain (nothing is measured yet). */
+export type MentoringStatus = 'active' | 'completed' | 'cancelled';
+export interface MentoringMilestoneDto { id: string; seq: number; text: string; doneBy: string | null; doneByName: string | null; doneAt: string | null }
+export interface MentoringPlanDto {
+  id: string; menteeId: string; menteeName: string; mentorId: string; mentorName: string; skill: string;
+  /** ISO date (YYYY-MM-DD) */
+  reevalOn: string; status: MentoringStatus;
+  milestones: MentoringMilestoneDto[]; milestonesDone: number; milestonesTotal: number;
+  createdBy: string; createdByName: string; createdAt: string;
+  closedBy: string | null; closedByName: string | null; closedAt: string | null; note: string | null;
+  /** always null: re-evaluation needs evaluation data and agents do not execute yet */
+  evaluation: null;
+}

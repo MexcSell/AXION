@@ -18,6 +18,7 @@ import { AGENT_BY_ID } from '@/data/agents';
 import { isAdmin, useMe } from '@/store/auth';
 import { toast } from '@/store/ui';
 import { ago, cx } from '@/lib/format';
+import { ServerMentoringList } from '@/features/agents/Mentoring';
 import '@/theme/pages/overview-org-agent.css';
 
 /* Improvement cycle 5 (api mode): agent version proposals. Only stored facts are shown: base → candidate (skills and
@@ -167,9 +168,12 @@ export function VersionProposalList({ agentId, compact }: { agentId?: string; co
 /** Agents › Development in api mode: every agent's version proposals. (Demo mode keeps the DEMO Development tab.) */
 export function ServerDevelopment() {
   return (
-    <Panel icon={Sprout} titleSize="lg" title="Version proposals" help="agent.version.proposals" delay={.05} data-dev-proposals=""
-      sub="Candidate versions of agents: proposed by an administrator, promoted by another, rolled back to the last good version in one step. Running missions stay on their pinned version.">
-      <VersionProposalList />
-    </Panel>
+    <div className="col" style={{ gap: 'var(--gap)' }}>
+      <Panel icon={Sprout} titleSize="lg" title="Version proposals" help="agent.version.proposals" delay={.05} data-dev-proposals=""
+        sub="Candidate versions of agents: proposed by an administrator, promoted by another, rolled back to the last good version in one step. Running missions stay on their pinned version.">
+        <VersionProposalList />
+      </Panel>
+      <ServerMentoringList />
+    </div>
   );
 }

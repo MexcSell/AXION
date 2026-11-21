@@ -25,6 +25,7 @@ import { Radar, AreaChart, Sparkline, RingGauge } from '@/components/viz/Charts'
 import { activityFor, fmtTokens } from '@/data/activity';
 import { ChannelChat } from '@/features/chat/ChannelChat';
 import { VersionProposalList } from '@/features/agents/VersionProposals';
+import { ServerMentoring } from '@/features/agents/Mentoring';
 import { channelId } from '@/store/chat';
 import { useMe } from '@/store/auth';
 import { AGENTS, AGENT_BY_ID } from '@/data/agents';
@@ -443,7 +444,9 @@ function PerformanceTab({ a }: { a: Agent }) {
 }
 
 function MentoringTab({ a }: { a: Agent }) {
+  const canEdit = useCanEditAgents();
   const m = useMemo(() => mentoringFor(a), [a]);
+  if (isApi()) return <ServerMentoring agentId={a.id} agentName={a.name} canStart={canEdit} />; // improvement cycle 19: recorded plans
   return (
     <div className="oa-grid-2b">
       <Panel icon={GraduationCap} title="Mentor & Goals" help="agent.mentoring" delay={.05} actions={<button className="btn primary" onClick={() => openDialog('mentoring-session', { agentId: a.id })}><GraduationCap size={15} />Schedule exercise</button>}>
