@@ -190,3 +190,6 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
 ### Cycle 24: phone-width fit (lane w22)
 - Implementer (8bab3dd to bb0551b): touch.css gated at ≤900 px; at 390×844, FAIL lines 14 → 0 (dialogs larger than the screen, clipped controls); page overflow 0 at both sizes; desktop untouched.
 - Review: PASS/PASS. Ruling on the claim: only the 390 px numbers are a valid before/after (same harness). The 900 px "291 → 109 small targets" is NOT a valid gain claim (different harness and state count) and is reported as "109 remaining, listed". Cleared (batch 5c).
+
+### Live update (23:00Z)
+- Backup axion-20261121T230013Z.dump; restore check PASS; API 5191 restarted on a67d2dd (cycles 1–7, 11, 13, 16, 18, 6, 21, 23, 22). Migrations 1–13 and 15 (14 unused). New routes answer 401 when signed out; health OK.

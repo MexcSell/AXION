@@ -145,3 +145,22 @@ Integrator log: one entry per merge request. Times are UTC.
 **Observation (not fixed):** c04's `OrgHistory.tsx:157` "Loading history…" is a plain div, not c23's `LiveStatus`. a11y-check does not open the History switch, so nothing flags it. One-line follow-up for a later lane.
 
 **Follow-up commits:** none. Controller files committed with this entry: LOG.md, QUEUE.md (modified), cycles/c24-review.md (new).
+
+## Batch 2d: c22 (long-thread performance)
+
+- **Merged:** 2026-11-21 ~22:33 UTC. Pre-batch commit `f2f366a`.
+- **Merge commit:** `a67d2dd` c22-long-thread-perf (665d71a), `--no-ff`.
+- **Conflict:** `web/src/features/chat/ChatView.tsx` (thread body): c23's live-region attributes and empty-state role kept; c22's `AnimatePresence presenceAffectsLayout={false}` with its comment kept. c22's memoised `ChatBubble`, `useAgentsCatalog` subscription and new-message count merged cleanly.
+- **Server:** tsc OK; vitest 30 files 472/472. **web:** tsc OK.
+- **api-e2e (exit 0):** api-auth-flow 15/15; api-flows 23/23; **api-stage6 94/94** (the reload-stall exception ends here); api-improve 107/107; **api-c22 behaviour 14/14, page errors 0, exit 0** (thresholds met).
+  - api-c22 timings at load ~8–10: N=130 after-burst reload commit 65/177/272 ms, interactive 1.4–2.0 s; N=1000 commit 31/585/86 ms, interactive 1.4–2.1 s.
+- **verify-all:** exit 1, "2 of 10 STEPS FAILED". FAIL lines:
+  - deep crawl: `/missions/M-118?tab=activity ERROR Failed to load resource: net::ERR_NETWORK_CHANGED`
+  - flows: `FAIL  Delete (archive) from the far-right trash icon: not in Archived`
+  - c22 changes only `api/missionControl.ts` (api mode), `ChatView.tsx`, `ThreadMinimap.tsx` and `lib/format.ts`; nothing on the demo archive path. `ERR_NETWORK_CHANGED` is a host network event; the archive step ran in the same minute.
+  - Reruns alone (load ~8): **crawl-deep exit 0, NO PROBLEMS; flows exit 0, 21/21 PASS, no console errors.** Classified as a one-off (network change); recorded, not blocking. If the archive step fails again I will compare against the pre-batch tree instead of rerunning.
+  - All other steps PASS (build, crawl 77 views, auth flow, u1 flows, dialog smoke, dialog ids, help keys, fs guard).
+- **fit-check:** 77/77 ALL FIT. **ov-fit:** 32/32, no scroll anywhere.
+- **a11y-check (demo):** 50 views, 55 dialogs, 0 violations (131.4 s).
+
+**Follow-up commits:** none.
