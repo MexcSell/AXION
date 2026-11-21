@@ -217,10 +217,121 @@ try {
   await card(B.p, P2.id).getByRole('button', { name: 'Reject', exact: true }).click();
   check('B rejects the stale proposal', await until(async () => (await apiA('GET', '/organization/proposals')).body.proposals.find((x) => x.id === P2.id)?.status === 'rejected', 8000));
 
+  // ------------------------------------------------------------ c04: organisation history, before/after diff, rollback through a proposal
+  // Revisions 1 (seed) and 2 (P1: Coder-01 moved from the GM to Ops-01) exist and nothing is pending. A opens History, sees the
+  // diff of revision 2, proposes a rollback to revision 1 (an ordinary proposal), B approves it, revision 3 equals revision 1 and
+  // C's Hierarchy shows the old line again, live. Running instances are read (SELECT only) from the lane's e2e database before
+  // and after: their managers never change.
+  const e2eUrl = /^E2E_DATABASE_URL=(.*)$/m.exec(readFileSync(new URL('../../server/.env', import.meta.url), 'utf8'))?.[1]?.trim().replace(/^['"]|['"]$/g, '');
+  if (!e2eUrl || !/\/axion_e2e\d*(\?|$)/.test(e2eUrl)) throw new Error('E2E_DATABASE_URL must point at axion_e2e or axion_e2e<N> (a parallel lane)');
+  const norm4 = (es) => es.map((e) => `${e.supervisorId}>${e.subordinateId}:${e.edgeType}`).sort().join('|');
+  const rev1 = (await apiA('GET', '/organization/revisions/1')).body.revision;
+  const rev2 = (await apiA('GET', '/organization/revisions/2')).body.revision;
+  check('c04 server: revision 1 is the seed, revision 2 came from P1 (by Bea), 1 line changed', rev1?.source?.kind === 'seed' && rev2?.appliedFromProposal === P1.id && rev2?.createdByName === 'Bea' && rev2?.changed === 1);
+  const hist = (p) => p.locator('[data-org-history]');
+  const revCard = (p, seq) => p.locator(`[data-org-history] [data-revision="${seq}"]`);
+  const diffBox = (p, seq) => p.locator(`[data-org-history] [data-diff="${seq}"][data-diff-state="ready"]`);
+  await A.p.getByRole('radio', { name: 'History', exact: true }).click();
+  await hist(A.p).waitFor({ timeout: 10000 });
+  check('c04 A opens History: one card per revision, newest first (2, 1); revision 2 names P1 and "1 line changed", revision 1 says seed',
+    await until(async () => JSON.stringify(await A.p.locator('[data-org-history] [data-revision]').evaluateAll((els) => els.map((e) => e.getAttribute('data-revision')))) === '["2","1"]', 8000)
+      && (await revCard(A.p, 2).getAttribute('data-source')) === 'proposal' && (await revCard(A.p, 2).innerText()).includes(P1.title) && (await revCard(A.p, 2).innerText()).includes('1 line changed')
+      && (await revCard(A.p, 2).innerText()).includes('by Bea') && (await revCard(A.p, 1).getAttribute('data-source')) === 'seed' && (await revCard(A.p, 1).innerText()).includes('seed'));
+  const d2 = (await apiA('GET', '/organization/revisions/2/diff')).body;
+  check('c04 server diff of revision 2: exactly one moved line (Coder-01: GM → Ops-01), nothing added or removed', d2.against === 1 && JSON.stringify(d2.moved) === JSON.stringify([{ subordinate: 'coder-01', from: 'gm', to: 'ops-01' }]) && d2.added.length === 0 && d2.removed.length === 0);
+  check('c04 A sees the diff of revision 2 (selected, the active one): exactly that moved line, no added or removed line',
+    await until(async () => (await diffBox(A.p, 2).count()) === 1, 8000)
+      && (await diffBox(A.p, 2).locator('[data-moved]').count()) === 1 && (await diffBox(A.p, 2).locator('[data-moved="coder-01"][data-from="gm"][data-to="ops-01"]').count()) === 1
+      && (await diffBox(A.p, 2).locator('[data-line]').count()) === 0 && /Coder-01\s*:\s*GM\s*Ops-01/.test(await diffBox(A.p, 2).locator('[data-moved]').innerText()));
+  const shownImpact = await diffBox(A.p, 2).locator('[data-impact-mission]').evaluateAll((els) => els.map((e) => e.getAttribute('data-impact-mission')));
+  check('c04 the affected active missions are the server\'s (visible, not final), each a link to its mission', shownImpact.join(',') === d2.impact.map((x) => x.missionId).join(',')
+    && (await diffBox(A.p, 2).locator('[data-impact-mission] a[href^="/missions/"]').count()) === d2.impact.length
+    && d2.impact.every((x) => x.agentId === 'coder-01'), `${d2.impact.length} affected: ${shownImpact.join(',')}`);
+  check('c04 the active revision (2) has no rollback button', (await diffBox(A.p, 2).getByRole('button', { name: 'Propose rollback to this revision' }).count()) === 0);
+  await revCard(A.p, 1).click();
+  await diffBox(A.p, 1).waitFor({ timeout: 8000 });
+  const rb = () => diffBox(A.p, 1).getByRole('button', { name: 'Propose rollback to this revision' });
+  check('c04 A selects revision 1: compared with no revision (all lines new), and A gets "Propose rollback to this revision"', (await diffBox(A.p, 1).locator('[data-line="add"]').count()) === rev1.edges.length && (await rb().count()) === 1);
+  // 422: the server refuses a rollback to the active revision; its message shows inline (the request is pointed at revision 2)
+  await A.ctx.route(/\/organization\/revisions\/1\/rollback-proposal$/, (route) => route.continue({ url: route.request().url().replace('/revisions/1/', '/revisions/2/') }));
+  await rb().click();
+  check('c04 422 NOTHING_TO_ROLL_BACK: the server message shows inline', await until(async () => /nothing to roll back/.test(await diffBox(A.p, 1).locator('[role="alert"]').innerText()), 8000));
+  await A.ctx.unroute(/\/organization\/revisions\/1\/rollback-proposal$/);
+  // instances of running missions, read before the rollback (SELECT only)
+  const pg4 = createRequire(new URL('../../server/package.json', import.meta.url))('pg');
+  const managers = async () => { const db = new pg4.Client({ connectionString: e2eUrl }); await db.connect(); try { return (await db.query('select id, manager_instance_id from agent_instances order by id')).rows; } finally { await db.end(); } };
+  const inst0 = await managers();
+  await diffBox(A.p, 1).getByLabel('Why roll back to revision 1').fill('Ops-01 is overloaded: Coder-01 goes back to the GM.');
+  await rb().click();
+  const PR = await (async () => { let x; await until(async () => (x = (await apiA('GET', '/organization/proposals')).body.proposals.find((p) => p.title === 'Roll back to revision 1')), 8000); return x; })();
+  check('c04 server: a pending proposal "Roll back to revision 1" on base 2 by Luca, its lines exactly revision 1\'s', PR?.status === 'pending' && PR.baseRevision === 2 && PR.createdByName === 'Luca' && norm4(PR.edges) === norm4(rev1.edges) && PR.why.startsWith('Ops-01 is overloaded'));
+  check('c04 A is switched to Proposals (Pending) with the new proposal highlighted; its dry run shows the reverse move (+ GM → Coder-01, − Ops-01 → Coder-01)',
+    await until(async () => (await A.p.locator(`[data-proposals] [data-proposal="${PR.id}"][data-highlight="1"]`).count()) === 1, 8000)
+      && (await A.p.getByRole('radio', { name: /^Pending/ }).getAttribute('aria-checked')) === 'true'
+      && (await card(A.p, PR.id).locator('[data-line="add"][data-from="gm"][data-to="coder-01"]').count()) === 1 && (await card(A.p, PR.id).locator('[data-line="rm"][data-from="ops-01"][data-to="coder-01"]').count()) === 1
+      && (await card(A.p, PR.id).locator('[data-dry-run="ok"]').count()) === 1 && (await card(A.p, PR.id).getByRole('button', { name: 'Approve', exact: true }).count()) === 0);
+  // 409: the same rollback again is a duplicate; the server message shows inline
+  await A.p.getByRole('radio', { name: 'History', exact: true }).click();
+  await revCard(A.p, 1).click();
+  await diffBox(A.p, 1).waitFor({ timeout: 8000 });
+  await rb().click();
+  check('c04 409 DUPLICATE_PROPOSAL: a second rollback to revision 1 shows the server message inline', await until(async () => /already waiting for a decision/.test(await diffBox(A.p, 1).locator('[role="alert"]').innerText()), 8000));
+  // C keeps watching the Hierarchy (revision 2, Coder-01 under Ops-01): a fresh no-reload marker
+  check('c04 C\'s hierarchy is still on revision 2', (await C.p.locator('[data-org-revision]').getAttribute('data-org-revision')) === '2');
+  await C.p.evaluate(() => { window.__noReload = 'c04'; });
+  const cNavs0 = cNavs;
+  // B approves it from its Proposals (All) list
+  await card(B.p, PR.id).waitFor({ timeout: 10000 });
+  check('c04 B sees the rollback proposal live with Approve (B is not the author)', (await card(B.p, PR.id).getByRole('button', { name: 'Approve', exact: true }).count()) === 1);
+  await card(B.p, PR.id).getByRole('button', { name: 'Approve', exact: true }).click();
+  check('c04 B approves: applied as rev 3', await until(async () => (await B.p.locator(`[data-proposal="${PR.id}"][data-status="applied"]`).getByText('applied as rev 3').count()) === 1, 10000));
+  const rev3 = (await apiA('GET', '/organization/revisions/3')).body.revision;
+  check('c04 server: revision 3 has the same lines as revision 1 and came from the rollback proposal', norm4(rev3?.edges ?? []) === norm4(rev1.edges) && rev3.appliedFromProposal === PR.id && rev3.source?.title === 'Roll back to revision 1');
+  check('c04 C\'s Hierarchy shows the old line again (revision 3, Coder-01 under the GM), live, without reload',
+    await until(async () => (await C.p.locator('[data-org-revision]').getAttribute('data-org-revision')) === '3' && (await C.p.locator('[data-agent="coder-01"]').getAttribute('data-manager')) === 'gm', 12000)
+      && (await C.p.locator('path[data-from="gm"][data-to="coder-01"]').count()) === 1 && (await C.p.evaluate(() => window.__noReload)) === 'c04' && cNavs === cNavs0);
+  check('c04 A\'s History shows revision 3 live (newest first), from "Roll back to revision 1", with the reverse move',
+    await until(async () => (await A.p.locator('[data-org-history] [data-revision]').first().getAttribute('data-revision')) === '3' && (await A.p.locator('[data-history-latest="3"]').count()) === 1, 10000)
+      && (await revCard(A.p, 3).innerText()).includes('Roll back to revision 1'));
+  await revCard(A.p, 3).click();
+  check('c04 the diff of revision 3: Coder-01: Ops-01 → GM, and the same affected missions', await until(async () => (await diffBox(A.p, 3).locator('[data-moved="coder-01"][data-from="ops-01"][data-to="gm"]').count()) === 1, 8000)
+    && (await diffBox(A.p, 3).locator('[data-impact-mission]').count()) === d2.impact.length);
+  const inst1 = await managers();
+  check('c04 running missions untouched: every instance keeps manager_instance_id after the rollback (e2e database, SELECT only)', inst0.length > 0 && JSON.stringify(inst1.filter((x) => inst0.some((y) => y.id === x.id))) === JSON.stringify(inst0), `${inst0.length} instances`);
+  const txt4 = await hist(A.p).innerText();
+  check('c04 nothing invented in the History view (no percentages, no estimates)', !/\d+\s*%/.test(txt4) && !/coverage|latency|tokens|estimate/i.test(txt4));
+  check('c04 the History panel head (title, Proposals | History switch) is on screen', await A.p.locator('[data-org-history] .panel-head').isVisible() && await A.p.locator('[data-org-history] .panel-head').evaluate((el) => { const r = el.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }));
+  // the screenshot: no toasts, the agent boards folded (unfolded again after), the pointer away
+  for (const x of await A.p.getByRole('button', { name: 'Dismiss notification' }).all()) await x.click().catch(() => {});
+  await until(async () => (await A.p.getByRole('button', { name: 'Dismiss notification' }).count()) === 0, 5000);
+  const boards = A.p.getByRole('button', { name: /agent boards/i }).first();
+  await boards.click({ timeout: 2000 }).catch(() => {});
+  await A.p.mouse.move(5, 5);
+  await A.p.waitForTimeout(700);
+  if (process.env.DOC_SHOT_C04) await A.p.screenshot({ path: process.env.DOC_SHOT_C04 });
+  await A.p.screenshot({ path: `${SHOTS}/improve-c04-history-A.png` });
+  await boards.click({ timeout: 2000 }).catch(() => {});
+  await A.p.setViewportSize({ width: 1366, height: 768 });
+  await A.p.waitForTimeout(600);
+  const fit4 = await A.p.evaluate(() => { const d = document.scrollingElement; return { over: d.scrollHeight - d.clientHeight, w: d.scrollWidth - d.clientWidth }; });
+  check('c04 at 1366x768 the History view fits (no page scroll, no sideways scroll), the diff visible', fit4.over <= 1 && fit4.w <= 1 && await diffBox(A.p, 3).isVisible(), JSON.stringify(fit4));
+  await A.p.screenshot({ path: `${SHOTS}/improve-c04-history-1366x768.png` });
+  await A.p.setViewportSize({ width: 1600, height: 940 });
+  await A.p.getByRole('radio', { name: 'Proposals', exact: true }).click();
+  await A.p.locator('[data-proposals]').waitFor({ timeout: 8000 });
+  // C (member) reads the same history: read only, no rollback button; her impact list is her own view's (server)
+  await C.p.goto(base + PROPOSALS, { waitUntil: 'domcontentloaded' });
+  await C.p.getByRole('radio', { name: 'History', exact: true }).click();
+  await C.p.locator('[data-org-history]').waitFor({ timeout: 10000 });
+  await revCard(C.p, 1).click();
+  const dC = (await apiOf(C.p)('GET', '/organization/revisions/1/diff')).body;
+  check('c04 member C: History is read only (Read only chip, no rollback button on revision 1), the diff shows her own visible missions',
+    await until(async () => (await diffBox(C.p, 1).count()) === 1, 8000) && (await C.p.locator('[data-org-history]').getByText('Read only', { exact: true }).count()) === 1
+      && (await C.p.getByRole('button', { name: 'Propose rollback to this revision' }).count()) === 0 && (await diffBox(C.p, 1).locator('[data-impact-mission]').count()) === dC.impact.length);
+
   // ------------------------------------------------------------ expiry: the server's message stays on the card after its status changes
   // Only the e2e database (axion_e2e, emptied on every API start) is touched, to move one proposal's expiry into the past.
-  const e2eUrl = /^E2E_DATABASE_URL=(.*)$/m.exec(readFileSync(new URL('../../server/.env', import.meta.url), 'utf8'))?.[1]?.trim().replace(/^['"]|['"]$/g, '');
-  if (!e2eUrl || !/\/axion_e2e(\?|$)/.test(e2eUrl)) throw new Error('E2E_DATABASE_URL must point at axion_e2e');
+  // (e2eUrl: read and guarded in the c04 step above)
   const g2 = (await apiA('GET', '/organization/graph')).body;
   const P3 = (await apiA('POST', '/organization/proposals', { title: 'Designer-01 under Ops-01', why: '', baseRevision: g2.revision.seq, edges: g2.edges.map((e) => (e.subordinateId === 'designer-01' ? { ...e, supervisorId: 'ops-01' } : e)) }, { 'idempotency-key': `c01-p3-${Date.now()}` })).body.proposal;
   await B.p.getByRole('radio', { name: /^Pending/ }).click();
@@ -257,7 +368,7 @@ try {
   check('A\'s card shows who decided and the note', (await card(A.p, P1.id).innerText()).includes('Applied by Bea') && (await card(A.p, P1.id).innerText()).includes('Agreed in the Monday review.'));
   const txt = await A.p.locator('[data-proposals]').innerText();
   check('nothing invented: no percentages (coverage, latency, tokens) on the proposal cards', !/\d+\s*%/.test(txt) && !/coverage|latency|tokens/i.test(txt));
-  check('member C reading via the API gets the same four proposals', (await apiOf(C.p)('GET', '/organization/proposals')).body.proposals?.length === 4);
+  check('member C reading via the API gets the same five proposals (four of cycle 1, the c04 rollback)', (await apiOf(C.p)('GET', '/organization/proposals')).body.proposals?.length === 5);
   await A.p.getByRole('button', { name: /agent boards/i }).first().click({ timeout: 2000 }).catch(() => {}); // more room for the cards
   await A.p.waitForTimeout(900);
   if (DOC_SHOT) await A.p.screenshot({ path: DOC_SHOT });
