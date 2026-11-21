@@ -65,7 +65,7 @@ const audit = () => {
   for (const s of document.querySelectorAll('svg[role=img]')) if (vis(s) && !s.getAttribute('aria-label') && !s.querySelector('title') && !s.getAttribute('aria-labelledby')) out.push(`ALT svg[role=img] has no label`);
   const live = (e) => e.closest('[aria-live],[role=status],[role=alert],[role=log]');
   if (!document.querySelector('[aria-live],[role=status],[role=alert],[role=log]')) out.push('LIVE page has no live region');
-  for (const e of document.querySelectorAll('main *, .page *')) {
+  for (const e of document.querySelectorAll('main *, .page *, [aria-modal=true] *')) {
     if (e.children.length) continue;
     if (!vis(e)) continue;
     const t = (e.textContent || '').trim();
@@ -74,7 +74,7 @@ const audit = () => {
   // cycle 23: loading and failed-load states must be announced (role=status for loading, role=alert for errors)
   for (const e of document.querySelectorAll('[data-state=loading],.part-status[data-state=loading]')) if (vis(e) && !live(e)) out.push(`LIVE loading state [data-state=loading] "${txt(e).slice(0, 30)}" is not in a status region`);
   for (const e of document.querySelectorAll('[data-state=error],.oa-banner')) if (vis(e) && (e.matches('[data-state=error]') || e.querySelector('button') || /not loaded|could not|failed/i.test(txt(e))) && !e.closest('[role=alert]') && !e.closest('[aria-live=assertive]')) out.push(`LIVE error state "${txt(e).slice(0, 30)}" is not role=alert`);
-  for (const e of document.querySelectorAll('main *, .page *, .sc-empty')) {
+  for (const e of document.querySelectorAll('main *, .page *, .sc-empty, [aria-modal=true] *')) {
     if (e.children.length || !vis(e)) continue;
     const t = (e.textContent || '').trim();
     if (t.length < 60 && /^(loading|reading)\b.{0,40}(…|\.\.\.)$/i.test(t) && !live(e)) out.push(`LIVE loading text "${t}" is not in a status region (${desc(e)})`);
@@ -158,7 +158,18 @@ for (const id of ids) {
 }
 // cycle 23 (api mode): hold, then fail, the data requests of a few pages and check the loading / error text is announced
 if (API) {
-  const probes = ['/overview', '/operations?tab=agents&sub=live-instances', '/operations?tab=agents&sub=proposals', '/operations?tab=agents&sub=development', '/agents/coder-01', '/agents/coder-01?tab=evolution'];
+  // each probe must show its loading (slow) and failed (fail) state inside a live region, unless it lists a reason why the page has none
+  const probes = [
+    { v: '/overview', slow: /reading|loading/i, fail: /request failed|unavailable|could not/i },
+    { v: '/operations?tab=agents&sub=live-instances', slow: /loading instances/i, fail: /could not be read/i },
+    { v: '/operations?tab=agents&sub=proposals', slow: /loading proposals/i, fail: /not loaded/i },
+    { v: '/operations?tab=agents&sub=development', slow: /loading proposals/i, fail: /not loaded/i },
+    { v: '/agents/coder-01', slow: /loading instances/i, fail: /could not be read/i },
+    { v: '/agents/coder-01?tab=evolution', slow: /loading proposals/i, fail: /not loaded/i },
+    { v: '/missions/M-125?tab=hierarchy', slow: /loading/i, fail: /could not load/i },
+    { v: '/missions/M-125?tab=task-flow', slow: /loading/i, fail: /could not load/i },
+    { v: '/missions/M-125?tab=conversations', slow: /loading/i, fail: /could not load/i },
+  ];
   const hit = /\/api\/v1\/(.*instances|agent-instances|.*agent-versions|.*versions|.*proposals|.*versions|company\/scorecard|organization\/graph|missions\/[^/]+\/(hierarchy|tasks|threads)|threads\/|channels\/)/;
   for (const mode of ['slow', 'fail']) {
     let release; const gate = new Promise((r) => { release = r; });
@@ -167,12 +178,16 @@ if (API) {
       if (mode === 'slow') { await gate; return route.continue().catch(() => {}); }
       return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: { code: 'internal', message: 'mocked failure' } }) });
     });
-    for (const v of probes) {
+    for (const { v, slow, fail, none } of probes) {
       await p.goto(base + v, { waitUntil: navWait() });
       await settle(p, mode === 'slow' ? 400 : 1000);
       const found = await p.evaluate(audit);
       for (const m of found) all.push({ where: `${v} (${mode})`, msg: m });
       probed.push(`${v} ${mode} [${await p.evaluate(() => (document.body.innerText.match(/(Loading|Reading)[^\n]{0,30}/g) || []).join(';'))}]: ${await p.evaluate(() => [...document.querySelectorAll('[role=status],[role=alert]')].map((e) => (e.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 40)).filter(Boolean).join(' | ').slice(0, 160))}`);
+      const want = mode === 'slow' ? slow : fail;
+      const seen = await p.evaluate((sel) => [...document.querySelectorAll(sel)].map((e) => (e.innerText || e.textContent || '').replace(/\s+/g, ' ').trim()).join(' | '), mode === 'slow' ? '[role=status]' : '[role=alert]');
+      if (none?.[mode]) probed.push(`${v} ${mode}: no state expected (${none[mode]})`);
+      else if (!want.test(seen)) all.push({ where: `${v} (${mode})`, msg: `LIVEPROBE no ${mode === 'slow' ? 'loading' : 'failed-load'} text matching ${want} in a live region (saw: ${seen.slice(0, 100)})` });
     }
     release(); await p.waitForTimeout(300); await p.unroute(hit, undefined).catch(() => {});
   }
