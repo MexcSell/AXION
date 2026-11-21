@@ -25,3 +25,12 @@
   .modal-head { flex-wrap: nowrap; }
   .modal-head .modal-title { overflow-wrap: anywhere; }
 }
+@media (max-width: 800px) {
+  .modal-body .row, .modal-body .seg, .modal-body .emu-cred { flex-wrap: wrap; }
+  .modal-body > * { min-width: 0; max-width: 100%; }
+  .toast-stack { left: 12px; right: 12px; width: auto; }
+}
+@media (max-width: 900px) {
+  .brand { min-width: 40px; }
+  .menu-item, .seg-btn, .rv-select-row { min-height: 40px; }
+}
