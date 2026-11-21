@@ -168,10 +168,87 @@ async function behaviour(n) {
   const after = await body.evaluate((el, id) => { const x = el.querySelector(`[data-mid="${id}"]`); return x ? x.getBoundingClientRect().top - el.getBoundingClientRect().top : null; }, a.id);
   const all = await mids();
   check(`N=${n}: scrolling up loads the next older page, the top message stays put, no duplicates`, grew && after != null && Math.abs(after - a.top) <= 4 && new Set(all).size === all.length, `${before} → ${all.length} rows, shift ${after == null ? '-' : Math.abs(after - a.top).toFixed(1)} px`);
+
+  // fix round I1: a row replaced at the same length (my message's local copy → the server's copy) is still watched by the
+  // minimap: when that row later changes size, its block follows, and every block sits where its row is
+  const probe = `c22 minimap probe ${Date.now()}`;
+  await body.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  await p.locator('.conv-main .composer textarea').fill(probe);
+  await p.locator('.conv-main .composer').getByRole('button', { name: 'Send message' }).click();
+  const rowOf = (t) => body.evaluate((el, x) => { const r = [...el.querySelectorAll('[data-mid]')].find((w) => w.textContent.includes(x)); return r ? r.getAttribute('data-mid') : null; }, t);
+  const replaced = await until(async () => { const id = await rowOf(probe); return !!id && !id.startsWith('local-'); }, 10000);
+  await until(async () => { const [bl, m] = await blocks(); return bl === m; }, 3000);
+  const lastBlockH = () => p.evaluate(() => { const bl = [...document.querySelectorAll('.conv-main .minimap .mm-block')]; return bl.length ? parseFloat(bl[bl.length - 1].style.height) : 0; });
+  const h0 = await lastBlockH();
+  await body.evaluate((el, x) => { const r = [...el.querySelectorAll('[data-mid]')].find((w) => w.textContent.includes(x)); (r.querySelector('.bubble-row') ?? r).style.minHeight = '480px'; }, probe);
+  const followed = await until(async () => (await lastBlockH()) > h0 * 2, 3000);
+  const h1 = await lastBlockH();
+  const misplaced = await p.evaluate(() => {
+    const rows = [...document.querySelectorAll('.conv-main .thread-body [data-mid]')].map((w) => (w.querySelector('.bubble-row') ?? w).offsetTop);
+    const bl = [...document.querySelectorAll('.conv-main .minimap .mm-block')].map((b) => parseFloat(b.style.top));
+    if (bl.length !== rows.length || !rows.length) return -1;
+    const s = bl[bl.length - 1] / Math.max(rows[rows.length - 1], 1);
+    return bl.filter((t, i) => Math.abs(t - rows[i] * s) > 1.5).length;
+  });
+  check(`N=${n}: I1 the minimap follows a row replaced at the same length (sent message → server copy), blocks aligned with rows`, replaced && followed && misplaced === 0, `replaced ${replaced} · last block ${h0.toFixed(1)} → ${h1.toFixed(1)} px · misplaced blocks ${misplaced}`);
+}
+
+/**
+ * Fix round M3: batching order, on the app's own store in the page (the module the app loaded, imported by its dev URL).
+ * (1) a receipt before its message is a no-op, a receipt after it applies, receipts never go back, nothing is applied
+ * before the flush; (2) a gap reset (reconnect re-read with more than a page missing) with a batch still queued applies
+ * the queued event first and then restarts from the fresh page, and nothing stale is applied after it.
+ */
+async function batching() {
+  const { mid } = await freshThread();
+  const pageSeqs = Array.from({ length: 50 }, (_, i) => 160 - i); // newest first, like the server
+  const dto = (seq, status) => ({ id: `c22-m${seq}`, from: 'human:c22', to: 'gm', kind: 'command', text: `m${seq}`, agoMin: 0, ts: Date.now(), seq, simulated: false, ...(status ? { status } : {}) });
+  await p.route('**/api/v1/threads/T-c22/messages*', (r) => r.fulfill({ json: { messages: pageSeqs.map((q) => dto(q)), hasMore: true, nextBefore: 111 } }));
+  const r = await p.evaluate(async ({ mid, d1, d2, d3, d4, d5 }) => {
+    const mc = await import('/src/api/missionControl.ts');
+    const same = !!mc.useMC.getState().byMission[mid];
+    const ev = (type, payload) => ({ id: 'c22', seq: null, type, tenantId: 't', missionId: mid, actor: { kind: 'human', id: 'c22' }, subject: { kind: 'thread', id: 'T-c22' }, occurredAt: new Date().toISOString(), payload });
+    const th = () => mc.useMC.getState().byMission[mid]?.threads?.['T-c22'];
+    const wait = async (f, ms = 3000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (f()) return true; await new Promise((x) => setTimeout(x, 20)); } return f(); };
+    mc.useMC.setState((s) => ({ byMission: { ...s.byMission, [mid]: { ...s.byMission[mid], threads: { ...s.byMission[mid].threads,
+      'T-c22': { id: 'T-c22', key: 'c22|probe', kind: 'human-agent', a: '', b: '', count: 2, unread: 0, last: mc.toMsg(d2), messages: [mc.toMsg(d1), mc.toMsg(d2)], hasMore: false, nextBefore: null, loading: false, loadingOlder: false } } } } }));
+    const created = (m) => mc.onMissionControlEvent('conversation.messageCreated', ev('conversation.messageCreated', { threadId: 'T-c22', message: m }));
+    const receipt = (id, state) => mc.onMissionControlEvent('conversation.receipt', ev('conversation.receipt', { threadId: 'T-c22', messageId: id, state }));
+    receipt('c22-m3', 'delivered'); // before its message: nothing to update
+    created(d3);
+    created(d4);
+    receipt('c22-m4', 'acknowledged');
+    receipt('c22-m4', 'delivered'); // receipts never go back
+    const heldUntilFlush = th().messages.length === 2;
+    await wait(() => th().messages.length === 4);
+    const a = th();
+    const one = { same, heldUntilFlush, ids: a.messages.map((m) => m.id).join(','), status: a.messages.map((m) => m.status ?? '-').join(','), count: a.count, last: a.last?.id };
+    created(d5); // queued when the reconnect re-read (gap reset) starts
+    mc.refreshLoadedMissionControl();
+    await wait(() => th().messages[0]?.seq === 111);
+    const b = th();
+    await new Promise((x) => setTimeout(x, 200)); // a stale batch must not land after the reset
+    const c = th();
+    const seqs = c.messages.map((m) => m.seq);
+    const two = { reset: b.messages[0]?.seq === 111, n: c.messages.length, ascending: seqs.every((q, i) => i === 0 || q === seqs[i - 1] + 1), first: seqs[0], lastSeq: seqs[seqs.length - 1], hasMore: c.hasMore, nextBefore: c.nextBefore, count: c.count, last: c.last?.id, stable: b === c };
+    return { one, two };
+  }, { mid, d1: dto(1), d2: dto(2), d3: dto(3, 'queued'), d4: dto(4, 'queued'), d5: dto(5, 'queued') });
+  await p.unroute('**/api/v1/threads/T-c22/messages*');
+  const o = r.one, t = r.two;
+  check('M3 batching: the test runs on the app\'s own store', o.same);
+  check('M3 batching: queued events are not applied before the flush', o.heldUntilFlush);
+  check('M3 batching: receipt before its message is a no-op, after it applies, never goes back; order and count kept',
+    o.ids === 'c22-m1,c22-m2,c22-m3,c22-m4' && o.status === '-,-,queued,acknowledged' && o.count === 4 && o.last === 'c22-m4', `${o.ids} · ${o.status} · count ${o.count} · last ${o.last}`);
+  check('M3 batching: a gap reset with a batch pending applies it first, then restarts from the fresh page; nothing stale lands after',
+    t.reset && t.n === 50 && t.ascending && t.first === 111 && t.lastSeq === 160 && t.hasMore === true && t.nextBefore === 111 && t.count === 5 && t.last === 'c22-m160' && t.stable,
+    `${t.n} rows seq ${t.first}…${t.lastSeq} · hasMore ${t.hasMore} · next ${t.nextBefore} · count ${t.count} · last ${t.last} · stable ${t.stable}`);
 }
 
 const out = { base, at: new Date().toISOString(), runs: [] };
+// M4: thresholds from the brief (reload → interactive after the burst), e.g. MAX_MS=130:3000,1000:5000; any miss, FAIL or page error exits 1
+const MAX = new Map((process.env.MAX_MS ?? '130:3000,1000:5000').split(',').filter(Boolean).map((x) => x.split(':').map(Number)));
 try {
+if (process.env.CHECKS !== '0') { try { await batching(); } catch (e) { check('M3 batching checks ran', false, e.message.split('\n')[0]); } }
 for (const n of SIZES) {
   // REPS timed runs without tracing, then (TRACE=1) one extra traced run that is not counted (the profiler slows it down)
   for (let rep = 1; rep <= REPS + (TRACE ? 1 : 0); rep++) {
@@ -211,6 +288,9 @@ for (const n of SIZES) {
 out.errors = errors;
 out.checks = checks;
 if (checks.length) console.log(`behaviour checks: ${checks.filter((c) => c.ok).length}/${checks.length} passed`);
+const misses = out.runs.filter((x) => x.rep !== 'traced' && MAX.has(x.n) && (x.afterBurst.interactive == null || x.afterBurst.interactive > MAX.get(x.n)));
+for (const x of misses) console.log(`THRESHOLD MISS N=${x.n} rep ${x.rep}: ${x.afterBurst.interactive ?? '>cap'} ms > ${MAX.get(x.n)} ms`);
+if (misses.length || checks.some((c) => !c.ok) || errors.length) process.exitCode = 1;
 writeFileSync(`${DIR}/c22-${Date.now()}.json`, JSON.stringify(out, null, 1));
 console.log(`page errors: ${errors.length}${errors.length ? ' — ' + errors.slice(0, 3).join(' | ') : ''}`);
 await b.close();
