@@ -5,6 +5,7 @@ import { authApi, useAuth } from '@/store/auth';
 import { isApi } from './mode';
 import { api, ApiFailure } from './client';
 import { loadAgents, useAgentsVersion, bumpInstances } from './agents';
+import { bumpProposals } from './orgProposals';
 import { onChannelEvent, refreshLoadedChannels, clearChannels, setChatUser } from './chat';
 import { onMissionControlEvent, refreshLoadedMissionControl, clearMissionControl, setMcUser } from './missionControl';
 
@@ -39,6 +40,7 @@ export function startSync(): () => void {
   const people = debounceKeyed(() => { void authApi.refresh(); }, 200);
   const instances = debounceKeyed(() => bumpInstances(), 250);
   const agents = debounceKeyed(() => { void loadAgents().catch(() => undefined); }, 200);
+  const proposals = debounceKeyed(() => bumpProposals(), 150);
 
   let retries = 0;
   let opened = 0;
@@ -64,6 +66,9 @@ export function startSync(): () => void {
     if (type.startsWith('user.') || type.startsWith('auth.')) people('p');
     // Stage 6: the agent catalog, and each mission's hierarchy, tasks and conversations
     if (type.startsWith('agent.')) agents('a');
+    // improvement cycle 1: organisation proposals; an applied one changes the reporting lines (catalog managers + org graph)
+    if (type.startsWith('org.')) proposals('o');
+    if (type === 'org.revisionApplied') agents('a');
     if (/^(instance|task|mission)\./.test(type)) instances('i'); // Agents pages: Live Instances and each profile's missions
     if (type === 'conversation.messageCreated' && onChannelEvent(e)) return; // a direct channel (GM, administrators, one agent), not a mission thread
     if (type.startsWith('conversation.') || type.startsWith('instance.') || type.startsWith('task.')) onMissionControlEvent(type, e);
@@ -89,11 +94,11 @@ export function startSync(): () => void {
       set('live');
       // the snapshot is read after the stream's cursor exists, so nothing committed in between is missed
       void loadSnapshot().catch(() => undefined);
-      if (opened++) { agents('a'); instances('i'); refreshLoadedMissionControl(); void refreshLoadedChannels(); } // a reconnect: re-read what this tab already shows
+      if (opened++) { agents('a'); instances('i'); proposals('o'); refreshLoadedMissionControl(); void refreshLoadedChannels(); } // a reconnect: re-read what this tab already shows
       else if (useAgentsVersion.getState().failed) agents('a'); // the first catalog load failed: try again now the server answers
     });
     for (const t of ['mission.created', 'mission.revised', 'mission.stateChanged', 'mission.shared', 'mission.deleted', 'staffing.progressed', 'approval.requested', 'approval.decided', 'notification.created', 'user.requested', 'user.changed', 'auth.approved',
-      'agent.created', 'agent.updated', 'agent.versionCreated', 'conversation.messageCreated', 'conversation.receipt', 'instance.created', 'instance.stateChanged', 'task.delegated', 'task.stateChanged'])
+      'agent.created', 'agent.updated', 'agent.versionCreated', 'org.proposalCreated', 'org.proposalDecided', 'org.revisionApplied', 'conversation.messageCreated', 'conversation.receipt', 'instance.created', 'instance.stateChanged', 'task.delegated', 'task.stateChanged'])
       es.addEventListener(t, (ev) => { heard(); onEvent(t, ev as MessageEvent); });
     // the server ends the stream when this session was revoked: re-check, which returns to Connect with the reason
     es.addEventListener('auth', () => {
@@ -114,7 +119,7 @@ export function startSync(): () => void {
   const fallback = window.setTimeout(() => { if (!useData.getState().loaded) void loadSnapshot().catch(() => undefined); }, 3000);
   return () => {
     closed = true; es?.close(); window.clearTimeout(staleTimer); window.clearTimeout(fallback); window.clearInterval(watchdog);
-    mission.cancel(); approvals.cancel(); notices.cancel(); people.cancel(); agents.cancel(); instances.cancel(); // no refresh fires after sign-out
+    mission.cancel(); approvals.cancel(); notices.cancel(); people.cancel(); agents.cancel(); instances.cancel(); proposals.cancel(); // no refresh fires after sign-out
     set('off');
   };
 }

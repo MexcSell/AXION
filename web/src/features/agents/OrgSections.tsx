@@ -10,6 +10,7 @@ import { RobotAvatar } from '@/components/art/RobotAvatar';
 import { Panel } from '@/components/ui/Panel';
 import { Segmented, SwitchRow } from '@/components/ui/Form';
 import { isApi } from '@/api/mode';
+import { ServerProposals } from './ServerProposals';
 import { Chip, DemoTag, AgentStatusChip } from '@/components/ui/Chips';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { Tip } from '@/components/ui/Tip';
@@ -183,7 +184,10 @@ export function Policies() {
 const STAGES: { key: ProposalStage; label: string }[] = [{ key: 'draft', label: 'Draft' }, { key: 'simulate', label: 'Simulate' }, { key: 'evaluate', label: 'Evaluate' }, { key: 'approve', label: 'Approve' }, { key: 'applied', label: 'Applied' }];
 const KIND_ICON = { split: Layers, merge: Shuffle, reassign: Move, 'create-role': Plus, retire: Undo2 };
 
-export function Proposals() {
+/** api mode: the server's proposals (improvement cycle 1); demo mode keeps the prototype below unchanged. */
+export function Proposals() { return isApi() ? <ServerProposals /> : <DemoProposals />; }
+
+function DemoProposals() {
   const [stages, setStages] = useState<Record<string, ProposalStage>>(() => Object.fromEntries(PROPOSALS.map((p) => [p.id, p.stage])));
   const [filter, setFilter] = useState<'all' | ProposalStage>('all');
   const list = PROPOSALS.filter((p) => filter === 'all' || stages[p.id] === filter);

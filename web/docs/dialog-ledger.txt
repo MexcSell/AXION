@@ -82,6 +82,8 @@ PASS  model-route-editor         no-props DL-42
 PASS  model-route-editor         props    DL-42   
 PASS  notification-rule          no-props DL-61   
 PASS  notification-rule          props    DL-61   
+PASS  org-proposal-new           no-props DL-66   
+PASS  org-proposal-new           props    DL-66   
 PASS  org-reorg-proposal         no-props DL-39   
 PASS  org-reorg-proposal         props    DL-39   
 PASS  rollback-confirm           no-props DL-33   
