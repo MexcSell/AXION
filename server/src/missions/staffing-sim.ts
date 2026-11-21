@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { tx } from '../db.ts';
 import { emit } from '../events/hooks.ts';
 import { transition, toUiStatus, type MissionStatus } from './machine.ts';
+import { insertInstance, joinMission } from '../instances/service.ts';
 import { advance } from '../../../web/src/features/mission/staffing-plan.ts';
 
 /**
@@ -29,11 +30,15 @@ export function startStaffingSim(app: FastifyInstance, stepMs = 1500) {
         const p = r.presentation ?? {};
         if (!p.staffing || p.staffing.stage === 'working') return false;
         const now = Date.now();
-        const view = { ...p, id, status: toUiStatus(r.status), agentIds: p.agentIds ?? ['gm'], progress: p.progress ?? 0 };
+        // Stage 6: the team lives in agent_instances. The GM instance exists from the first step.
+        const simulated = !!r.demo; // staffing of a real mission is the real record, even though nothing executes
+        await insertInstance(c, { tenantId: r.tenant_id, missionId: id, agentId: 'gm', state: 'working', task: 'Coordinating mission plan', simulated });
+        const team = (await c.query('select agent_id from agent_instances where mission_id=$1 order by seq', [id])).rows.map((x) => x.agent_id as string);
+        const view = { ...p, id, status: toUiStatus(r.status), agentIds: team, progress: p.progress ?? 0 };
         const patch = advance(view as never, now) as Record<string, any> | null;
         if (!patch) return false;
-        const { status: nextStatus, lastEventAgoMin: _l, summaryAgoMin: _s, ...rest } = patch;
-        void _l; void _s;
+        const { status: nextStatus, lastEventAgoMin: _l, summaryAgoMin: _s, agentIds: _a, ...rest } = patch;
+        void _l; void _s; void _a; // agentIds is derived from instances, never written to presentation
         const pres: Record<string, unknown> = { ...rest };
         if (rest.lastEvent) pres.lastEventAt = now;
         if (rest.summary) pres.summaryAt = now;
@@ -42,8 +47,13 @@ export function startStaffingSim(app: FastifyInstance, stepMs = 1500) {
         const u = await c.query(`update missions set presentation = presentation || $2::jsonb, status=$3, row_version=row_version+1, updated_at=now() where id=$1 and status=$4 returning id`,
           [id, JSON.stringify(pres), to, r.status]);
         if (!u.rowCount) return false;
-        const st = rest.staffing as { stage: string; joined: number; plan: { agentId: string }[] };
+        const st = rest.staffing as { stage: string; joined: number; plan: { agentId: string; why: string }[] };
         const joinedAgent = st.stage === 'recruiting' ? st.plan[st.joined - 1]?.agentId : st.stage === 'appointing' ? p.executorId : undefined;
+        if (joinedAgent && joinedAgent !== 'gm') {
+          const mgr = st.stage === 'appointing' ? 'gm' : (p.executorId as string);
+          await joinMission(c, { tenantId: r.tenant_id, missionId: id, agentId: joinedAgent, managerAgentId: mgr, simulated,
+            task: st.stage === 'appointing' ? 'General executor' : st.plan[st.joined - 1]?.why ?? '' });
+        }
         await emit(c, { tenantId: r.tenant_id, type: 'staffing.progressed', subject: id, missionId: id, actor: st.stage === 'appointing' ? 'gm' : p.executorId ?? 'gm', actorKind: 'agent',
           payload: { simulated: true, stage: st.stage, joined: st.joined, agentId: joinedAgent, text: rest.lastEvent } });
         if (to !== r.status) {

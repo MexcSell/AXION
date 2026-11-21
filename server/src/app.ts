@@ -19,6 +19,8 @@ import { tx } from './db.ts';
 import { checkOrigin } from './auth/session.ts';
 import agentRoutes from './agents/routes.ts';
 import { seedCompany } from './agents/seed.ts';
+import instanceRoutes from './instances/routes.ts';
+import { backfillMissionControl } from './instances/backfill.ts';
 
 declare module 'fastify' {
   interface FastifyInstance { db: Db; cfg: Required<Pick<Config, 'tenantId'>> & Config; onFirstAdmin?: (userId: string) => Promise<void> }
@@ -71,7 +73,9 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   await app.register(notificationRoutes, { prefix: '/api/v1' });
   await app.register(opsRoutes, { prefix: '/api/v1' });
   await app.register(agentRoutes, { prefix: '/api/v1' });
+  await app.register(instanceRoutes, { prefix: '/api/v1' });
   await tx(db, (c) => seedCompany(c, app.cfg.tenantId)); // decision E1: company data, idempotent, independent of DEMO_SEED
+  await tx(db, (c) => backfillMissionControl(c, app.cfg.tenantId)); // Stage 6: instances, delegations and tasks for missions that predate them (idempotent)
 
   app.get('/api/v1/health', async () => {
     let up = false;

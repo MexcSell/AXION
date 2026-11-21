@@ -2,6 +2,7 @@ import type { Db } from '../db.ts';
 import { tx } from '../db.ts';
 import { audit } from '../audit.ts';
 import { requestApproval, TIER_OF } from '../approvals/service.ts';
+import { backfillMissionControl } from '../instances/backfill.ts';
 import { MISSIONS, FIXTURE_OWNERS, getMissionControl } from '../../../web/src/data/missions.ts';
 
 const SERVER_STATUS: Record<string, string> = { waiting: 'waiting_approval', queued: 'queued', canceled: 'canceled' };
@@ -36,6 +37,7 @@ export async function seedDemo(db: Db, tenantId: string, adminId: string) {
         approvals++;
       }
     }
+    if (missions) await backfillMissionControl(c, tenantId); // fresh demo missions get their team at once
     if (missions) await audit(c, { tenantId, actor: 'system', action: 'demo.seed', subject: tenantId, result: 'ok', correlationId: 'seed-' + Date.now(), detail: { missions, approvals } });
     return { missions, approvals };
   });

@@ -7,10 +7,14 @@ import { guessKind, deriveTitle, staffingPlan } from '../../../web/src/features/
 import type { MissionFileDto } from '../../../shared/contracts/src/index.ts';
 
 export const SELECT_MISSION = `
-  select m.*, r.title, r.kind, r.priority, r.text, r.files, r.criteria, u.name as owner_name
+  select m.*, r.title, r.kind, r.priority, r.text, r.files, r.criteria, u.name as owner_name, tm.team, dg.deleg
     from missions m
     join mission_revisions r on r.mission_id = m.id and r.revision = m.current_revision
-    join users u on u.id = m.owner_id`;
+    join users u on u.id = m.owner_id
+    left join lateral (select jsonb_agg(jsonb_build_object('id', i.id, 'a', i.agent_id, 'm', i.manager_instance_id) order by i.seq) as team
+                         from agent_instances i where i.mission_id = m.id) tm on true
+    left join lateral (select jsonb_agg(jsonb_build_object('f', d.from_instance, 't', d.to_instance) order by d.id) as deleg
+                         from mission_delegations d where d.mission_id = m.id and d.edge_kind = 'delegated') dg on true`;
 
 const PHASES = ['Plan', 'Design', 'Build', 'Verify', 'Deliver', 'Learn'];
 
@@ -37,8 +41,20 @@ export function defaultPresentation(text: string, files: MissionFileDto[], owner
 const minsAgo = (at: unknown, now: number) => (typeof at === 'number' ? Math.max(0, Math.round((now - at) / 60000)) : undefined);
 
 /** The web's Mission shape, built from the row, its current revision and the presentation fields. */
+/** Stage 6: the team is derived from agent_instances when the mission has any; otherwise from the presentation (as in Stage 5). */
+export function derivedTeam(r: any, p: Record<string, any>) {
+  const team = (r.team ?? []) as { id: string; a: string; m: string | null }[];
+  if (!team.length) return { agentIds: (p.agentIds ?? []) as string[], leadId: (p.leadId ?? 'gm') as string, executorId: p.executorId as string | undefined };
+  const agentIds = team.map((t) => t.a);
+  const lead = (p.leadId && agentIds.includes(p.leadId) ? team.find((t) => t.a === p.leadId) : undefined) ?? team.find((t) => t.a === 'gm') ?? team.find((t) => !t.m) ?? team[0];
+  const first = ((r.deleg ?? []) as { f: string; t: string }[]).find((d) => d.f === lead.id);
+  const executorId = first ? team.find((t) => t.id === first.t)?.a : p.executorId;
+  return { agentIds, leadId: lead.a, executorId };
+}
+
 export function missionDto(r: any, now = Date.now()) {
   const p = (r.presentation ?? {}) as Record<string, any>;
+  const team = derivedTeam(r, p);
   const { preArchive: _pa, summaryAt, lastEventAt, ...shown } = p;
   void _pa;
   const created = new Date(r.created_at).getTime();
@@ -54,7 +70,7 @@ export function missionDto(r: any, now = Date.now()) {
     summaryAgoMin: minsAgo(summaryAt, now) ?? p.summaryAgoMin ?? 0,
     lastEventAgoMin: minsAgo(lastEventAt, now) ?? p.lastEventAgoMin ?? 0,
     createdAgoDays: r.demo && typeof p.createdAgoDays === 'number' ? p.createdAgoDays : Math.floor((now - created) / 86_400_000),
-    agentIds: p.agentIds ?? [], leadId: p.leadId ?? 'gm', phases: p.phases ?? [],
+    agentIds: team.agentIds, leadId: team.leadId, ...(team.executorId ? { executorId: team.executorId } : {}), phases: p.phases ?? [],
     progress: p.progress ?? 0, tasksVerified: p.tasksVerified ?? 0, tasksTotal: p.tasksTotal ?? 0, blocked: p.blocked ?? 0,
     summary: p.summary ?? '', lastEvent: p.lastEvent ?? '', elapsedH: p.elapsedH ?? 0, dueInDays: p.dueInDays ?? 7,
     version: p.version ?? 'v0.1.0', pendingApprovals: p.pendingApprovals ?? 0, unread: p.unread ?? 0,
