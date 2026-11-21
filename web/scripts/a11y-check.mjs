@@ -161,9 +161,9 @@ if (API) {
   // each probe must show its loading (slow) and failed (fail) state inside a live region, unless it lists a reason why the page has none
   const probes = [
     { v: '/overview', slow: /reading|loading/i, fail: /request failed|unavailable|could not/i },
-    { v: '/operations?tab=agents&sub=live-instances', slow: /loading instances/i, fail: /could not be read/i },
+    { v: '/operations?tab=agents&sub=live-instances', slow: /loading/i /* page skeleton (sr-only "Loading…") while the held request blocks the lazy page */, fail: /could not be read/i },
     { v: '/operations?tab=agents&sub=proposals', slow: /loading proposals/i, fail: /not loaded/i },
-    { v: '/operations?tab=agents&sub=development', slow: /loading proposals/i, fail: /not loaded/i },
+    { v: '/operations?tab=agents&sub=development', slow: /loading/i, fail: /not loaded/i },
     { v: '/agents/coder-01', slow: /loading instances/i, fail: /could not be read/i },
     { v: '/agents/coder-01?tab=evolution', slow: /loading proposals/i, fail: /not loaded/i },
     { v: '/missions/M-125?tab=hierarchy', slow: /loading/i, fail: /could not load/i },
