@@ -81,11 +81,17 @@ describe('measured from recorded tasks', () => {
     await task('P6', 'P', 'tester-01', 'failed');
     const r = await M.req('POST', '/tasks/P6/reassign', { toInstanceId: 'P:coder-01' }, key());
     expect(r.status).toBe(200);
-    await q(`update tasks set status='passed' where id='P6'`); // the system's pass (nothing executes yet)
-    // finish time: an event into the current state 100 days ago is outside the window, although the task has a recent attempt
+    // after the handover Coder-01 makes its own (first) attempt and the system passes the task (nothing executes yet)
+    await q(`insert into task_attempts(task_id, attempt_no, started_at, finished_at, result) values ('P6', 2, now(), now(), 'passed')`);
+    await q(`update tasks set status='passed' where id='P6'`);
+    // finish time = the later of the last move into the current state and the last attempt (review m4): P7's event is
+    // 100 days old but its attempt finished 1 hour ago, so it counts; P11 has only old records, so it does not
     await task('P7', 'P', 'coder-01', 'failed', { createdDaysAgo: 120 });
     await q(`insert into events(tenant_id, type, mission_id, seq, subject_kind, subject_id, audience, payload, occurred_at)
              values ('t-1','task.stateChanged','P',10001,'task','P7','mission','{"taskId":"P7","from":"running","to":"failed","action":"fail"}', now() - interval '100 days')`);
+    await task('P11', 'P', 'coder-01', 'failed', { createdDaysAgo: 120, hoursAgo: 100 * 24 });
+    await q(`insert into events(tenant_id, type, mission_id, seq, subject_kind, subject_id, audience, payload, occurred_at)
+             values ('t-1','task.stateChanged','P',10002,'task','P11','mission','{"taskId":"P11","from":"running","to":"failed","action":"fail"}', now() - interval '100 days')`);
     // no event and no attempt, created before the window: its finish can't be placed in the window
     await q(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent, owner_instance_id, created_at) values ('P8','t-1','P','t','passed','coder-01','P:coder-01', now() - interval '120 days')`);
     await task('P9', 'P', 'coder-01', 'canceled'); // a human stop: excluded
@@ -102,6 +108,10 @@ describe('measured from recorded tasks', () => {
     await mission('D', adminId, { shared: true, demo: true });
     for (const a of ['gm', 'coder-01']) await instance('D', a);
     for (const id of ['D1', 'D2', 'D3']) await task(id, 'D', 'coder-01', 'failed', { simulated: true });
+    // DP: the admin's PRIVATE DEMO mission: includeSimulated never reveals it to a member (review m7)
+    await mission('DP', adminId, { demo: true });
+    for (const a of ['gm', 'coder-01']) await instance('DP', a);
+    for (const id of ['DP1', 'DP2']) await task(id, 'DP', 'coder-01', 'failed', { simulated: true });
 
     // X: deleted mission: never counts
     await mission('X', minaId, { shared: true });
@@ -120,16 +130,16 @@ describe('measured from recorded tasks', () => {
     await q(`insert into audit_events(tenant_id, actor, action, subject, result, correlation_id, detail) values ('t-1',$1,'task.reassign','S1','denied','c','{"fromInstanceId":"S:coder-01","toInstanceId":"S:gm"}')`, [kenjiId]);
   });
 
-  it('an admin counts every visible real task of the tenant: 6 of 9 → 67', async () => {
-    expect(await relOf(A, 'coder-01')).toEqual({ value: 67, n: 9, window: '90d', includesSimulated: false,
-      evidence: '6 of 9 finished tasks passed first time · 1 retried · 2 failed · last 90 days · from missions you can see' });
+  it('an admin counts every visible real task of the tenant: 6 of 10 → 60', async () => {
+    expect(await relOf(A, 'coder-01')).toEqual({ value: 60, n: 10, window: '90d', includesSimulated: false,
+      evidence: '6 of 10 finished tasks passed first time · 1 retried · 3 failed · last 90 days · from missions you can see' });
   });
   it('the reassignment counts against the agent it left (Tester-01), from the API\'s recorded reassign', async () => {
     expect(await relOf(A, 'tester-01')).toMatchObject({ value: null, n: 1,
       evidence: 'not enough evidence (1 of 5) · 0 of 1 finished task passed first time · 1 reassigned away · last 90 days · from missions you can see' });
   });
   it('the owner of the private mission sees the same as the admin', async () => {
-    expect(await relOf(M, 'coder-01')).toMatchObject({ value: 67, n: 9 });
+    expect(await relOf(M, 'coder-01')).toMatchObject({ value: 60, n: 10 });
     expect(await relOf(M, 'tester-01')).toMatchObject({ n: 1 });
   });
   it('a member does not count a private mission\'s tasks or its reassignments', async () => {
@@ -138,28 +148,35 @@ describe('measured from recorded tasks', () => {
     expect(await relOf(K, 'tester-01')).toMatchObject({ n: 0 });
   });
   it('simulated (DEMO) tasks only with includeSimulated=1, which the result says', async () => {
-    expect(await relOf(A, 'coder-01', '?includeSimulated=1')).toMatchObject({ value: 50, n: 12, includesSimulated: true });
-    expect(await relOf(M, 'coder-01', '?includeSimulated=1')).toMatchObject({ value: 50, n: 12, includesSimulated: true }); // D is shared
+    expect(await relOf(A, 'coder-01', '?includeSimulated=1')).toMatchObject({ value: 40, n: 15, includesSimulated: true }); // 6 of 15 (D + DP)
+    expect(await relOf(M, 'coder-01', '?includeSimulated=1')).toMatchObject({ value: 46, n: 13, includesSimulated: true }); // 6 of 13: D is shared, DP is private
     expect(await relOf(K, 'coder-01', '?includeSimulated=1')).toMatchObject({ value: 17, n: 6, includesSimulated: true }); // 1 of 6
-    expect(await relOf(A, 'coder-01', '?includeSimulated=0')).toMatchObject({ n: 9, includesSimulated: false });
+    expect(await relOf(A, 'coder-01', '?includeSimulated=0')).toMatchObject({ n: 10, includesSimulated: false });
   });
   it('another tenant never counts (its tasks, nor its audit rows naming our task)', async () => {
-    for (const b of [A, M, K]) {
+    // exact per user: t-2's 5 failures (and its audit row naming S1) would change every one of these (review m7)
+    for (const [b, n, value] of [[A, 15, 40], [M, 13, 46], [K, 6, 17]] as const) {
       const r = await relOf(b, 'coder-01', '?includeSimulated=1');
-      expect(r.n).toBeLessThanOrEqual(12);
+      expect(r).toMatchObject({ n, value });
       expect(r.evidence).not.toMatch(/reassigned away/);
     }
+    expect(await relOf(K, 'coder-01')).toMatchObject({ n: 3, value: null });
   });
   it('a reassignment made later through the API moves the count (live source, no cache)', async () => {
     await task('S4', 'S', 'coder-01', 'failed');
     expect(await relOf(K, 'coder-01')).toMatchObject({ n: 4, value: null });
     const r = await K.req('POST', '/tasks/S4/reassign', { toInstanceId: 'S:gm' }, key());
     expect(r.status).toBe(200);
-    // S4 is still failed, now at the GM: it stays one unreliable task for Coder-01 (reassigned away, no longer "failed") and one for the GM
+    // S4 failed under Coder-01: it stays one unreliable task for Coder-01 (now "reassigned away" instead of "failed").
+    // The GM did not attempt it, so the failure is not the GM's (review I2): not counted, and its sentence says so.
     const k = await relOf(K, 'coder-01');
     expect(k).toMatchObject({ n: 4 });
     expect(k.evidence).toContain('1 reassigned away');
-    expect(await relOf(K, 'gm')).toMatchObject({ n: 1 });
+    expect(await relOf(K, 'gm')).toMatchObject({ n: 0, evidence: expect.stringContaining('1 taken over after failing elsewhere (not counted)') });
+    // a person retries it at the GM (the retry's attempt belongs to the GM) and the system fails it again: now the GM's failure
+    expect((await K.req('POST', '/tasks/S4/retry', undefined, key())).status).toBe(200);
+    await q(`update tasks set status='failed' where id='S4'`);
+    expect(await relOf(K, 'gm')).toMatchObject({ n: 1, evidence: expect.stringContaining('1 failed') });
     await task('S5', 'S', 'coder-01', 'passed');
     expect(await relOf(K, 'coder-01')).toMatchObject({ n: 5, value: 40 });
   });
@@ -170,7 +187,19 @@ describe('measured from recorded tasks', () => {
     const k = await relOf(K, 'tester-01');
     expect(k).toMatchObject({ n: 1 });
     expect(k.evidence).toContain('1 reassigned away');
-    expect(await relOf(K, 'coder-01')).toMatchObject({ n: 6, value: 33 }); // S6 failed at Coder-01: 2 of 6
+    // S6 failed under Tester-01; Coder-01 never attempted it, so it gets no failure (review I2)
+    expect(await relOf(K, 'coder-01')).toMatchObject({ n: 5, value: 40 });
+  });
+  it('multiple reassignments through the API: Coder-01 → GM → Tester-01; each agent it left is charged once, the last owner only for its own attempt (m7)', async () => {
+    await instance('S', 'tester-01');
+    await task('S7', 'S', 'coder-01', 'failed');
+    expect((await K.req('POST', '/tasks/S7/reassign', { toInstanceId: 'S:gm' }, key())).status).toBe(200);
+    expect((await K.req('POST', '/tasks/S7/reassign', { toInstanceId: 'S:tester-01' }, key())).status).toBe(200);
+    expect((await K.req('POST', '/tasks/S7/retry', undefined, key())).status).toBe(200); // attempt 2 (not started): Tester-01's
+    await q(`update tasks set status='passed' where id='S7'`); // the system's pass
+    expect(await relOf(K, 'coder-01')).toMatchObject({ n: 6, value: 33, evidence: expect.stringContaining('2 reassigned away') }); // S4, S7
+    expect(await relOf(K, 'gm')).toMatchObject({ n: 2, evidence: expect.stringContaining('1 failed · 1 reassigned away') }); // S4 own failure, S7 left
+    expect(await relOf(K, 'tester-01')).toMatchObject({ n: 2, evidence: 'not enough evidence (2 of 5) · 1 of 2 finished tasks passed first time · 1 reassigned away · last 90 days · from missions you can see' });
   });
   it('the value is identical between GET /agents and GET /agents/:id, for every agent, user and mode', async () => {
     for (const b of [A, M, K]) for (const qs of ['', '?includeSimulated=1']) {

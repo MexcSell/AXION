@@ -6,9 +6,10 @@
 // is the honest terminal state reachable here); the Overview tile, the scorecard panel and the Missions header then show the
 // server's numbers with n, live. A DEMO mission canceled the same way is counted only with "include DEMO missions" on.
 // Improvement cycle 3 (theme C): agent reliability measured from recorded tasks. A fresh agent says "not enough evidence (0 of 5)";
-// user actions on DEMO tasks (reassign, retry) make the open profile re-read live but never count (DEMO excluded); real finished
-// tasks (fixture rows in axion_e2e: real missions have no tasks yet and passed/failed are system-only) plus a user reassign
-// bring one agent to n=5, and its profile, list row and card show the server's value live.
+// user actions on DEMO tasks (reassign, retry) make the open profile re-read live but never count (DEMO excluded).
+// Pass-threshold 3b (n ≥ 5 reached through the API) is NOT MET: real missions have no tasks and passed/failed are system-only.
+// SUPPLEMENTARY, a test-only seam like the c01 expiry step: real finished task rows written into axion_e2e show how the profile,
+// list row and card render a server value, and user actions (reassign, retry) on those rows change it live.
 // Run through scripts/api-e2e.sh (API 5192 on axion_e2e, reset on start; Vite 5193). Screenshots: SHOTS.
 import { chromium } from 'playwright';
 import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
@@ -344,7 +345,8 @@ try {
   // ------------------------------------------------------------ c03: agent reliability measured from recorded task history
   // Honest limits (see c03-report): real missions get no tasks yet (the only task rows are the DEMO seed's simulated ones) and
   // passed/failed are system-only. So the user-action part proves the empty state, DEMO exclusion and the live re-read; the
-  // value with n ≥ 5 is proven in the server route tests and, below, rendered from fixture rows written only into axion_e2e.
+  // value with n ≥ 5 is proven only in the server route tests; pass-threshold 3b is NOT MET in the browser. The SUPPLEMENTARY
+  // step below renders a value from fixture rows written only into axion_e2e (a test-only seam, not evidence for 3b).
   const relStat = (p) => p.locator('.oa-hero-side [data-reliability]');
   const relText = async (p) => (await relStat(p).locator('[data-reliability-text]').innerText()).trim();
   const relOfApi = async (call, id, qs = '') => (await call('GET', `/agents/${id}${qs}`)).body.agent?.reliability;
@@ -363,15 +365,17 @@ try {
   check('c03 the Reliability stat has its own ? (definition) and a "measured" chip, no DEMO tag',
     (await relStat(A.p).locator('[data-help-key="agent.reliability"]').count()) === 1 && (await relStat(A.p).locator('.demo-tag.measured').count()) === 1 && (await relStat(A.p).getByText('DEMO', { exact: true }).count()) === 0);
   await relStat(A.p).locator('[data-help-key="agent.reliability"]').click();
-  check('c03 the ? explains the definition (first attempt, reassigned away, canceled not counted, 5 needed)',
-    await until(async () => { const t = await A.p.locator('.help-pop').innerText(); return /first attempt/.test(t) && /reassigned away/.test(t) && /Canceled by a person: not counted/.test(t) && /below 5/.test(t); }, 4000));
+  check('c03 the ? explains the definition (first attempt, reassigned away, canceled not counted, the handover rule, 5 needed)',
+    await until(async () => { const t = await A.p.locator('.help-pop').innerText(); return /first attempt/.test(t) && /reassigned away/.test(t) && /canceled by a person/.test(t) && /never adds a failure to the receiving agent/.test(t) && /below 5/.test(t); }, 4000));
   await A.p.keyboard.press('Escape');
 
   // a seeded agent with many DEMO (simulated) tasks: the default excludes them; the DEMO fixture numbers keep their DEMO chip
   const coderSim = await relOfApi(apiA, 'coder-01', '?includeSimulated=1');
   const coderReal = await relOfApi(apiA, 'coder-01');
-  check('c03 server: Coder-01 has simulated DEMO evidence only with includeSimulated=1; by default n=0',
-    coderSim?.n > 0 && coderSim.includesSimulated === true && coderReal?.n === 0 && coderReal.value === null, `with DEMO n=${coderSim?.n} value=${coderSim?.value}, default n=${coderReal?.n}`);
+  // fix round m2: DEMO fixture tasks have no recorded attempts, so their passes are left out even with includeSimulated=1 (and say so)
+  check('c03 server: Coder-01\'s DEMO tasks appear only with includeSimulated=1 (passes without a recorded attempt: not counted); by default nothing',
+    coderSim?.includesSimulated === true && /passed with no recorded attempt of its own \(not counted\)/.test(coderSim.evidence) && /DEMO tasks included/.test(coderSim.evidence)
+      && coderReal?.n === 0 && coderReal.value === null && !/not counted/.test(coderReal.evidence), `with DEMO: ${coderSim?.evidence}; default: ${coderReal?.evidence}`);
   await A.p.goto(base + '/agents/coder-01', { waitUntil: 'domcontentloaded' });
   await relStat(A.p).waitFor({ timeout: 15000 });
   check('c03 Coder-01 profile: Reliability "not enough evidence (0 of 5)" (DEMO tasks are not evidence)', (await relText(A.p)) === 'not enough evidence (0 of 5)');
@@ -393,21 +397,23 @@ try {
   check('c03 live: the open profile re-reads the agents after task.delegated (no reload)', await until(async () => agentReads > reads0, 6000) && (await A.p.evaluate(() => window.__noReload)) === 'c03', `${agentReads - reads0} reads`);
   const after = await relOfApi(apiA, fromAgent, '?includeSimulated=1');
   const coderAfter = await relOfApi(apiA, 'coder-01', '?includeSimulated=1');
-  check(`c03 server, with DEMO tasks: the failed task now counts against ${fromAgent} as "reassigned away" and against Coder-01 as failed; by default nothing changes`,
-    after.n === before.n && !/reassigned away/.test(before.evidence) && /1 reassigned away/.test(after.evidence) && coderAfter.n === coderSim.n + 1
+  // fix round I2: every outcome counts against the owner at that time; Coder-01 never attempted it, so it gets no failure
+  check(`c03 server, with DEMO tasks: the failed task now counts against ${fromAgent} as "reassigned away"; Coder-01 (no own attempt) is not charged; by default nothing changes`,
+    after.n === before.n && !/reassigned away/.test(before.evidence) && /1 reassigned away/.test(after.evidence) && coderAfter.n === coderSim.n
+      && /1 taken over after failing elsewhere \(not counted\)/.test(coderAfter.evidence)
       && (await relOfApi(apiA, fromAgent)).n === 0 && (await relOfApi(apiA, 'coder-01')).n === 0, `${fromAgent}: "${before.evidence}" → "${after.evidence}"; Coder-01 n ${coderSim.n} → ${coderAfter.n}`);
   const reads1 = agentReads;
   const rt = await apiA('POST', `/tasks/${demoTask.id}/retry`, {}, { 'idempotency-key': `c03-rt-${Date.now()}` });
   check('c03 user action: retry it (failed → queued for retry, no longer finished): the profile re-reads after task.stateChanged',
     rt.status === 200 && await until(async () => agentReads > reads1, 6000), `status ${rt.status}`);
-  check(`c03 server, with DEMO tasks: the retried task is open again, so it left the evidence of ${fromAgent} and Coder-01 (open tasks are not evidence)`,
+  check(`c03 server, with DEMO tasks: the retried task is open again, so it left the evidence of ${fromAgent} (open tasks are not evidence)`,
     (await relOfApi(apiA, fromAgent, '?includeSimulated=1')).n === before.n - 1 && (await relOfApi(apiA, 'coder-01', '?includeSimulated=1')).n === coderSim.n);
   await A.p.waitForTimeout(600);
   check('c03 Coder-01 profile still says "not enough evidence (0 of 5)" (real tasks only), no reload', (await relText(A.p)) === 'not enough evidence (0 of 5)' && (await A.p.evaluate(() => window.__noReload)) === 'c03');
 
-  // ------------------------------------------------------------ c03 fixture step (axion_e2e only): real task rows, then a user reassign
-  // passed/failed are system-only and real missions have no tasks yet, so 4 finished real tasks are written as rows into the e2e
-  // database (like the server route tests do). The 5th comes to the agent through the API's reassign, live.
+  // ------------------------------------------------------------ c03 SUPPLEMENTARY fixture step (axion_e2e only; not evidence for 3b)
+  // passed/failed are system-only and real missions have no tasks yet, so finished real task rows are written straight into the
+  // e2e database (a test-only seam, like the c01 expiry step and the server route tests). User actions on them then move the value.
   const mR = (await apiA('POST', '/missions', { text: 'Reliability check: compare two log shippers and list their limits.', files: [], shared: false }, { 'idempotency-key': `c03-new-${Date.now()}` })).body.mission;
   await act(mR.id, 'start');
   let team = [];
@@ -419,31 +425,35 @@ try {
   const db3 = new pgc.Client({ connectionString: e2eUrl });
   await db3.connect();
   const tn = (await db3.query('select tenant_id from missions where id=$1', [mR.id])).rows[0].tenant_id;
-  const rows3 = [['R1', 'passed', exec], ['R2', 'passed', exec], ['R3', 'passed', exec], ['R4', 'failed', exec], ['R5', 'failed', lead]];
+  // the executor: 3 first-time passes, 2 failures (one attempt each); the GM: 1 failure
+  const rows3 = [['R1', 'passed', exec], ['R2', 'passed', exec], ['R3', 'passed', exec], ['R4', 'failed', exec], ['R5', 'failed', exec], ['R6', 'failed', lead]];
   for (const [sfx, st, n] of rows3) {
     const id = `T-${mR.id}-${sfx}`;
     await db3.query(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent, owner_instance_id, simulated) values ($1,$2,$3,$4,$5,$6,$7,false)`, [id, tn, mR.id, `Reliability fixture ${sfx}`, st, n.agentId, n.instanceId]);
     await db3.query(`insert into task_attempts(task_id, attempt_no, started_at, finished_at, result) values ($1,1, now() - interval '1 hour', now(), $2)`, [id, st]);
   }
   await db3.end();
+  const SFX = 'last 90 days · from missions you can see';
   await A.p.goto(base + `/agents/${exec.agentId}`, { waitUntil: 'domcontentloaded' });
   await relStat(A.p).waitFor({ timeout: 15000 });
-  check(`c03 ${exec.agentId}: 4 finished real tasks → "not enough evidence (4 of 5)", no value`,
-    await until(async () => (await relText(A.p)) === 'not enough evidence (4 of 5)' && (await relStat(A.p).getAttribute('data-reliability')) === 'none', 8000), await relText(A.p).catch(() => '?'));
-  await A.p.evaluate(() => { window.__noReload = 'c03b'; });
-  const re5 = await apiA('POST', `/tasks/T-${mR.id}-R5/reassign`, { toInstanceId: exec.instanceId }, { 'idempotency-key': `c03-re5-${Date.now()}` });
   const srv = await relOfApi(apiA, exec.agentId);
-  check('c03 user action: the failed task R5 is reassigned from the GM to the executor; the server now has n=5 and a value (3 of 5 → 60)',
-    re5.status === 200 && srv?.n === 5 && srv.value === 60 && srv.evidence === '3 of 5 finished tasks passed first time · 2 failed · last 90 days · from missions you can see', JSON.stringify(srv));
-  check('c03 live: the profile shows the server\'s value and n without a reload (60%, n=5 · last 90 days)',
-    await until(async () => (await relStat(A.p).getAttribute('data-reliability')) === 'ok' && (await relStat(A.p).getAttribute('data-reliability-value')) === String(srv.value)
-      && (await relStat(A.p).getAttribute('data-reliability-n')) === String(srv.n) && (await relStat(A.p).locator('.oa-rel-val b').innerText()).trim() === `${srv.value}%` && (await relText(A.p)) === `n=${srv.n} · last 90 days`, 8000)
-      && (await A.p.evaluate(() => window.__noReload)) === 'c03b', await relText(A.p).catch(() => '?'));
-  check('c03 the GM is charged one "reassigned away" (server)', /1 reassigned away/.test((await relOfApi(apiA, 'gm')).evidence) && (await relOfApi(apiA, 'gm')).n === 1);
+  check(`c03 supplementary (fixture rows): the server measures ${exec.agentId} at 3 of 5 → 60`, srv?.n === 5 && srv.value === 60 && srv.evidence === `3 of 5 finished tasks passed first time · 2 failed · ${SFX}`, JSON.stringify(srv));
+  const shows = async (p, value, n) => (await relStat(p).getAttribute('data-reliability')) === 'ok' && (await relStat(p).getAttribute('data-reliability-value')) === String(value)
+    && (await relStat(p).getAttribute('data-reliability-n')) === String(n) && (await relStat(p).locator('.oa-rel-val b').innerText()).trim() === `${value}%` && (await relText(p)) === `n=${n} · last 90 days`;
+  check('c03 supplementary: the profile renders the server\'s value and n (60%, n=5 · last 90 days)', await until(() => shows(A.p, 60, 5), 8000), await relText(A.p).catch(() => '?'));
   check(`c03 ${exec.agentId}'s DEMO fixture numbers keep their DEMO chip next to the measured value`, (await A.p.locator('.oa-hero-main .demo-tag', { hasText: 'DEMO' }).count()) >= 1);
   await A.p.waitForTimeout(900);
   if (DOC_SHOT_C03) await A.p.screenshot({ path: DOC_SHOT_C03 });
   await A.p.screenshot({ path: `${SHOTS}/improve-c03-profile-A.png` });
+  // user action: the GM's failed task R6 is reassigned to the executor. Fix round I2: the failure stays the GM's; the executor gets none
+  await A.p.evaluate(() => { window.__noReload = 'c03b'; });
+  const readsR6 = agentReads;
+  const re6 = await apiA('POST', `/tasks/T-${mR.id}-R6/reassign`, { toInstanceId: exec.instanceId }, { 'idempotency-key': `c03-re6-${Date.now()}` });
+  const srv6 = await relOfApi(apiA, exec.agentId);
+  check('c03 user action: reassigning the GM\'s failed task to the executor adds no failure to the executor (still 3 of 5 → 60; "taken over … not counted")',
+    re6.status === 200 && srv6.n === 5 && srv6.value === 60 && srv6.evidence === `3 of 5 finished tasks passed first time · 2 failed · 1 taken over after failing elsewhere (not counted) · ${SFX}`, JSON.stringify(srv6));
+  check('c03 the GM is charged one "reassigned away" (server)', /1 reassigned away/.test((await relOfApi(apiA, 'gm')).evidence) && (await relOfApi(apiA, 'gm')).n === 1);
+  check('c03 live: the profile re-reads after task.delegated and still shows 60%, n=5 (no reload)', await until(async () => agentReads > readsR6, 6000) && await until(() => shows(A.p, 60, 5), 4000) && (await A.p.evaluate(() => window.__noReload)) === 'c03b');
   // fit: the profile still fits one screen at 1366x768 with the stat (hero + tab bar visible, no page scroll)
   await A.p.setViewportSize({ width: 1366, height: 768 });
   await A.p.waitForTimeout(600);
@@ -474,6 +484,16 @@ try {
   const cardOf = (p, name) => p.locator('.agent-card', { has: p.locator('.agent-name', { hasText: new RegExp(`^${name}$`) }) });
   check('c03 Directory cards: the executor\'s card chip shows 60%, the fresh agent\'s "—"',
     await until(async () => (await cardOf(A.p, execName).locator('[data-reliability-chip="ok"]').innerText()).includes('60%') && (await cardOf(A.p, fresh.name).locator('[data-reliability-chip="none"]').innerText()).includes('—'), 8000));
+  // user action: retry the executor's failed task R5 → it is open again, so it leaves the evidence; the open profile drops live to 4 of 5
+  await A.p.goto(base + `/agents/${exec.agentId}`, { waitUntil: 'domcontentloaded' });
+  await relStat(A.p).waitFor({ timeout: 15000 });
+  await until(() => shows(A.p, 60, 5), 8000);
+  await A.p.evaluate(() => { window.__noReload = 'c03c'; });
+  const rt5 = await apiA('POST', `/tasks/T-${mR.id}-R5/retry`, {}, { 'idempotency-key': `c03-rt5-${Date.now()}` });
+  check('c03 user action: retry R5; live, without a reload, the profile goes from 60% (n=5) to "not enough evidence (4 of 5)" — the server\'s value',
+    rt5.status === 200 && (await relOfApi(apiA, exec.agentId)).n === 4
+      && await until(async () => (await relStat(A.p).getAttribute('data-reliability')) === 'none' && (await relText(A.p)) === 'not enough evidence (4 of 5)', 8000)
+      && (await A.p.evaluate(() => window.__noReload)) === 'c03c', await relText(A.p).catch(() => '?'));
 } catch (e) { check('script ran to the end', false, String(e).split('\n')[0]); }
 for (const [X, l] of [[A, 'A'], [B, 'B'], [C, 'C']]) await X?.p.screenshot({ path: `${SHOTS}/improve-c01-end-${l}.png` }).catch(() => {});
 console.log(errors.length ? 'PAGE ERRORS:\n' + errors.join('\n') : 'no page errors');
