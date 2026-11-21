@@ -117,3 +117,21 @@ export function validateOrg(edges: EdgeIn[], agents: OrgAgent[], current: EdgeIn
     removed: current.map(edge).filter((e) => !after.has(keyOf(e))).sort(bySub),
   };
 }
+
+/**
+ * Improvement cycle 4: before/after diff of two sets of reporting lines (pure). A line is keyed by its subordinate (each
+ * agent has one manager per revision: org_edges' primary key is (revision_id, subordinate_id)). moved = in both with
+ * another manager; added = only after; removed = only before. Sorted by subordinate.
+ */
+export function diffLines(before: EdgeIn[], after: EdgeIn[]): { added: OrgEdgeDto[]; removed: OrgEdgeDto[]; moved: { subordinate: string; from: string; to: string }[] } {
+  const b = new Map(before.map(edge).map((e) => [e.subordinateId, e]));
+  const a = new Map(after.map(edge).map((e) => [e.subordinateId, e]));
+  const moved: { subordinate: string; from: string; to: string }[] = [];
+  for (const [sub, e] of a) { const o = b.get(sub); if (o && o.supervisorId !== e.supervisorId) moved.push({ subordinate: sub, from: o.supervisorId, to: e.supervisorId }); }
+  const bySubordinate = (x: { subordinate: string }, y: { subordinate: string }) => (x.subordinate < y.subordinate ? -1 : x.subordinate > y.subordinate ? 1 : 0);
+  return {
+    added: [...a.values()].filter((e) => !b.has(e.subordinateId)).sort(bySub),
+    removed: [...b.values()].filter((e) => !a.has(e.subordinateId)).sort(bySub),
+    moved: moved.sort(bySubordinate),
+  };
+}

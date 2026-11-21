@@ -1,9 +1,9 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  GitPullRequest, Plus, Minus, ArrowRight, Check, X, Undo2, Clock, CheckCircle2, XCircle, Hourglass, AlertOctagon, AlertTriangle, ShieldCheck, Lock, Lightbulb,
+  GitPullRequest, Plus, Check, X, Undo2, Clock, CheckCircle2, XCircle, Hourglass, AlertOctagon, AlertTriangle, ShieldCheck, Lock, Lightbulb, History,
 } from 'lucide-react';
-import type { OrgDryRun, OrgEdgeDto, OrgProposalDto, OrgProposalStatus } from '@contracts';
+import type { OrgDryRun, OrgProposalDto, OrgProposalStatus } from '@contracts';
 import { Panel } from '@/components/ui/Panel';
 import { Segmented } from '@/components/ui/Form';
 import { Chip } from '@/components/ui/Chips';
@@ -11,16 +11,16 @@ import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useAgentsCatalog } from '@/api/agents';
 import { useOrgProposals, decideProposal, withdrawProposal } from '@/api/orgProposals';
-import { AGENT_BY_ID } from '@/data/agents';
 import { isAdmin, useMe } from '@/store/auth';
 import { openDialog, toast } from '@/store/ui';
 import { ago, cx } from '@/lib/format';
+import { OrgHistory } from './OrgHistory';
+import { Line } from './OrgLine';
 import '@/theme/pages/overview-org-agent.css';
 
 /* Improvement cycle 1 (api mode): the server's organisation proposals. Only stored facts are shown: the lines a
    proposal adds and removes, the dry-run errors and warnings, its base revision and its status. No estimates. */
 
-const name = (id: string) => AGENT_BY_ID[id]?.name ?? id;
 const STATUS: Record<OrgProposalStatus, { label: string; hue: number; icon: typeof Clock }> = {
   pending: { label: 'Pending', hue: 38, icon: Clock },
   approved: { label: 'Approved', hue: 145, icon: CheckCircle2 },
@@ -30,15 +30,6 @@ const STATUS: Record<OrgProposalStatus, { label: string; hue: number; icon: type
   expired: { label: 'Expired', hue: 225, icon: Hourglass },
   withdrawn: { label: 'Withdrawn', hue: 225, icon: Undo2 },
 };
-
-function Line({ e, kind }: { e: OrgEdgeDto; kind: 'add' | 'rm' }) {
-  return (
-    <span className={cx('oa-line', kind)} data-line={kind} data-from={e.supervisorId} data-to={e.subordinateId}>
-      {kind === 'add' ? <Plus size={11} aria-label="added" /> : <Minus size={11} aria-label="removed" />}
-      <b>{name(e.supervisorId)}</b><ArrowRight size={11} aria-hidden /><b>{name(e.subordinateId)}</b>
-    </span>
-  );
-}
 
 /** The server's dry run: errors (red), warnings (amber), and the reporting lines added and removed as "A → B". */
 export function DryRunView({ r, max = 6 }: { r: OrgDryRun; max?: number }) {
@@ -62,8 +53,10 @@ export function DryRunView({ r, max = 6 }: { r: OrgDryRun; max?: number }) {
   );
 }
 
-function ProposalCard({ p, active, meId, admin, index, err, setErr }: { p: OrgProposalDto; active: number; meId?: string; admin: boolean; index: number; err?: string; setErr: (m: string | null) => void }) {
+function ProposalCard({ p, active, meId, admin, index, err, setErr, highlight }: { p: OrgProposalDto; active: number; meId?: string; admin: boolean; index: number; err?: string; setErr: (m: string | null) => void; highlight?: boolean }) {
   const [note, setNote] = useState('');
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => { if (highlight) ref.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, [highlight]);
   const [busy, setBusy] = useState(false);
   const S = STATUS[p.status];
   const pending = p.status === 'pending';
@@ -80,7 +73,7 @@ function ProposalCard({ p, active, meId, admin, index, err, setErr }: { p: OrgPr
   const ageMin = (Date.now() - new Date(p.createdAt).getTime()) / 60_000;
   const leftH = Math.max(0, (new Date(p.expiresAt).getTime() - Date.now()) / 3_600_000);
   return (
-    <motion.article layout className="subpanel glass-card hoverable oa-pcard" data-proposal={p.id} data-status={p.status}
+    <motion.article ref={ref} layout className={cx('subpanel glass-card hoverable oa-pcard', highlight && 'oa-hl')} data-proposal={p.id} data-status={p.status} data-highlight={highlight ? '1' : undefined}
       initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: .97 }} transition={{ delay: Math.min(index, 8) * .05 }}>
       <div className="row" style={{ gap: 10 }}>
         <span className="oa-hex" style={{ ['--h' as string]: S.hue }}><GitPullRequest size={18} /></span>
@@ -122,12 +115,34 @@ function ProposalCard({ p, active, meId, admin, index, err, setErr }: { p: OrgPr
 }
 
 type Filter = 'all' | 'pending' | 'decided';
+type View = 'proposals' | 'history';
+/** Agents › Proposals in api mode: the proposals, or (cycle 4) the organisation's history, behind one switch. A rollback
+    proposed from the history opens the Pending proposals with the new card highlighted. */
 export function ServerProposals() {
+  const [view, setView] = useState<View>('proposals');
+  const [filter, setFilter] = useState<Filter>('pending');
+  const [highlight, setHighlight] = useState<string | null>(null);
+  const switcher = <Segmented ariaLabel="Proposals or history" size="sm" value={view} onChange={setView}
+    options={[{ key: 'proposals', label: <><GitPullRequest size={12} aria-hidden /> Proposals</>, title: 'Pending and decided proposals' }, { key: 'history', label: <><History size={12} aria-hidden /> History</>, title: 'Every org revision, its changes and rollback' }]} />;
+  // switching views keeps the switch itself on screen (the page body may have scrolled down to a card)
+  const top = useRef<HTMLSpanElement>(null);
+  const first = useRef(true);
+  useEffect(() => { if (first.current) { first.current = false; return; } top.current?.scrollIntoView({ block: 'nearest' }); }, [view]);
+  return (
+    <>
+      <span ref={top} aria-hidden style={{ display: 'block', height: 0 }} />
+      {view === 'history'
+        ? <OrgHistory switcher={switcher} onRolledBack={(id) => { setFilter('pending'); setHighlight(id); setView('proposals'); }} />
+        : <ProposalsPanel switcher={switcher} filter={filter} setFilter={setFilter} highlight={highlight} />}
+    </>
+  );
+}
+
+function ProposalsPanel({ switcher, filter, setFilter, highlight }: { switcher: ReactNode; filter: Filter; setFilter: (f: Filter) => void; highlight: string | null }) {
   useAgentsCatalog(); // names follow the live catalog
   const { data, error, retry } = useOrgProposals();
   const me = useMe();
   const admin = isAdmin(me);
-  const [filter, setFilter] = useState<Filter>('pending');
   // a card whose action the server refused keeps its message, and stays listed even if its status left the filter (e.g. expired)
   const [errs, setErrs] = useState<Record<string, string>>({});
   const setErr = (id: string) => (m: string | null) => setErrs((x) => { const n = { ...x }; if (m) n[id] = m; else delete n[id]; return n; });
@@ -137,6 +152,7 @@ export function ServerProposals() {
   return (
     <Panel icon={Lightbulb} titleSize="lg" title="Organization Proposals" help="org.proposals.server" sub="Reporting-line changes: checked by the server, approved by a second administrator, applied as a new org revision." delay={.05} data-proposals=""
       actions={<div className="row wrap" style={{ gap: 8 }}>
+        {switcher}
         <Segmented ariaLabel="Proposal filter" size="sm" value={filter} onChange={setFilter} options={[{ key: 'pending', label: `Pending (${nPending})` }, { key: 'decided', label: 'Decided' }, { key: 'all', label: 'All' }]} />
         {data && <Chip hue={145} size="sm" title="The active organisation revision">active rev <b data-active-revision={data.activeRevision}>{data.activeRevision}</b></Chip>}
         {admin ? <button className="btn primary" onClick={() => openDialog('org-proposal-new')}><Plus size={15} />New proposal</button>
@@ -149,7 +165,7 @@ export function ServerProposals() {
         : (
           <div className="oa-prop-grid">
             <AnimatePresence>
-              {list.map((p, i) => <ProposalCard key={p.id} p={p} active={data!.activeRevision} meId={me?.id} admin={admin} index={i} err={errs[p.id]} setErr={setErr(p.id)} />)}
+              {list.map((p, i) => <ProposalCard key={p.id} p={p} active={data!.activeRevision} meId={me?.id} admin={admin} index={i} err={errs[p.id]} setErr={setErr(p.id)} highlight={p.id === highlight} />)}
             </AnimatePresence>
           </div>
         )}

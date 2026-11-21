@@ -9,7 +9,7 @@ import { idempotent } from '../idempotency.ts';
 import { emit } from '../events/hooks.ts';
 import { addVersion, getAgent, listAgents, lockAgent, type AgentBase } from './service.ts';
 import { attachReliability } from './reliability.ts';
-import { activeRevision, createOrgRevision, edgesOf, revDto } from './org.ts';
+import { activeRevision, createOrgRevision, edgesOf } from './org.ts';
 
 const Str = z.string().trim();
 const List = z.array(Str.min(1).max(80)).max(50);
@@ -125,9 +125,5 @@ export default async function agentRoutes(app: FastifyInstance) {
     return { revision, edges: revision ? await edgesOf(app.db, revision.id) : [] };
   });
 
-  app.get('/organization/revisions', async (req) => {
-    const ctx = await requireUser(req);
-    const rows = (await app.db.query('select * from org_revisions where tenant_id=$1 order by seq', [ctx.tenantId])).rows;
-    return { revisions: rows.map(revDto) };
-  });
+  // GET /organization/revisions (with author, source and lines changed) lives in organization/history.ts (cycle 4)
 }
