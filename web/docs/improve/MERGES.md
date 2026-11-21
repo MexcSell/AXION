@@ -86,3 +86,31 @@ Integrator log: one entry per merge request. Times are UTC.
 - **fit-check:** 77/77, ALL FIT. **ov-fit:** 32/32, no scroll anywhere.
 
 **Follow-up commits:** none. Controller files committed with this entry: `LOG.md` (modified), `cycles/c23-review.md` (new).
+
+## Batch 2: c16, c18, c06
+
+- **Merged:** 2026-11-21 ~20:50–21:00 UTC. Pre-batch commit `0ce1391`.
+- **Merge commits (`--no-ff`):**
+  - `612bbcf` c16-accessibility (597c592): a11y-check script; Modal ignores disabled tabindex controls; Field names its control.
+  - `a322b5e` c18-profile-fit (787a79d): Agent Profile fits at 1366×768 and 1280×760 (icon-first tab strip, compact hero).
+  - `6e80c4f` c06-department-facts (34edb55): GET /departments and the api-mode Departments cards (review I2 fixed on the branch).
+- **Conflicts:**
+  - Tabs.tsx: none. c16 does not touch it; only c18 adds the `aria-label` line (the queue note expected both).
+  - c18 `web/src/theme/pages/overview-org-agent.css`: end of file; c04's org-history rules and c18's `.oa-tabbar` icon-first rules both kept (c18's hero rules merged cleanly).
+  - c06 `web/src/api/events.ts`: reconnect re-read line; c05's `versions('v')` and c06's `departments('d')` both kept.
+  - c06 `web/src/pages/Agents.tsx`: toolbar note; c05's Development text and c06's Departments text both kept.
+- **Per-merge server checks:** tsc OK after each. vitest: after c16 28 files 428/428; after c18 428/428; after c06 30 files 472/472.
+- **Fit after c18 (before c06):** fit-check 1366×768 77/77 ALL FIT; 1280×760 77/77 ALL FIT.
+
+**Batch checks on `6e80c4f`:**
+- **web:** `tsc --noEmit` OK.
+- **api-e2e:** api-auth-flow 15/15; api-flows 23/23; **api-stage6 34/35** (known reload timeout); api-improve 107/107; api-c06 25/25.
+- **verify-all:** exit 0, no FAIL lines. Build OK; route×tab crawl 77 views, no problems; deep crawl no problems; flows 21/21, no console errors; auth flow (u1) 17/17; u1 flows 8/8; dialog smoke 110 checks, 0 failures; dialog ids, help keys (c06's help page is picked up by the registry's `import.meta.glob`), fs guard OK.
+- **fit-check:** 1672×941 77/77, 1366×768 77/77, 1280×760 77/77, all ALL FIT. **This clears c06's NOT MET item 3** (Agent Profile at 1366×768) on the merged tree.
+- **ov-fit:** 32/32, no scroll anywhere.
+- **a11y-check (demo):** 50 views, 55 dialogs, 0 violations, 150.6 s (load ~20).
+- Batch 1's two flows FAILs (palette, theme toggle) did not recur.
+
+**Observation (not fixed, pre-existing from c05):** `startSync`'s stop handler in `web/src/api/events.ts` cancels every debounced refresher except c05's `versions`. A version-proposals re-read can therefore fire once after sign-out. Harmless today; one word to add (`versions.cancel()`).
+
+**Follow-up commits:** none. Controller files committed with this entry: BACKLOG.md, LESSONS.md, LOG.md, QUEUE.md (modified); cycles/c08-review.md, c21-review.md, c23-rereview.md, c25-review.md (new).

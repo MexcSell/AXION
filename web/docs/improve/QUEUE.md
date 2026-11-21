@@ -8,9 +8,11 @@ Integration tree: `/home/luca/AXION`, branch `improve-30h`. Merged so far: cycle
 |---|---|---|
 | 1 | c13-experiment-verdict, c04-org-history, c11-staffing-follows-org | api-improve (c04 flow inside), api-c11. c11 needs c04's org. |
 | 2 | c16-accessibility, c18-profile-fit, c06-department-facts | Both c16 and c18 touch `web/src/components/ui/Tabs.tsx` around line 44: keep both. api-c06. Run `node scripts/a11y-check.mjs` once if it takes ≤ ~3 min. After c18, fit-check 1366×768 and 1280×760 must be ALL FIT (that clears c06's NOT MET item). |
+| 2b | c21-honest-exit-codes (CLEARED, reviewed clean) | Merge right after batch 2. From then on verify-all exits 1 on any failure and prints a per-step table, so its exit code is trustworthy. Note: dialog-smoke rewrites docs/dialog-ledger.txt (tracked) on every run; restore it with `git checkout -- web/docs/dialog-ledger.txt` before committing. If the demo flows Hierarchy step now fails verify-all, that's the known flake fixed by c25 (batch 5b): re-run flows alone and record it. |
 | 3 | c10-db-indexes-scale, c12-throughput-trend, c19-mentoring-plans | c10 = migration 0017, c19 = 0023. c12 after c10 (both touch company/*). api-c12, ov-fit (demo + api), api-c19. |
 | 4 | c14-security-hardening | Follow-up commit required (review I1): add c05's version-proposal create/decision/withdraw/rollback and c19's mentoring create/milestone/close to the rate-limit map, plus a route-table test that fails when a messages/proposals/uploads write route is missing. Run api-c05 and api-c19 under `scripts/api-e2e-preview.sh` (the CSP preview), and the standard set. |
 | 5 | c20-org-coverage, c09-server-minors, c15-contract-tests | api-c20, api-c09. After c15: tighten its "// remove after c09 merge" tolerances (truncated + decidedByName required, drop the 2 old task.delegated variants) in a follow-up commit, with contract tests green. |
+| 5b | c25-test-hygiene (CLEARED at 1d0fd4a), then c08-flaky-checks (CLEARED at 60ee4b7) | c08 after c25: c25 fixes the flows Hierarchy step, c08 reverted its own copy of that fix. Run api-c08.mjs. Re-run the full verify-all on the merged tree. |
 | 6 | c17-owner-guide | Last (needs c04, c05, c06). Run api-c17 and confirm its 3 "runs after merge" checks now RUN and PASS (not SKIP). |
 
 ## Standard checks (every batch)
@@ -27,6 +29,10 @@ All heavy runs go through `HEAVY_PRIORITY=1 /home/luca/AXION-lanes/heavy.sh …`
 - **api-stage6** 34/35: page.reload after the 130-message burst stalls about 50 s (browser main thread busy), at the same step before and after the lanes. Lane w20 (c22) fixes it app-side. Any *other* stage6 failure blocks.
 - **Demo flows.mjs** "Hierarchy: click agent → conversation pane did not switch" (sometimes also "Conversations: mission agents pane" or the "v1 → v2 migration" step). Three lanes saw it fail identically on their base. Lane w19 (c21) is classifying what predates the lanes. Any *other* flows FAIL blocks.
 - **fit-check** at 1366×768 on /agents/<id>, until c18 is merged (batch 2).
+
+## Quiet verification window (scheduled near the end; controller triggers it)
+
+- Once c22 (the long-thread reload fix) is merged, run api-stage6 in full. It must be 94/94 with the 409 steps reached. Then run it 20× in a row for the c08 agent-edit threshold. Then measure perf-nav (c07 threshold: median page switch ≤ baseline 163 ms + 10%).
 
 ## Rules
 

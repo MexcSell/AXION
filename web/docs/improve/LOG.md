@@ -163,3 +163,23 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
 ### Cycle 23: live regions (lane w21)
 - Implementer (f51f788 to 8ce7c29): shared LiveStatus; ~14 api-mode states fixed; a11y script reports 0 violations in demo and api mode; no visual change. Threshold 4 NOT MET (verify-all timed out; api-improve and stage6 not run).
 - Review: PARTIAL. I1: dialog busy states missed (the scan did not cover portal dialogs), so threshold 2 was overclaimed. I2: the probes assert nothing. Fix round dispatched.
+
+### Cycle 25: test hygiene (lane w23)
+- Implementer (60ce95b, e119dd8, 15f8d0b, dde68e7): fixed sleeps in api scripts 28 → 4; one shared DB guard; over-broad assertions narrowed; found the demo flows "Hierarchy: click agent" failure (a fixed 500 ms sleep → condition wait); "Help: Help" label fixed.
+- Review: PARTIAL. I1: three negative checks were weakened (calm() waits for no data). I2: inventedNumbers misses number-before-word. Fix round dispatched.
+
+### Cycle 8: flaky checks (lane w6)
+- Implementer (ce6a693 to de6e556): a REAL app race in loadAgents (a superseded load returned without applying, so AgentEdit adopted a stale rowVersion after 409) fixed, and api-c08 forces it (5/6 before, then 20/20 runs); the c01 expiry step made deterministic (reads held at the network); the Conversations step uses a condition wait. The Hierarchy step was left to c25.
+- Review: code approved. Evidence gaps (report-only fix round). The api-stage6 20× threshold waits for c22 (quiet window). Merge after c25.
+- c08 report fix (60ee4b7): evidence filled in from the raw summaries (now in c08-evidence/); thresholds labelled honestly (stage6 NOT MET; expiry race never RED; threshold 1 partial). Cleared; merge after c25.
+- c23 fix round 1 (to 81770b5): I1/I2 and the minors ADDRESSED; a11y 0 violations in demo and api; verify-all 0 FAIL lines. The re-review found a NEW Important: the ChatView error block was aria-hidden while it holds the error text and the Retry button. Fix round 2 dispatched (the block moves outside role=log and becomes the live region itself; an assertion: nothing focusable inside aria-hidden).
+
+### Cycle 21: honest exit codes (lane w19)
+- Implementer (0b2422c, f43ab68): 11 demo-mode scripts exited 0 on failure and now exit 1; verify-all prints a per-step table and exits 1 on any failure (proven with a dead BASE: rc=1, 9 of 10 steps failed). The honest run on current code shows all 10 steps passing, so nothing was hidden in the current state.
+- Review: PASS/PASS. The fs-guard probe was a poor injection (vite fs config unchanged). Cleared; merge as batch 2b.
+- c25 fix round (6cfe24e, 1d0fd4a): the 3 absence checks are back to commented waits at their original durations (a forced defect fails exactly those 3); inventedNumbers catches numbers on both sides of the word (selftest 34 PASS); api-improve 83/83; full verify-all 0 FAIL lines. Controller verified. Cleared (batch 5b, before c08).
+
+### Cycle 22: long-thread performance (lane w20)
+- Root cause of the 50 s reload stall: the whole open thread re-rendered for EVERY live message and receipt (quadratic). Fix: batch live conversation events (≤60 ms, in order, other writers flush first); single-append fast path; cached formatters; memoised bubbles and minimap blocks; one ResizeObserver.
+- Reload → interactive: 130 msgs 57–60 s → 1.9–2.3 s (threshold 3 s); 1,000 msgs >120 s → 2.4–2.8 s (threshold 5 s). api-stage6 94/94 again (one run hit the c08 agent-edit race, fixed in c08).
+- Remaining: a LIVE 1,000-message burst still keeps the page busy while it arrives (needs virtualisation; backlog). Review (opus) running.
