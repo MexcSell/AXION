@@ -84,7 +84,8 @@ await step('Hierarchy: click agent → conversation pane beside the graph shows 
   await p.goto(base + '/missions/M-126?tab=hierarchy', { waitUntil: 'networkidle' });
   await p.waitForTimeout(800);
   await p.locator('.hnode', { hasText: 'Tester-01' }).click();
-  await p.waitForTimeout(500);
+  // the pane swaps through AnimatePresence mode="wait" (exit, then enter): on a loaded machine that takes > 1 s, so wait for the condition (c08)
+  await p.locator('.hier-conv .msg-head', { hasText: 'Tester-01' }).first().waitFor({ timeout: 10000 }).catch(() => undefined);
   await expect(p.locator('.hier-conv .msg-head', { hasText: 'Tester-01' }).count(), 'hierarchy conversation pane did not switch');
   await expect(p.locator('.hier-conv .cp-item', { hasText: 'Superior' }).count(), 'superior counterpart missing');
   await expect((await p.locator('.modal, [role=dialog]').count()) === 0, 'a conversation drawer opened on node click');
@@ -102,7 +103,7 @@ await step('Conversations: mission agents pane on the left switches the thread',
   await p.waitForTimeout(600);
   await p.locator('.conv-views [role="radio"]').last().click(); // A–Z list view (Graph is the default)
   await p.locator('.conv-agents .team-row', { hasText: 'Planner-01' }).click();
-  await p.waitForTimeout(500);
+  await p.locator('.conv-main .msg-head', { hasText: 'Planner-01' }).first().waitFor({ timeout: 10000 }).catch(() => undefined); // condition wait (c08)
   await expect(p.locator('.conv-main .msg-head', { hasText: 'Planner-01' }).count(), 'thread did not switch to Planner-01');
   await expect(/agent=planner-01/.test(p.url()), 'agent not in URL');
 });

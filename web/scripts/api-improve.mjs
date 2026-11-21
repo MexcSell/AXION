@@ -221,7 +221,7 @@ try {
   // ------------------------------------------------------------ expiry: the server's message stays on the card after its status changes
   // Only the e2e database (axion_e2e, emptied on every API start) is touched, to move one proposal's expiry into the past.
   const e2eUrl = /^E2E_DATABASE_URL=(.*)$/m.exec(readFileSync(new URL('../../server/.env', import.meta.url), 'utf8'))?.[1]?.trim().replace(/^['"]|['"]$/g, '');
-  if (!e2eUrl || !/\/axion_e2e(\?|$)/.test(e2eUrl)) throw new Error('E2E_DATABASE_URL must point at axion_e2e');
+  if (!e2eUrl || !/\/axion_e2e\d*(\?|$)/.test(e2eUrl)) throw new Error('E2E_DATABASE_URL must point at axion_e2e');
   const g2 = (await apiA('GET', '/organization/graph')).body;
   const P3 = (await apiA('POST', '/organization/proposals', { title: 'Designer-01 under Ops-01', why: '', baseRevision: g2.revision.seq, edges: g2.edges.map((e) => (e.subordinateId === 'designer-01' ? { ...e, supervisorId: 'ops-01' } : e)) }, { 'idempotency-key': `c01-p3-${Date.now()}` })).body.proposal;
   await B.p.getByRole('radio', { name: /^Pending/ }).click();
