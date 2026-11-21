@@ -18,3 +18,7 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
   - Screenshot: docs/screenshots/improve-c01-proposals-dark.png.
 - Live: backup axion-20261121T131238Z.dump, restore check PASS, API 5191 restarted (migration 13), health OK, /organization/proposals 401 (signed out).
 - End 13:13Z (1 h 32 min).
+
+### Cycle 2: B1 company scorecard (start 13:15Z)
+- Implementer done (362c6ed, c615458): GET /company/scorecard (visible missions only, DEMO opt-in, n and evidence per row, null below n=3); api-mode Overview tile and scorecard panel, Missions header; the token tile and fake deltas are gone. Server tests 258 → 284; api-improve 50/50.
+- Review (c02-review.md): spec PASS. I1 Active Agents tile untagged DEMO count; minors m1 to m7 (incl. m2 privacy: the cache can carry the previous user's counts). Fix round dispatched 14:14Z.
