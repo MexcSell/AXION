@@ -27,9 +27,11 @@ import directRoutes from './conversations/direct.ts';
 import { startConversationSim } from './conversations/sim.ts';
 import { backfillMissionControl } from './instances/backfill.ts';
 import companyRoutes from './company/routes.ts';
+import { API_CSP, API_SECURITY_HEADERS } from './http-headers.ts';
+import { installWriteLimits } from './ratelimit.ts';
 
 declare module 'fastify' {
-  interface FastifyInstance { db: Db; cfg: Required<Pick<Config, 'tenantId'>> & Config; onFirstAdmin?: (userId: string) => Promise<void> }
+  interface FastifyInstance { routeTable: { method: string; url: string; bodyLimit?: number }[]; db: Db; cfg: Required<Pick<Config, 'tenantId'>> & Config; onFirstAdmin?: (userId: string) => Promise<void> }
 }
 
 export async function buildApp(cfg: Config): Promise<FastifyInstance> {
@@ -43,12 +45,15 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   app.decorate('db', db);
   app.decorate('cfg', { tenantId: DEFAULT_TENANT, ...cfg });
   app.addHook('onClose', async () => { await db.end(); });
+  // every route as registered (tests check that each write route keeps the CSRF, Origin and body-limit rules)
+  const routeTable: { method: string; url: string; bodyLimit?: number }[] = [];
+  app.decorate('routeTable', routeTable);
+  app.addHook('onRoute', (r) => { for (const m of [r.method].flat()) routeTable.push({ method: m, url: r.url, bodyLimit: r.bodyLimit }); });
 
   app.addHook('onSend', async (_req, reply) => {
     reply.header('cache-control', 'no-store');
-    reply.header('x-content-type-options', 'nosniff');
-    reply.header('referrer-policy', 'no-referrer');
-    reply.header('x-frame-options', 'DENY');
+    reply.headers(API_SECURITY_HEADERS);
+    if (!reply.hasHeader('content-security-policy')) reply.header('content-security-policy', API_CSP); // uploads keep their sandbox
   });
 
   app.setErrorHandler((err: FastifyError | ApiError, req, reply) => {
@@ -68,6 +73,7 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
 
   await app.register(cookie);
   app.addHook('onRequest', async (req) => { if (req.url.startsWith('/api/')) checkOrigin(req, cfg.allowedOrigins); });
+  installWriteLimits(app, cfg.writeLimits); // cycle 14: per-session limits on messages, proposals and uploads
   await app.register(multipart, { preservePath: true, limits: { fileSize: 25 * 1024 * 1024, files: 1, fields: 4 } });
   await app.register(authRoutes, { prefix: '/api/v1' });
   await app.register(missionRoutes, { prefix: '/api/v1' });

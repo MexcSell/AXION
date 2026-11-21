@@ -19,6 +19,8 @@ export interface Config {
   configure?: (app: import('fastify').FastifyInstance) => void;
   /** trust this Origin besides the request's Host (vite proxy) */
   allowedOrigins?: string[];
+  /** per-session write rate limits (tests make them small); defaults in ratelimit.ts */
+  writeLimits?: Partial<Record<import('./ratelimit.ts').WriteBucket, import('./ratelimit.ts').WriteLimit>>;
 }
 
 export const VERSION = '0.5.0';

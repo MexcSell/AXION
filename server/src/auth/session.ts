@@ -31,7 +31,7 @@ export async function newSession(c: Tx | Db, s: { tenantId: string; userId: stri
 
 export function setSid(reply: FastifyReply, t: string) { reply.setCookie(SID, t, cookieOpts(SESSION_DAYS * 86400)); }
 export function setWait(reply: FastifyReply, t: string) { reply.setCookie(WAIT, t, cookieOpts(86400)); }
-export function clear(reply: FastifyReply, name: string) { reply.clearCookie(name, { path: '/' }); }
+export function clear(reply: FastifyReply, name: string) { const { maxAge: _m, ...o } = cookieOpts(0); reply.clearCookie(name, o); }
 
 export async function revokeUserSessions(c: Tx | Db, userId: string, exceptHash?: string) {
   await c.query(`update sessions set revoked_at = now() where user_id = $1 and revoked_at is null and token_hash <> coalesce($2, '')`, [userId, exceptHash ?? null]);
