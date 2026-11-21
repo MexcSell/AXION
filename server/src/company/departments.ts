@@ -17,9 +17,18 @@ import { DEPT_MIN_SAMPLE, type DepartmentFacts, type DepartmentsDto, type Scorec
  *   approval. Simulated instances and DEMO missions only with includeDemo (the same rule as the Overview "Staffed Agents").
  * - Open tasks (now): running = running + verifying, waiting = waiting_agent + waiting_user, failed = failed, on missions
  *   that are not completed, canceled or archived. Queued (created, ready, retry_ready) and finished tasks are not open.
- * - Outcomes (window, inclusive): tasks that are passed or failed now and finished inside the window (cycle 3's finish
- *   time). n = passed + failed; retried = those with more than one recorded attempt (a subset). Canceled is not an outcome.
- *   Simulated tasks and DEMO missions only with includeDemo.
+ * - Outcomes (window, inclusive): from tasks that are passed or failed now and whose finish time is inside the window
+ *   (cycle 3's rule: the later of the last move into the current status, the last attempt and creation). Fix round
+ *   (review I2, as cycle 3): every outcome counts against the department of the agent that owned the task when it
+ *   happened. A task's ownership is split at its handovers (task.reassign audit rows):
+ *   - an owner that handed the task over while it was `failed` is charged that failure, unless it had itself received the
+ *     task already failed and made no attempt (so a person reassigning a failed task never moves the failure);
+ *   - the final owner is judged on its own attempts (after the last handover; a retry's placeholder counts as its own):
+ *     failed → failed, unless it received it failed and made no attempt; passed → passed with at least one own attempt
+ *     (none: not counted).
+ *   retried = an outcome whose owner made more than one attempt (a subset); n = passed + failed per department, so one
+ *   task can give one department a failure and another a pass. Canceled is not an outcome. Simulated tasks and DEMO
+ *   missions only with includeDemo.
  * - Last org change: the newest revision that added, removed or re-pointed a reporting line whose subordinate is in the
  *   department (each revision compared with the one before it).
  */
@@ -36,9 +45,37 @@ export interface DeptRows {
   /** instances on missions the caller can see; simulated = a simulated instance or a DEMO mission */
   instances: { agentId: string; missionId: string; missionStatus: string; ended: boolean; simulated: boolean }[];
   /** tasks of missions the caller can see; owner = the owner instance's agent, else owner_agent; simulated = simulated task or DEMO mission */
-  tasks: { id: string; owner: string | null; status: string; missionStatus: string; attempts: number; finishedAt: Date | null; simulated: boolean }[];
+  tasks: {
+    id: string; owner: string | null; status: string; missionStatus: string;
+    /** one entry per recorded attempt: its start time, else its finish time; null = not started yet (a retry's placeholder) */
+    attempts: (Date | null)[];
+    /** reassignments in order: from whom, when, and the task's status at that moment */
+    handovers: { from: string | null; at: Date; state: string | null }[];
+    finishedAt: Date | null; simulated: boolean;
+  }[];
   /** per revision, each subordinate whose reporting line differs from the revision before */
   orgChanges: { seq: number; at: Date; subordinateId: string }[];
+}
+
+/** The outcomes of one finished task, each charged to the agent that owned it when it happened (see the rules above). */
+export function outcomesOf(t: DeptRows['tasks'][number]): { agent: string; result: 'passed' | 'failed'; retried: boolean }[] {
+  const out: { agent: string; result: 'passed' | 'failed'; retried: boolean }[] = [];
+  const times = t.attempts;
+  let lo = -Infinity;
+  t.handovers.forEach((h, k) => {
+    const hi = h.at.getTime();
+    const mine = times.filter((a) => a != null && a.getTime() > lo && a.getTime() <= hi).length;
+    const receivedFailed = k > 0 && t.handovers[k - 1].state === 'failed';
+    if (h.from && h.state === 'failed' && !(receivedFailed && mine === 0)) out.push({ agent: h.from, result: 'failed', retried: mine > 1 });
+    lo = hi;
+  });
+  if (!t.owner) return out;
+  const own = times.filter((a) => a == null || a.getTime() > lo).length;
+  const last = t.handovers[t.handovers.length - 1];
+  if (t.status === 'failed') {
+    if (!(last && last.state === 'failed' && own === 0)) out.push({ agent: t.owner, result: 'failed', retried: own > 1 });
+  } else if (t.status === 'passed' && own > 0) out.push({ agent: t.owner, result: 'passed', retried: own > 1 });
+  return out;
 }
 
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
@@ -96,12 +133,17 @@ export function departmentFacts(rows: DeptRows, opt: { window: ScorecardWindow; 
     if (!d || !counted(t.simulated)) continue;
     const bucket = OPEN_BUCKET[t.status];
     if (bucket && !CLOSED_MISSION.has(t.missionStatus)) d.openTasks[bucket]++;
-    if ((t.status === 'passed' || t.status === 'failed') && t.finishedAt) {
-      const at = t.finishedAt.getTime();
-      if (at < from || at > to) continue;
-      d.outcomes[t.status]++;
+  }
+  for (const t of rows.tasks) {
+    if (!counted(t.simulated) || (t.status !== 'passed' && t.status !== 'failed') || !t.finishedAt) continue;
+    const at = t.finishedAt.getTime();
+    if (at < from || at > to) continue;
+    for (const x of outcomesOf(t)) {
+      const d = of(x.agent);
+      if (!d) continue;
+      d.outcomes[x.result]++;
       d.outcomes.n++;
-      if (t.attempts > 1) d.outcomes.retried++;
+      if (x.retried) d.outcomes.retried++;
     }
   }
   for (const c of rows.orgChanges) {
@@ -154,12 +196,19 @@ export async function loadDeptRows(c: Tx | Db, viewer: { tenantId: string; admin
                 where e.tenant_id = $1 and e.type = 'task.stateChanged' and e.subject_id in (select id from vis where status in ('passed','failed')) group by 1, 2
              ),
              att as (
-               select a.task_id, count(*)::int as n, max(greatest(a.started_at, a.finished_at)) as at from task_attempts a
-                where a.task_id in (select id from vis) group by 1
+               select a.task_id, array_agg(coalesce(a.started_at, a.finished_at) order by a.attempt_no) as times,
+                      max(greatest(a.started_at, a.finished_at)) as at from task_attempts a
+                where a.task_id in (select id from vis where status in ('passed','failed')) group by 1
+             ),
+             moved as (
+               select x.subject as task_id,
+                      jsonb_agg(jsonb_build_object('from', coalesce(fi.agent_id, x.detail->>'fromAgent'), 'at', x.at, 'state', x.detail->>'from') order by x.at, x.id) as handovers
+                 from audit_events x left join agent_instances fi on fi.id = x.detail->>'fromInstanceId' and fi.tenant_id = x.tenant_id
+                where x.tenant_id = $1 and x.action = 'task.reassign' and x.result = 'ok' and x.subject in (select id from vis where status in ('passed','failed')) group by 1
              )
-             select v.id, v.owner, v.status, v.mission_status, v.simulated, coalesce(att.n, 0) as attempts,
-                    case when v.status in ('passed','failed') then coalesce(ev.at, greatest(att.at, v.created_at)) end as finished_at
-               from vis v left join ev on ev.task_id = v.id and ev.status = v.status left join att on att.task_id = v.id`, V),
+             select v.id, v.owner, v.status, v.mission_status, v.simulated, coalesce(att.times, '{}') as attempts, coalesce(moved.handovers, '[]'::jsonb) as handovers,
+                    case when v.status in ('passed','failed') then greatest(ev.at, att.at, v.created_at) end as finished_at
+               from vis v left join ev on ev.task_id = v.id and ev.status = v.status left join att on att.task_id = v.id left join moved on moved.task_id = v.id`, V),
     // each revision against the one before it (by seq): lines added, removed or re-pointed, keyed by subordinate
     c.query(`with r as (
                select id, seq, active_from, lag(id) over (order by seq) as prev from org_revisions where tenant_id = $1
@@ -176,7 +225,12 @@ export async function loadDeptRows(c: Tx | Db, viewer: { tenantId: string; admin
     agents: agents.map((a) => ({ id: a.id, dept: a.dept, active: a.status === 'active' })),
     edges: edges.map((e) => ({ supervisorId: e.supervisor_id, subordinateId: e.subordinate_id })),
     instances: instances.map((i) => ({ agentId: i.agent_id, missionId: i.mission_id, missionStatus: i.status, ended: i.ended, simulated: i.simulated })),
-    tasks: tasks.map((t) => ({ id: t.id, owner: t.owner, status: t.status, missionStatus: t.mission_status, attempts: t.attempts, finishedAt: t.finished_at ? new Date(t.finished_at) : null, simulated: t.simulated })),
+    tasks: tasks.map((t) => ({
+      id: t.id, owner: t.owner, status: t.status, missionStatus: t.mission_status, simulated: t.simulated,
+      attempts: (t.attempts as (string | Date | null)[]).map((a) => (a == null ? null : new Date(a))),
+      handovers: (t.handovers as { from: string | null; at: string; state: string | null }[]).map((h) => ({ from: h.from ?? null, at: new Date(h.at), state: h.state ?? null })),
+      finishedAt: t.finished_at ? new Date(t.finished_at) : null,
+    })),
     orgChanges: changes.map((x) => ({ seq: x.seq, at: new Date(x.active_from), subordinateId: x.subordinate_id })),
   };
 }

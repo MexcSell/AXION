@@ -32,8 +32,8 @@ const entries: Record<string, HelpEntry> = {
   },
   'dept.outcomes': {
     title: 'Task outcomes',
-    what: 'Tasks owned by members that finished in the window: passed, failed, and how many of them needed a retry. n is passed + failed. Below 5 the card says "too few to rate"; no rate is shown at any size.',
-    how: 'A task counts when it is passed or failed now and its last recorded move into that state falls inside the window (both ends included). Canceled tasks are not outcomes. Simulated tasks count only with "include DEMO".',
+    what: 'Task results of this department\'s agents in the window: passed, failed, and how many of them took the same agent more than one attempt. n is passed + failed. Below 5 the card says "too few to rate"; no rate is shown at any size.',
+    how: 'Each result counts against the department of the agent that owned the task when it happened. A task failed by one department and reassigned keeps that failure there; the receiving department is judged only on its own attempts after the handover (a pass with no attempt of its own is not counted). A task is in the window when it is passed or failed now and its finish time (the later of its last move into that state, its last attempt and its creation) falls inside it, both ends included. Canceled tasks are not outcomes. Simulated tasks count only with "include DEMO". The same rule as an agent\'s reliability.',
     why: 'A share computed from two or three tasks would look precise and mean nothing.',
   },
   'dept.lastOrgChange': {

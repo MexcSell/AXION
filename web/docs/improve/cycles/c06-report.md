@@ -229,3 +229,106 @@ Regression, api mode (events.ts changed): `./scripts/api-e2e.sh` default → `ap
 - `api-improve.mjs` (cycles 1–3) requires a database named exactly `axion_e2e`, so it can't run in this lane; I didn't
   touch it. `server/README.md` test count not updated (other lanes edit it; merge-time).
 - `/agent-instances` returns at most 500 rows; the browser recount relies on it (fine for the e2e data).
+
+## Fix round (review `c06-review.md`; coordinator rulings)
+
+### Changes
+- **I2, finish time:** `greatest(last task.stateChanged into the current status, last attempt time, created_at)`, the same
+  as cycle 3 after its fix round (m4). It was `coalesce(ev.at, …)` (`departments.ts`, loader).
+- **I2, attribution (coordinator ruling):** every department outcome counts against the department of the agent that owned
+  the task when the outcome happened, as cycle 3's reliability does. The new exported pure helper `outcomesOf(task)`
+  splits ownership at the handovers, which come from the `task.reassign` audit rows: `{from, at, state}`, the same CTE as
+  cycle 3.
+  - **An owner that handed the task over while it was `failed` keeps that failure.** The exception is an owner that had
+    itself received the task already failed and made no attempt. So a reassigned failure never moves to the receiving
+    department. A → B → C (all while failed) charges only A, and A → B → A charges A once.
+  - **The final owner is judged on its own attempts after the last handover.** A retry's placeholder that has not started
+    yet counts as its own attempt.
+    - `failed` is charged to it, unless it received the task failed and made no attempt.
+    - `passed` needs at least one own attempt; with none the task is not counted.
+  - **`retried`:** an outcome whose owner made more than one attempt.
+  - **`n`** is passed + failed per department, so one task can give one department a failure and another a pass.
+  - **The window:** the task's finish time places all of its outcomes in it, as in cycle 3.
+  - Open tasks still belong to the current owner. That is current work, not an outcome.
+- **Rows:** `DeptRows.tasks[].attempts` is now the attempt times (start, else finish; `null` = not started), and
+  `handovers` was added. The `moved` CTE is restricted to the visible passed and failed tasks: tenant-filtered, with
+  `subject in (select id from vis …)`.
+- **Help:** `dept.outcomes` now states the owner-at-the-time rule, the "not counted" case and the finish time.
+- **Tests:**
+  - **Unit:** 10 new tests:
+    - a failure reassigned while failed;
+    - a retry passed by the new owner;
+    - a retry failed again;
+    - a placeholder attempt;
+    - `retried` per owner;
+    - a handover while open;
+    - a pass with no attempt of its own, with or without a handover;
+    - A → B → C;
+    - A → B → A;
+    - the window set by the task's finish time.
+    The existing unit fixtures use attempt arrays now; their expected values are unchanged.
+  - **Route:** 3 new tests:
+    - a failed Engineering task reassigned to Operations through `POST /tasks/:id/reassign`: Engineering's outcomes are
+      unchanged and Operations' are unchanged (the open "failed" moves with the task);
+    - the new owner's retry through `POST /tasks/:id/retry`, then a system pass written directly: Operations gains
+      passed 1 and n 1, and Engineering keeps its failure;
+    - from review m1: a member with `includeDemo=1` cannot count a private DEMO mission.
+  - **Route fixture correction:** the helper wrote attempt times of 29–30 h ago and `created_at = now()` for every task.
+    Under the corrected finish time (`greatest`), that moved the "finished 10 days ago" task into the 7-day window. The
+    attempts now end at the task's finish time and `created_at` is before it. The assertion is unchanged.
+- **I3:** the head rule is unchanged. The coordinator queues it as an owner question.
+- **I1:** item 3 stays **NOT MET**. The Agent Profile overflow at 1366×768 predates this cycle; another lane fixes it, and
+  AgentProfile was not touched.
+
+### Evidence
+RED (new tests before the code):
+```
+$ npx vitest run test/departments.test.ts test/departments-route.test.ts
+     × passed, failed and retried (a subset: more than one attempt) …        (row shape: attempt times)
+     × a failed task reassigned (while failed) to another department stays a failure of the original department only
+     × the new owner's own retry counts for the new department (passed), the earlier failure stays with the original one
+     × a retry that fails again under the new owner is a failure of the new department too
+     × retried means more than one attempt by the same owner
+     × passed with no attempt of its own (after the last handover, or none at all) is not counted
+     × A → B → C while failed: only A (who failed it) is charged; B made no attempt
+     × a failed task reassigned to another department stays counted against the original department      (route)
+     × a retry by the new owner counts for the new department; the original failure stays where it happened (route)
+      Tests  9 failed | 35 passed (44)
+```
+GREEN:
+```
+$ npx vitest run test/departments.test.ts test/departments-route.test.ts
+ Test Files  2 passed (2)
+      Tests  44 passed (44)
+```
+Full suite (`cd server && npx tsc --noEmit -p . && /home/luca/AXION-lanes/heavy.sh npx vitest run`):
+- `tsc`: clean.
+- **The first two full runs failed for a reason outside this change.** Postgres was out of connections while many lanes
+  ran at once: 7 failures, then 39, with "remaining connection slots are reserved for roles with the SUPERUSER
+  attribute", `db: 'down'` and "admin connect failed … INTERNAL". None of the failing tests were in the departments
+  files.
+- **The six failing files rerun alone:** 6 files, 60/60 passed.
+- **A full run with fewer parallel workers, so it opens fewer connections:**
+```
+$ /home/luca/AXION-lanes/heavy.sh npx vitest run --maxWorkers=2
+ Test Files  26 passed (26)
+      Tests  365 passed (365)        (352 before this round + 13 new)
+```
+Web: `npx tsc --noEmit -p .` is clean. Browser check, run with the command exactly as the coordinator gave it:
+```
+$ E2E_API_PORT=5492 E2E_WEB_PORT=5493 /home/luca/AXION-lanes/heavy.sh ./scripts/api-e2e.sh api-c06.mjs
+== api-c06.mjs
+… (the same 25 checks as above) …
+25/25 passed
+```
+`api-c06.mjs` now sets api mode itself, so the plain `api-e2e.sh api-c06.mjs` form works. Before, it needed
+`DATA_MODE=api` and the "full command" form. It no longer imports `settle` from `_session.mjs`: a local `settle` waits
+for the shell and the live badge, never for networkidle.
+
+### Files changed in this round
+- `server/src/company/departments.ts`: `outcomesOf`, the row shape, the `att` and `moved` CTEs, and `greatest(...)`.
+- `server/test/departments.test.ts`: 10 new tests; fixtures now use attempt arrays.
+- `server/test/departments-route.test.ts`: 3 new tests; fixture times corrected.
+- `web/src/help/pages/c06-departments.ts`: the `dept.outcomes` text.
+- `web/scripts/api-c06.mjs`: runs without `DATA_MODE`.
+- This report.

@@ -88,7 +88,7 @@ describe('staffed agents and active missions', () => {
 
 describe('open tasks', () => {
   const task = (id: string, owner: string | null, status: string, o: Partial<DeptRows['tasks'][number]> = {}) =>
-    ({ id, owner, status, missionStatus: 'running', attempts: 1, finishedAt: null, simulated: false, ...o });
+    ({ id, owner, status, missionStatus: 'running', attempts: [ago(2 * H)], handovers: [], finishedAt: null, simulated: false, ...o });
   it('buckets: running = running + verifying, waiting = waiting_agent + waiting_user, failed = failed; queued and finished states are not open', () => {
     const rows = { ...empty(), tasks: [
       task('t1', 'eng-a', 'running'), task('t2', 'eng-b', 'verifying'), task('t3', 'eng-a', 'waiting_agent'), task('t4', 'eng-c', 'waiting_user'),
@@ -114,10 +114,10 @@ describe('open tasks', () => {
 
 describe('outcomes and window boundaries', () => {
   const fin = (id: string, owner: string, status: 'passed' | 'failed' | 'canceled', at: Date, o: Partial<DeptRows['tasks'][number]> = {}) =>
-    ({ id, owner, status, missionStatus: 'running', attempts: 1, finishedAt: at, simulated: false, ...o });
+    ({ id, owner, status, missionStatus: 'running', attempts: [ago(30 * D)], handovers: [], finishedAt: at, simulated: false, ...o });
   it('passed, failed and retried (a subset: more than one attempt) with n = passed + failed; canceled is not an outcome', () => {
     const rows = { ...empty(), tasks: [
-      fin('a', 'eng-a', 'passed', ago(H)), fin('b', 'eng-b', 'passed', ago(2 * H), { attempts: 2 }), fin('c', 'eng-c', 'failed', ago(3 * H), { attempts: 3 }),
+      fin('a', 'eng-a', 'passed', ago(H)), fin('b', 'eng-b', 'passed', ago(2 * H), { attempts: [ago(5 * H), ago(4 * H)] }), fin('c', 'eng-c', 'failed', ago(3 * H), { attempts: [ago(6 * H), ago(5 * H), ago(4 * H)] }),
       fin('d', 'eng-a', 'canceled', ago(H)), fin('e', 'ops-a', 'passed', ago(H)),
     ] };
     expect(dept(rows, 'Engineering').outcomes).toEqual({ passed: 2, failed: 1, retried: 2, n: 3 });
@@ -151,6 +151,66 @@ describe('outcomes and window boundaries', () => {
     const five = dept({ ...empty(), tasks: ['a', 'b', 'c', 'd', 'e'].map((id) => fin(id, 'eng-a', 'passed', ago(H))) }, 'Engineering');
     expect(five.evidence).toMatch(/5 finished tasks in 30 days/);
     expect(five.evidence).not.toMatch(/too few|%/);
+  });
+});
+
+describe('outcome attribution: the owner at the time (fix round, as cycle 3)', () => {
+  const T0 = ago(10 * H), HAND = ago(5 * H);
+  const row = (o: Partial<DeptRows['tasks'][number]>): DeptRows['tasks'][number] =>
+    ({ id: 't', owner: 'ops-a', status: 'failed', missionStatus: 'running', attempts: [T0], handovers: [], finishedAt: ago(H), simulated: false, ...o });
+  const out = (rows: DeptRows['tasks']) => {
+    const r = departmentFacts({ ...empty(), tasks: rows }, W30).departments;
+    return Object.fromEntries(r.map((d) => [d.name, d.outcomes]));
+  };
+  it('a failed task reassigned (while failed) to another department stays a failure of the original department only', () => {
+    const o = out([row({ handovers: [{ from: 'eng-a', at: HAND, state: 'failed' }] })]);
+    expect(o.Engineering).toEqual({ passed: 0, failed: 1, retried: 0, n: 1 });
+    expect(o.Operations).toEqual({ passed: 0, failed: 0, retried: 0, n: 0 });
+  });
+  it('the new owner’s own retry counts for the new department (passed), the earlier failure stays with the original one', () => {
+    const o = out([row({ status: 'passed', attempts: [T0, ago(2 * H)], handovers: [{ from: 'eng-a', at: HAND, state: 'failed' }] })]);
+    expect(o.Engineering).toEqual({ passed: 0, failed: 1, retried: 0, n: 1 });
+    expect(o.Operations).toEqual({ passed: 1, failed: 0, retried: 0, n: 1 });
+  });
+  it('a retry that fails again under the new owner is a failure of the new department too', () => {
+    const o = out([row({ attempts: [T0, ago(2 * H)], handovers: [{ from: 'eng-a', at: HAND, state: 'failed' }] })]);
+    expect(o.Engineering.failed).toBe(1);
+    expect(o.Operations.failed).toBe(1);
+  });
+  it('a retry placeholder that has not started is the new owner’s attempt', () => {
+    const o = out([row({ status: 'passed', attempts: [T0, null], handovers: [{ from: 'eng-a', at: HAND, state: 'failed' }] })]);
+    expect(o.Operations).toEqual({ passed: 1, failed: 0, retried: 0, n: 1 });
+  });
+  it('retried means more than one attempt by the same owner', () => {
+    const o = out([row({ status: 'passed', attempts: [T0, ago(3 * H), ago(2 * H)], handovers: [{ from: 'eng-a', at: HAND, state: 'failed' }] })]);
+    expect(o.Operations).toEqual({ passed: 1, failed: 0, retried: 1, n: 1 });
+    const two = out([row({ attempts: [ago(12 * H), T0], handovers: [{ from: 'eng-a', at: HAND, state: 'failed' }] })]);
+    expect(two.Engineering).toEqual({ passed: 0, failed: 1, retried: 1, n: 1 });
+  });
+  it('a task handed over while open (not failed) is an outcome of the final owner only', () => {
+    const o = out([row({ status: 'passed', attempts: [ago(2 * H)], handovers: [{ from: 'eng-a', at: HAND, state: 'waiting_user' }] })]);
+    expect(o.Engineering.n).toBe(0);
+    expect(o.Operations).toEqual({ passed: 1, failed: 0, retried: 0, n: 1 });
+  });
+  it('passed with no attempt of its own (after the last handover, or none at all) is not counted', () => {
+    expect(out([row({ status: 'passed', attempts: [T0], handovers: [{ from: 'eng-a', at: HAND, state: 'verifying' }] })]).Operations.n).toBe(0);
+    expect(out([row({ status: 'passed', attempts: [] })]).Operations.n).toBe(0);
+    expect(out([row({ status: 'failed', attempts: [] })]).Operations).toEqual({ passed: 0, failed: 1, retried: 0, n: 1 }); // a failure needs no attempt row
+  });
+  it('A → B → C while failed: only A (who failed it) is charged; B made no attempt', () => {
+    const o = out([row({ owner: 'qa-a', handovers: [{ from: 'eng-a', at: ago(6 * H), state: 'failed' }, { from: 'ops-a', at: HAND, state: 'failed' }] })]);
+    expect(o.Engineering.failed).toBe(1);
+    expect(o.Operations.failed).toBe(0);
+    expect(o.QA.failed).toBe(0);
+  });
+  it('A → B → A while failed: A is charged once', () => {
+    const o = out([row({ owner: 'eng-a', handovers: [{ from: 'eng-a', at: ago(6 * H), state: 'failed' }, { from: 'ops-a', at: HAND, state: 'failed' }] })]);
+    expect(o.Engineering).toEqual({ passed: 0, failed: 1, retried: 0, n: 1 });
+    expect(o.Operations.n).toBe(0);
+  });
+  it('the task’s finish time decides the window for all its outcomes', () => {
+    const o = departmentFacts({ ...empty(), tasks: [row({ finishedAt: ago(40 * D), handovers: [{ from: 'eng-a', at: ago(41 * D), state: 'failed' }] })] }, W30).departments;
+    expect(o.find((d) => d.name === 'Engineering')!.outcomes.n).toBe(0);
   });
 });
 

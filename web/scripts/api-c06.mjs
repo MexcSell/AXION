@@ -6,17 +6,20 @@
 // real missions have no tasks yet); the mission is canceled; a new agent changes the org chart. M never counts A's private
 // mission. Also: no prototype figure in api mode, a ? on every fact, the DEMO switch, and the one-screen fit at 1366×768
 // and 1672×941.
-// Run: ./scripts/api-e2e.sh "DATA_MODE=api node scripts/api-c06.mjs"   (lane: E2E_API_PORT / E2E_WEB_PORT)
+// Run: ./scripts/api-e2e.sh api-c06.mjs   (lane: E2E_API_PORT / E2E_WEB_PORT; api mode is set by this script)
 // Committed screenshot only on request: DOC_SHOT_C06=docs/screenshots/improve-c06-departments-dark.png
 import { chromium } from 'playwright';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { settle } from './_session.mjs';
-
-if (process.env.DATA_MODE !== 'api') throw new Error('run with DATA_MODE=api through scripts/api-e2e.sh');
 const base = process.env.BASE || 'http://127.0.0.1:5193';
 const DOC_SHOT = process.env.DOC_SHOT_C06;
 const URL_DEPTS = '/operations?tab=agents&sub=departments';
+/** api mode: never wait for networkidle (the event stream stays open); wait for the shell and the live badge instead */
+async function settle(p, ms = 500) {
+  await p.waitForSelector('.rail-nav', { timeout: 15000 }).catch(() => {});
+  await p.waitForSelector('.conn-badge[data-conn="live"]', { timeout: 15000 }).catch(() => {});
+  await p.waitForTimeout(ms);
+}
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
 const results = [];
 const errors = [];

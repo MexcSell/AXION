@@ -24,11 +24,13 @@ async function instance(missionId: string, agentId: string, o: { tenant?: string
 }
 /** A task owned by an agent's instance; a finished one gets one finished attempt per `attempts` and a task.stateChanged event. */
 async function task(id: string, missionId: string, agentId: string, status: string, o: { attempts?: number; hoursAgo?: number; simulated?: boolean; tenant?: string } = {}) {
-  await q(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent, owner_instance_id, simulated) values ($1,$2,$3,'A task',$4,$5,$6,$7)`,
-    [id, o.tenant ?? 't-1', missionId, status, agentId, `${missionId}:${agentId}`, o.simulated ?? false]);
+  await q(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent, owner_instance_id, simulated, created_at) values ($1,$2,$3,'A task',$4,$5,$6,$7, now() - $8 * interval '1 hour')`,
+    [id, o.tenant ?? 't-1', missionId, status, agentId, `${missionId}:${agentId}`, o.simulated ?? false, (o.hoursAgo ?? 1) + (o.attempts ?? 1) + 1]);
   if (status === 'passed' || status === 'failed') {
     for (let i = 1; i <= (o.attempts ?? 1); i++) {
-      await q(`insert into task_attempts(task_id, attempt_no, started_at, finished_at, result) values ($1,$2, now() - interval '30 hours', now() - interval '29 hours', $3)`, [id, i, status]);
+      // attempts end at the task's finish time (cycle 3's finish time is the later of the last state move and the last attempt)
+      const h = (o.hoursAgo ?? 1) + (o.attempts ?? 1) - i;
+      await q(`insert into task_attempts(task_id, attempt_no, started_at, finished_at, result) values ($1,$2, now() - ($3 + 0.5) * interval '1 hour', now() - $3 * interval '1 hour', $4)`, [id, i, h, status]);
     }
     await q(`insert into events(tenant_id, type, mission_id, seq, subject_kind, subject_id, audience, payload, occurred_at)
              values ($1,'task.stateChanged',$2,$3,'task',$4,'mission',$5, now() - $6 * interval '1 hour')`,
@@ -179,5 +181,44 @@ describe('last org change', () => {
     const { by } = await depts(K);
     expect(by.Legal).toMatchObject({ headAgentId: 'legal-01', gmReports: ['legal-01'], memberIds: ['legal-01'], lastOrgChange: { revision: 3 } });
     expect(by.Engineering.lastOrgChange.revision).toBe(2);
+  });
+});
+
+describe('fix round: outcomes count against the owner at the time (as cycle 3)', () => {
+  const eng = async () => (await depts(A)).by;
+  it('a failed task reassigned to another department stays counted against the original department', async () => {
+    await mission('F', adminId);
+    await instance('F', 'coder-01'); // Engineering
+    await instance('F', 'ops-01'); // Operations
+    await task('F1', 'F', 'coder-01', 'failed', { hoursAgo: 2 });
+    const before = await eng();
+    const r = await A.req('POST', '/tasks/F1/reassign', { toInstanceId: 'F:ops-01' }, { 'idempotency-key': 'c06-fix-re' });
+    expect(r.status).toBe(200);
+    const after = await eng();
+    expect(after.Engineering.outcomes).toEqual(before.Engineering.outcomes); // the failure stays in Engineering
+    expect(after.Operations.outcomes).toEqual(before.Operations.outcomes); // never moves to the receiving department
+    expect(after.Operations.openTasks.failed).toBe(before.Operations.openTasks.failed + 1); // open work does move: it is Ops' task now
+    expect(after.Engineering.openTasks.failed).toBe(before.Engineering.openTasks.failed - 1);
+  });
+  it('a retry by the new owner counts for the new department; the original failure stays where it happened', async () => {
+    const before = await eng();
+    const r = await A.req('POST', '/tasks/F1/retry', {}, { 'idempotency-key': 'c06-fix-rt' });
+    expect(r.status).toBe(200);
+    // the system runs the retry and it passes (passed is a system-only state: written directly, as everywhere in these
+    // tests; task_attempts is append-only, so the retry's placeholder attempt stays as the route wrote it — it is the new owner's)
+    await q(`update tasks set status = 'passed' where id = 'F1'`);
+    await q(`insert into events(tenant_id, type, mission_id, seq, subject_kind, subject_id, audience, payload, occurred_at)
+             values ('t-1','task.stateChanged','F',$1,'task','F1','mission',$2, now() - interval '10 minutes')`, [990000, JSON.stringify({ taskId: 'F1', from: 'running', to: 'passed' })]);
+    const after = await eng();
+    expect(after.Operations.outcomes).toEqual({ ...before.Operations.outcomes, passed: before.Operations.outcomes.passed + 1, n: before.Operations.outcomes.n + 1 });
+    expect(after.Engineering.outcomes).toEqual(before.Engineering.outcomes); // still one failure, not erased by the later pass
+    expect(after.Engineering.outcomes.failed).toBeGreaterThanOrEqual(1);
+  });
+  it('a member with includeDemo=1 still cannot count a private DEMO mission', async () => {
+    await mission('PD', kenjiId, { demo: true });
+    await instance('PD', 'security-01'); // Governance
+    expect((await depts(M, '?includeDemo=1')).by.Governance).toMatchObject({ staffedAgents: 0, activeMissions: 0 });
+    expect((await depts(K, '?includeDemo=1')).by.Governance).toMatchObject({ staffedAgents: 1, activeMissions: 1 });
+    expect((await depts(K)).by.Governance).toMatchObject({ staffedAgents: 0 });
   });
 });
