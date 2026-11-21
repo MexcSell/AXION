@@ -18,7 +18,8 @@ const MAX_SCALE = .2;  // like VS Code: short threads stay small at the top inst
 const LANE = 34;      // px width of the block lane
 const SCALE_STEP = 1.12;
 
-export function ThreadMinimap({ scroller, msgs, rows, contentH, me, kindHue }: {
+/** Memoised (improvement cycle 26): the thread re-renders for scroll and focus changes that do not move any block. */
+export const ThreadMinimap = memo(function ThreadMinimap({ scroller, msgs, rows, contentH, me, kindHue }: {
   scroller: RefObject<HTMLDivElement | null>; msgs: Message[]; me: string; kindHue: Record<MessageKind, number>;
   /** improvement cycle 26: where each message sits in the (virtualised) thread, from ChatThreadView's geometry model,
    *  measured or estimated, so every message gets a block whether or not its row is in the DOM; and the thread's height */
@@ -202,7 +203,7 @@ export function ThreadMinimap({ scroller, msgs, rows, contentH, me, kindHue }: {
       </div>
     </div>
   );
-}
+});
 
 /**
  * Improvement cycle 26: blocks are rendered in chunks of CHUNK. A chunk renders again only when one of its items changed

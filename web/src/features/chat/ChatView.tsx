@@ -230,7 +230,6 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
 }) {
   const [view, setView] = useState<'full' | 'compact'>('full');
   const [minimap, setMinimapState] = useState(readMinimap);
-  const setMinimap = (v: boolean) => { setMinimapState(v); writeMinimap(v); };
   const scroller = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
   const [newCount, setNewCount] = useState(0);
@@ -441,6 +440,16 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const mapped = useMemo(() => (mm ? mapRows(shown, layout, geo.current, est.current, pad) : []), [mm, layout, pad]);
 
+  // the head's controls (tooltips, help, view switch) only change with their own state: a live message does not render them
+  const hasCompact = !!compactFilter;
+  const controls = useMemo(() => <>
+    {allowMinimap && <>
+      <IconButton size="sm" icon={MapIcon} variant={minimap ? 'active' : 'default'} label={minimap ? 'Hide minimap (times beside the scroll)' : 'Show minimap (times beside the scroll)'} onClick={() => { setMinimapState(!minimap); writeMinimap(!minimap); }} aria-pressed={minimap} className="thread-mm-toggle" />
+      <span className="thread-mm-toggle"><HelpTrigger k="thread.minimap" /></span>
+    </>}
+    {hasCompact && <Segmented ariaLabel="Thread view" size="sm" value={view} onChange={setView} options={[{ key: 'full', label: <><Rows3 size={12} />Full</>, title: 'Verbatim events' }, { key: 'compact', label: <><Rows2 size={12} />Compact</>, title: 'Assignment → report → outcome' }]} />}
+  </>, [allowMinimap, minimap, hasCompact, view]);
+
   return (
     <div className={cx('thread', className)}>
       <div className="thread-head">
@@ -448,11 +457,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
         <span className="spacer" />
         <span className="dim thread-count nowrap" style={{ fontSize: 11 }} title={total !== undefined && total > messages.length ? `${messages.length} loaded — scroll up for older messages` : undefined}>{total ?? messages.length} msgs</span>
         {headRight}
-        {allowMinimap && <>
-          <IconButton size="sm" icon={MapIcon} variant={minimap ? 'active' : 'default'} label={minimap ? 'Hide minimap (times beside the scroll)' : 'Show minimap (times beside the scroll)'} onClick={() => setMinimap(!minimap)} aria-pressed={minimap} className="thread-mm-toggle" />
-          <span className="thread-mm-toggle"><HelpTrigger k="thread.minimap" /></span>
-        </>}
-        {compactFilter && <Segmented ariaLabel="Thread view" size="sm" value={view} onChange={setView} options={[{ key: 'full', label: <><Rows3 size={12} />Full</>, title: 'Verbatim events' }, { key: 'compact', label: <><Rows2 size={12} />Compact</>, title: 'Assignment → report → outcome' }]} />}
+        {controls}
       </div>
       <div className={cx('thread-scroll', mm && 'with-minimap')}>
         {loadingOlder && <div className="thread-older" role="status"><Loader2 size={12} className="spin" /> Loading older messages…</div>}
