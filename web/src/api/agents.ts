@@ -41,7 +41,7 @@ export function loadAgents(): Promise<void> {
   const mine = ++gen;
   const run = (async () => {
     const r = await api<{ agents: AgentDto[] }>('GET', '/agents');
-    if (mine !== gen) return latest; // a newer load started meanwhile: wait for it instead of returning with nothing applied
+    if (mine !== gen) return latest === run ? undefined : latest; // a newer load started meanwhile: wait for it instead of returning with nothing applied
     applyAgentCatalog(r.agents.map(toAgent));
     rebuildDepts(); // departments are derived from the catalog: agents created later belong to them too
     useAgentsVersion.setState((s) => ({ v: s.v + 1, loaded: true, failed: false }));
