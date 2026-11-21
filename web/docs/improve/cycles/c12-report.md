@@ -17,13 +17,13 @@ Branch `improve-30h` lane w10. No migration, no new event, no loosened rule. The
 - Whole server suite: 26 files, 347 tests pass. Web `tsc` clean.
 - `web/scripts/api-c12.mjs` (run through `api-e2e.sh` on ports 6092/6093): ALL PASS, 10 checks (fresh DB: no arrows, chart 8 weeks 0/0 and equal to the server; 3 canceled missions give 3/3 in the last week on both chart and server, live without reload; still no arrow because the previous period has n < 3; the `?` text explains the rule; a mocked non-null trend shows the arrow and previous value on that row only).
 - `node scripts/ov-fit.mjs`: NO SCROLL ANYWHERE in demo mode (dev server 6090) and in api mode.
-- verify-all (demo): see the last section.
+- verify-all (demo, dev server 6090): typecheck+build, crawl (77 views) and deep crawl NO PROBLEMS, dialog smoke 106 checks 0 failures, dialog ids, help keys OK. Two reds, neither from this change: (1) flows.mjs "Hierarchy: click agent" failed once under machine load (load average 10); re-run of `flows.mjs` alone: 21 PASS, 0 FAIL. (2) the dev-server file guard reports `update/2026-11-20_u1.md` served (200): the lane override config allows the whole worktree root (`fs.allow`), so that guard check cannot pass in a lane; it is the lane setup, not a code change (the rest of the guard passes). Both need confirming by the controller on the integration tree.
 
 ## Pass threshold
 1. Server (rows, route, VISIBLE_SQL/tenant/DEMO, pure and route tests): PASS.
 2. Web (previous value and arrow only when non-null, `?` rule, SVG chart, ov-fit NO SCROLL demo and api): PASS.
 3. `api-c12.mjs` (fresh DB no arrows, chart equals server): PASS.
-4. Whole suite and verify-all green: see below.
+4. Whole server suite and web typecheck green; verify-all has the two reds above (flaky under load, lane config): NOT fully green here.
 
 ## Files
 `shared/contracts/src/company.ts`, `server/src/company/{scorecard,routes}.ts`, `server/test/{scorecard-trend,throughput}.test.ts`, `web/src/api/{scorecard,throughput}.ts`, `web/src/components/viz/ThroughputChart.tsx`, `web/src/components/layout/CommandCenter.tsx`, `web/src/theme/pages.css`, `web/src/help/registry.ts`, `web/scripts/api-c12.mjs`, screenshot `web/docs/screenshots/improve-c12-scorecard-trend-dark.png` (the arrow on failure rate comes from the mocked answer).
