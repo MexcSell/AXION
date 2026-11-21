@@ -16,7 +16,7 @@ interface Item { id: string; top: number; h: number; w: number; side: 'left' | '
 const BLOCK_MIN = 3;
 const MAX_SCALE = .2;  // like VS Code: short threads stay small at the top instead of stretching
 const LANE = 34;      // px width of the block lane
-const SCALE_STEP = 1.03;
+const SCALE_STEP = 1.12;
 
 export function ThreadMinimap({ scroller, msgs, rows, contentH, me, kindHue }: {
   scroller: RefObject<HTMLDivElement | null>; msgs: Message[]; me: string; kindHue: Record<MessageKind, number>;
@@ -78,11 +78,12 @@ export function ThreadMinimap({ scroller, msgs, rows, contentH, me, kindHue }: {
     return () => { obs.disconnect(); el.removeEventListener('scroll', onScroll); window.clearTimeout(idle.current); };
   }, [scroller, readGeo]);
 
-  // content px → rail px. Improvement cycle 26: rounded down to a 3 % step, so a thread that grows by a message (a live
-  // burst) changes the scale, and so restyles every block, about once per 3 % of growth instead of on every message; the
-  // blocks then end up to 3 % short of the rail's bottom
-  const fit = railH / geo.height;
-  const s = fit >= MAX_SCALE ? MAX_SCALE : fit > 0 ? Math.pow(SCALE_STEP, Math.floor(Math.log(fit) / Math.log(SCALE_STEP))) : 0;
+  // content px → rail px
+  const s = Math.min(railH / geo.height, MAX_SCALE);
+  // Improvement cycle 26: the blocks are laid out at a base scale `sb` (a 12 % step) and the layer holding them is stretched
+  // by s / sb (a compositor transform). A thread that grows by a message changes s, and restyling and laying out every
+  // block again (one per message) cost tens of ms each time; now that happens once per 12 % of growth.
+  const sb = s >= MAX_SCALE || s <= 0 ? s : Math.pow(SCALE_STEP, Math.floor(Math.log(s) / Math.log(SCALE_STEP)));
   const sliderTop = geo.top * s, sliderH = Math.max(14, geo.client * s);
   const scrollable = geo.height > geo.client + 2;
 
@@ -164,14 +165,16 @@ export function ThreadMinimap({ scroller, msgs, rows, contentH, me, kindHue }: {
         )}
       </AnimatePresence>
 
-      <div ref={rail} className={cx('minimap', drag && 'dragging')} style={{ ['--s' as string]: s }} role="scrollbar" aria-orientation="vertical" aria-label="Conversation minimap — times of messages"
+      <div ref={rail} className={cx('minimap', drag && 'dragging')} role="scrollbar" aria-orientation="vertical" aria-label="Conversation minimap — times of messages"
         aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-valuetext={current ? `${current.time}, ${current.who}` : undefined} tabIndex={0}
         onPointerDown={onPointerDown} onPointerMove={(e) => setHoverY(localY(e))} onPointerLeave={() => setHoverY(null)} onKeyDown={onKey}>
 
-        {Array.from({ length: Math.ceil(items.length / CHUNK) }, (_, c) => {
-          const from = c * CHUNK, to = Math.min(items.length, from + CHUNK), clip = (x: number) => Math.min(Math.max(x, from), to);
-          return <BlockChunk key={c} items={items} from={from} to={to} vs={clip(vs)} ve={clip(ve)} cur={cur >= from && cur < to ? cur : -1} />;
-        })}
+        <div className="mm-blocks" style={{ ['--s' as string]: sb, transform: sb > 0 && s !== sb ? `scaleY(${s / sb})` : undefined }}>
+          {Array.from({ length: Math.ceil(items.length / CHUNK) }, (_, c) => {
+            const from = c * CHUNK, to = Math.min(items.length, from + CHUNK), clip = (x: number) => Math.min(Math.max(x, from), to);
+            return <BlockChunk key={c} items={items} from={from} to={to} vs={clip(vs)} ve={clip(ve)} cur={cur >= from && cur < to ? cur : -1} />;
+          })}
+        </div>
 
         {items.filter((it) => it.day).map((it) => <span key={'d' + it.id} className="mm-day" style={{ top: Math.max(it.top * s - 2, 0) }} />)}
 
@@ -204,7 +207,8 @@ export function ThreadMinimap({ scroller, msgs, rows, contentH, me, kindHue }: {
 /**
  * Improvement cycle 26: blocks are rendered in chunks of CHUNK. A chunk renders again only when one of its items changed
  * (a new message, a measured row) or its in-view / current marks moved, so a live message in a long thread renders one
- * chunk, not every block.
+ * chunk, not every block. Each chunk is its own layer with contained layout (.mm-chunk), so the browser also lays out and
+ * repaints only that chunk.
  */
 const CHUNK = 64;
 const BlockChunk = memo(function BlockChunk({ items, from, to, vs, ve, cur }: { items: Item[]; from: number; to: number; vs: number; ve: number; cur: number }) {
@@ -214,7 +218,7 @@ const BlockChunk = memo(function BlockChunk({ items, from, to, vs, ve, cur }: { 
     out.push(<Block key={it.id} id={it.id} cls={cx('mm-block', it.side, i >= vs && i < ve && 'in-view', i === cur && 'current')}
       top={it.top} h={it.h} w={it.w} left={it.side === 'left' ? 2 : LANE - it.w} hue={it.hue} i={i} />);
   }
-  return <>{out}</>;
+  return <div className="mm-chunk">{out}</div>;
 }, (a, b) => {
   if (a.from !== b.from || a.to !== b.to || a.vs !== b.vs || a.ve !== b.ve || a.cur !== b.cur) return false;
   for (let i = a.from; i < a.to; i++) if (a.items[i] !== b.items[i]) return false;
@@ -229,6 +233,6 @@ const Block = memo(function Block({ id, cls, top, h, w, left, hue, i }: { id: st
   // the entrance is a CSS animation (.mm-block, mission-control.css), the same fade and scale the motion component played:
   // a plain element renders much more cheaply, and a long thread has one per message
   return (
-    <span className={cls} data-mm={id} style={{ top: `calc(${top}px * var(--s))`, height: `max(${BLOCK_MIN}px, calc(${h}px * var(--s)))`, width: w, left, ['--h' as string]: hue, animationDelay: `${Math.min(i, 20) * 20}ms` }} />
+    <span className={cls} data-mm={id} style={{ top: `calc(${top}px * var(--s))`, height: `max(${BLOCK_MIN}px, calc(${h}px * var(--s)))`, width: w, left, ['--h' as string]: hue, opacity: 1, animationDelay: `${Math.min(i, 20) * 20}ms` }} />
   );
 });

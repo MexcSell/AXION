@@ -189,6 +189,11 @@ for (let rep = 1; rep <= REPS; rep++) {
   const lt0 = await p.evaluate(() => performance.now());
   await p.evaluate(() => { window.__commitsOn = true; if (window.__commits) window.__commits = { n: 0, by: {} }; });
   await b.startTracing(p, { path: traceFile, categories: ['toplevel', 'devtools.timeline', 'v8.execute', 'disabled-by-default-v8.cpu_profiler'] });
+  // starting the profiler costs the page one ~200 ms task at its next JavaScript (V8.InvokeApiInterruptCallbacks): run some
+  // JavaScript now and let it pass, then mark the burst's start in the trace; the burst window is counted from the mark
+  await p.evaluate(() => 0);
+  await quiet(300, 10000);
+  await p.evaluate(() => console.timeStamp('c26-burst-start'));
   const tb = Date.now();
   await burst(tid, BURST, 'live');
   const burstMs = Date.now() - tb;
@@ -206,13 +211,26 @@ for (let rep = 1; rep <= REPS; rep++) {
   const after = { held: await held(mid, tid), rows: await p.locator('.conv-main .thread-body [data-mid]').count(), blocks: await p.locator('.conv-main .minimap .mm-block').count() };
   let trace;
   try { trace = JSON.parse(execFileSync('node', ['scripts/api-c22.mjs'], { env: { ...process.env, SUMMARISE: traceFile }, maxBuffer: 64 << 20 }).toString()); } catch (e) { trace = { skipped: e.message.split('\n')[0] }; }
+  // the burst window: the c22 long tasks that end after the burst-start mark (same clock as the summariser: the trace's
+  // first timestamp); the whole trace is reported beside it
+  if (trace.long) {
+    try {
+      const ev = JSON.parse(readFileSync(traceFile, 'utf8')).traceEvents;
+      const t0 = ev.reduce((m, e) => (e.ts > 0 && e.ts < m ? e.ts : m), Infinity);
+      const mark = ev.find((e) => e.name === 'TimeStamp' && e.args?.data?.message === 'c26-burst-start');
+      const at = mark ? (mark.ts - t0) / 1000 : 0;
+      const w = trace.long.list.filter((x) => x.at + x.ms > at);
+      trace.whole = { count: trace.long.count, totalMs: trace.long.totalMs, worstMs: trace.long.worstMs };
+      trace.window = { markAt: Math.round(at), found: !!mark, count: w.length, totalMs: w.reduce((q, x) => q + x.ms, 0), worstMs: w.reduce((q, x) => Math.max(q, x.ms), 0) };
+    } catch (e) { trace.window = { error: e.message }; }
+  }
   if (!process.env.KEEP_TRACES) rmSync(traceFile, { force: true });
   const po = { count: lt.length, totalMs: Math.round(lt.reduce((s, [, d]) => s + d, 0)), worstMs: Math.round(lt.reduce((s, [, d]) => Math.max(s, d), 0)) };
-  const r = { rep, mid, tid, load: loadBefore, filled, fillMs, before, after, burstMs, caught, caughtMs, settledMs, pinned, trace: trace.long ? { count: trace.long.count, totalMs: trace.long.totalMs, worstMs: trace.long.worstMs, list: trace.long.list, sampledMs: trace.sampledMs, packages: trace.packages, top: trace.top?.slice(0, 12), app: trace.app?.slice(0, 8) } : trace, longtaskObserver: po };
+  const r = { rep, mid, tid, load: loadBefore, filled, fillMs, before, after, burstMs, caught, caughtMs, settledMs, pinned, trace: trace.long ? { count: trace.window?.count, totalMs: trace.window?.totalMs, worstMs: trace.window?.worstMs, window: trace.window, whole: trace.whole, list: trace.long.list, sampledMs: trace.sampledMs, packages: trace.packages, top: trace.top?.slice(0, 12), app: trace.app?.slice(0, 8) } : trace, longtaskObserver: po };
   runs.push(r);
   console.log(`rep ${rep} · load ${loadBefore} · fill ${FILL} in ${fillMs} ms (held ${before.held}, DOM rows ${before.rows}, minimap blocks ${before.blocks}) · burst ${BURST} posted in ${burstMs} ms, store has it ${caught ? caughtMs + ' ms' : 'NO'}, quiet at ${settledMs} ms, still pinned ${pinned} (held ${after.held}, DOM rows ${after.rows}, blocks ${after.blocks})`);
   if (trace.long) {
-    console.log(`  trace long tasks (>=50 ms, renderer main): ${trace.long.count}, total ${trace.long.totalMs} ms, worst ${trace.long.worstMs} ms · sampled JS ${trace.sampledMs} ms`);
+    console.log(`  trace long tasks (>=50 ms, renderer main), burst window (from the mark at ${trace.window?.markAt} ms${trace.window?.found ? '' : ', MARK NOT FOUND'}): ${trace.window?.count}, total ${trace.window?.totalMs} ms, worst ${trace.window?.worstMs} ms · whole trace: ${trace.long.count}, total ${trace.long.totalMs} ms, worst ${trace.long.worstMs} ms · sampled JS ${trace.sampledMs} ms`);
     console.log(`  self time by package: ${trace.packages.map((x) => `${x.pkg} ${x.ms}`).join(' · ')}`);
     console.log('  top self time:'); for (const t of trace.top.slice(0, 10)) console.log(`    ${String(t.ms).padStart(7)} ms  ${t.fn}`);
     console.log('  app functions, inclusive:'); for (const t of trace.app.slice(0, 6)) console.log(`    ${String(t.ms).padStart(7)} ms  ${t.fn}`);
@@ -229,7 +247,8 @@ if (process.env.CHECKS !== '0') {
 }
 const tot = runs.map((r) => r.trace?.totalMs).filter((x) => x != null), worst = runs.map((r) => r.trace?.worstMs).filter((x) => x != null);
 const mean = (a) => (a.length ? Math.round(a.reduce((s, x) => s + x, 0) / a.length) : null);
-console.log(`summary: long-task total per rep ${tot.join(' / ')} ms (mean ${mean(tot)}) · worst task per rep ${worst.join(' / ')} ms · page errors ${errors.length}${errors.length ? ' — ' + errors.slice(0, 3).join(' | ') : ''}`);
+const wtot = runs.map((r) => r.trace?.whole?.totalMs).filter((x) => x != null), wworst = runs.map((r) => r.trace?.whole?.worstMs).filter((x) => x != null);
+console.log(`summary (burst window): long-task total per rep ${tot.join(' / ')} ms (mean ${mean(tot)}) · worst task per rep ${worst.join(' / ')} ms · whole trace: total ${wtot.join(' / ')} (mean ${mean(wtot)}), worst ${wworst.join(' / ')} · page errors ${errors.length}${errors.length ? ' — ' + errors.slice(0, 3).join(' | ') : ''}`);
 const miss = runs.filter((r) => !r.caught || r.trace?.totalMs == null || (MAX_TOTAL != null && r.trace.totalMs > MAX_TOTAL) || (MAX_WORST != null && r.trace.worstMs > MAX_WORST));
 for (const r of miss) console.log(`THRESHOLD MISS rep ${r.rep}: total ${r.trace?.totalMs} ms (max ${MAX_TOTAL}), worst ${r.trace?.worstMs} ms (max ${MAX_WORST}), caught up ${r.caught}`);
 if (miss.length || errors.length || tot.length < REPS || checks.some((c) => !c.ok)) process.exitCode = 1;
