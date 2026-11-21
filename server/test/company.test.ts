@@ -145,5 +145,8 @@ describe('scoping', () => {
     expect(before).toMatchObject({ n: 5, evidence: '1 of 5 finished missions verified · 2 completed unverified' });
     await q(`insert into mission_delegations(mission_id, from_instance, to_instance, edge_kind) values ('M-209',$1,'M-209:gm','verifies')`, ['M-209:' + other]);
     expect((await card(M)).by.verified_success_rate).toMatchObject({ value: 40, n: 5, evidence: '2 of 5 finished missions verified · 1 completed unverified' });
+    // fix round m6: a simulated (fixture) task is not evidence, even when it passed
+    await q(`update tasks set simulated=true where id='T-209'`);
+    expect((await card(M)).by.verified_success_rate).toMatchObject({ value: 20, evidence: '1 of 5 finished missions verified · 2 completed unverified' });
   });
 });

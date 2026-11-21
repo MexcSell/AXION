@@ -80,6 +80,18 @@ describe('finished, failure rate, cycle time', () => {
     expect(row(s, 'finished').value).toBe(1);
   });
 
+  it('the `to` end: an event exactly at `to` counts; 1 ms after `to` does not (fix round m4)', () => {
+    const s = empty();
+    const w = { window: '30d' as const, from: at(30 * D), to: at(1 * D) }; // a window that ends before now
+    mission(s, 'M-1', 40 * D, [['canceled', 1 * D]]); // exactly at `to`
+    mission(s, 'M-2', 40 * D, [['canceled', 1 * D - 1]]); // 1 ms after `to`
+    mission(s, 'M-3', 1 * D - 1, []); // first run 1 ms after `to`
+    mission(s, 'M-4', 2 * D, [['verifying', 2 * D], ['completed', 1 * D - 1]]); // ran inside the window, completed 1 ms after `to`: started, not finished
+    expect(row(s, 'finished', w)).toMatchObject({ value: 1 });
+    expect(row(s, 'started', w)).toMatchObject({ value: 1 }); // M-4 only (M-1 and M-2 ran before `from`)
+    expect(row(s, 'completed_unverified', w)).toMatchObject({ value: 0, n: 0 });
+  });
+
   it('failure rate = (failed + canceled) / finished; null below 3 finished', () => {
     const s = empty();
     mission(s, 'M-1', 3 * D, [['failed', 2 * D]]);
@@ -146,6 +158,16 @@ describe('verified vs unverified', () => {
     expect(row(s, 'verified_success_rate')).toMatchObject({ value: 25, evidence: '1 of 4 finished missions verified · 3 completed unverified' });
     s.delegations[0] = { missionId: 'M-1', edgeKind: 'verifies', simulated: true };
     expect(row(s, 'verified_success_rate').value).toBe(0);
+  });
+  it('simulated tasks are not evidence: all passed but simulated + a real verifies delegation does not verify (fix round m6)', () => {
+    const s = four();
+    s.tasks.push({ id: 'T-1', missionId: 'M-1', status: 'passed', simulated: true }, { id: 'T-2', missionId: 'M-1', status: 'passed', simulated: true });
+    s.delegations.push({ missionId: 'M-1', edgeKind: 'verifies', simulated: false });
+    expect(row(s, 'verified_success_rate').value).toBe(0);
+    s.tasks[1] = { id: 'T-2', missionId: 'M-1', status: 'passed', simulated: false }; // one real, one simulated: still not
+    expect(row(s, 'verified_success_rate').value).toBe(0);
+    s.tasks[0] = { id: 'T-1', missionId: 'M-1', status: 'passed', simulated: false };
+    expect(row(s, 'verified_success_rate').value).toBe(25);
   });
   it('the rate divides by every finished mission (failed and canceled too); null below 3 finished', () => {
     const s = empty();

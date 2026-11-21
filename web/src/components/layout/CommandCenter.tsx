@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { useAgentsCatalog } from '@/api/agents';
+import { useAgentsCatalog, useAgentInstances } from '@/api/agents';
 import { useNavigate } from 'react-router-dom';
 import { Target, Users, ClipboardList, Trophy, Database, HeartPulse, CheckCircle2, Scale, PlayCircle, Flag, BadgeCheck, ShieldQuestion, Timer, XCircle, RotateCcw, Hourglass } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -27,6 +27,7 @@ export function useCompanyKpis(): KpiItem[] {
   const pending = useMemo(() => allApprovals(missions, decisions).filter((a) => a.status === 'pending').length, [missions, decisions]);
   const activeAgents = AGENTS.filter((a) => a.status === 'active' || a.status === 'in-mission').length;
   const score = useScorecard('30d', false); // api mode only (no request in demo mode)
+  const instances = useAgentInstances(); // api mode only (no request in demo mode); re-read on instance/task/mission events
   if (isApi()) {
     // improvement cycle 2: no invented company numbers in api mode. Success comes from the server scorecard (30 days, DEMO
     // missions excluded) with its sample size; no trend delta; no token tile (tokens are recorded from Stage 9).
@@ -37,9 +38,16 @@ export function useCompanyKpis(): KpiItem[] {
       : { key: 'success', icon: Trophy, value: 0, text: r ? 'not enough evidence' : score.error ? 'unavailable' : 'loading…', label: 'Verified Success', color: '#facc15', help: 'kpi.success.api', onClick: () => nav('/missions'),
           ...(r ? { badge: <Tip label={r.evidence}><span data-kpi-n={r.n}>n={r.n}</span></Tip> } : {}),
           hint: <Tip label={r?.evidence ?? score.error ?? 'Reading the scorecard'}><span>{r ? 'finished missions · 30 days' : '30 days'}</span></Tip> };
+    // fix round I1: agent statuses in api mode are prototype fixtures, so the tile counts what the server recorded instead:
+    // agents with a live, non-simulated instance on a real (non-DEMO) active mission. Nothing executes yet.
+    const liveMissions = new Set(missions.filter((m) => !m.demo && ['running', 'planning', 'verifying', 'waiting'].includes(m.status)).map((m) => m.id));
+    const staffed = instances.data ? new Set(instances.data.filter((i) => !i.simulated && !i.endedAt && liveMissions.has(i.missionId)).map((i) => i.agentId)).size : null;
+    const agentsTile: KpiItem = staffed === null
+      ? { key: 'agents', icon: Users, value: 0, text: instances.error ? 'unavailable' : 'loading…', label: 'Staffed Agents', hint: 'real missions', color: '#3b82f6', help: 'kpi.staffedAgents', onClick: () => nav('/agents') }
+      : { key: 'agents', icon: Users, value: staffed, label: 'Staffed Agents', hint: <span data-kpi-staffed={staffed}>of {AGENTS.length} · on real active missions</span>, color: '#3b82f6', help: 'kpi.staffedAgents', onClick: () => nav('/agents') };
     return [
       { key: 'missions', icon: Target, value: active, label: 'Active Missions', color: '#22d3ee', help: 'kpi.activeMissions', onClick: () => nav('/missions?filter=active') },
-      { key: 'agents', icon: Users, value: activeAgents, label: 'Active Agents', hint: `of ${AGENTS.length} · one per role`, color: '#3b82f6', help: 'kpi.activeAgents', onClick: () => nav('/agents') },
+      agentsTile,
       { key: 'approvals', icon: ClipboardList, value: pending, label: 'Pending Approvals', color: '#fbbf24', help: 'kpi.approvals', onClick: () => nav('/notifications?tab=pending') },
       success,
     ];

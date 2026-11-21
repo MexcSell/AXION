@@ -98,3 +98,8 @@
   .ov-body .panel-head { margin-bottom: 8px; }
   .ov-body .panel:not(.tight):not(.flush) { padding: 12px 14px; }
 }
+
+/* improvement cycle 2 fix round: api-mode DEMO tags in narrow panel heads — the title gives way, the tag stays whole */
+.ov-tagged .panel-head { min-width: 0; flex-wrap: nowrap; }
+.ov-tagged .panel-head .panel-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-tagged .panel-head .demo-tag, .ov-tagged .panel-head .btn { flex: none; }

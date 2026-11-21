@@ -31,6 +31,9 @@ import { ago, cx } from '@/lib/format';
 import '@/theme/pages/overview-org-agent.css';
 import '@/theme/pages/overview-fit.css';
 
+/** improvement cycle 2 fix round (m1): in api mode, panels still drawn from prototype fixtures are tagged DEMO. */
+const ApiDemo = () => (isApi() ? <DemoTag title="Prototype data: not measured from the server yet" /> : null);
+
 export default function OverviewPage() {
   const [tab, setTab, tabs] = useTab('overview');
   const ICONS = [Gauge, Briefcase, Activity, HeartPulse];
@@ -99,7 +102,7 @@ function Pulse() {
     <>
       <div className="oa-grid-2 ov-row r-big">
         <Panel icon={Users} title={<>Active Agents <span className="dim" style={{ fontSize: 13, fontWeight: 500 }}>({AGENTS.filter((a) => a.status !== 'idle').length})</span></>} help="overview.activeAgents" delay={.05}
-          actions={<button className="btn ghost sm" onClick={() => nav('/agents')}>View all<ArrowRight size={14} /></button>}>
+          actions={<><ApiDemo /><button className="btn ghost sm" onClick={() => nav('/agents')}>View all<ArrowRight size={14} /></button></>}>
           <div className="ov-fill ov-strip-box"><div className="oa-strip" ref={stripRef}>
             {strip.slice(0, nStrip).map((a, i) => {
               const R = ROLES[a.role];
@@ -180,8 +183,8 @@ function Pulse() {
           )}
         </Panel>
 
-        <Panel icon={ShieldCheck} title="Recent Verified Outcomes" help="overview.outcomes" delay={.2}
-          actions={outcomes.length > nOut ? <button className="btn ghost sm" onClick={() => nav('/results')}>+{outcomes.length - nOut}<ArrowRight size={14} /></button> : undefined}>
+        <Panel icon={ShieldCheck} title="Recent Verified Outcomes" help="overview.outcomes" delay={.2} className={isApi() ? 'ov-tagged' : undefined}
+          actions={<><ApiDemo />{outcomes.length > nOut && <button className="btn ghost sm" onClick={() => nav('/results')}>+{outcomes.length - nOut}<ArrowRight size={14} /></button>}</>}>
           <div className="col ov-fill" style={{ gap: 2 }} ref={outRef}>
             {outcomes.slice(0, nOut).map((e, i) => (
               <motion.button key={e.id} className="list-row oa-outcome" initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: .25 + i * .05 }} onClick={() => nav(`/missions/${e.missionId}?tab=timeline`)}>
@@ -286,7 +289,7 @@ function Portfolio() {
                   <motion.tr key={m.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i, 12) * .025 }} onClick={() => nav(`/missions/${m.id}`)} style={{ cursor: 'pointer' }} tabIndex={0}
                     onKeyDown={(e) => { if (e.key === 'Enter') nav(`/missions/${m.id}`); }}>
                     <td className="mono dim">{m.id}</td>
-                    <td style={{ maxWidth: 280 }}><div className="ellipsis" style={{ fontWeight: 600 }}>{m.title}</div><div className="dim ellipsis" style={{ fontSize: 11.5 }}>{m.lastEvent}</div></td>
+                    <td style={{ maxWidth: 280 }}><div className="ellipsis" style={{ fontWeight: 600 }}>{isApi() && m.demo && <><DemoTag title="DEMO mission: its progress and dates are prototype data" /> </>}{m.title}</div><div className="dim ellipsis" style={{ fontSize: 11.5 }}>{m.lastEvent}</div></td>
                     <td><MissionStatusChip status={m.status} size="sm" /></td>
                     <td>{m.owner}</td>
                     <td><Chip hue={PRIO_HUE[m.priority]} size="sm">{m.priority}</Chip></td>
@@ -408,12 +411,12 @@ function ActivityStream() {
         )}
       </Panel>
       <div className="col ov-side" style={{ gap: 'var(--gap)' }}>
-        <Panel icon={Activity} title="Events by type" help="overview.eventMix" delay={.1}>
+        <Panel icon={Activity} className={isApi() ? 'ov-tagged' : undefined} title="Events by type" help="overview.eventMix" delay={.1} actions={<ApiDemo />}>
           <div className="ov-fill" ref={barsRef}>
             <ColumnBars data={Object.keys(EV_META).map((k) => counts[k] ?? 0)} labels={Object.keys(EV_META).map((k) => EV_META[k as TimelineEvent['type']].label.slice(0, 3))} h={Math.max(50, Math.min(barsH, 220))} color="var(--accent-2)" />
           </div>
         </Panel>
-        <Panel icon={Users} title="Most active agents" help="overview.topActors" delay={.14}>
+        <Panel icon={Users} className={isApi() ? 'ov-tagged' : undefined} title="Most active agents" help="overview.topActors" delay={.14} actions={<ApiDemo />}>
           <div className="col ov-fill" style={{ gap: 8 }} ref={actRef}>
             {actors.slice(0, nAct).map(([id, n], i, arr) => {
               const a = AGENT_BY_ID[id];
@@ -479,7 +482,7 @@ function Health() {
         </div>
       </Panel>
       <div className="oa-grid-3 ov-row">
-        <Panel icon={Radio} title="Event Freshness" help="overview.freshness" delay={.12} sub={`age of latest event${fresh.length > nFresh ? ` · ${nFresh} of ${fresh.length}` : ''}`}>
+        <Panel icon={Radio} className={isApi() ? 'ov-tagged' : undefined} title="Event Freshness" help="overview.freshness" delay={.12} actions={<ApiDemo />} sub={`age of latest event${fresh.length > nFresh ? ` · ${nFresh} of ${fresh.length}` : ''}`}>
           <div className="col ov-fill" style={{ gap: 12 }} ref={freshRef}>
             {fresh.slice(0, nFresh).map(([k, v], i) => (
               <div key={k} className="row" style={{ gap: 10 }}>
@@ -491,11 +494,11 @@ function Health() {
             ))}
           </div>
         </Panel>
-        <Panel icon={Layers} title="Queue Depth" help="overview.queues" delay={.16} sub="jobs waiting">
+        <Panel icon={Layers} className={isApi() ? 'ov-tagged' : undefined} title="Queue Depth" help="overview.queues" delay={.16} sub="jobs waiting" actions={<ApiDemo />}>
           <div className="ov-fill" ref={qRef}><ColumnBars data={queues.map((q) => q.v)} labels={queues.map((q) => q.k.slice(0, 4))} h={Math.max(40, Math.min(qH, 200))} color="var(--accent)" /></div>
           <div className="dim ellipsis" style={{ fontSize: 12, marginTop: 6 }}>Total {queues.reduce((s, q) => s + q.v, 0)} jobs queued, oldest 14s. Browser queue is draining on one host.</div>
         </Panel>
-        <Panel icon={ShieldCheck} title="Connectivity Checks" help="overview.connectivity" delay={.2} sub={CONN.length > nConn ? `${nConn} of ${CONN.length}` : undefined}>
+        <Panel icon={ShieldCheck} className={isApi() ? 'ov-tagged' : undefined} title="Connectivity Checks" help="overview.connectivity" delay={.2} actions={<ApiDemo />} sub={CONN.length > nConn ? `${nConn} of ${CONN.length}` : undefined}>
           <div className="col ov-fill" style={{ gap: 4 }} ref={connRef}>
             {CONN.slice(0, nConn).map(([k, v, t]) => (
               <div key={k} className="list-row"><span style={{ flex: 1, fontSize: 13 }}>{k}</span><span className={t === 'good' ? 'good' : 'warn'} style={{ fontSize: 12, fontWeight: 600 }}>{v}</span></div>

@@ -10,7 +10,7 @@ import type { CompanyScorecardDto, ScorecardRow, ScorecardWindow } from '../../.
  *   restore from the archive (restore re-emits the old final state). It is "finished" in the window when that moment is
  *   in [from, to], and its outcome is that transition's `to`. So each mission counts once, even after fail → retry → complete.
  * - A completion is verified when, before it completed, a human other than the owner APPROVED one of its approvals,
- *   or when it has at least one task, every task passed and it has a real (not simulated) `verifies` delegation.
+ *   or when it has at least one task, every task is real (not simulated) and passed, and it has a real `verifies` delegation.
  * - Windows are inclusive at both ends. Rates and medians need n ≥ 3, otherwise value null and state 'none'.
  */
 export const MIN_N = 3;
@@ -23,7 +23,8 @@ export interface ScoreInput {
   runs: { missionId: string; startedAt: Date }[];
   /** mission.stateChanged events (payload from/to), in event order */
   transitions: { missionId: string; from: string; to: string; at: Date }[];
-  tasks: { id: string; missionId: string; status: string }[];
+  /** simulated = a DEMO fixture task (not evidence) */
+  tasks: { id: string; missionId: string; status: string; simulated?: boolean }[];
   attempts: { taskId: string; attemptNo: number; startedAt: Date | null; finishedAt: Date | null }[];
   decisions: { missionId: string; decision: string; decidedBy: string; human: boolean; at: Date }[];
   delegations: { missionId: string; edgeKind: string; simulated: boolean }[];
@@ -77,15 +78,15 @@ export function computeScorecard(input: ScoreInput, opt: { window: ScorecardWind
   const finished = done.length;
 
   // ---- verified completions
-  const tasksOf = new Map<string, string[]>();
-  for (const t of mine(input.tasks)) tasksOf.set(t.missionId, [...(tasksOf.get(t.missionId) ?? []), t.status]);
+  const tasksOf = new Map<string, ScoreInput['tasks']>();
+  for (const t of mine(input.tasks)) tasksOf.set(t.missionId, [...(tasksOf.get(t.missionId) ?? []), t]);
   const verifiesEdge = new Set(mine(input.delegations).filter((d) => d.edgeKind === 'verifies' && !d.simulated).map((d) => d.missionId));
   const decisions = mine(input.decisions);
   const verified = (id: string, at: number) => {
     const ownerId = owner.get(id);
     if (decisions.some((d) => d.missionId === id && d.decision === 'approved' && d.human && d.decidedBy !== ownerId && d.at.getTime() <= at)) return true;
     const ts = tasksOf.get(id) ?? [];
-    return ts.length > 0 && ts.every((s) => s === 'passed') && verifiesEdge.has(id);
+    return ts.length > 0 && ts.every((t) => t.status === 'passed' && !t.simulated) && verifiesEdge.has(id);
   };
   const nVerified = done.filter((d) => d.outcome === 'completed' && verified(d.id, d.at)).length;
   const nUnverified = nCompleted - nVerified;

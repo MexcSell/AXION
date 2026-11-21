@@ -163,7 +163,7 @@ Tests added:
 | # | Item | Result | Evidence |
 |---|---|---|---|
 | 1 | Server tests pass; the whole suite stays green | **PASS** | 284/284 tests, `tsc` clean (above) |
-| 2 | In api mode, no company performance number on Overview or in the Missions header is a hard-coded constant; Tokens tile removed | **PASS** | `api-improve.mjs` "c02 api mode: no invented company numbers on the top board (no Tokens Today, no 96.4%, no trend delta, no DEMO health ring)" |
+| 2 | In api mode, no company performance number on Overview or in the Missions header is a hard-coded constant; Tokens tile removed | **PASS** (after the fix round) | `api-improve.mjs` "c02 api mode: no invented company numbers on the top board (…, no fixture "Active Agents")" plus the I1 checks. The first submission overclaimed: the Active Agents tile still counted fixture statuses (review I1). See "Fix round" |
 | 2a | A fresh database shows "not enough evidence" (no %) | **PASS** | "c02 fresh database: the tile says "not enough evidence" with no %, n=0", "the scorecard row shows "—" and n=0", "the Missions list header shows no success rate" |
 | 2b | After API-driven final states, the success row shows the server's value with its n | **PASS** | "the server counts the 3 canceled missions …", "the tile follows live (no reload): the server value 0.0% with n=3", "the panel rows show the server values and n", "the Missions list header shows the server rate with n" |
 | 2c | DEMO missions are excluded by default; the switch adds the DEMO tag | **PASS** | "a canceled DEMO mission (M-134) is not counted by default; with includeDemo=1 it is — default 3, with DEMO 4", ""include DEMO missions" on: the panel is tagged DEMO and counts 4 finished" |
@@ -210,7 +210,8 @@ Other verification:
   - `web/src/help/registry.ts`
   - `web/src/theme/frame.css`
   - `web/src/theme/pages.css`
-  - `web/scripts/api-improve.mjs` (c02 section; the cycle 1 flow is unchanged)
+  - `web/scripts/api-improve.mjs` (c02 sections; in the cycle 1 flow only the expiry step changed: it first waits for a settle
+    condition, see "Fix round")
 
 Screenshot: `web/docs/screenshots/improve-c02-scorecard-dark.png`. It shows api-mode Overview at 1600×940, dark, after the
 three canceled missions, with the DEMO switch off and the window at 30d. Write it with
@@ -236,9 +237,97 @@ three canceled missions, with the DEMO switch off and the window at 30d. Write i
 - **Flaky browser checks.**
   - api-stage6 I2 failed once in the combined run and passed alone (94/94). It is unrelated to this change and could be
     made more robust in a later cycle.
-  - The cycle 1 expiry race in `api-improve.mjs` is mitigated with a settle wait (see above), not removed. Expiry on read
-    by any client can still race with a fixed DB update.
-- **Threshold item 2 covers the top board and the Missions header.** The rest of the api-mode Overview body still shows
-  prototype panels. Most carry a DEMO tag: Mission Pipeline, Verified Completions, Health. "Recent Verified Outcomes" (with
-  its "+N") and the Active Agents board have no tag. They are list items from mission data, not company-level rates, and
-  I left them for a later cycle rather than widen this one.
+  - The cycle 1 expiry race in `api-improve.mjs` is handled by a settle condition (fix round m3), not removed. Expiry on
+    read by any client can still race with a fixed DB update if a new read starts after the condition holds.
+- **Threshold item 2 covers the top board and the Missions header.** As first submitted, the Active Agents tile and several
+  Overview panels showed fixture data without a tag (review I1 and m1). The fix round corrects this; see "Fix round".
+
+## Fix round (review `c02-review.md`: I1, m1, m2, m3, m4, m6, m7)
+
+### Changes
+- **I1. Active Agents tile (api mode).**
+  - The tile is now **Staffed Agents**: the number of distinct agents with a live (`endedAt` null), non-simulated
+    instance on one of the viewer's visible, non-DEMO missions that is planning, running, verifying or waiting.
+  - The count comes from `GET /agent-instances` and the server mission list. It re-reads on instance, task and mission
+    events through the existing instance tick.
+  - Hint: "of 25 · on real active missions". New help `kpi.staffedAgents`.
+  - Demo mode keeps "Active Agents" with its fixture count.
+- **m1. DEMO tags on fixture-backed Overview panels (api mode only).**
+  - Tagged panels:
+    - Pulse: Active Agents board, Recent Verified Outcomes;
+    - Activity: Events by type, Most active agents;
+    - Health: Event Freshness, Queue Depth, Connectivity Checks;
+    - Portfolio: every DEMO mission's row (beside its title).
+  - Already tagged before this round: Mission Pipeline, Verified Completions, Live Activity, System Health.
+  - In narrow panel heads (`.ov-tagged`) the title ellipsizes so the tag stays whole. Nothing was removed.
+- **m2. Scorecard client cache.**
+  - The cache logic moved into the framework-free `web/src/api/scorecardCache.ts`, used by `api/scorecard.ts`.
+  - `clearScorecard()` (sign-out) starts a new generation: it drops responses still in flight from the previous session,
+    clears the in-flight set and bumps the tick. The next session reads again even with the same key and tick.
+  - Success and failure both record their tick, and neither overwrites an entry with a newer tick. So a stale older
+    success can no longer replace a newer failed read.
+- **m3.** The fixed 1.5 s sleep in the cycle 1 expiry step of `api-improve.mjs` is replaced by a condition, checked twice
+  300 ms apart:
+  - A and B both show P3 as pending;
+  - no browser (A, B, C) has a `GET /organization/proposals` in flight. Each page counts its in-flight proposal reads.
+
+  It is asserted as its own check.
+- **m4.** New pure test for the `to` end: an event exactly at `to` counts; a final state, or a first run, 1 ms after `to`
+  does not.
+- **m6.** The tasks-plus-`verifies` route now also requires every task to be non-simulated (`tasks.simulated` is read by
+  the route and checked in `computeScorecard`).
+- **m7.**
+  - Threshold item 2 is marked as passing only after this round.
+  - "Files changed" names the cycle 1 expiry-step change.
+  - The Concerns entry on fixture panels is corrected.
+
+### Covering tests
+- `server/test/scorecard.test.ts` (+2):
+  - "simulated tasks are not evidence…": RED before the fix, `expected 25 to be +0`;
+  - "the `to` end…": passed on the first run, so it adds coverage of existing behaviour.
+- `server/test/company.test.ts`: the verifies test now flips `T-209` to simulated and expects the rate to drop from 40% to
+  20%.
+- `server/test/scorecard-cache.test.ts` (new, 4 tests, imports `web/src/api/scorecardCache.ts`):
+  - a sign-out drops an in-flight response, and the next session reads again with the same key and tick;
+  - an older read never overwrites a newer one;
+  - a failed newer read keeps its tick against a stale older success;
+  - one request per key and tick.
+
+  RED was the missing module.
+- `web/scripts/api-improve.mjs` (+5 checks, 55 in total):
+  - the top board has no fixture "Active Agents";
+  - the Staffed Agents tile equals the server count, 0 on a fresh database;
+  - every fixture-backed Overview panel carries a DEMO tag (Pulse, Activity, Health);
+  - the c01 expiry settle condition;
+  - the Staffed Agents tile follows the server count live (a new real mission is staffed with 2 agents), then drops to 0
+    after the cancel.
+
+### Commands and output
+RED (m6), `cd server && npx vitest run test/scorecard.test.ts`:
+```
+     × simulated tasks are not evidence: all passed but simulated + a real verifies delegation does not verify (fix round m6)
+AssertionError: expected 25 to be +0 // Object.is equality
+      Tests  1 failed | 19 passed (20)
+```
+RED (m2), `npx vitest run test/scorecard-cache.test.ts`: `Error: Cannot find module '../../web/src/api/scorecardCache.ts'`.
+
+GREEN, full checks:
+- `cd server && npx tsc --noEmit -p . && npx vitest run`: TSC OK; **Test Files 22 passed, Tests 290 passed**.
+- `cd web && npx tsc --noEmit -p .`: clean.
+- `./scripts/api-e2e.sh api-auth-flow.mjs api-flows.mjs api-stage6.mjs api-improve.mjs "DATA_MODE=api node scripts/ov-fit.mjs"`:
+  **15/15, 23/23, 94/94, 55/55, NO SCROLL ANYWHERE**, rc=0. After the `.ov-tagged` CSS change, `api-improve.mjs` was run
+  again: 55/55, and it rewrote the committed screenshot.
+- `./scripts/verify-all.sh`: rc=0.
+  - build ✓;
+  - route×tab crawl (77 views) and deep crawl: NO PROBLEMS;
+  - flows, auth flow and u1 flows: no errors;
+  - dialog smoke: 106 checks, 0 failures;
+  - all dialog ids and all help keys are defined;
+  - fs guard OK.
+- `node scripts/ov-fit.mjs` (demo mode): **NO SCROLL ANYWHERE**, rc=0.
+
+### Left open (from the review, not in this round's rulings)
+- **m5.** The browser check proves only a 0.0% rate (cancel is the only user-reachable final state). Deferred; it would
+  need an e2e-only seam.
+- **Pending Approvals tile (api mode).** It counts the server's pending approval rows, including those of DEMO missions.
+  They are real, decidable rows, so I left the count as it is.

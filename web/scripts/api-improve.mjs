@@ -25,6 +25,13 @@ const browser = async (label) => {
   const ctx = await b.newContext({ viewport: { width: 1600, height: 940 } });
   await ctx.addInitScript(() => { try { localStorage.setItem('axion.data-mode', 'api'); localStorage.setItem('axion.testhook', '1'); if (!localStorage.getItem('axion.settings.v1')) localStorage.setItem('axion.settings.v1', JSON.stringify({ state: { themeMode: 'dark' }, version: 0 })); } catch { /* ignore */ } });
   const p = await ctx.newPage();
+  // in-flight GET /organization/proposals of this page (the c01 expiry step waits until every browser's re-read is done)
+  let reads = 0;
+  const isRead = (r) => r.method() === 'GET' && /\/api\/v1\/organization\/proposals(\?|$)/.test(r.url());
+  p.on('request', (r) => { if (isRead(r)) reads++; });
+  const doneRead = (r) => { if (isRead(r)) reads = Math.max(0, reads - 1); };
+  p.on('requestfinished', doneRead); p.on('requestfailed', doneRead);
+  p.proposalReads = () => reads;
   p.on('pageerror', (e) => errors.push(`${label}: ${e.message}`));
   p.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource|ERR_CONNECTION|ERR_INTERNET_DISCONNECTED|502|503|504|EventSource/.test(m.text())) errors.push(`${label} console: ${m.text()}`); });
   return { ctx, p };
@@ -58,6 +65,12 @@ try {
 
   // ------------------------------------------------------------ c02: a fresh database has no evidence (no real mission exists yet)
   const tile = (p) => p.locator('.kt[aria-label^="Verified Success:"]');
+  const staffedTile = (p) => p.locator('.kt[aria-label^="Staffed Agents:"]');
+  const staffedFromServer = async () => {
+    const ms = (await apiA('GET', '/missions')).body.missions;
+    const live = new Set(ms.filter((m) => !m.demo && ['running', 'planning', 'verifying', 'waiting'].includes(m.status)).map((m) => m.id));
+    return new Set(((await apiA('GET', '/agent-instances')).body.instances ?? []).filter((i) => !i.simulated && !i.endedAt && live.has(i.missionId)).map((i) => i.agentId)).size;
+  };
   const scRow = (p, key) => p.locator(`[data-scorecard="ready"] [data-row="${key}"]`);
   await A.p.goto(base + '/overview', { waitUntil: 'domcontentloaded' });
   await A.p.locator('[data-scorecard="ready"]').waitFor({ timeout: 15000 });
@@ -69,8 +82,26 @@ try {
       && !/%/.test(await tile(A.p).locator('.kpi-val').innerText()));
   check('c02 fresh database: the scorecard row shows "—" and n=0', (await scRow(A.p, 'verified_success_rate').getAttribute('data-state')) === 'none' && (await scRow(A.p, 'verified_success_rate').locator('.sc-val').innerText()) === '—' && (await scRow(A.p, 'verified_success_rate').locator('.sc-n').innerText()) === 'n=0');
   const top0 = await A.p.locator('.topboard').innerText();
-  check('c02 api mode: no invented company numbers on the top board (no Tokens Today, no 96.4%, no trend delta, no DEMO health ring)',
-    !/Tokens Today|96\.4|Mission Success/.test(top0) && (await A.p.locator('.topboard .kpi-delta').count()) === 0 && (await A.p.locator('.cc-health[aria-label="Company health"]').count()) === 0);
+  check('c02 api mode: no invented company numbers on the top board (no Tokens Today, no 96.4%, no trend delta, no DEMO health ring, no fixture "Active Agents")',
+    !/Tokens Today|96\.4|Mission Success|Active Agents/.test(top0) && (await A.p.locator('.topboard .kpi-delta').count()) === 0 && (await A.p.locator('.cc-health[aria-label="Company health"]').count()) === 0);
+  const staffed0 = await staffedFromServer();
+  check('c02 fix I1: the agents tile counts staffed agents from the server (live real instances on real active missions): 0 on a fresh database',
+    staffed0 === 0 && await until(async () => (await staffedTile(A.p).getAttribute('aria-label')) === `Staffed Agents: ${staffed0}` && (await staffedTile(A.p).locator(`[data-kpi-staffed="${staffed0}"]`).count()) === 1, 8000));
+  // fix round m1: every other fixture-backed panel on the api-mode Overview is tagged DEMO
+  const demoPanels = { pulse: ['Active Agents', 'Recent Verified Outcomes', 'Mission Pipeline', 'Verified Completions'], activity: ['Live Activity', 'Events by type', 'Most active agents'], health: ['System Health', 'Event Freshness', 'Queue Depth', 'Connectivity Checks'] };
+  const untagged = [];
+  for (const [t, titles] of Object.entries(demoPanels)) {
+    await A.p.goto(base + `/overview?tab=${t}`, { waitUntil: 'domcontentloaded' });
+    await A.p.locator('[data-scorecard="ready"]').waitFor({ timeout: 15000 });
+    await A.p.waitForTimeout(400);
+    for (const title of titles) {
+      const panel = A.p.locator('section.panel', { has: A.p.locator('h2.panel-title', { hasText: title }) }).first();
+      if ((await panel.locator('.panel-head .demo-tag').count()) === 0) untagged.push(`${t}: ${title}`);
+    }
+  }
+  check('c02 fix m1: every fixture-backed Overview panel carries a DEMO tag in api mode', untagged.length === 0, untagged.join(', '));
+  await A.p.goto(base + '/overview', { waitUntil: 'domcontentloaded' });
+  await A.p.locator('[data-scorecard="ready"]').waitFor({ timeout: 15000 });
   check('c02 the scorecard panel lists all 8 rows with a ? each', (await A.p.locator('[data-scorecard="ready"] [data-row]').count()) === 8 && (await A.p.locator('[data-scorecard="ready"] [data-row] [data-help-key^="scorecard."]').count()) === 8);
   await A.p.goto(base + '/missions', { waitUntil: 'domcontentloaded' });
   await A.p.locator('.mw-list-head').waitFor({ timeout: 10000 });
@@ -189,9 +220,13 @@ try {
   const P3 = (await apiA('POST', '/organization/proposals', { title: 'Designer-01 under Ops-01', why: '', baseRevision: g2.revision.seq, edges: g2.edges.map((e) => (e.subordinateId === 'designer-01' ? { ...e, supervisorId: 'ops-01' } : e)) }, { 'idempotency-key': `c01-p3-${Date.now()}` })).body.proposal;
   await B.p.getByRole('radio', { name: /^Pending/ }).click();
   await card(B.p, P3.id).waitFor({ timeout: 10000 });
-  // let every browser's re-read after org.proposalCreated finish first: a read after the expiry below expires P3 on the
-  // server and takes the card out of B's Pending filter before the Approve click (a race seen in cycle 2 runs)
-  await B.p.waitForTimeout(1500);
+  // every browser's re-read after org.proposalCreated must be done first: a read after the expiry below expires P3 on the
+  // server and takes the card out of B's Pending filter before the Approve click (a race seen in cycle 2 runs).
+  // Condition: A and B both show P3 as pending, and no browser has a proposals read in flight, twice 300 ms apart.
+  const settledP3 = async () => (await A.p.locator(`[data-proposal="${P3.id}"][data-status="pending"]`).count()) === 1
+    && (await B.p.locator(`[data-proposal="${P3.id}"][data-status="pending"]`).count()) === 1
+    && [A, B, C].every((X) => X.p.proposalReads() === 0);
+  check('c01 expiry step: P3 is pending in A and B and no proposals read is in flight', await until(async () => (await settledP3()) && (await new Promise((r) => setTimeout(r, 300)), await settledP3()), 10000));
   const pg = createRequire(new URL('../../server/package.json', import.meta.url))('pg');
   const db = new pg.Client({ connectionString: e2eUrl });
   await db.connect();
@@ -290,6 +325,17 @@ try {
   check('c02 the Missions list header shows the server rate with n', await until(async () => (await A.p.locator('.mw-list-head [data-list-success="0"][data-n="3"]').count()) === 1 && (await A.p.locator('.mw-list-head').innerText()).includes('0.0% verified success (n=3)'), 8000));
   const memberSc = (await apiOf(C.p)('GET', '/company/scorecard')).body.rows.find((r) => r.key === 'finished');
   check('c02 member C cannot see the admin\'s private missions: finished 0', memberSc?.value === 0);
+
+  // ------------------------------------------------------------ c02 fix I1: a real mission being staffed shows up in the agents tile, live
+  await A.p.goto(base + '/overview', { waitUntil: 'domcontentloaded' });
+  await A.p.locator('[data-scorecard="ready"]').waitFor({ timeout: 15000 });
+  const m4 = (await apiA('POST', '/missions', { text: 'Scorecard check 4: list the steps to rotate the backup keys.', files: [], shared: false }, { 'idempotency-key': `c02-new-4-${Date.now()}` })).body.mission;
+  let staffedN = 0;
+  await until(async () => (staffedN = await staffedFromServer()) >= 2, 15000, 300); // the GM and the executor have joined
+  check('c02 fix I1: the agents tile follows the server count of staffed agents live (a new real mission is staffed)',
+    staffedN >= 1 && await until(async () => { const n = await staffedFromServer(); return (await staffedTile(A.p).getAttribute('aria-label')) === `Staffed Agents: ${n}` && n >= 1; }, 10000), `server ${staffedN}, tile ${await staffedTile(A.p).getAttribute('aria-label')}`);
+  await act(m4.id, 'cancel');
+  check('c02 fix I1: after the cancel the tile drops back to the server count (0)', await until(async () => (await staffedFromServer()) === 0 && (await staffedTile(A.p).getAttribute('aria-label')) === 'Staffed Agents: 0', 10000));
 } catch (e) { check('script ran to the end', false, String(e).split('\n')[0]); }
 for (const [X, l] of [[A, 'A'], [B, 'B'], [C, 'C']]) await X?.p.screenshot({ path: `${SHOTS}/improve-c01-end-${l}.png` }).catch(() => {});
 console.log(errors.length ? 'PAGE ERRORS:\n' + errors.join('\n') : 'no page errors');

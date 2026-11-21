@@ -29,7 +29,7 @@ export default async function companyRoutes(app: FastifyInstance) {
       db.query(`select mission_id, min(started_at) as started_at from mission_runs where mission_id = any($1::text[]) group by mission_id`, [ids]),
       db.query(`select mission_id, payload->>'from' as f, payload->>'to' as t, occurred_at from events
                  where tenant_id=$1 and type='mission.stateChanged' and mission_id = any($2::text[]) and occurred_at <= $3 order by id`, [T, ids, w.to]),
-      db.query(`select id, mission_id, status from tasks where tenant_id=$1 and mission_id = any($2::text[])`, [T, ids]),
+      db.query(`select id, mission_id, status, simulated from tasks where tenant_id=$1 and mission_id = any($2::text[])`, [T, ids]),
       db.query(`select a.task_id, a.attempt_no, a.started_at, a.finished_at from task_attempts a join tasks t on t.id=a.task_id
                  where t.tenant_id=$1 and t.mission_id = any($2::text[])`, [T, ids]),
       db.query(`select r.mission_id, d.decision, d.decided_by, d.decided_at, (u.id is not null) as human
@@ -42,7 +42,7 @@ export default async function companyRoutes(app: FastifyInstance) {
       missions: missions.map((m) => ({ id: m.id, ownerId: m.owner_id })),
       runs: runs.filter((r) => r.started_at).map((r) => ({ missionId: r.mission_id, startedAt: new Date(r.started_at) })),
       transitions: transitions.filter((e) => e.f && e.t).map((e) => ({ missionId: e.mission_id, from: e.f, to: e.t, at: new Date(e.occurred_at) })),
-      tasks: tasks.map((t) => ({ id: t.id, missionId: t.mission_id, status: t.status })),
+      tasks: tasks.map((t) => ({ id: t.id, missionId: t.mission_id, status: t.status, simulated: t.simulated })),
       attempts: attempts.map((a) => ({ taskId: a.task_id, attemptNo: a.attempt_no, startedAt: a.started_at ? new Date(a.started_at) : null, finishedAt: a.finished_at ? new Date(a.finished_at) : null })),
       decisions: decisions.map((d) => ({ missionId: d.mission_id, decision: d.decision, decidedBy: d.decided_by, human: d.human, at: new Date(d.decided_at) })),
       delegations: delegations.map((d) => ({ missionId: d.mission_id, edgeKind: d.edge_kind, simulated: d.simulated })),
