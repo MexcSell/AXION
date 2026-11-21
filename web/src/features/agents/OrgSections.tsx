@@ -11,6 +11,7 @@ import { Panel } from '@/components/ui/Panel';
 import { Segmented, SwitchRow } from '@/components/ui/Form';
 import { isApi } from '@/api/mode';
 import { ServerProposals } from './ServerProposals';
+import { CoverageCard } from './OrgCoverage';
 import { Chip, DemoTag, AgentStatusChip } from '@/components/ui/Chips';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { Tip } from '@/components/ui/Tip';
@@ -156,6 +157,7 @@ export function Policies() {
         <SwitchRow label="Merge mission experience into the original agent" desc="Each instance merges what it learned at a fixed interval." checked={caps.merge} onChange={(v) => setCaps({ ...caps, merge: v })} />
       </Panel>
       <div className="col" style={{ gap: 'var(--gap)' }}>
+        {isApi() && <CoverageCard />}
         <Panel icon={Scale} title="Delegation & Reporting Rules" help="org.delegation" delay={.1}>
           <div className="table-wrap"><table className="table">
             <thead><tr><th>Rule</th><th>Control</th></tr></thead>

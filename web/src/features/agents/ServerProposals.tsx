@@ -16,6 +16,7 @@ import { openDialog, toast } from '@/store/ui';
 import { ago, cx } from '@/lib/format';
 import { OrgHistory } from './OrgHistory';
 import { Line } from './OrgLine';
+import { CoverageChanges } from './OrgCoverage';
 import '@/theme/pages/overview-org-agent.css';
 
 /* Improvement cycle 1 (api mode): the server's organisation proposals. Only stored facts are shown: the lines a
@@ -43,6 +44,7 @@ export function DryRunView({ r, max = 6 }: { r: OrgDryRun; max?: number }) {
       </div>
       {r.errors.map((x, i) => <div key={'e' + i} className="oa-issue bad" data-issue={x.code}><AlertOctagon size={13} aria-hidden /><span>{x.message}</span></div>)}
       {r.warnings.map((x, i) => <div key={'w' + i} className="oa-issue warn" data-issue={x.code}><AlertTriangle size={13} aria-hidden /><span>{x.message}</span></div>)}
+      {r.coverage && <CoverageChanges changes={r.coverage.changes} />}
       {lines.length > 0 && (
         <div className="oa-lines">
           {lines.slice(0, max).map(({ e, kind }) => <Line key={kind + e.subordinateId + e.supervisorId} e={e} kind={kind} />)}

@@ -337,3 +337,12 @@
 .oa-rollback { border-style: dashed; border-color: var(--border-strong); }
 .oa-pcard.oa-hl { border-color: rgba(var(--accent-rgb), .85); animation: oa-hl calc(1.4s / max(var(--motion-scale), .01)) ease-in-out 3; }
 @keyframes oa-hl { 50% { box-shadow: 0 0 0 2px rgba(var(--accent-rgb), .55), 0 0 26px rgba(var(--accent-rgb), .45); } }
+
+/* cycle 20: org coverage facts */
+.oa-cov { display: flex; flex-direction: column; gap: 8px; }
+.oa-cov-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; line-height: 1.35; }
+.oa-cov-list li { display: flex; align-items: flex-start; gap: 7px; }
+.oa-cov-list li svg { flex: none; margin-top: 2px; }
+.oa-cov-list li.warn { color: var(--warn); } .oa-cov-list li.ok { color: var(--muted); }
+.oa-covchg { display: flex; flex-direction: column; gap: 4px; }
+.oa-issue.ok { color: var(--good, var(--muted)); }

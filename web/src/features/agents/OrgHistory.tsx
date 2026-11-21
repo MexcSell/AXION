@@ -16,6 +16,7 @@ import { isAdmin, useMe } from '@/store/auth';
 import { toast } from '@/store/ui';
 import { ago, cx } from '@/lib/format';
 import { Line } from './OrgLine';
+import { CoverageFacts } from './OrgCoverage';
 import '@/theme/pages/overview-org-agent.css';
 
 /* Improvement cycle 4 (api mode): the organisation's history. One card per stored revision (newest first) with who made it
@@ -177,6 +178,11 @@ export function OrgHistory({ switcher, onRolledBack }: { switcher: ReactNode; on
                   </div>
                   {diff.error ? <div className="oa-banner" role="alert"><AlertOctagon size={15} /><span>Diff not loaded: {diff.error}</span></div>
                     : !diff.data ? <div className="dim" style={{ padding: 12 }}>Comparing…</div> : <DiffView d={diff.data} />}
+                  {cur.coverage && (
+                    <Section title="Structure in this revision" help="org.history.coverage">
+                      <CoverageFacts c={cur.coverage} id={String(cur.seq)} />
+                    </Section>
+                  )}
                   {admin && cur.seq !== latest && <Rollback seq={cur.seq} onDone={onRolledBack} />}
                   {admin && cur.seq === latest && <div className="dim" style={{ fontSize: 11.5, marginTop: 8 }}>This is the active revision: pick an earlier one to propose a rollback.</div>}
                 </motion.div>

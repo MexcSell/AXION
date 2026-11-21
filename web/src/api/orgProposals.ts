@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
-import type { OrgDiffDto, OrgDryRun, OrgEdgeDto, OrgProposalDto, OrgRevisionSummaryDto } from '@contracts';
+import type { OrgCoverage, OrgDiffDto, OrgDryRun, OrgEdgeDto, OrgProposalDto, OrgRevisionSummaryDto } from '@contracts';
 import { api, ApiFailure, newKey } from './client';
 import { isApi } from './mode';
 
@@ -77,3 +77,5 @@ export async function proposeRollback(seq: number, why: string, idempotencyKey: 
   } catch (e) { return fail(e); }
 }
 export { newKey };
+/** Improvement cycle 20: coverage facts of the active organisation revision. */
+export const useOrgCoverage = () => useRead<{ revision: number; coverage: OrgCoverage }>('/organization/coverage');
