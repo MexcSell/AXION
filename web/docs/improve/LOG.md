@@ -35,3 +35,11 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
   - I1: item 3b mislabelled "Met". Ruling: relabel it NOT MET, because a user can't reach n ≥ 5 until execution exists.
   - I2: a reassigned failure was charged to the new owner. Ruling: every outcome counts against the owner at that time.
   - Fix round dispatched.
+- Fix round (46c1c45): I1 3b relabelled NOT MET everywhere; I2 outcomes count against the owner at that time (a reassigned failure isn't charged to the receiver); m2/m4/m10/m3/m7. Server 321 → 331; api-improve 83/83; auth 15/15, flows 23/23, stage6 94/94; verify-all green.
+- Result: PARTIAL. Items 1, 2, 3a, 3c and 4 PASS. 3b is NOT MET: a user can't drive an agent to n ≥ 5 until execution exists. It is proven in route tests plus a labelled supplementary e2e step that writes rows directly.
+- Queued owner questions:
+  - Q3: the Agent Profile shows a DEMO "Reliability" fixture tile next to the measured Reliability stat. Rename the fixture tile? Default: keep both, each with its own chip.
+  - Q4: DEMO fixture tasks have no recorded attempts, so they never count, even with includeSimulated. Default: fine, since DEMO data shouldn't feed measurements.
+- Re-review: all ADDRESSED, no new breakage. Minor N1 (own-attempt time uses started_at only; the comment says "or finished") goes to the code-health batch. Q4 refined: DEMO attempt-less failures still count while attempt-less passes don't, which biases DEMO values downward. Default: leave it until execution records real attempts.
+- Live (16:10Z): backup axion-20261121T161042Z.dump, restore check PASS, API 5191 restarted on 46c1c45 (cycles 1–3; no migration since 13). Health OK; scorecard, proposals and agents routes answer 401 when signed out.
+- End 16:10Z.

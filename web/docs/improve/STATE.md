@@ -6,9 +6,11 @@
 - Migrations 0001–0012 frozen; 0013 = org_proposals (cycle 1); next new migration 0014.
 - Process: PROCESS.md. Controller: session axion-53. Subagents: implementer (sonnet/opus) + independent reviewer per cycle, max 1 fix round.
 
-## Current
-- Cycle: 2 (B1 company scorecard)
-- Step: implement (dispatched ~13:15Z)
-- BASE: (see git log; after cycle 1 docs commit)
-- Theme next after this: C (C1 agent reliability)
-- Live API 5191: cycle 1 code, migration 13 (restarted 13:12Z)
+## Current (parallel lanes since 15:55Z; owner: "use all resources, process multiple cycles at the same time")
+- Main tree /home/luca/AXION [improve-30h]: cycles 1–3 done + live (46c1c45). Next: merge lanes as they pass review.
+- Lane w2 /home/luca/AXION-w2 [c04-org-history]: cycle 4 A2+A3 · e2e 5292/5293 · axion_e2e2 · dev 5290 · migration 0014.
+- Lane w3 /home/luca/AXION-w3 [c05-version-proposals]: cycle 5 C2 · e2e 5392/5393 · axion_e2e3 · dev 5390 · migration 0015.
+- Lane w4 /home/luca/AXION-w4 [c06-department-facts]: cycle 6 B3 · e2e 5492/5493 · axion_e2e4 · dev 5490 · migration 0016.
+- Lane .env files point DATABASE_URL at axion_lane_disabled (no real-DB access). Lanes branch from f7c7bca.
+- Integration: review each lane, then merge into improve-30h (controller), full suite on the merged tree, then live restart.
+- Live API 5191: cycles 1–3 (46c1c45), migration 13, restarted 16:10Z.
