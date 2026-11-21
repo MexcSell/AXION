@@ -159,3 +159,7 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
 ### Incident: all workers stopped (sign-in error, ~19:20Z)
 - Every running agent (the integrator plus lanes w6, w19, w20, w21, w22, w23) ended with "Not logged in" at the same moment, and the session restarted. Nothing was lost in git: no merge was in progress, and c05 (6f8bd59) is merged. Lanes keep their uncommitted work in their worktrees. Dev server 5190 had died with the old session and was restarted at 20:11Z; the live API on 5191 stayed up.
 - Recovery (20:11Z): a fresh integrator from MERGES.md and LOG.md; the lanes resumed by fresh agents that inspect and finish the predecessor's work.
+
+### Cycle 23: live regions (lane w21)
+- Implementer (f51f788 to 8ce7c29): shared LiveStatus; ~14 api-mode states fixed; a11y script reports 0 violations in demo and api mode; no visual change. Threshold 4 NOT MET (verify-all timed out; api-improve and stage6 not run).
+- Review: PARTIAL. I1: dialog busy states missed (the scan did not cover portal dialogs), so threshold 2 was overclaimed. I2: the probes assert nothing. Fix round dispatched.
