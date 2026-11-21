@@ -76,7 +76,7 @@ export async function updateAgent(id: string, rowVersion: number, body: Partial<
     await loadAgents().catch(() => undefined);
     return { ok: true, agent: r.agent };
   } catch (e) {
-    if (e instanceof ApiFailure && e.status === 409) void loadAgents().catch(() => undefined); // someone else changed it: show the current state
+    if (e instanceof ApiFailure && e.status === 409) await loadAgents().catch(() => undefined); // someone else changed it: show the current state
     return fail(e);
   }
 }

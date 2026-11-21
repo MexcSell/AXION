@@ -1,3 +1,4 @@
+import { useCanEditAgents } from '@/hooks/useCanEditAgents';
 import { AnimatePresence, motion } from 'motion/react';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -29,8 +30,9 @@ export interface OrgMove { agentId: string; from: string; to: string; }
 /* ================================================================== */
 export function Departments() {
   const nav = useNavigate();
+  const canEdit = useCanEditAgents();
   return (
-    <Panel icon={Building2} titleSize="lg" title="Departments" help="org.departments" sub="Charter, manager, capacity, skill coverage and KPIs." delay={.05} actions={<div className="row" style={{ gap: 8 }}>{isApi() && <DemoTag title="Capacity, coverage and KPIs are prototype numbers until agents are measured" />}<button className="btn primary" onClick={() => openDialog('department-create')}><Plus size={15} />New department</button></div>}>
+    <Panel icon={Building2} titleSize="lg" title="Departments" help="org.departments" sub="Charter, manager, capacity, skill coverage and KPIs." delay={.05} actions={<div className="row" style={{ gap: 8 }}>{isApi() && <DemoTag title="Capacity, coverage and KPIs are prototype numbers until agents are measured" />}{canEdit && <button className="btn primary" onClick={() => openDialog('department-create')}><Plus size={15} />New department</button>}</div>}>
       <div className="oa-dept-grid">
         {DEPTS.map((d, i) => {
           const mgr = AGENT_BY_ID[d.managerId];
@@ -57,7 +59,7 @@ export function Departments() {
               <div className="row" style={{ gap: 8, marginTop: 10 }}>
                 <span className="dim" style={{ fontSize: 12 }}>{d.memberIds.length} agents · {d.missions} missions</span>
                 <span className="spacer" />
-                <button className="btn sm" onClick={() => openDialog('department-create', { dept: d.name })}>Edit draft</button>
+                {canEdit && <button className="btn sm" onClick={() => openDialog('department-create', { dept: d.name })}>Edit draft</button>}
                 <button className="btn sm ghost" onClick={() => toast({ tone: 'info', title: `Assign manager for ${d.name} (demo)`, body: 'Manager changes are proposals: they appear in Proposals for review.' })}>Assign manager</button>
               </div>
             </motion.article>

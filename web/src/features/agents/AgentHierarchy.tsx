@@ -148,6 +148,23 @@ export function AgentHierarchy({ agents = AGENTS, highlight }: { agents?: Agent[
   const gx = W / 2;
   const colX = (i: number) => i * (COL + GAP) + COL / 2;
   const dim = (a: Agent) => highlight && !highlight(a);
+  /** api mode: where each agent's card stands, to draw the active revision's reporting lines between the cards */
+  const NW = COL - 30;
+  const pos = new Map<string, { x: number; y: number; col: number }>();
+  depts.forEach(({ members }, i) => members.forEach((a, k) => pos.set(a.id, { x: colX(i) - COL / 2 + 30, y: AG_Y + k * (NODE_H + NODE_GAP), col: i })));
+  const links = edges ? edges.filter((e) => pos.has(e.subordinateId) && (e.supervisorId === 'gm' || pos.has(e.supervisorId))).map((e) => {
+    const t = pos.get(e.subordinateId)!, tMid = t.y + NODE_H / 2, colLeft = t.x - 30;
+    let d: string;
+    const sp = e.supervisorId === 'gm' ? undefined : pos.get(e.supervisorId);
+    if (!sp) d = `M${colX(t.col)} ${DEPT_Y + DEPT_H} V${DEPT_Y + DEPT_H + 20} H${colLeft + 14} V${tMid} H${t.x}`; // the GM: down through the department band
+    else {
+      const sMid = sp.y + NODE_H / 2;
+      if (sp.col === t.col) d = `M${sp.x} ${sMid} H${colLeft + 14} V${tMid} H${t.x}`;
+      else if (t.col > sp.col) { const mx = (sp.x + NW + t.x) / 2; d = `M${sp.x + NW} ${sMid} C${mx} ${sMid} ${mx} ${tMid} ${t.x} ${tMid}`; }
+      else { const mx = (sp.x + t.x + NW) / 2; d = `M${sp.x} ${sMid} C${mx} ${sMid} ${mx} ${tMid} ${t.x + NW} ${tMid}`; }
+    }
+    return { e, d, col: t.col };
+  }) : [];
 
   return (
     <ZoomCanvas width={W} height={H} label="Agent hierarchy" note={isApi() && (org.data?.revision ? <span data-org-revision={org.data.revision.seq} title={org.data.revision.note}>Org revision {org.data.revision.seq} · {org.data.revision.note || 'active'}</span> : org.error ? <span role="alert">Reporting lines not loaded</span> : null)}>
@@ -164,14 +181,19 @@ export function AgentHierarchy({ agents = AGENTS, highlight }: { agents?: Agent[
             <g key={d.name} style={{ ['--h' as string]: d.hue }}>
               <motion.path d={main} className="ah-link" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: .9, delay: .1 + i * .06 }} />
               <circle r="3.5" className="ah-pulse" filter="url(#ah-glow)"><animateMotion dur={`${2.4 + (i % 3) * .4}s`} begin={`${i * .35}s`} repeatCount="indefinite" path={main} /></circle>
-              <motion.path d={`M${x} ${DEPT_Y + DEPT_H} V${DEPT_Y + DEPT_H + 20} H${trunkX} V${lastY}`} className="ah-link sub" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: .7, delay: .5 + i * .05 }} />
-              {members.map((a, k) => {
+              {!edges && <motion.path d={`M${x} ${DEPT_Y + DEPT_H} V${DEPT_Y + DEPT_H + 20} H${trunkX} V${lastY}`} className="ah-link sub" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: .7, delay: .5 + i * .05 }} />}
+              {!edges && members.map((a, k) => {
                 const y = AG_Y + k * (NODE_H + NODE_GAP) + NODE_H / 2;
                 return <motion.path key={a.id} d={`M${trunkX} ${y} H${trunkX + 16}`} className="ah-link sub" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: .8 + k * .05 }} />;
               })}
             </g>
           );
         })}
+        {links.map(({ e, d, col }, n) => (
+          <g key={e.subordinateId} style={{ ['--h' as string]: depts[col]?.d.hue }}>
+            <motion.path d={d} className="ah-link sub" data-from={e.supervisorId} data-to={e.subordinateId} initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: .6, delay: .5 + (n % 12) * .03 }} />
+          </g>
+        ))}
       </svg>
 
       {/* GM */}

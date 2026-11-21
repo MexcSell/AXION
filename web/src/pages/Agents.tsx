@@ -114,7 +114,7 @@ export function useAgentsSection() {
   return {
     kpis,
     actions: <>
-      <button className="btn" onClick={() => openDialog('department-create')}><Building2 size={15} />New department</button>
+      {canEdit && <button className="btn" onClick={() => openDialog('department-create')}><Building2 size={15} />New department</button>}
       {canEdit && <button className="btn primary" onClick={() => openDialog('agent-create')}><Plus size={16} />New Agent</button>}
     </>,
     sub: { tabs, value: tab, onChange: setTab, icons: TAB_ICONS, counts: { Development: COUNTS.learning + COUNTS.evolving } },

@@ -412,12 +412,16 @@ try {
   const graph = (await apiA('GET', '/organization/graph')).body;
   check('the Hierarchy draws the new agent (A) and names the active org revision', await until(async () => (await A.p.locator('.ah-node[data-agent="marketer-01"]').count()) === 1 && (await A.p.locator('[data-org-revision]').count()) === 1, 10000), `revision ${graph.revision?.seq}`);
   check('the node knows its manager from the graph', (await A.p.locator('.ah-node[data-agent="marketer-01"]').getAttribute('data-manager')) === graph.edges.find((e) => e.subordinateId === 'marketer-01')?.supervisorId);
+  const stored = graph.edges.find((e) => e.subordinateId === 'marketer-01')?.supervisorId;
+  check('the Hierarchy draws the agent\'s reporting line from the supervisor the server stored', !!stored && (await A.p.locator(`svg.ah-links path[data-to="marketer-01"][data-from="${stored}"]`).count()) === 1, `supervisor ${stored}`);
   check('B sees the new agent in the Hierarchy too', await until(async () => (await B.p.locator('.ah-node[data-agent="marketer-01"]').count()) === 1, 10000));
   await A.p.waitForTimeout(900);
   await A.p.screenshot({ path: `${SHOTS}/stage6-agents-hierarchy.png` });
   // a live creation while B watches the hierarchy
   const live = await apiA('POST', '/agents', { name: 'Analyst-X', role: 'analyst-x', dept: 'R&D', duty: 'Funnel analysis', model: 'claude-sonnet-5-5', skills: [], tools: [] }, { 'idempotency-key': key() });
   check('an agent created over the API appears in B\'s open Hierarchy live', live.status === 201 && await until(async () => (await B.p.locator('.ah-node[data-agent="analyst-x"]').count()) === 1, 10000));
+  const sub = await apiA('POST', '/agents', { name: 'Copy-X', role: 'copy-x', dept: 'Engineering', duty: 'Copy editing', model: 'claude-sonnet-5-5', managerId: 'researcher-01' }, { 'idempotency-key': key() });
+  check('an agent created under another supervisor is drawn under that supervisor in B\'s open Hierarchy, live', sub.status === 201 && await until(async () => (await B.p.locator('svg.ah-links path[data-to="copy-x"][data-from="researcher-01"]').count()) === 1 && (await B.p.locator('.ah-node[data-agent="copy-x"]').count()) === 1, 10000), `edge ${JSON.stringify((await apiA('GET', '/organization/graph')).body.edges.find((e) => e.subordinateId === 'copy-x'))}`);
   // duplicate role: the server's message, inline
   await A.p.goto(DIR, { waitUntil: 'domcontentloaded' });
   await cardsOf(A.p).first().waitFor({ timeout: 10000 });
@@ -444,8 +448,7 @@ try {
   const skillsIn = dlg3.getByLabel('Skills', { exact: true });
   await skillsIn.fill(`${await skillsIn.inputValue()}, e2e-skill`);
   await dlg3.getByRole('button', { name: 'Save' }).click();
-  await A.p.waitForTimeout(1500);
-  if (await dlg3.count()) console.log('EDIT DIALOG STILL OPEN:', (await dlg3.innerText()).replace(/\s+/g, ' ').slice(0, 400));
+  await until(async () => (await dlg3.count()) === 0, 8000);
   check('the server created the next version', await until(async () => { const a = (await apiA('GET', '/agents/designer-01')).body.agent; return a.versionLabel !== oldLabel && a.versions.length === des.versions.length + 1; }, 8000));
   const newLabel = (await apiA('GET', '/agents/designer-01')).body.agent.versionLabel;
   await A.p.goto(`${base}/agents/designer-01?tab=evolution`, { waitUntil: 'domcontentloaded' });
@@ -458,6 +461,20 @@ try {
   // a stale edit (another admin changed it) is a 409, never an overwrite
   const stale = await apiA('PATCH', '/agents/designer-01', { description: 'late edit' }, { 'if-match': String(des.rowVersion) });
   check('a stale edit is refused with 409', stale.status === 409);
+  // a 409 inside the open dialog: the message, the new version adopted, and the next Save works
+  await A.p.goto(`${base}/agents/designer-01`, { waitUntil: 'domcontentloaded' });
+  await A.p.getByRole('button', { name: 'Edit', exact: true }).click();
+  const dlg4 = A.p.locator('[role="dialog"]').first();
+  const sk4 = dlg4.getByLabel('Skills', { exact: true });
+  await sk4.waitFor({ timeout: 5000 });
+  const cur4 = (await apiA('GET', '/agents/designer-01')).body.agent;
+  const vCount = cur4.versions.length;
+  await sk4.fill(`${await sk4.inputValue()}, second-skill`);
+  await apiA('PATCH', '/agents/designer-01', { description: 'changed by another administrator' }, { 'if-match': String(cur4.rowVersion) });
+  await dlg4.getByRole('button', { name: 'Save' }).click();
+  check('a 409 in the Edit dialog says someone changed it', await until(async () => (await dlg4.getByText('Someone changed this agent meanwhile').count()) > 0, 8000));
+  await dlg4.getByRole('button', { name: 'Save' }).click();
+  check('after the 409 the next Save succeeds (the new version was adopted)', await until(async () => (await dlg4.count()) === 0 && (await apiA('GET', '/agents/designer-01')).body.agent.versions.length === vCount + 1, 8000));
   await A.p.goto(`${base}/operations?tab=agents&sub=live-instances`, { waitUntil: 'domcontentloaded' });
   check('Live Instances lists the server\'s instances with their pinned versions', await until(async () => (await A.p.locator('[data-live-instances] tbody tr').count()) > 0, 10000));
   const dRow = await A.p.locator('[data-live-instances] tr[data-agent="designer-01"] [data-pinned]').allInnerTexts();

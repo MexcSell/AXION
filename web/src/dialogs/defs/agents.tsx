@@ -109,7 +109,11 @@ function AgentEdit({ close, props }: DialogComponentProps<{ agentId?: string }>)
     const list = skills.split(',').map((x) => x.trim()).filter(Boolean);
     const r = await updateAgent(a.id, openedAt.current, { description: desc.trim(), model, skills: list });
     setBusy(false);
-    if (!r.ok) { setSrvErr(r.message); return; }
+    if (!r.ok) {
+      if (r.code === 'CONFLICT') { openedAt.current = AGENT_BY_ID[a.id]?.rowVersion ?? openedAt.current; setSrvErr('Someone changed this agent meanwhile. Review your edits and save again.'); } // adopt the current version so the next Save can succeed
+      else setSrvErr(r.message);
+      return;
+    }
     const changed = r.agent.versionLabel !== startVersion.current;
     toast({ tone: 'success', title: `${a.name} saved`, body: changed ? `New version ${r.agent.versionLabel}. Running instances stay on ${startVersion.current}; new instances use ${r.agent.versionLabel}.` : 'Profile updated. No new version was needed.' });
     close();
