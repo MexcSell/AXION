@@ -73,15 +73,20 @@ before.
 - **D5. Reads use `activeRevision`** (like `/organization/graph`), not `latestRevision`; creation is not an org writer.
 
 ## RED / GREEN evidence
-- **Baseline (measured before any change):** base `2ed66e9` has 24 server test files with 331 tests. That is the GREEN
-  run's 25 files and 342 tests, minus the new file and its 11 tests.
+- **Baseline (derived, not run separately):** base `2ed66e9` has 24 server test files with 331 tests. That is the GREEN
+  run's 25 files and 342 tests, minus the new file and its 11 tests. Every earlier file passed in both GREEN runs.
 - **Goldens, generated from the untouched base before any edit:**
   - `server/test/fixtures/c11-demo-hierarchy.json`: the 13 DEMO missions' team and `hierarchy()` JSON. It was generated
-    by a temporary test in an extracted copy of `2ed66e9` (`git archive`), then deleted.
+    by a temporary test in an extracted copy of `2ed66e9` (`git archive`), then deleted. The steps to regenerate it are
+    below.
   - `server/test/fixtures/c11-fixture-plans.json`: `staffingPlan(kind, text)` for all 7 kinds, with and without the
     model-loader text.
-- **RED:** `heavy.sh npx vitest run test/c11-staffing-org.test.ts`, run on a snapshot of the worktree with the new tests and
-  the pure module but the server unchanged, gave `Tests 5 failed | 6 passed (11)`:
+- **Chronology, stated plainly:**
+  - the pure module (`staffing-org.ts`) was written before its tests first ran;
+  - RED ran on a snapshot taken before any server or web code changed, but because the gate is not FIFO, that run finished
+    after the first GREEN run.
+- **RED:** `heavy.sh npx vitest run test/c11-staffing-org.test.ts`, run on that snapshot (the new tests and the pure module,
+  with the server unchanged), gave `Tests 5 failed | 6 passed (11)`:
   - `after a proposal moves writer-01 under analyst-01 …`: `expected { gm: null, …(6) } to deeply equal …`, because writer-01
     was under researcher-01;
   - `the executor is the head …`: `expected 'coder-01' to be 'designer-01'`;
@@ -96,9 +101,9 @@ before.
   after a restart" test (the base code ignores the org, so it passes there as well).
 - **GREEN:** `cd server && npx tsc --noEmit -p . && heavy.sh npx vitest run`:
   - first run: `TSC-OK`, `Test Files 1 failed | 24 passed (25)`, `Tests 1 failed | 341 passed (342)`, the join-order test only;
-  - after the fix (`4e47135`): C11_RERUN.
-- **The DEMO golden test passed in GREEN on the changed code.** At comparison time the active org was revision 4, with
-  writer-01, coder-01, mentor-01 and tester-01 moved, and the demo seed ran after those changes. All 13 missions compared
+  - after the fix (`4e47135`): `TSC-OK`, `Test Files 25 passed (25)`, `Tests 342 passed (342)` (331 → 342, +11, 0 failures).
+- **The DEMO golden test passed in GREEN on the changed code.** At comparison time the active org was revision 4 (three
+  applied proposals, revisions 2–4, moving four agents: writer-01, coder-01, mentor-01 and tester-01), and the demo seed ran after those changes. All 13 missions compared
   equal as JSON strings.
 
 ## Pass threshold
@@ -108,8 +113,8 @@ before.
      stay under the executor researcher-01, and the executor is under the GM;
    - a mission staffed before the change has a byte-identical hierarchy after it. A mission created under revision 1 but
      staffed after the change (a second app resumes it) also keeps writer-01 under researcher-01;
-   - DEMO staffing is byte-identical to base `2ed66e9` (team and hierarchy JSON of all 13 DEMO missions, seeded after four
-     org changes);
+   - DEMO staffing is byte-identical to base `2ed66e9` (team and hierarchy JSON of all 13 DEMO missions, seeded after three
+     applied proposals moving four agents);
    - also covered: the executor follows the head (coder-01 under designer-01 makes designer-01 lead, and coder-01 joins under
      it); a department with no head falls back to the fixture executor (`executorFrom: 'fixture'`); the stored
      `staffing.org` names the revision; join order is stable and managers come first.
@@ -135,8 +140,9 @@ before.
      api-stage6.mjs api-improve.mjs` gave `EXIT=0`: `api-c11 16/16`, `api-auth-flow 15/15`, `api-flows 23/23`,
      `api-stage6 94/94`, `api-improve 83/83`.
    - Earlier run problems:
-     - `api-stage6` once timed out on a `page.reload` (34/35) and passed 94/94 on the rerun with no code change, the same
-       pre-existing flake the c01 report records;
+     - `api-stage6` once timed out on a `page.reload` (34/35), right after "E8: a real mission's Activity says 'not
+       measured yet'". It passed 94/94 on the rerun with no code change. It was seen once, not reproduced, and the cause
+       was not investigated;
      - `api-improve` stopped at its database guard (`E2E_DATABASE_URL must point at axion_e2e`), because base `2ed66e9`
        lacks the lane fix that `improve-30h` already has. I applied the identical line (`/axion_e2e\d*/`), so a merge is a
        no-op.
@@ -178,6 +184,39 @@ research mission created after "Writer-01 under Analyst-01" was applied: GM → 
 Browser-01, Knowledge-01 and Tester-01, with **Writer-01 under Analyst-01**. The mission created before the change is in
 `/tmp/axion-api-e2e-5992/improve-c11-hierarchy-before.png` (not committed).
 
+## How to regenerate the DEMO golden
+```bash
+mkdir -p /tmp/base && git archive 2ed66e9 server shared web/src | tar -x -C /tmp/base
+ln -s "$PWD/server/node_modules" /tmp/base/server/node_modules && ln -s "$PWD/web/node_modules" /tmp/base/web/node_modules
+cp server/.env /tmp/base/server/.env && mkdir -p /tmp/base/server/test/fixtures
+# put the test below in /tmp/base/server/test/zz-gen-golden.test.ts, then:
+cd /tmp/base/server && /home/luca/AXION-lanes/heavy.sh npx vitest run test/zz-gen-golden.test.ts
+```
+```ts
+import { it } from 'vitest';
+import { writeFileSync } from 'node:fs';
+import { makeTestApp, withAdmin } from './helpers.ts';
+import { seedDemo } from '../src/seed/demo.ts';
+import { hierarchy } from '../src/instances/service.ts';
+import { loadRow, missionDto } from '../src/missions/service.ts';
+
+it('writes the DEMO hierarchy golden', async () => {
+  const t = await makeTestApp({ staffingStepMs: 3_600_000, conversationSimMs: 3_600_000 });
+  const w = await withAdmin(t.app);
+  await seedDemo(t.app.db, 't-1', w.adminId);
+  const ids = (await t.pool.query(`select id from missions where demo order by id`)).rows.map((r) => r.id as string);
+  const out: Record<string, unknown> = {};
+  for (const id of ids) {
+    const d = missionDto(await loadRow(t.app.db as never, id));
+    out[id] = { team: { agentIds: d.agentIds, leadId: d.leadId, executorId: d.executorId ?? null }, hierarchy: await hierarchy(t.app.db, id) };
+  }
+  writeFileSync('test/fixtures/c11-demo-hierarchy.json', JSON.stringify(out, null, 1) + '\n');
+  await t.close();
+});
+```
+The fixture-plan golden is `JSON.stringify` of `staffingPlan(k, 'Plain text.')` and `staffingPlan(k, 'Uses a voice model.')`
+for the 7 kinds, run with `npx tsx` against the base file.
+
 ## Concerns
 - **D1 departs from the brief's literal wording.** "Supervisor in the mission" excludes the GM, otherwise every GM-reporting
   recruit would sit under the GM and every new mission's structure would change under the seeded chart. If the owner wants
@@ -188,9 +227,20 @@ Browser-01, Knowledge-01 and Tester-01, with **Writer-01 under Analyst-01**. The
 - **The Add mission preview reads the catalog**, whose `managerId` follows the active revision through the live
   `org.revisionApplied` event. If an org change lands between the preview and the submit, the server's choice (shown in
   the toast and the log) wins.
+- **The `api-stage6` `page.reload` timeout** (see item 4) was seen once and not explained.
+- **The `mission.create` help repeats the kind → department mapping in prose.** That is a second hand-kept copy beside
+  `KIND_DEPT`, the help text is now about three times longer, and I did not view it rendered. A later cycle could generate
+  the sentence from `KIND_DEPT`.
 - **The executor's "why" for a displaced fixture executor is a generic sentence.** The fixture plan has no per-kind reason
   for it.
 - **Demo mode (no server) is unchanged**, so it never follows the org chart, by design. The `mission.create` help says
   "With the server, …".
 - My RED snapshot had the old sort, so the pure join-order failure in RED was a real bug, not a missing feature. It is
-  recorded above. The full server suite after the fix: C11_FULL.
+  recorded above. The full server suite after the fix: 25 files, 342 tests, all passed.
+
+## Commits
+- `365b15c` test: pure rule, RED tests, goldens
+- `ba4bfe2` feat: server, web, browser check
+- `4e47135` fix: stable join order
+- `48e25f7` test: api-c11 filter; api-improve lane guard line
+- `3a9a200` and the next commit: report and screenshot
