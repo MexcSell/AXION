@@ -41,6 +41,7 @@ export function Tabs<K extends string>({ tabs, value, onChange, variant = 'pill'
             onKeyDown={(e) => onKey(e, i)}
             data-tab={t.key}
             title={collapse && !sel ? t.label : undefined}
+            aria-label={collapse ? (t.count != null ? `${t.label} (${t.count})` : t.label) : undefined}
           >
             {sel && <motion.span layoutId={`tabpill-${id}`} className="tab-pill" transition={{ type: 'spring', stiffness: 520, damping: 40 }} />}
             <span className="tab-label">
