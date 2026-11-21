@@ -1,0 +1,17 @@
+import type { HelpEntry } from '../registry';
+
+const h = (title: string, what: string, why?: string, how?: string, example?: string, permission?: string): HelpEntry => ({ title, what, why, how, example, permission });
+
+/** Improvement cycle 19: mentoring plans (api mode). Only recorded facts; no score is invented. */
+const entries: Record<string, HelpEntry> = {
+  'mentoring.plan': h('Mentoring plan', 'A recorded plan for this agent: a mentor (another agent), a target skill, one to five milestones and a re-evaluation date. It shows how many milestones a person has ticked off, and who and when.', 'Mentoring is promised by the spec; this is the record of it. It reports milestones done and dates, never a skill gain: nothing is measured yet because agents do not execute.', 'An agent has one active plan at a time. Closing a plan (completed or cancelled) moves it to the history; it is never deleted.', 'Coder-01 · Code review · mentor Mentor-01 · 2 of 3 milestones done · re-evaluate 5 Dec.', 'Everyone can read plans. Administrators start plans, tick milestones and close plans.'),
+  'mentoring.start': h('Start a plan', 'Opens a dialog to record a mentoring plan for this agent. It is disabled while the agent already has an active plan.', 'The plan is audited and every open page updates.', 'Choose the mentor (another active agent), the target skill, one to five milestones and the re-evaluation date, then Record plan. The server refuses a mentor equal to the agent, a retired mentor and a date in the past.', undefined, 'Administrators only.'),
+  'mentoring.mentor': h('Mentor', 'The agent that coaches this one. It must be another active agent; an agent never mentors itself.', undefined, 'Mentor-01 is preselected when it exists.'),
+  'mentoring.skill': h('Target skill', 'The skill this plan is meant to improve, in your own words.', 'It is only a label: no score is attached to it.'),
+  'mentoring.milestones': h('Milestones', 'One to five steps, in order. A person ticks each one off when it is done; the name and the time are recorded and cannot be changed.', 'Milestones make progress visible without inventing numbers.', 'Add up to five. A milestone is ticked once; a closed plan takes no more ticks.'),
+  'mentoring.reeval': h('Re-evaluation', 'The date the plan is looked at again. Until agents execute there is no evaluation data, so the card says "Needs evaluation data" instead of a result.', 'Numbers that were not measured are never shown.', 'Once agents execute, a before/after evaluation can be attached here.'),
+  'mentoring.close': h('Complete or cancel', 'Closes the active plan as completed or cancelled, with an optional note. The plan stays in the history.', 'Closing is final: a closed plan and its milestones never change.', 'Choose Complete or Cancel plan, add a note if you like, then confirm.', undefined, 'Administrators only.'),
+  'mentoring.history': h('History', 'Closed plans for this agent, newest first: completed or cancelled, with who closed them, when, and the note.', 'Plans are append-only in spirit: nothing is deleted or rewritten.'),
+  'mentoring.dev': h('Mentoring plans', 'Every agent\'s active mentoring plan: mentor, target skill, milestones done and the re-evaluation date.', 'Beside version proposals, this is how agents are coached under governance.', 'Open an agent › Mentoring to start a plan or to tick milestones; this list follows live.', undefined, 'Everyone can read; administrators change.'),
+};
+export default entries;
