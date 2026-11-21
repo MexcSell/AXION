@@ -46,7 +46,9 @@ export function configDiff(a: VersionConfig, b: VersionConfig): VersionDiff {
   return { skillsAdded, skillsRemoved, toolsAdded, toolsRemoved, model, changed: !!model || skillsAdded.length + skillsRemoved.length + toolsAdded.length + toolsRemoved.length > 0 };
 }
 
-const cfgOf = (x: { model: string; skills: unknown; tools: unknown }): VersionConfig => ({ model: x.model, skills: x.skills as string[], tools: x.tools as string[] });
+const strs = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+/** A config from a version row or a stored candidate (reads never fail on a malformed row; decisions check it strictly). */
+const cfgOf = (x: { model: unknown; skills: unknown; tools: unknown }): VersionConfig => ({ model: typeof x.model === 'string' ? x.model : '', skills: strs(x.skills), tools: strs(x.tools) });
 /** What a decision is bound to: the agent, the base (id and config sha), the candidate, the title and the hypothesis. */
 export function proposalSha(r: { agent_id: string; base_version_id: string; base_sha: string; candidate: VersionConfig; title: string; hypothesis: string }) {
   return createHash('sha256').update(JSON.stringify([r.agent_id, r.base_version_id, r.base_sha, r.candidate.model, r.candidate.skills, r.candidate.tools, r.title, r.hypothesis])).digest('hex');
@@ -182,8 +184,9 @@ export default async function versionRoutes(app: FastifyInstance) {
       if (b.decision === 'promote' && cur.versionId !== p.base_version_id)
         return refuse(c, ctx, A, pid, new ApiError('AGENT_CHANGED', 409, `${cur.name} changed since this was proposed (${cur.versionLabel} is active now). It can only be rejected or withdrawn.`));
       // 3. the proposal is the one that was reviewed, and its stored candidate is intact
-      const candidate = cfgOf(Config.parse(p.candidate));
-      if (b.sha !== proposalSha({ ...p, candidate }) || p.candidate_sha !== promptHash(candidate.model, candidate.skills, candidate.tools))
+      const stored = Config.safeParse(p.candidate);
+      const candidate = stored.success ? cfgOf(stored.data) : null;
+      if (!candidate || b.sha !== proposalSha({ ...p, candidate }) || p.candidate_sha !== promptHash(candidate.model, candidate.skills, candidate.tools))
         return refuse(c, ctx, A, pid, new ApiError('PROPOSAL_CHANGED', 409, 'This proposal is not the one you reviewed. Reload it and review it again.'));
       // 4. not expired
       if (await expireOne(c, ctx.tenantId, pid)) return refuse(c, ctx, A, pid, new ApiError('PROPOSAL_EXPIRED', 409, 'This proposal expired without a decision. Propose it again from the active version.'));

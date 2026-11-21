@@ -206,6 +206,12 @@ describe('base and payload checks', () => {
     expect(r.status).toBe(409);
     expect(r.body.code).toBe('PROPOSAL_CHANGED');
     expect((await A.req('POST', `/version-proposals/${p.id}/withdraw`)).status).toBe(200);
+    const q = (await propose(A, addSkill('Dart'))).body.proposal;
+    await t.pool.query(`update agent_version_proposals set candidate = '{"model": 1}' where id=$1`, [q.id]); // not even a config any more
+    const r2 = await decide(B, q, 'promote');
+    expect(r2.status).toBe(409);
+    expect(r2.body.code).toBe('PROPOSAL_CHANGED');
+    expect((await A.req('POST', `/version-proposals/${q.id}/withdraw`)).status).toBe(200);
   });
 });
 
