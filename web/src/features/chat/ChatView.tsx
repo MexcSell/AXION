@@ -252,14 +252,16 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
   useLayoutEffect(() => { vpRef.current = vp; }, [vp]);
   const moveVp = (el: HTMLElement) => { const v = { top: el.scrollTop, h: el.clientHeight }; vpRef.current = v; setVp(v); };
 
-  // an older page landed at the top: keep the window on the same rows (they moved down by the new rows' height)
+  // an older page landed at the top: keep the window on the same rows (they moved down by the new rows' height). Only in
+  // the same view: switching Full / Compact re-reads the scroll position from the DOM instead (below).
   const firstShown = shown[0]?.id;
-  const [prevFirst, setPrevFirst] = useState(firstShown);
-  if (firstShown !== prevFirst) {
-    const k = prevFirst ? shown.findIndex((m) => m.id === prevFirst) : -1;
+  const [prev, setPrev] = useState({ first: firstShown, view });
+  if (firstShown !== prev.first || view !== prev.view) {
+    const k = prev.first && view === prev.view ? shown.findIndex((m) => m.id === prev.first) : -1;
     if (k > 0) { const add = layout.tops[k]; setVp((v) => ({ ...v, top: v.top + add })); }
-    setPrevFirst(firstShown);
+    setPrev({ first: firstShown, view });
   }
+  useLayoutEffect(() => { if (scroller.current) moveVp(scroller.current); }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pad = box.current.pad;
   let [s, e] = rangeFor(layout, vp.top - pad - OVERSCAN, vp.top - pad + vp.h + OVERSCAN);
@@ -267,10 +269,14 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
     const [bs] = rangeFor(layout, layout.total - vp.h - OVERSCAN, layout.total + 1);
     s = bs <= e ? Math.min(s, bs) : bs; e = n;
   }
+  // focus: the row that holds focus (the row itself or a button in it) stays mounted; the row in the Tab order is the one
+  // the reader last moved to (a row itself took focus) while it is rendered, otherwise the newest rendered row
   const [focusId, setFocusId] = useState<string | null>(null);
+  const [tabId, setTabId] = useState<string | null>(null);
   const fi = focusId ? shown.findIndex((m) => m.id === focusId) : -1;
   const segs: [number, number][] = !n ? [] : fi < 0 || (fi >= s && fi < e) ? [[s, e]] : fi < s ? [[fi, fi + 1], [s, e]] : [[s, e], [fi, fi + 1]];
-  const rovingId = fi >= 0 ? focusId : shown[e - 1]?.id;
+  const ti = tabId ? shown.findIndex((m) => m.id === tabId) : -1;
+  const rovingId = ti >= 0 && (segs.some(([a, z]) => ti >= a && ti < z)) ? tabId : shown[e - 1]?.id;
   const base = !compact && total !== undefined && total > messages.length ? total - messages.length : 0; // older messages not loaded yet
   const size = base + n;
 
@@ -399,7 +405,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
     if (!el || !m) return;
     const top = pad + layout.tops[i], bottom = pad + layout.tops[i + 1] - layout.gap;
     pendingFocus.current = m.id;
-    setFocusId(m.id);
+    setFocusId(m.id); setTabId(m.id);
     if (top < el.scrollTop) el.scrollTop = top - 8;
     else if (bottom > el.scrollTop + el.clientHeight) el.scrollTop = bottom - el.clientHeight + 8;
     moveVp(el);
@@ -462,7 +468,12 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
       <div className={cx('thread-scroll', mm && 'with-minimap')}>
         {loadingOlder && <div className="thread-older" role="status"><Loader2 size={12} className="spin" /> Loading older messages…</div>}
         <div className="thread-body" ref={scroller} onKeyDown={onKeyDown}
-          onFocus={(ev) => { const r = (ev.target as HTMLElement).closest<HTMLElement>('[data-mid]'); if (r?.dataset.mid && r.dataset.mid !== focusId) setFocusId(r.dataset.mid); }}
+          onFocus={(ev) => {
+            const t = ev.target as HTMLElement, r = t.closest<HTMLElement>('[data-mid]'), id = r?.dataset.mid;
+            if (!id) return;
+            if (id !== focusId) setFocusId(id);
+            if (t === r && id !== tabId) setTabId(id);
+          }}
           onScroll={(ev) => {
             const el = ev.currentTarget; const b = el.scrollHeight - el.scrollTop - el.clientHeight < 40; setAtBottom(b); if (b) setNewCount(0); if (el.scrollTop < 80) requestOlder(el);
             if (Math.abs(el.scrollTop - vpRef.current.top) > DRIFT || el.clientHeight !== vpRef.current.h) moveVp(el);

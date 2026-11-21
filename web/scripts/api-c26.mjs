@@ -149,6 +149,26 @@ async function behaviour(mid, tid) {
   await p.waitForTimeout(400);
   const kept = await p.evaluate((id) => document.activeElement?.getAttribute('data-mid') === id && !!document.querySelector(`.conv-main .thread-body [data-mid="${id}"]`), ids[0]);
   check('the row holding focus stays mounted when it scrolls far out of view', kept);
+  // focus inside a row (a bubble's button) keeps the row mounted but does not move the Tab stop
+  const tabBefore = await body.evaluate((el) => el.querySelector('[data-mid][tabindex="0"]')?.getAttribute('data-mid'));
+  await body.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  await p.waitForTimeout(300);
+  const btnRow = await body.evaluate((el) => { const rs = [...el.querySelectorAll('[data-mid]')]; const r = rs[rs.length - 3]; r?.querySelector('button')?.focus(); return r?.getAttribute('data-mid'); });
+  await p.waitForTimeout(200);
+  const tabAfter = await body.evaluate((el) => el.querySelector('[data-mid][tabindex="0"]')?.getAttribute('data-mid'));
+  check('focus on a button inside a message does not move the Tab stop (one tabbable row, unchanged)', !!btnRow && tabAfter === tabBefore && (await body.evaluate((el) => el.querySelectorAll('[data-mid][tabindex="0"]').length)) === 1, `before ${tabBefore} · after ${tabAfter} · focused row ${btnRow}`);
+  // switching Full / Compact from the middle of the thread leaves rows in the viewport (no blank view)
+  const filled = () => body.evaluate((el) => { const box = el.getBoundingClientRect(); return [...el.querySelectorAll('[data-mid]')].some((r) => { const b = r.getBoundingClientRect(); return b.bottom > box.top + 1 && b.top < box.bottom - 1; }); });
+  await body.evaluate((el) => { el.scrollTop = Math.round(el.scrollHeight * 0.5); });
+  await p.waitForTimeout(300);
+  const seg = p.locator('.conv-main .thread-head [role=radiogroup][aria-label="Thread view"]');
+  await seg.getByRole('radio', { name: /Compact/ }).click();
+  await p.waitForTimeout(400);
+  const c1 = await filled();
+  await seg.getByRole('radio', { name: /Full/ }).click();
+  await p.waitForTimeout(400);
+  const c2 = await filled();
+  check('switching to Compact and back to Full from the middle of the thread leaves messages in view', c1 && c2, `compact ${c1} · full ${c2}`);
   // the scroll position holds still while rows are measured (estimates corrected above the viewport)
   const pick = () => body.evaluate((el) => { const box = el.getBoundingClientRect(); const r = [...el.querySelectorAll('[data-mid]')].find((x) => x.getBoundingClientRect().bottom > box.top + 1); return r ? { id: r.getAttribute('data-mid'), top: r.getBoundingClientRect().top - box.top } : null; });
   await body.evaluate((el) => { el.scrollTop = Math.round(el.scrollHeight * 0.37); });
