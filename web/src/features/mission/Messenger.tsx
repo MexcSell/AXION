@@ -219,6 +219,7 @@ function Thread({ mission, me, other, relation, onRedirect }: { mission: Mission
       messages={msgs} isRight={(m) => m.from.startsWith('human:') || m.from === me} mmMe={me}
       typing={typing ? { name: a.name, role: a.role } : null} missionId={mission.id}
       compactFilter={(m) => ['delegation', 'report', 'result', 'command', 'question'].includes(m.kind)}
+      emptyState={th?.error || (!th && partners === 'error') ? 'error' : th?.loading || (!th && partners === 'loading') ? 'loading' : undefined}
       emptyTitle={th?.error || (!th && partners === 'error') ? 'Could not load this conversation' : th?.loading || (!th && partners === 'loading') ? 'Loading the conversation…' : undefined}
       emptyText={th?.error ? <>{th.error} <button className="btn sm" onClick={() => void openThread(mission.id, th.id, true)}>Retry</button></>
         : !th && partners === 'error' ? <>{entry?.errors?.threads} <button className="btn sm" onClick={() => retryPart(mission.id, 'threads')}>Retry</button></>

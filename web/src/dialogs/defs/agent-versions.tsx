@@ -92,7 +92,7 @@ function AgentVersionPropose({ close, props }: DialogComponentProps<{ agentId?: 
             <RobotAvatar role={a.role} size={44} faceMode="face" />
             <div style={{ minWidth: 0 }}><b>{a.name}</b><div className="dim" style={{ fontSize: 12 }}>{ROLES[a.role]?.label ?? a.role} · {a.dept}</div></div>
             <span className="spacer" />
-            {base ? <Chip hue={225} size="sm" className="mono" title="The active version this proposal starts from">from {base.label}</Chip> : <Chip hue={38} size="sm">loading…</Chip>}
+            {base ? <Chip hue={225} size="sm" className="mono" title="The active version this proposal starts from">from {base.label}</Chip> : <span role="status"><Chip hue={38} size="sm">loading…</Chip></span>}
           </div>
           {!api_ && <div className="oa-banner"><Info size={15} /><span>Version proposals are stored on the server. In demo mode this dialog only shows the editor.</span></div>}
           {detail.error && <div className="oa-banner" role="alert"><ShieldAlert size={15} /><span>The active version could not be read: {detail.error}</span><button className="btn sm" onClick={detail.retry}>Retry</button></div>}
