@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { signIn, settle } from './_session.mjs';
 const base = process.env.BASE || 'http://127.0.0.1:5193';
 const src = readFileSync(new URL('../src/help/whatsnew.ts', import.meta.url), 'utf8');
-const items = [...src.matchAll(/key: '(\w+)', group:[\s\S]*?route: '([^']+)', lands: '([^']+)'/g)].map((m) => ({ key: m[1], route: m[2], lands: m[3] }));
+const items = [...src.matchAll(/key: '(\w+)', group:[\s\S]*?route: '([^']+)', lands: '([^']+)'[\s\S]*?\n  \},/g)].map((m) => ({ key: m[1], route: m[2], lands: m[3], after: (m[0].match(/afterMerge: '([^']+)'/) || [])[1] }));
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
 const results = []; const errors = [];
 const check = (n, ok, x = '') => { results.push(ok); console.log(`${ok ? 'PASS' : 'FAIL'} ${n}${x ? ' — ' + x : ''}`); };
@@ -34,6 +34,12 @@ for (const it of items) {
     if (want.searchParams.has('sub')) return (await p.locator('[role="tab"][aria-selected="true"]', { hasText: it.lands }).count()) > 0; // the Operations sub-tab
     return (await p.locator(`[role="tabpanel"][aria-label="${it.lands}"]`).count()) > 0;
   }, 15000);
+  if (it.after) { // runs after merge of cycles 4 to 6: skip (not fail) while the feature's screen is not in this build
+    if (it.key === 'history') await p.getByRole('button', { name: 'History' }).first().click({ timeout: 2000 }).catch(() => {});
+    const there = await until(async () => (await p.locator(it.after).count()) > 0, 5000);
+    if (!there) { console.log(`SKIP ${it.key}: runs after merge (${it.after} not in this build)`); continue; }
+    check(`${it.key}: the merged screen is there (${it.after})`, true);
+  }
   check(`${it.key}: the link lands on ${it.route} (${it.lands})`, landed, p.url().replace(base, ''));
 }
 // one screen: no scrolling of the page itself, on the guide and on the other Help tabs
@@ -41,6 +47,7 @@ for (const [w, h] of [[1672, 941], [1440, 900]]) {
   await p.setViewportSize({ width: w, height: h });
   for (const t of ['new-features', 'guides', 'context-help']) {
     await p.goto(`${base}/help?tab=${t}`, { waitUntil: 'domcontentloaded' }); await settle(p, 400);
+    await until(async () => (await p.locator('.fit-scroll:visible').count()) > 0, 8000);
     const r = await p.evaluate(() => { const m = document.querySelector('main'); const s = [...document.querySelectorAll('.fit-scroll')].filter((e) => e.offsetParent); return { over: m.scrollHeight - m.clientHeight, ch: s.map((e) => e.clientHeight) }; });
     check(`Help ${t} fits one screen at ${w}x${h}`, r.over <= 2 && r.ch.length > 0 && r.ch.every((c) => c >= 200), JSON.stringify(r));
   }

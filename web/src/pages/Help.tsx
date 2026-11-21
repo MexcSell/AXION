@@ -55,6 +55,7 @@ function WhatsNew() {
   return (
     <div className="grid ctx-grid" data-whatsnew>
       <Panel icon={Sparkles} title="What is new" help="help.whatsnew" delay={.05} sub={`${WHATS_NEW.length} features since Stage 5`}>
+        <div className="dim" style={{ fontSize: 11.5, marginBottom: 6 }} data-wn-note>This describes the server version. The offline demo (?data=demo) shows sample data.</div>
         <div className="ctx-list wn-list" role="listbox" aria-label="Features">
           {groups.map((g) => (
             <div key={g} className="col" style={{ gap: 4 }}>
