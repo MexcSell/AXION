@@ -1,11 +1,12 @@
 // Improvement cycle 20 (theme A5), api mode: org coverage facts. Run through scripts/api-e2e.sh with DATA_MODE=api:
-//   DATA_MODE=api node scripts/api-c20.mjs   (full command form of api-e2e.sh)
+//   ./scripts/api-e2e.sh api-c20.mjs   (sets DATA_MODE=api itself)
 // Checks: the coverage card on Agents › Policies shows the active revision's facts and fits one screen; a stored proposal that
 // drops a line shows "leaves role Writer uncovered" in its dry run; the History view shows the facts per revision;
 // demo-mode pages are covered by fit-check / verify-all.
 import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
-import { signIn, settle } from './_session.mjs';
+process.env.DATA_MODE ||= 'api'; // _session.mjs reads it at load: this script is api mode only, whichever way api-e2e.sh starts it
+const { signIn, settle } = await import('./_session.mjs');
 const base = process.env.BASE || 'http://127.0.0.1:5193';
 const SHOTS = process.env.SHOTS || '/tmp/axion-api-c20';
 mkdirSync(SHOTS, { recursive: true });
@@ -14,10 +15,11 @@ let bad = 0;
 const check = (name, ok, extra = '') => { if (!ok) bad++; console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${extra ? ' — ' + extra : ''}`); };
 const until = async (f, ms = 10000, step = 150) => { const t0 = Date.now(); for (;;) { try { if (await f()) return true; } catch { /* retry */ } if (Date.now() - t0 > ms) return false; await new Promise((r) => setTimeout(r, step)); } };
 const errors = [];
+let page;
 try {
   const ctx = await b.newContext({ viewport: { width: 1600, height: 940 } });
   await signIn(ctx);
-  const p = await ctx.newPage();
+  const p = await ctx.newPage(); page = p;
   p.on('pageerror', (e) => errors.push(e.message));
   p.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource|EventSource|ERR_/.test(m.text())) errors.push(m.text()); });
   const j = async (method, path, data, headers = {}) => {
@@ -69,7 +71,8 @@ try {
   const cov = await j('GET', '/organization/coverage');
   check('c20 GET /organization/coverage returns the active revision', cov.status === 200 && cov.body.revision === g.revision.seq && cov.body.coverage.roles.length === 18);
   check('c20 no uncaught page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
-} catch (e) { bad++; console.log('FAIL script error — ' + (e.stack || e.message)); }
+} catch (e) { bad++; console.log('FAIL script error — ' + (e.stack || e.message)); if (page) { await page.screenshot({ path: `${SHOTS}/c20-failure.png` }).catch(() => {}); console.log('url: ' + page.url() + ' | card: ' + (await page.locator('[data-coverage-card]').innerText().catch(() => 'none')).replace(/\s+/g, ' ').slice(0, 200)); }
+  if (errors.length) console.log('page errors: ' + errors.slice(0, 5).join(' | ')); }
 await b.close();
 console.log(bad ? `${bad} check(s) failed` : 'ALL PASS');
 process.exit(bad ? 1 : 0);
