@@ -133,7 +133,7 @@ function Profile({ agent }: { agent: Agent }) {
       </motion.section>
 
       <motion.div className="oa-tabbar panel" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .1 }}>
-        <Tabs tabs={tabs.map((t, i) => ({ key: t, label: t, icon: ICONS[i] }))} value={tab} onChange={setTab} ariaLabel="Agent profile sections" />
+        <Tabs collapse tabs={tabs.map((t, i) => ({ key: t, label: t, icon: ICONS[i] }))} value={tab} onChange={setTab} ariaLabel="Agent profile sections" />
       </motion.div>
       <AnimatePresence mode="wait">
         <motion.div key={tab} className="fit-scroll col" style={{ gap: 'var(--gap)' }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: .2 }} role="tabpanel" aria-label={tab}>

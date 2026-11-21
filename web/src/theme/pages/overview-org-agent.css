@@ -290,6 +290,12 @@
   .oa-hero .oa-card-art { zoom: .62; }
   .oa-hero .oa-stats { zoom: .85; }
   .oa-hero .oa-hero-main > p { display: none; }
+  /* keep the three-column hero (card / identity / numbers) so it does not wrap onto a second band */
+  .oa-hero-body { grid-template-columns: 160px minmax(0, 1fr) 280px; gap: 14px; }
+  .oa-hero-body .oa-hero-side { grid-column: auto; gap: 7px; }
+  .oa-hero-side .oa-kv-big { gap: 6px; }
+  .oa-hero-side .oa-kv-big > div { padding: 4px 10px; }
+  .oa-hero-side .oa-kv-big b { font-size: 18px; }
 }
 
 /* ---------- Organisation proposals from the server (improvement cycle 1) ---------- */
@@ -308,3 +314,12 @@
 @keyframes oa-pulse { 50% { box-shadow: 0 0 0 4px hsl(var(--h) 90% 60% / .18); } }
 .oa-chg { display: grid; grid-template-columns: minmax(0, 1.2fr) auto minmax(0, 1fr) auto minmax(0, 1.2fr) auto; align-items: center; gap: 8px; }
 @media (max-width: 640px) { .oa-chg { grid-template-columns: minmax(0, 1fr) auto; } .oa-chg > .oa-chg-arrow { display: none; } }
+
+/* Agent profile tab strip: ten tabs need ~1150px with labels, so icon-first (unselected tabs show their icon,
+   label via tooltip + aria-label) until the strip is wide enough (c18). Overrides the 980px default of .tabs-collapse. */
+.oa-tabbar .tabs-collapse .tab:not([aria-selected='true']) .tab-text { display: none; }
+.oa-tabbar .tabs-collapse .tab:not([aria-selected='true']) { padding: 0 9px; }
+@container (min-width: 1180px) {
+  .oa-tabbar .tabs-collapse .tab:not([aria-selected='true']) .tab-text { display: inline; }
+  .oa-tabbar .tabs-collapse .tab:not([aria-selected='true']) { padding: 0 14px; }
+}
