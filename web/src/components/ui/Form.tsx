@@ -1,13 +1,21 @@
 import { motion } from 'motion/react';
-import type { ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { HelpTrigger } from './HelpTrigger';
 import { cx } from '@/lib/format';
 
 export function Field({ label, help, hint, error, children, required, htmlFor }: { label: string; help?: string; hint?: ReactNode; error?: string; children: ReactNode; required?: boolean; htmlFor?: string }) {
+  const labelId = useId();
+  const box = useRef<HTMLDivElement>(null);
+  // a11y: when the control inside carries no name of its own (no id/htmlFor, aria-label, aria-labelledby), name it by this label
+  useEffect(() => {
+    if (htmlFor) return;
+    const c = box.current?.querySelector<HTMLElement>('input:not([type=hidden]):not([type=checkbox]):not([type=radio]),textarea,select,[role=combobox],[role=slider]');
+    if (c && !c.id && !c.hasAttribute('aria-label') && !c.hasAttribute('aria-labelledby')) c.setAttribute('aria-labelledby', labelId);
+  });
   return (
-    <div className="field">
+    <div className="field" ref={box}>
       <label className="field-label" htmlFor={htmlFor}>
-        {label}{required && <span className="bad" aria-hidden>*</span>}
+        <span id={labelId}>{label}</span>{required && <span className="bad" aria-hidden>*</span>}
         {help && <HelpTrigger k={help} />}
       </label>
       {children}

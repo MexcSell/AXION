@@ -6,7 +6,7 @@ import { HelpTrigger } from './HelpTrigger';
 import { IconButton } from './IconButton';
 import { cx } from '@/lib/format';
 
-const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"]):not([disabled])';
 
 export interface ModalProps {
   title: ReactNode;
@@ -32,7 +32,7 @@ export function Modal({ title, icon: Icon, help, sub, size = 'md', tone = 'defau
   useEffect(() => {
     prevFocus.current = document.activeElement as HTMLElement;
     const el = ref.current!;
-    const first = (el.querySelector('[data-autofocus]') as HTMLElement) ?? (el.querySelector('.modal-body ' + FOCUSABLE) as HTMLElement) ?? el;
+    const first = (el.querySelector('[data-autofocus]:not([disabled])') as HTMLElement) ?? (el.querySelector('.modal-body ' + FOCUSABLE) as HTMLElement) ?? el;
     window.setTimeout(() => first?.focus(), 30);
     // Escape closes the top-most modal even before focus has moved inside it
     const onEsc = (e: KeyboardEvent) => {
