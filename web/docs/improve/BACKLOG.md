@@ -64,3 +64,5 @@ A1 → B1 → C1 → A3 → B3 → C2 → A2 → B2 → C3 → A5 → B4 → C4 
 | H4 | Flaky browser checks: api-stage6 Edit-dialog save (I2) failed once in c01 and c02 combined runs; c01 proposal-expiry step races with another browser re-read (c02 papered over it with a 1.5 s wait). Replace fixed waits with condition waits and remove the races. | 4 | 4 | 5 | 13 |
 
 | H5 | Agent Profile tabs overflow by 13 px at 1366×768 (the fit-check fails; pre-existing, found in c05 and c06). Make the tab bar fit (icon-first when narrow), per the owner's one-screen rule. | 4 | 4 | 5 | 13 |
+
+| H6 | Loading and busy texts in api mode ("Loading instances…" and similar in Agents, AgentProfile, ServerProposals, JobSearch) sit in plain divs with no role=status/aria-live; also check Tab wrap-around in the a11y script (from the c16 review). | 3 | 4 | 5 | 12 |

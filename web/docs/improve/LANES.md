@@ -23,7 +23,7 @@ Lane L lives in `/home/luca/AXION-wL` on its own branch. Port base B is 5000 + L
 - **Browser checks:** `cd web && E2E_API_PORT=$((B+92)) E2E_WEB_PORT=$((B+93)) /home/luca/AXION-lanes/heavy.sh ./scripts/api-e2e.sh <scripts>`
 - **Dev server:** `cd web && setsid node node_modules/vite/bin/vite.js --config /home/luca/AXION-lanes/vite-wL.config.ts --host 127.0.0.1 --port $((B+90)) --strictPort > /tmp/wL-vite.log 2>&1 &`
   - The override config only adds the symlinked `node_modules` to Vite's `fs.allow`. Never commit it.
-  - Demo suite: `BASE=http://127.0.0.1:$((B+90)) /home/luca/AXION-lanes/heavy.sh ./scripts/verify-all.sh`.
+  - Demo suite: `OUT=/tmp/axion-verify-wL BASE=http://127.0.0.1:$((B+90)) /home/luca/AXION-lanes/heavy.sh ./scripts/verify-all.sh` (own OUT dir: the default /tmp/axion-verify is shared).
   - Stop the dev server by port when done.
 
 ## Never

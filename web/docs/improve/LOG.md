@@ -7,6 +7,7 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
 
 - Q5 (from cycle 5): should direct edits of an agent's model, skills or tools (Stage 6 Edit) require a version proposal and a second admin, as promotions do? Default: no; direct edits stay single-admin, audited and versioned.
 - Q6 (from cycle 6): when several members of a department report to the GM, which one is the department "head"? The current rule is the one with the most members under it, then the lowest id, and the card shows a "1 of N → GM" chip. Default: keep it.
+- Q7 (from cycle 11): when a new mission is staffed from the org chart, should recruits who report to the GM sit under the GM in the mission, or under the mission's executor? Default (D1): under the executor, because the GM isn't counted as an in-mission supervisor.
 
 ## Cycles
 
@@ -97,3 +98,30 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
 - Implementer (b7cfb46, 02824ee, 38314e7): 56 routes and 23 event types validated; 3 contract drifts fixed on the contract side. The final full suite after a regex fix was not completed (gate queue), so the integrator must run it. Review running.
 - Review: MET for its scope. I1: c09 unifies task.delegated and adds fields, so c15's strict validators would break after merge. Ruling: merge c15 after c09, with validators aligned now. I2: the full suite was never run after the fix. I3: a no-op subagent was dispatched against the rules (recorded). Fix round dispatched.
 - Fix round (cdcc0d1): validators follow c09's contracts; temporary tolerances are marked "remove after c09 merge"; guards coverage widened; full server suite 337/337. Cleared to merge AFTER c09. The integrator must then tighten the tolerances.
+
+### Cycle 11: A4 staffing follows org (lane w9)
+- Implementer (365b15c to 7021f5d): new real missions are staffed from the active org revision (KIND_DEPT table, executor from the department head, managers from the org chart); DEMO is byte-identical (golden test). Server 331 → 342, api-c11 16/16, all suites green.
+- Review: spec PASS, quality GOOD, no Critical or Important findings. D1 is queued as Q7. Minors (the help repeats the table, untested DEMO safeguard) are deferred. Cleared; merge after c04 (it shares org reading).
+
+### Cycle 16: accessibility (lane w14)
+- Implementer (173c2d3, 597c592): a11y-check script; 27 real violations → 0 in demo mode and 0 in api mode (Modal focus trap ignores disabled controls; Field names its control). No visual change. The script takes ~140 s, so it is outside verify-all.
+- Review: PASS, no Critical or Important findings. Cleared for merge. Deferred: loading texts in plain divs have no role=status (backlog H6); the trap test does not check wrap-around.
+
+### Incident: shared Postgres out of connections (~20:00Z)
+- Two lanes hit "remaining connection slots are reserved" / "too many clients" during server test runs. The cause: raising the gate to 6 slots, with vitest opening a DB pool per worker. Other apps on the cluster (ajp held 36 connections) were at risk.
+- Fix (20:05Z): `ALTER ROLE axion CONNECTION LIMIT 45` (AXION can never take more), and heavy.sh adds --maxWorkers=2 to every vitest run. No other database or role was touched.
+
+### Cycle 6 fix round (34edb55)
+- Outcomes count against the owner's department at the time (aligned with cycle 3); finish time is greatest(...); 3 new route tests; server 365/365 (one run needed --maxWorkers=2). Item 3 stays NOT MET (H5, lane w16). Cleared; merge queued.
+
+### Cycle 10 fix round (56125ef)
+- Verdict PARTIAL, raw bench output stored; exact migration assertions; the bench guard accepts only the lane's own DB. Cleared; merge queued (PARTIAL).
+
+### Cycle 19: C4 mentoring plans (lane w17)
+- Implementer (76bf6cb, 67b62c2, 4301f0a): migration 0023; server 358; api-c19 30/30.
+- Review: PASS. I1: Learning/Evolving tiles show fixture numbers next to real plans. I2: committed node_modules symlink. Fix round dispatched.
+
+### Cycle 7 merge (648e32b): integration result
+- Merged with no conflicts. Server 331/331; auth 15/15, flows 23/23, api-improve 83/83; verify-all green; fit 77/77; ov-fit 32/32. First-load static set 243,175 B gzip (the new baseline).
+- api-stage6: 34/35 in 7 of 7 runs, always at the reload after the 130-message burst (the page stays unresponsive ~50 s against a 30 s timeout). A/B: the same failure on 74117b8 (before c07), so c07 isn't the cause.
+- Ruling: resume merges. stage6 counts as passed with its 34 checks before the reload; the reload stall is a known pre-existing issue (lane w6 investigates). A **quiet verification window** near the end of the loop runs api-stage6 in full plus perf-nav on the integrated tree. c05's m5 gate and c07's perf figure are deferred to that window.
