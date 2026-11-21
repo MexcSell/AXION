@@ -168,7 +168,7 @@ function Thread({ mission, me, other, relation, onRedirect }: { mission: Mission
    */
   const apiSend = async (text: string, mode: 'command' | 'reply', attachments: Attachment[]): Promise<boolean> => {
     if (!user) return false;
-    const replyTo = mode === 'reply' ? pendingQ?.replyTo ?? pendingQ?.id : undefined;
+    const replyTo = mode === 'reply' ? pendingQ?.id : undefined;
     const r = await sendMissionMessage(mission, me, { kind: mode, text, attachments, replyTo }, user);
     if (r.ok) {
       log(mission.id, `${who} sent a ${mode} to ${a.name}`, 'command');

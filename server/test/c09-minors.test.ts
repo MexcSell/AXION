@@ -1,5 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { makeTestApp, withAdmin, type TestApp } from './helpers.ts';
+import { requestApproval } from '../src/approvals/service.ts';
+import { tx } from '../src/db.ts';
 
 // Cycle 9 (lane w7): the deferred server minors, one test each (RED first).
 let t: TestApp;
@@ -96,8 +98,9 @@ describe('4. reassign target must still be working in the mission', () => {
       expect(r.status, x.id).toBe(422); expect(r.body.code).toBe('TASK_TARGET_INVALID');
     }
     expect((await rows(`select owner_instance_id from tasks where id='T-e1'`))[0].owner_instance_id).toBe(i1[1].id);
-    const live = i1.find((x, k) => k > 3);
-    if (live) expect((await A.admin.req('POST', '/tasks/T-e1/reassign', { toInstanceId: live.id }, key())).status).toBe(200);
+    // the precondition: the mission has a fifth instance that is still working, and it is a valid target
+    expect(i1.length).toBeGreaterThan(4);
+    expect((await A.admin.req('POST', '/tasks/T-e1/reassign', { toInstanceId: i1[4].id }, key())).status).toBe(200);
   });
 });
 
@@ -123,5 +126,20 @@ describe('5. listInstances pages and says when it is cut', () => {
     void m1; void m2;
     expect((await A.admin.req('GET', '/agent-instances?limit=0')).status).toBe(400);
     expect((await A.admin.req('GET', '/agent-instances?before=abc')).status).toBe(400);
+  });
+});
+
+describe('7. approvals say who decided', () => {
+  it('a decided approval carries decidedByName (the real decider); a pending one has null', async () => {
+    const { A, m1 } = await setup();
+    const mina = await A.member('Mina');
+    const mid = (await mina.b.req('POST', '/missions', { text: 'Publish the homepage preview.', files: [], shared: false }, key())).body.mission.id as string;
+    const a = await tx(t.app.db, (c) => requestApproval(c, { tenantId: 't-1', missionId: mid, agentId: 'release-01', kind: 'release', title: 'Publish', detail: 'd', risk: 'R3', payload: { v: 1 }, expiresInMin: 60 }));
+    const before = (await mina.b.req('GET', '/approvals')).body.approvals.find((x: any) => x.id === a.id);
+    expect(before.decidedByName).toBeNull();
+    expect((await mina.b.req('POST', `/approvals/${a.id}/decision`, { decision: 'approved', digest: a.digest }, key())).status).toBe(200);
+    const after = (await mina.b.req('GET', '/approvals')).body.approvals.find((x: any) => x.id === a.id);
+    expect(after.decidedByName).toBe('Mina');
+    void m1;
   });
 });
