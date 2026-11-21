@@ -36,6 +36,7 @@ import { GrowthBadge, LevelPips, EvoTrack, GROWTH } from '@/features/agents/Grow
 import { Departments, Assignments, Policies, Proposals } from '@/features/agents/OrgSections';
 import { ServerDevelopment } from '@/features/agents/VersionProposals';
 import { useVersionProposals } from '@/api/versionProposals';
+import { useMentoringPlans } from '@/api/mentoring';
 
 type Filter = 'all' | 'working' | 'in-mission' | 'idle' | 'learning' | 'evolving';
 type View = 'cards' | 'list' | 'hierarchy';
@@ -82,7 +83,11 @@ export function useAgentsSection() {
   const canEdit = useCanEditAgents();
   // improvement cycle 5: in api mode the Development tab counts pending version proposals (the server's), not fixture growth
   const vp = useVersionProposals();
-  const devCount = isApi() ? (vp.data ?? []).filter((p) => p.status === 'pending').length : COUNTS.learning + COUNTS.evolving;
+  const mp = useMentoringPlans();
+  // api mode (cycle 19): Learning = agents with an active mentoring plan, Evolving = agents with a pending version proposal (both from the server)
+  const learningN = isApi() ? new Set((mp.data ?? []).filter((p) => p.status === 'active').map((p) => p.menteeId)).size : COUNTS.learning;
+  const evolvingN = isApi() ? new Set((vp.data ?? []).filter((p) => p.status === 'pending').map((p) => p.agentId)).size : COUNTS.evolving;
+  const devCount = isApi() ? (vp.data ?? []).filter((p) => p.status === 'pending').length + (mp.data ?? []).filter((p) => p.status === 'active').length : COUNTS.learning + COUNTS.evolving;
   // api mode: an agent whose numbers are measured but not backed by enough tasks does not count into the average
   const scored = STAFF.filter((a) => !needsEvidence(a));
   const avg = scored.length ? Math.round((scored.reduce((s, a) => s + a.success, 0) / scored.length) * 10) / 10 : 0;
@@ -90,8 +95,8 @@ export function useAgentsSection() {
   const kpis: KpiItem[] = [
     { key: 'all', icon: Bot, value: AGENTS.length, label: 'Agents', hint: 'one per duty · no duplicates', color: '#22d3ee', help: 'agents.kpi.total', onClick: () => { setTab('Directory'); setFilter('all'); } },
     { key: 'work', icon: Activity, value: COUNTS.working, label: 'Working', hint: `${COUNTS['in-mission']} in missions · ${COUNTS.idle} idle`, color: '#3b82f6', help: 'agents.kpi.working', onClick: () => { setTab('Directory'); setFilter('working'); } },
-    { key: 'learn', icon: GraduationCap, value: COUNTS.learning, label: 'Learning', hint: 'mentor exercises running', color: '#38bdf8', help: 'agents.kpi.learning', onClick: () => setTab('Development') },
-    { key: 'evo', icon: Dna, value: COUNTS.evolving, label: 'Evolving', hint: 'candidates in the pipeline', color: '#c084fc', help: 'agents.kpi.evolving', onClick: () => setTab('Development') },
+    { key: 'learn', icon: GraduationCap, value: learningN, label: 'Learning', hint: isApi() ? 'active mentoring plans' : 'mentor exercises running', color: '#38bdf8', help: 'agents.kpi.learning', onClick: () => setTab('Development') },
+    { key: 'evo', icon: Dna, value: evolvingN, label: 'Evolving', hint: isApi() ? 'pending version proposals' : 'candidates in the pipeline', color: '#c084fc', help: 'agents.kpi.evolving', onClick: () => setTab('Development') },
     { key: 'succ', icon: Trophy, value: avg, decimals: 1, suffix: '%', label: 'Verified Success', ...(isApi() ? { foot: successFoot } : { delta: '+1.2%' }), color: '#facc15', help: 'agents.kpi.success', onClick: () => { setTab('Directory'); setView('list'); } },
   ];
 

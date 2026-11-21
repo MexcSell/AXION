@@ -59,9 +59,9 @@ describe('create', () => {
   });
 
   it('a retired mentor is refused', async () => {
-    await t.pool.query(`update agent_definitions set status='retired' where id='ops-01'`);
-    const r = await create(A, plan({ mentorId: 'ops-01' }));
-    await t.pool.query(`update agent_definitions set status='active' where id='ops-01'`);
+    let r;
+    try { await t.pool.query(`update agent_definitions set status='retired' where id='ops-01'`); r = await create(A, plan({ mentorId: 'ops-01' })); }
+    finally { await t.pool.query(`update agent_definitions set status='active' where id='ops-01'`); }
     expect(r.status).toBe(422);
     expect(r.body.fieldErrors.mentorId).toMatch(/retired/);
   });

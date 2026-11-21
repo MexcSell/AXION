@@ -41,3 +41,9 @@ Screenshots (not committed, in `/tmp/axion-api-c19-6793/`): `improve-c19-dialog.
 - One active plan per agent is my design choice (the brief does not say); it is enforced by a unique index.
 - Migration 0023 leaves a gap (0016-0022 belong to other lanes); the migration runner applies by version, so it is fine once they merge.
 - `verify-all.sh` writes to the shared `/tmp/axion-verify` by default, so concurrent lanes can overwrite each other's logs.
+
+## Fix round (review c19-review.md)
+- **I2:** `git rm --cached server/node_modules` (link kept on disk); `git ls-tree -r --name-only HEAD | grep node_modules` prints nothing after the commit.
+- **I1:** in api mode the Agents KPI tiles are now server facts: Learning = agents with an active mentoring plan ("active mentoring plans"), Evolving = agents with a pending version proposal ("pending version proposals"); the Development tab badge = pending proposals + active plans. Demo mode unchanged (`web/src/pages/Agents.tsx`).
+- **Minors:** the retired-mentor test restores the agent in try/finally. Closed plans already refuse ticks (409 PLAN_CLOSED, plus a database trigger) and there is no route to add milestones after creation, so nothing more was needed.
+- Verification: server suite 358/358 (`--maxWorkers=2`), server and web tsc clean, api-c19.mjs 30/30.
