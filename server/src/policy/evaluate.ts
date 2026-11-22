@@ -16,12 +16,14 @@ function covering(action: Action, grants: readonly Grant[]) {
 export function evaluate(action: Action, grants: readonly Grant[], tenantPolicy: TenantPolicy = NO_OVERRIDE, now: number): Decision {
   const policy = CURRENT_BASELINE;
   const policyVersion = policy.version;
-  const rule = Object.prototype.hasOwnProperty.call(policy.kinds, action.kind) ? policy.kinds[action.kind] : undefined;
+  const rule = typeof action.kind === 'string' && Object.prototype.hasOwnProperty.call(policy.kinds, action.kind) ? policy.kinds[action.kind] : undefined;
   if (!rule) return { outcome: 'deny', tier: 'R4', approver: null, reasons: ['unknown_action'], policyVersion };
 
   const reasons: ReasonCode[] = ['baseline_tier'];
   let tier: RiskTier = rule.tier;
-  const floor = EFFECT_FLOOR[action.effect];
+  const knownEffect = typeof action.effect === 'string' && Object.prototype.hasOwnProperty.call(EFFECT_FLOOR, action.effect);
+  const floor = knownEffect ? EFFECT_FLOOR[action.effect] : undefined;
+  if (!knownEffect) reasons.push('unknown_effect'); // reported, and it cannot lower the tier: the baseline tier stands
   if (floor && tierRank(floor) > tierRank(tier)) { tier = maxTier(tier, floor); reasons.push('effect_raises_tier'); }
 
   // a tenant/owner policy may only tighten

@@ -32,7 +32,8 @@ export async function seedDemo(db: Db, tenantId: string, adminId: string) {
       for (const a of getMissionControl(m).approvals) {
         await requestApproval(c, {
           tenantId, missionId: id, id: a.id, agentId: a.agentId, kind: a.kind, title: a.title, detail: a.detail,
-          payload: { fixture: a.id, detail: a.detail }, expiresInMin: Math.max(a.expiresMin, 7 * 24 * 60), // a week, so the samples stay decidable createdAgoMin: a.agoMin, demo: true,
+          payload: { fixture: a.id, detail: a.detail }, expiresInMin: Math.max(a.expiresMin, 7 * 24 * 60), // a week, so the samples stay decidable
+          createdAgoMin: a.agoMin, demo: true,
         });
         approvals++;
       }

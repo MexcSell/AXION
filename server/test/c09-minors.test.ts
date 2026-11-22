@@ -134,7 +134,12 @@ describe('7. approvals say who decided', () => {
     const { A, m1 } = await setup();
     const mina = await A.member('Mina');
     const mid = (await mina.b.req('POST', '/missions', { text: 'Publish the homepage preview.', files: [], shared: false }, key())).body.mission.id as string;
-    const a = await tx(t.app.db, (c) => requestApproval(c, { tenantId: 't-1', missionId: mid, agentId: 'release-01', kind: 'release', title: 'Publish', detail: 'd', payload: { v: 1 }, expiresInMin: 60 }));
+    // deliberate tightening (c30 fix round): a member can no longer decide an R3 approval; an R2 one (submit_form) still works
+    const r3 = await tx(t.app.db, (c) => requestApproval(c, { tenantId: 't-1', missionId: mid, agentId: 'release-01', kind: 'release', title: 'Publish', detail: 'd', payload: { v: 1 }, expiresInMin: 60 }));
+    const r = await mina.b.req('POST', `/approvals/${r3.id}/decision`, { decision: 'approved', digest: r3.digest }, key());
+    expect(r.status).toBe(403);
+    expect(r.body.code).toBe('POLICY_DENIED');
+    const a = await tx(t.app.db, (c) => requestApproval(c, { tenantId: 't-1', missionId: mid, agentId: 'release-01', kind: 'submit_form', title: 'Send', detail: 'd', payload: { v: 2 }, expiresInMin: 60 }));
     const before = (await mina.b.req('GET', '/approvals')).body.approvals.find((x: any) => x.id === a.id);
     expect(before.decidedByName).toBeNull();
     expect((await mina.b.req('POST', `/approvals/${a.id}/decision`, { decision: 'approved', digest: a.digest }, key())).status).toBe(200);

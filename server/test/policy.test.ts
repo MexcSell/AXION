@@ -270,6 +270,7 @@ describe('policy: reason codes', () => {
     add(ev(act('submit_form')));
     add(ev(act('release')));
     add(ev(act('production_deploy')));
+    add(ev(act('release', { effect: 'bogus' as any })));
     expect([...seen].sort()).toEqual([...REASON_CODES].sort());
   });
 });
@@ -316,5 +317,18 @@ describe('policy: property test, 500 seeded triples', () => {
       if (a.outcome === 'allow' && action.requester.kind === 'agent') expect(tierRank(a.tier)).toBeLessThanOrEqual(1);
     }
     expect(known).toBeGreaterThan(400);
+  });
+});
+
+describe('policy: input guards', () => {
+  it('a non-string kind is unknown', () => {
+    expect(ev(act(['release'] as unknown as string)).reasons).toEqual(['unknown_action']);
+    expect(ev(act(undefined as unknown as string)).outcome).toBe('deny');
+  });
+  it('an unknown effect is reported and never lowers the tier', () => {
+    const d = ev(act('release', { effect: 'bogus' as any }));
+    expect(d.tier).toBe('R3');
+    expect(d.reasons).toContain('unknown_effect');
+    expect(ev(act('release', { effect: 'toString' as any })).reasons).toContain('unknown_effect');
   });
 });

@@ -31,7 +31,7 @@ export type Approver = 'user' | 'admin' | 'owner';
 
 export const REASON_CODES = [
   'baseline_tier', 'effect_raises_tier', 'tenant_raised_tier', 'override_loosening_ignored',
-  'unknown_action', 'prohibited', 'tenant_deny', 'no_grant', 'grant_expired', 'out_of_scope', 'audit_required',
+  'unknown_action', 'unknown_effect', 'prohibited', 'tenant_deny', 'no_grant', 'grant_expired', 'out_of_scope', 'audit_required',
   'approval_user', 'approval_admin', 'approval_owner',
 ] as const;
 export type ReasonCode = (typeof REASON_CODES)[number];

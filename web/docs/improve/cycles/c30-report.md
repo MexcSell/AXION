@@ -35,3 +35,15 @@ Edited: `server/src/approvals/service.ts`, `server/src/seed/demo.ts`, `server/sr
 - `requestApproval` evaluates with no grants and an agent requester; fine for R2+ kinds. An R0/R1 kind passed to it would be denied (`no_grant`/`out_of_scope`), which is intended (those never need approval).
 - The effect floor is an addition beyond the brief (stops a mislabelled effect from lowering a tier).
 - Grants are in-memory types only; P4 backs them with a table.
+
+## Fix round (after review CLEAR)
+1. **Approver enforced at decision time** (`server/src/approvals/routes.ts`): the stored tier is mapped through `approverFor`; R2 any signed-in human, R3 and R4 admin only (admin acts as owner). A member gets `403 POLICY_DENIED`, checked before any state change (tests assert the approval stays pending and no `approval_decisions` row exists). An unreadable stored tier fails closed.
+   - **Deliberate tightening of existing tests:** `c09-minors.test.ts` "approvals say who decided" used a member approving a `release` (R3) and got 200; it now expects 403 POLICY_DENIED, then checks `decidedByName` with an R2 `submit_form` approval. `approvals.test.ts` (3 `ask()` calls in the member-decides tests, lines 40, 50, 62) now use kind `submit_form` (R2) because a member can no longer decide R3; their assertions are unchanged. New tests: R2 member OK, R3 and R4 member 403 / admin OK, member cannot deny R3.
+   - Browser scripts: in api-flows and api-stage6 the demo approvals are decided by A, the admin (Mina is only approved/joined there), so they are unaffected: 23/23 and 94/94.
+2. `GET /policy/baseline`: for owner-approver kinds returns `heldBy: 'admin'` and a `note` that no separate owner role exists; documented in `server/README.md` (Policy service section).
+3. `evaluate.ts`: `typeof kind === 'string'` guard; an unknown or non-string `effect` adds new reason code `unknown_effect` (15 codes) and never lowers the tier (tests added; the all-reason-codes test covers it).
+4. `seed/demo.ts`: the comment no longer swallows `createdAgoMin` / `demo: true`; test "seeded approvals are demo=true" added.
+5. `web/src/data/missions.ts` fixture: release and origin-grant are `high`, browser-action `medium`, matching the server tiers.
+
+Results: server tsc clean; web tsc clean; full vitest 39 files, 676/676 (the full run had flaked on unrelated tests in two earlier attempts under machine load, a different test each time, all passing alone and on the final full run); api-flows 23/23, api-stage6 94/94, 0 FAIL.
+Concern: the seed fix makes demo approvals' "ago" values real (they were 0 before), so the demo cards now show their fixture ages.
