@@ -4,8 +4,10 @@
  * that is missing from or extra in a validator, compared with its interface, fails `tsc`).
  */
 export type Errs = string[];
-export type V<T> = ((v: unknown, path: string, errs: Errs) => void) & { readonly _t?: T };
-const mk = <T>(f: (v: unknown, path: string, errs: Errs) => void): V<T> => f as V<T>;
+/** `meta` lets the non-vacuity test walk a validator tree next to a real body (shape of an object, element of an array, wrapped validator, union branches). */
+export interface Meta { wrap?: 'opt' | 'nullable'; shape?: Record<string, V<any>>; open?: boolean; item?: V<any>; dictItem?: V<any>; inner?: V<any>; alts?: V<any>[] }
+export type V<T> = ((v: unknown, path: string, errs: Errs) => void) & { readonly _t?: T; meta?: Meta };
+const mk = <T>(f: (v: unknown, path: string, errs: Errs) => void, meta?: Meta): V<T> => { const g = f as V<T>; if (meta) g.meta = meta; return g; };
 
 const kind = (v: unknown) => (v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v);
 
@@ -19,23 +21,23 @@ export const unknownV = mk<unknown>(() => {});
 export const rec = mk<Record<string, unknown>>((v, p, e) => { if (kind(v) !== 'object') e.push(`${p}: expected object, got ${kind(v)}`); });
 export const lit = <T extends string | number | boolean>(...vals: T[]) => mk<T>((v, p, e) => { if (!vals.includes(v as T)) e.push(`${p}: expected one of ${vals.map(String).join('|')}, got ${String(v)}`); });
 export const oneOf = <T extends string>(vals: readonly T[]) => lit<T>(...vals);
-export const nullable = <T>(inner: V<T>) => mk<T | null>((v, p, e) => { if (v !== null) inner(v, p, e); });
+export const nullable = <T>(inner: V<T>) => mk<T | null>((v, p, e) => { if (v !== null) inner(v, p, e); }, { inner, wrap: 'nullable' });
 /** Optional key: absent or (never undefined/null in JSON) a valid value. */
-export const opt = <T>(inner: V<T>) => mk<T | undefined>((v, p, e) => { if (v !== undefined) inner(v, p, e); });
+export const opt = <T>(inner: V<T>) => mk<T | undefined>((v, p, e) => { if (v !== undefined) inner(v, p, e); }, { inner, wrap: 'opt' });
 export const arr = <T>(inner: V<T>) => mk<T[]>((v, p, e) => {
   if (!Array.isArray(v)) { e.push(`${p}: expected array, got ${kind(v)}`); return; }
   v.forEach((x, i) => inner(x, `${p}[${i}]`, e));
-});
+}, { item: inner });
 export const dict = <T>(inner: V<T>) => mk<Record<string, T>>((v, p, e) => {
   if (kind(v) !== 'object') { e.push(`${p}: expected object, got ${kind(v)}`); return; }
   for (const [k, x] of Object.entries(v as object)) inner(x, `${p}.${k}`, e);
-});
+}, { dictItem: inner });
 export const either = <A, B>(a: V<A>, b: V<B>) => mk<A | B>((v, p, e) => {
   const ea: Errs = []; a(v, p, ea);
   if (!ea.length) return;
   const eb: Errs = []; b(v, p, eb);
   if (eb.length) e.push(`${p}: matches no variant (${ea[0]} | ${eb[0]})`);
-});
+}, { alts: [a, b] });
 
 type Shape<T> = { [K in keyof T]-?: V<T[K]> };
 /** Closed object: every key of T must validate; unknown keys are drift. Keys whose type includes undefined may be absent. */
@@ -48,10 +50,14 @@ export function obj<T>(shape: Shape<T>, opts: { open?: boolean } = {}): V<T> {
       f(o[k], `${p}.${k}`, e);
     }
     if (!opts.open) for (const k of Object.keys(o)) if (!(k in (shape as object))) e.push(`${p}.${k}: not in the contract`);
-  });
+  }, { shape: shape as Record<string, V<any>>, open: !!opts.open });
 }
-/** Object whose contract type has an index signature (profile fields): the named keys are checked, the rest is open. */
-export const openObj = <T>(shape: Record<string, V<any>>) => obj<T>(shape as Shape<T>, { open: true });
+type KnownKeys<T> = Extract<keyof { [K in keyof T as string extends K ? never : number extends K ? never : K]: T[K] }, keyof T>;
+/**
+ * Object whose contract type has an index signature (profile and presentation fields). Every NAMED key of T must be given a
+ * validator (tsc rejects a missing, extra or mistyped one, like `obj`); only the declared index signature stays open at runtime.
+ */
+export const openObj = <T>(shape: { [K in KnownKeys<T>]-?: V<T[K]> }) => obj<T>(shape as unknown as Shape<T>, { open: true });
 
 export function check<T>(name: string, v: V<T>, value: unknown): string[] {
   const errs: Errs = [];

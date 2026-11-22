@@ -6,9 +6,14 @@ import { eventDto } from '../../src/events/log.ts';
 import { setInstanceState } from '../../src/instances/service.ts';
 import { tx } from '../../src/db.ts';
 import { check } from './validate.ts';
-import { checkEvent, EVENT_VALIDATORS } from './events.ts';
+import { errorEnvelope } from './validators.ts';
+import { checkEvent, eventValidator, EVENT_VALIDATORS } from './events.ts';
+import type { EventType } from '../../../shared/contracts/src/index.ts';
 import { ROUTES, routeKey } from './registry.ts';
-import { call, hits, gated, problems, errorShapes, samples, key, writeDump } from './flow.ts';
+import { call, hits, gated, problems, errorShapes, bodies, requests, key, recordServed, writeDump } from './flow.ts';
+import { SWEEP_SKIP, MEMBER_403_ALLOWED } from './allowlists.ts';
+import { UNEXERCISED_ALLOWED } from './exercised.ts';
+import { lenientMutations, unexercised } from './walk.ts';
 
 /**
  * Improvement cycle 50: the coverage run. Every route in the registry is called at least once in its happy state as the right
@@ -31,7 +36,7 @@ let streamEvents: { event: string; data: any }[] = [];
 
 describe('API coverage run', () => {
   beforeAll(async () => {
-    t = await makeTestApp({ staffingStepMs: 30, conversationSimMs: 80, writeLimits: { proposals: { max: 1000, windowMs: 60_000 } } });
+    t = await makeTestApp({ staffingStepMs: 30, conversationSimMs: 80, writeLimits: { proposals: { max: 1000, windowMs: 60_000 } }, configure: recordServed });
     await t.app.listen({ host: '127.0.0.1', port: 0 });
     base = `http://127.0.0.1:${(t.app.server.address() as { port: number }).port}`;
   });
@@ -97,7 +102,7 @@ describe('API coverage run', () => {
     const up = multipart('notes.txt', 'Line one\nLine two\n');
     const ur = await t.app.inject({ method: 'POST', url: '/api/v1/uploads', remoteAddress: '127.0.0.1', headers: { cookie: cookieOf(admin), 'x-csrf': admin.csrf, 'content-type': `multipart/form-data; boundary=${up.boundary}` }, payload: up.payload });
     expect(ur.statusCode).toBe(201);
-    problems.push(...check('POST /uploads', (ROUTES['POST /uploads'] as any).v, ur.json())); hits.add('POST /uploads'); samples['POST /uploads'] = ur.json();
+    problems.push(...check('POST /uploads', (ROUTES['POST /uploads'] as any).v, ur.json())); hits.add('POST /uploads'); (bodies['POST /uploads'] ??= []).push(ur.json());
     const fileId = ur.json().id as string;
     const dl = await t.app.inject({ method: 'GET', url: `/api/v1/uploads/${fileId}`, headers: { cookie: cookieOf(admin) } });
     expect(dl.statusCode).toBe(200); expect(dl.body).toContain('Line one');
@@ -106,7 +111,9 @@ describe('API coverage run', () => {
     const m1 = created.body.mission.id as string;
     const m2 = (await admin.req('POST', '/missions', { text: 'Research the market for tea shops.', files: [], shared: true }, key())).body.mission.id as string;
     // a mission the member owns and shares: the administrator reviews its tasks (a producer must not review its own work)
-    const m3 = (await mina.req('POST', '/missions', { text: 'Write the shop newsletter.', files: [], shared: true }, key())).body.mission.id as string;
+    const upM = multipart('newsletter.txt', 'Draft one\n');
+    const urM = await t.app.inject({ method: 'POST', url: '/api/v1/uploads', remoteAddress: '127.0.0.1', headers: { cookie: cookieOf(mina), 'x-csrf': mina.csrf, 'content-type': `multipart/form-data; boundary=${upM.boundary}` }, payload: upM.payload });
+    const m3 = (await mina.req('POST', '/missions', { text: 'Write the shop newsletter.', files: [urM.json().id], shared: true }, key())).body.mission.id as string;
     for (const m of [m1, m3]) expect(await until(async () => (await admin.req('GET', `/missions/${m}`)).body.mission.staffing?.stage === 'working')).toBe(true);
     await call(admin, 'GET', '/missions', '/missions');
     const got = await call(admin, 'GET', '/missions/:id', `/missions/${m1}`);
@@ -130,6 +137,7 @@ describe('API coverage run', () => {
     await mkTask('T-c50c', 'created', mine[1].id);
     const prod3 = ((await admin.req('GET', '/agent-instances')).body.instances as { id: string; missionId: string }[]).filter((i) => i.missionId === m3).find((i) => !i.id.endsWith(':gm'))!;
     await mkTask('T-c50r', 'passed', prod3.id, m3);
+    await mkTask('T-c50p', 'passed', mine[1].id); // in the administrator's own mission: the owner may not review it
     await call(admin, 'GET', '/tasks/:id', '/tasks/T-c50a');
     await call(admin, 'POST', '/tasks/:id/:action', '/tasks/T-c50a/retry', { body: {}, headers: key() });
     await call(admin, 'POST', '/tasks/:id/:action', '/tasks/T-c50b/reassign', { body: { toInstanceId: mine[0].id, reason: 'balance' }, headers: key() });
@@ -138,20 +146,29 @@ describe('API coverage run', () => {
     expect(((await call(admin, 'GET', '/missions/:id/tasks', `/missions/${m1}/tasks`)).body as unknown[]).length, 'the task list now has rows to validate').toBeGreaterThan(2);
     // task reviews: the administrator reviews a passed task of a mission the member owns
     await call(admin, 'GET', '/tasks/:id/reviews', '/tasks/T-c50r/reviews');
+    expect((await call(admin, 'GET', '/tasks/:id/reviews', '/tasks/T-c50p/reviews')).body.canReview.allowed).toBe(false);
     await call(admin, 'POST', '/tasks/:id/reviews', '/tasks/T-c50r/reviews', { status: 201, headers: key(), body: { verdict: 'accepted', rubric: [{ criterion: 'The output is attached', result: 'pass', note: 'seen' }], evidence: [{ kind: 'url', ref: 'https://example.com/report' }] } });
     await call(admin, 'GET', '/tasks/:id/reviews', '/tasks/T-c50r/reviews');
 
     // ---- delegation briefs
     const brief = { goal: 'Draft the landing page copy', inputs: ['file:brief.md'], acceptance: ['Copy fits the template'], capabilities: [{ kind: 'read' }], escalation: 'Ask the mission owner' };
     await call(admin, 'POST', '/missions/:id/delegation-briefs', `/missions/${m1}/delegation-briefs`, { status: 201, headers: key(), body: { toInstanceId: mine[0].id, brief } });
+    // a brief to a manager and a wider one to its report: the report's effective scope is narrowed by the manager's
+    const child = (insts.body.instances as { id: string; missionId: string; managerInstanceId: string | null }[]).find((i) => i.missionId === m1 && i.managerInstanceId && i.managerInstanceId !== `${m1}:gm`)!;
+    await call(admin, 'POST', '/missions/:id/delegation-briefs', `/missions/${m1}/delegation-briefs`, { status: 201, headers: key(), body: { toInstanceId: child.managerInstanceId, brief: { ...brief, capabilities: [{ kind: 'read' }] } } });
+    await call(admin, 'POST', '/missions/:id/delegation-briefs', `/missions/${m1}/delegation-briefs`, { status: 201, headers: key(), body: { toInstanceId: child.id, brief: { ...brief, capabilities: [{ kind: 'read' }, { kind: 'fill_draft' }] } } });
+    const wide = (await admin.req('GET', `/missions/${m1}/delegation-briefs`)).body.briefs.find((b: any) => b.toInstanceId === child.id);
+    await call(admin, 'POST', '/missions/:id/delegation-briefs', `/missions/${m1}/delegation-briefs`, { status: 201, headers: key(), body: { toInstanceId: child.id, supersedes: wide.id, taskId: 'T-c50b', brief: { ...brief, capabilities: [{ kind: 'read' }], budget: 3, deadline: dayIso(5) } } });
     await call(admin, 'GET', '/missions/:id/delegation-briefs', `/missions/${m1}/delegation-briefs`);
 
     // ---- ledgers
     await call(admin, 'GET', '/missions/:id/ledgers', `/missions/${m1}/ledgers`);
-    const taskBody = { facts: { given: [{ text: 'Budget is 5k', source: 'mission text' }], to_look_up: [], to_derive: [], guesses: [] }, steps: [{ id: 's1', text: 'Collect quotes', status: 'todo' }] };
+    const taskBody = { facts: { given: [{ text: 'Budget is 5k', source: 'mission text' }], to_look_up: [{ text: 'Vendor prices' }], to_derive: [{ text: 'Total cost' }], guesses: [{ text: 'Vendor A is cheaper' }] }, steps: [{ id: 's1', text: 'Collect quotes', owner: 'gm', status: 'todo' }] };
     await call(admin, 'POST', '/missions/:id/ledgers/:kind', `/missions/${m1}/ledgers/task`, { status: 201, body: { baseVersion: 0, body: taskBody } });
     await call(admin, 'POST', '/missions/:id/ledgers/:kind', `/missions/${m1}/ledgers/progress`, { status: 201, body: { baseVersion: 0, body: { satisfied: false, looping: false, progressing: true, next_speaker: 'gm', next_instruction: 'Collect quotes', notes: 'on track' } } });
+    for (let v = 1; v <= 3; v++) await call(admin, 'POST', '/missions/:id/ledgers/:kind', `/missions/${m1}/ledgers/progress`, { status: 201, body: { baseVersion: v, body: { satisfied: false, looping: false, progressing: false, notes: 'stuck ' + v } } });
     await call(admin, 'GET', '/missions/:id/ledgers', `/missions/${m1}/ledgers`);
+    await call(admin, 'GET', '/missions/:id/ledgers/:kind/versions', `/missions/${m1}/ledgers/progress/versions`, { query: '?limit=1' });
     await call(admin, 'GET', '/missions/:id/ledgers/:kind/versions', `/missions/${m1}/ledgers/task/versions`);
     await call(admin, 'GET', '/missions/:id/ledgers/:kind/:version', `/missions/${m1}/ledgers/task/1`);
 
@@ -166,6 +183,7 @@ describe('API coverage run', () => {
     await call(admin, 'GET', '/missions/:id/threads', `/missions/${m1}/threads`);
     await call(admin, 'POST', '/channels/:key/messages', '/channels/gm/messages', { status: 201, body: { kind: 'command', text: 'Plan my week' }, headers: key() });
     await call(admin, 'GET', '/channels/:key/messages', '/channels/gm/messages');
+    await call(admin, 'GET', '/channels/:key/messages', '/channels/gm/messages', { query: '?limit=1' });
     await call(admin, 'POST', '/channels/:key/messages', '/channels/agent:coder-01/messages', { status: 201, body: { kind: 'command', text: 'Hello coder' }, headers: key() });
     await call(mina, 'POST', '/channels/:key/messages', '/channels/admin/messages', { status: 201, body: { kind: 'command', text: 'Need access' }, headers: key() });
     await call(admin, 'GET', '/channels/admin/:userId/messages', `/channels/admin/${minaId}/messages`);
@@ -175,6 +193,7 @@ describe('API coverage run', () => {
 
     // ---- approvals and notifications
     const ap = await tx(t.app.db, (c) => requestApproval(c, { tenantId: 't-1', missionId: m1, agentId: 'release-01', kind: 'release', title: 'Publish homepage', detail: 'Ship it', payload: { v: 1 }, expiresInMin: 30 }));
+    await tx(t.app.db, (c) => requestApproval(c, { tenantId: 't-1', missionId: m1, agentId: 'release-01', kind: 'release', title: 'Bound request', detail: 'Bound to a task and an origin', payload: { v: 3 }, expiresInMin: 30, taskId: 'T-c50b', origin: 'https://example.com', target: 'site' }));
     await tx(t.app.db, (c) => requestApproval(c, { tenantId: 't-1', missionId: m1, agentId: 'release-01', kind: 'release', title: 'Old request', detail: 'Stale', payload: { v: 2 }, expiresInMin: -1 }));
     const apl = await call(admin, 'GET', '/approvals', '/approvals');
     expect((apl.body.approvals as { id: string }[]).some((a) => a.id === ap.id)).toBe(true);
@@ -204,7 +223,7 @@ describe('API coverage run', () => {
     const vp1 = (await call(bb, 'POST', '/agents/:id/version-proposals', '/agents/coder-01/version-proposals', { status: 201, headers: key(), body: { title: 'Add Svelte', hypothesis: 'Fewer review rounds.', candidate: cand('Svelte'), baseVersionId: coder.versionId } })).body.proposal;
     await call(admin, 'POST', '/version-proposals/:pid/decision', `/version-proposals/${vp1.id}/decision`, { body: { decision: 'promote', sha: vp1.sha, note: 'ok' } });
     const coder2 = (await admin.req('GET', '/agents/coder-01')).body.agent;
-    const vp2 = (await bb.req('POST', '/agents/coder-01/version-proposals', { title: 'Add Go', hypothesis: 'x', candidate: { model: coder2.model, skills: [...coder2.skills, 'Go'], tools: coder2.tools }, baseVersionId: coder2.versionId }, key())).body.proposal;
+    const vp2 = (await bb.req('POST', '/agents/coder-01/version-proposals', { title: 'Add Go', hypothesis: 'x', candidate: { model: 'another-model', skills: [...coder2.skills, 'Go'], tools: coder2.tools }, baseVersionId: coder2.versionId }, key())).body.proposal;
     await call(bb, 'POST', '/version-proposals/:pid/withdraw', `/version-proposals/${vp2.id}/withdraw`, { body: {} });
     await call(admin, 'GET', '/version-proposals', '/version-proposals');
     await call(admin, 'GET', '/agents/:id/version-proposals', '/agents/coder-01/version-proposals');
@@ -223,11 +242,19 @@ describe('API coverage run', () => {
     await call(admin, 'POST', '/organization/proposals/:id/withdraw', `/organization/proposals/${p2.id}/withdraw`, { body: {} });
     const p3 = (await admin.req('POST', '/organization/proposals', { title: 'Expire me', why: 'x', baseRevision: g2.revision.seq, edges: moved(g2.edges, 'writer-01', 'coder-01') }, key())).body.proposal;
     await t.pool.query(`update org_proposals set expires_at = now() - interval '1 minute' where id=$1`, [p3.id]);
+    // a proposal whose reporting lines leave an agent without a manager is stored with its dry-run errors (applying it is refused)
+    await call(admin, 'POST', '/organization/proposals', '/organization/proposals', { status: 200, query: '?dryRun=1', body: { title: 'dry orphan', why: 'x', baseRevision: g2.revision.seq, edges: g2.edges.filter((e: any) => e.subordinateId !== 'tester-01') } });
+    const bad = (await call(admin, 'POST', '/organization/proposals', '/organization/proposals', { status: 201, body: { title: 'Orphan', why: 'x', baseRevision: g2.revision.seq, edges: g2.edges.filter((e: any) => e.subordinateId !== 'tester-01') }, headers: key() })).body.proposal;
+    expect(bad.result.errors.length).toBeGreaterThan(0);
+    await call(bea.b, 'POST', '/organization/proposals/:id/decision', `/organization/proposals/${bad.id}/decision`, { body: { decision: 'reject', sha: bad.sha, note: 'Orphans an agent.' } });
+    const bad2 = (await admin.req('POST', '/organization/proposals', { title: 'Orphan 2', why: 'x', baseRevision: g2.revision.seq, edges: g2.edges.filter((e: any) => e.subordinateId !== 'tester-01') }, key())).body.proposal;
+    await call(admin, 'POST', '/organization/proposals/:id/withdraw', `/organization/proposals/${bad2.id}/withdraw`, { body: {} });
     await call(admin, 'GET', '/organization/proposals', '/organization/proposals');
     const revs = (await admin.req('GET', '/organization/revisions')).body.revisions as { seq: number }[];
     const first = Math.min(...revs.map((r) => r.seq)), last = Math.max(...revs.map((r) => r.seq));
     await call(admin, 'GET', '/organization/revisions/:seq', `/organization/revisions/${last}`);
     await call(admin, 'GET', '/organization/revisions/:seq/diff', `/organization/revisions/${last}/diff`, { query: `?against=${first}` });
+    await call(admin, 'GET', '/organization/revisions/:seq/diff', `/organization/revisions/${first}/diff`, { query: `?against=${last}` });
     await call(admin, 'POST', '/organization/revisions/:seq/rollback-proposal', `/organization/revisions/${first}/rollback-proposal`, { status: 201, headers: key(), body: { why: 'Back to the start.' } });
 
     // ---- mentoring
@@ -244,13 +271,21 @@ describe('API coverage run', () => {
     const l1 = (await call(mina, 'POST', '/agents/:id/lessons', '/agents/coder-01/lessons', { status: 201, headers: key(), body: { text: 'Run the linter before every commit', sources: src } })).body.lesson;
     await call(admin, 'GET', '/lessons', '/lessons');
     await call(admin, 'GET', '/lessons/:lid', `/lessons/${l1.id}`);
-    await call(admin, 'POST', '/lessons/:lid/decision', `/lessons/${l1.id}/decision`, { body: { decision: 'accept', baseVersion: 0 } });
-    const l2 = (await mina.req('POST', '/agents/coder-01/lessons', { text: 'Keep pull requests small', sources: src }, key())).body.lesson;
-    await admin.req('POST', `/lessons/${l2.id}/decision`, { decision: 'accept', baseVersion: 1 });
+    await call(admin, 'POST', '/lessons/:lid/decision', `/lessons/${l1.id}/decision`, { body: { decision: 'accept', baseVersion: 0, note: 'Good practice.' } });
+    const lc = (await call(mina, 'POST', '/agents/:id/lessons', '/agents/coder-01/lessons', { status: 201, headers: key(), body: { text: 'Never run the linter before every commit', sources: src } })).body.lesson;
+    expect(lc.conflicts.length).toBeGreaterThan(0);
+    await call(admin, 'GET', '/lessons/:lid', `/lessons/${lc.id}`);
+    await call(admin, 'GET', '/lessons', '/lessons');
+    await call(admin, 'POST', '/lessons/:lid/decision', `/lessons/${lc.id}/decision`, { body: { decision: 'accept', baseVersion: 1, overrideNote: 'A deliberate exception for generated files.' } });
+    const l2 = (await mina.req('POST', '/agents/coder-01/lessons', { text: 'Keep pull requests small', sources: src, reviewBy: dayIso(60).slice(0, 10) }, key())).body.lesson;
+    await admin.req('POST', `/lessons/${l2.id}/decision`, { decision: 'accept', baseVersion: 2 });
     await call(admin, 'GET', '/agents/:id/playbook', '/agents/coder-01/playbook');
     await call(admin, 'GET', '/agents/:id/playbook/versions/:v', '/agents/coder-01/playbook/versions/1');
     await call(admin, 'GET', '/agents/:id/playbook/diff', '/agents/coder-01/playbook/diff', { query: '?from=1&to=2' });
-    await call(admin, 'POST', '/agents/:id/playbook/rollback', '/agents/coder-01/playbook/rollback', { body: { toVersion: 1, baseVersion: 2, why: 'Too strict for now.' } });
+    await call(admin, 'GET', '/agents/:id/playbook/diff', '/agents/coder-01/playbook/diff', { query: '?from=2&to=1' });
+    await call(admin, 'GET', '/agents/:id/playbook/diff', '/agents/coder-01/playbook/diff', { query: '?from=2&to=3' });
+    await call(admin, 'GET', '/agents/:id/playbook/diff', '/agents/coder-01/playbook/diff', { query: '?from=3&to=2' });
+    await call(admin, 'POST', '/agents/:id/playbook/rollback', '/agents/coder-01/playbook/rollback', { body: { toVersion: 1, baseVersion: 3, why: 'Too strict for now.' } });
     const skillBody = (name: string) => ({ name, description: 'Open the admin page and check the status.', steps: [{ kind: 'navigate', detail: 'Open the status page', origin: 'https://status.example.com' }, { kind: 'observe', detail: 'Read the banner' }], preconditions: ['Signed in'], sources: src });
     const s1 = (await call(mina, 'POST', '/skills', '/skills', { status: 201, headers: key(), body: skillBody('Check status page') })).body.skill;
     const s2 = (await mina.req('POST', '/skills', skillBody('Read the dashboard'), key())).body.skill;
@@ -291,12 +326,70 @@ describe('API coverage run', () => {
     await call(admin, 'POST', '/missions', '/missions', { status: 400, body: { nope: 1 } });
     await call(anon, 'GET', '/users', '/users', { status: 401 });
 
-    // ---- every administrator route as a member: 403 in the error envelope (generated from the registry, so a new admin route is covered the day it is added)
+    // ---- second read of every list and detail after all the writes: lifecycle fields (decidedBy, closedAt...) and criteria are filled now
+    await t.pool.query(`update agent_instances set ended_at = now() where id = $1`, [mine[mine.length - 1].id]);
+    await call(admin, 'GET', '/missions', '/missions');
+    await call(admin, 'GET', '/missions/:id', `/missions/${m1}`);
+    await call(admin, 'GET', '/agent-instances', '/agent-instances');
+    await call(admin, 'GET', '/agent-instances/:id', `/agent-instances/${encodeURIComponent(mine[mine.length - 1].id)}`);
+    await call(admin, 'GET', '/agents', '/agents');
+    await call(admin, 'GET', '/agents/:id', `/agents/${newAg.body.agent.id}`);
+    await call(admin, 'GET', '/agents/:id', '/agents/coder-01');
+    await call(admin, 'GET', '/agents/:id/mentoring', '/agents/tester-01/mentoring');
+    await call(admin, 'GET', '/mentoring', '/mentoring');
+    await call(admin, 'GET', '/agents/:id/playbook', '/agents/coder-01/playbook');
+    await call(admin, 'GET', '/agents/:id/playbook/versions/:v', '/agents/coder-01/playbook/versions/3');
+    await call(admin, 'GET', '/agents/:id/playbook/versions/:v', '/agents/coder-01/playbook/versions/4');
+    await call(admin, 'GET', '/lessons', '/lessons');
+    await call(admin, 'GET', '/lessons/:lid', `/lessons/${l1.id}`);
+    await call(admin, 'GET', '/lessons/:lid', `/lessons/${l2.id}`);
+    await call(admin, 'GET', '/lessons/:lid', `/lessons/${lc.id}`);
+    const own = (await call(admin, 'POST', '/agents/:id/lessons', '/agents/coder-01/lessons', { status: 201, headers: key(), body: { text: 'Name branches after the ticket', sources: src } })).body.lesson;
+    await call(admin, 'GET', '/lessons/:lid', `/lessons/${own.id}`);
+    await call(admin, 'GET', '/lessons', '/lessons');
+    const ownSkill = (await call(admin, 'POST', '/skills', '/skills', { status: 201, headers: key(), body: skillBody('Admin-proposed skill') })).body.skill;
+    await call(admin, 'GET', '/skills/:sid', `/skills/${ownSkill.id}`);
+    await call(mina, 'GET', '/lessons', '/lessons');
+    await call(mina, 'GET', '/lessons/:lid', `/lessons/${l2.id}`);
+    await call(mina, 'GET', '/skills', '/skills');
+    await call(mina, 'GET', '/skills/:sid', `/skills/${s2.id}`);
+    await call(admin, 'GET', '/skills', '/skills');
+    await call(admin, 'GET', '/skills/:sid', `/skills/${s2.id}`);
+    await call(admin, 'GET', '/approvals', '/approvals');
+    await call(admin, 'GET', '/version-proposals', '/version-proposals');
+    await call(admin, 'GET', '/agents/:id/version-proposals', '/agents/coder-01/version-proposals');
+    await call(admin, 'GET', '/missions/:id/delegation-briefs', `/missions/${m1}/delegation-briefs`);
+    await call(admin, 'GET', '/missions/:id/ledgers', `/missions/${m1}/ledgers`);
+    await call(admin, 'GET', '/missions/:id/ledgers/:kind/:version', `/missions/${m1}/ledgers/task/1`);
+    await call(admin, 'GET', '/missions/:id/ledgers/:kind/versions', `/missions/${m1}/ledgers/progress/versions`);
+    await call(admin, 'GET', '/missions/:id/threads', `/missions/${m1}/threads`);
+    await call(admin, 'GET', '/threads/:id/messages', `/threads/${threadId}/messages`, { query: '?limit=1' });
+    await call(admin, 'GET', '/channels/admin/:userId/messages', `/channels/admin/${minaId}/messages`, { query: '?limit=1' });
+    await call(admin, 'GET', '/channels/:key/messages', '/channels/agent:coder-01/messages');
+    await call(admin, 'GET', '/notifications', '/notifications');
+    await call(admin, 'GET', '/organization/proposals', '/organization/proposals');
+    await call(admin, 'GET', '/organization/revisions', '/organization/revisions');
+    await call(admin, 'GET', '/tasks/:id/reviews', '/tasks/T-c50r/reviews');
+    await call(admin, 'GET', '/site-grants', '/site-grants');
+    await call(admin, 'GET', '/operations/health', '/operations/health');
+    await call(admin, 'GET', '/channels', '/channels');
+
+    // ---- member sweep: EVERY checked route is replayed as a member, with the real ids and bodies of its happy call.
+    // Flagged administrator routes must answer 403 FORBIDDEN (and only they); any other 403 must be explained in allowlists.ts.
+    const sweeper = (await A.member('Sweeper')).b;
     for (const [k, e] of Object.entries(ROUTES)) {
-      if (!('v' in e) || !e.admin) continue;
-      const [method, pattern] = [k.slice(0, k.indexOf(' ')), k.slice(k.indexOf(' ') + 1)];
-      const url = pattern.replace(/:[A-Za-z]+/g, 'x');
-      await call(mina, method, pattern, url, { status: 403, ...(method === 'GET' ? {} : { body: {}, headers: key() }) });
+      if (!('v' in e) || k in SWEEP_SKIP) continue;
+      const rq = requests[k];
+      if (!rq) continue; // multipart upload: no replayable request; the hits assertion still requires its call
+      const r = await sweeper.req(rq.method, rq.url, rq.body, rq.method === 'GET' ? {} : key());
+      if (r.status >= 500) problems.push(`sweep ${k}: member got ${r.status}`);
+      if (e.admin) {
+        if (r.status !== 403 || r.body?.code !== 'FORBIDDEN' || r.body?.message !== 'Only an administrator can do this.') problems.push(`sweep ${k}: flagged admin but a member got ${r.status} ${JSON.stringify(r.body)?.slice(0, 120)}`);
+        else if (!check(`sweep ${k}`, errorEnvelope, r.body).length) gated.add(k);
+      } else if (r.status === 403) {
+        if (!(k in MEMBER_403_ALLOWED)) problems.push(`sweep ${k}: a member got 403 ${r.body?.code} from a route not flagged admin (flag it, or explain it in allowlists.ts)`);
+        problems.push(...check(`sweep ${k}`, errorEnvelope, r.body));
+      } else if (r.status >= 400) problems.push(...check(`sweep ${k}`, errorEnvelope, r.body));
     }
 
     // instance.stateChanged has no producer except this service helper (nothing executes yet), so it is driven directly
@@ -312,7 +405,7 @@ describe('API coverage run', () => {
   }, 180_000);
 
   it('drives the stalled-staffing retry route', async () => {
-    const s = await makeTestApp({ staffingStepMs: 1 });
+    const s = await makeTestApp({ staffingStepMs: 1, configure: recordServed });
     try {
       const A2 = await withAdmin(s.app);
       await s.pool.query(`create function stall_boom() returns trigger language plpgsql as $$ begin raise exception 'forced staffing failure'; end $$`);
@@ -330,7 +423,8 @@ describe('API coverage run', () => {
     const errs: string[] = [];
     const seen = new Set<string>();
     const rows = (await t.pool.query('select * from events order by id')).rows.map(eventDto);
-    for (const ev of [...rows, ...stalledEvents]) { errs.push(...checkEvent(ev).map((e) => `[row ${ev.id}] ${e}`)); seen.add(ev.type); }
+    eventRows = [...rows, ...stalledEvents];
+    for (const ev of eventRows) { errs.push(...checkEvent(ev).map((e) => `[row ${ev.id}] ${e}`)); seen.add(ev.type); }
     expect(streamEvents.length, 'the live stream delivered the flow').toBeGreaterThan(20);
     for (const e of streamEvents) {
       if (e.event !== e.data.type) errs.push(`sse name ${e.event} != payload type ${e.data.type}`);
@@ -353,25 +447,35 @@ describe('API coverage run', () => {
     writeDump();
   });
 
-  it('non-vacuous: every validator rejects a copy of its own sample with an extra field, and an object body with its first field removed', () => {
+  it('non-vacuous, node by node: every validator rejects an extra key, a missing key and a null on every object node of its richest real body (routes and events)', () => {
     const lenient: string[] = [];
+    let tried = 0;
+    const richest = (xs: unknown[]) => xs.reduce((a, b) => (JSON.stringify(b).length > JSON.stringify(a).length ? b : a));
     for (const [k, e] of Object.entries(ROUTES)) {
       if (!('v' in e)) continue;
-      const sample = samples[k];
-      if (sample === undefined) { lenient.push(`${k}: no sample`); continue; }
-      const copy = structuredClone(sample) as any;
-      const target = Array.isArray(copy) ? copy[0] : copy;
-      if (target && typeof target === 'object') {
-        const extra = structuredClone(copy); (Array.isArray(extra) ? extra[0] : extra).zzExtra = 1;
-        if (!check(k, e.v, extra).length) lenient.push(`${k}: an extra field was accepted`);
-      }
-      if (!Array.isArray(copy) && copy && typeof copy === 'object') {
-        const gone = structuredClone(copy); delete gone[Object.keys(gone)[0]];
-        if (!check(k, e.v, gone).length) lenient.push(`${k}: a missing field was accepted`);
-      }
+      if (!bodies[k]?.length) { lenient.push(`${k}: no body recorded`); continue; }
+      const r = lenientMutations(e.v, richest(bodies[k]), k);
+      lenient.push(...r.lenient); tried += r.tried;
+      expect(r.tried, `${k}: mutations were tried`).toBeGreaterThan(0);
     }
+    for (const type of Object.keys(EVENT_VALIDATORS) as EventType[]) {
+      const rows = eventRows.filter((r) => r.type === type);
+      if (!rows.length) { lenient.push(`event ${type}: no row recorded`); continue; }
+      const r = lenientMutations(eventValidator(type), richest(rows), `event ${type}`);
+      lenient.push(...r.lenient); tried += r.tried;
+    }
+    expect(tried).toBeGreaterThan(2000);
     expect(lenient).toEqual([]);
+  });
+
+  it('every object array was filled and every nullable field was non-null in some call, unless listed with a reason', () => {
+    const open: string[] = [];
+    const add = (label: string, found: string[]) => { for (const f of found) if (!UNEXERCISED_ALLOWED.some(([re]) => re.test(`${label} ${f}`))) open.push(`${label} ${f}`); };
+    for (const [k, e] of Object.entries(ROUTES)) if ('v' in e && bodies[k]) add(k, unexercised(e.v, bodies[k]));
+    for (const type of Object.keys(EVENT_VALIDATORS) as EventType[]) add(`event ${type}`, unexercised(eventValidator(type), eventRows.filter((r) => r.type === type)));
+    expect(open).toEqual([]);
   });
 });
 
 let stalledEvents: ReturnType<typeof eventDto>[] = [];
+let eventRows: ReturnType<typeof eventDto>[] = [];

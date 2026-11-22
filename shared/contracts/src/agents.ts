@@ -34,6 +34,8 @@ export interface AgentStoredDto {
   status: string; lifecycle: 'active' | 'retired';
   model: string; skills: string[]; tools: string[];
   version: string; versionId: string; versionLabel: string;
+  /** profile scores, a name to a whole number; empty for an agent made through the API */
+  metrics?: Record<string, number>;
   rowVersion: number; provenance: Provenance; createdAt: string;
   versions?: AgentVersionDto[];
   [profile: string]: unknown;

@@ -1,8 +1,9 @@
 import type { Tx } from '../db.ts';
 import { appendEvent, type Audience } from './log.ts';
+import type { EventType } from '../../../shared/contracts/src/index.ts';
 
 /** Route-level helper: picks subject kind and audience from the event type. */
-export interface EmitInput { tenantId: string; type: string; subject: string; missionId?: string; adminOnly?: boolean; actor?: string; actorKind?: 'human' | 'agent' | 'system'; subjectKind?: string; audience?: Audience; audienceUser?: string; correlationId?: string; payload?: Record<string, unknown> }
+export interface EmitInput { tenantId: string; type: EventType; subject: string; missionId?: string; adminOnly?: boolean; actor?: string; actorKind?: 'human' | 'agent' | 'system'; subjectKind?: string; audience?: Audience; audienceUser?: string; correlationId?: string; payload?: Record<string, unknown> }
 
 export async function emit(c: Tx, e: EmitInput) {
   const userEvent = e.type.startsWith('user.') || e.type.startsWith('auth.');

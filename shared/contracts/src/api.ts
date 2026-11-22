@@ -29,6 +29,17 @@ export interface AuditVerifyDto { ok: boolean; checked: number; firstBadSeq?: nu
 export interface PolicyKindDto { kind: string; tier: string; effect: string; approver: string | null; heldBy?: string; note?: string; prohibited: string | null; why: string }
 export interface PolicyBaselineDto { version: number; source: string; tiers: string[]; kinds: PolicyKindDto[] }
 
+/** What the staffing simulation records on a mission (the web's `Staffing`); `org` exists on real missions only, `stalled` only while staffing is stopped. */
+export interface StaffingDto {
+  stage: 'reading' | 'appointing' | 'recruiting' | 'working';
+  plan: { agentId: string; why: string; managerId?: string }[];
+  joined: number;
+  log: { at: number; text: string; agentId?: string; by?: string }[];
+  org?: { revision?: number; dept: string; executorFrom: 'head' | 'fixture' };
+  stalled?: { code: string; reason: string; at: number; attempts: number };
+}
+export interface PhaseDto { key: string; label: string; date: string; state: string }
+
 /** GET /missions, GET /missions/:id and every mission write. The presentation fields (staffing, prePause, ...) are open. */
 export interface MissionDto {
   id: string; title: string; kind: string; priority: 'low' | 'normal' | 'high' | 'critical';
@@ -38,7 +49,8 @@ export interface MissionDto {
   objective: string; criteria: { text: string; done: boolean }[];
   revision: number; rowVersion: number; syncVersion: number; demo: boolean;
   summaryAgoMin: number; lastEventAgoMin: number; createdAgoDays: number;
-  agentIds: string[]; leadId: string; executorId?: string; phases: unknown[];
+  agentIds: string[]; leadId: string; executorId?: string; phases: PhaseDto[];
+  staffing?: StaffingDto; prePause?: MissionStatus;
   progress: number; tasksVerified: number; tasksTotal: number; blocked: number;
   summary: string; lastEvent: string; elapsedH: number; dueInDays: number; version: string;
   pendingApprovals: number; unread: number; archivedAt?: number; updatedAt: number;

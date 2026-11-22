@@ -1,11 +1,12 @@
 import type { Tx } from '../db.ts';
-import type { DomainEvent } from '../../../shared/contracts/src/index.ts';
+import type { DomainEvent, EventType } from '../../../shared/contracts/src/index.ts';
 import { advisoryXactLock } from '../locks.ts';
 
 export type Audience = 'all' | 'admins' | 'user' | 'mission' | 'owner';
 export interface AppendInput {
   tenantId: string;
-  type: string;
+  /** typed since c50: an undeclared or computed event type fails tsc (the contract test also scans the source for emit literals) */
+  type: EventType;
   subject: { kind: string; id: string };
   missionId?: string;
   actor?: { kind: 'human' | 'agent' | 'system'; id: string };

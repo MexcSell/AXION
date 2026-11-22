@@ -1,7 +1,7 @@
-import { nul, str, num, int, bool, iso, unknownV, rec, lit, oneOf, nullable, opt, arr, either, obj, openObj, dict, type V } from './validate.ts';
+import { nul, str, num, int, bool, iso, rec, lit, oneOf, nullable, opt, arr, either, obj, openObj, dict, type V } from './validate.ts';
 import {
   ERROR_CODES, MISSION_STATUSES, SCORECARD_WINDOWS, REVIEW_VERDICTS, RUBRIC_RESULTS, EVIDENCE_KINDS, FAILURE_SUBJECT_KINDS, STEP_STATUSES, STALL_POLICY,
-  type AccountDto, type AgentDto, type AgentVersionDto, type ApprovalDto, type AttachmentDto, type AuditVerifyDto, type AvatarDto, type BriefTier, type ChannelDto,
+  type AccountDto, type PhaseDto, type StaffingDto, type AgentDto, type AgentVersionDto, type ApprovalDto, type AttachmentDto, type AuditVerifyDto, type AvatarDto, type BriefTier, type ChannelDto,
   type CompanyScorecardDto, type ConnectResult, type DelegableKind, type DelegationBriefDto, type DelegationBriefList, type DepartmentFacts, type DepartmentsDto, type DeviceDto,
   type ErrorEnvelope, type EvidenceRef, type FailureCategoryCount, type FailureModeCount, type FailureModesDto, type FailureSubjectInfo, type FailureTagDto, type HealthDto,
   type HierarchyDto, type HierarchyEdgeDto, type HierarchyNodeDto, type InstanceDto, type InstancesPageDto, type LedgerDto, type LedgerVersionDto, type LedgerVersionPageDto,
@@ -49,12 +49,19 @@ export const helloBody = obj<{ firstEver: boolean }>({ firstEver: bool });
 // ---- missions
 const fileKind = oneOf(['image', 'audio', 'video', 'doc', 'pdf', 'txt', 'file'] as const);
 const missionFile: V<MissionFileDto> = obj<MissionFileDto>({ id: str, name: str, kind: fileKind, size: num, mime: str, url: opt(str), excerpt: opt(str) });
+const staffing: V<StaffingDto> = obj<StaffingDto>({
+  stage: oneOf(['reading', 'appointing', 'recruiting', 'working'] as const),
+  plan: arr(obj({ agentId: str, why: str, managerId: opt(str) })), joined: int,
+  log: arr(obj({ at: num, text: str, agentId: opt(str), by: opt(str) })),
+  org: opt(obj({ revision: opt(int), dept: str, executorFrom: oneOf(['head', 'fixture'] as const) })),
+  stalled: opt(obj({ code: str, reason: str, at: num, attempts: int })),
+});
 export const mission: V<MissionDto> = openObj<MissionDto>({
   id: str, title: str, kind: str, priority: oneOf(['low', 'normal', 'high', 'critical'] as const),
   status: oneOf(['draft', 'queued', 'planning', 'running', 'verifying', 'waiting', 'paused', 'completed', 'failed', 'canceled', 'archived'] as const), serverStatus: oneOf(MISSION_STATUSES),
   owner: str, ownerId: str, shared: bool, content: obj({ text: str, files: arr(missionFile) }), objective: str,
   criteria: arr(obj({ text: str, done: bool })), revision: int, rowVersion: int, syncVersion: int, demo: bool,
-  summaryAgoMin: num, lastEventAgoMin: num, createdAgoDays: num, agentIds: arr(str), leadId: str, executorId: opt(str), phases: arr(unknownV),
+  summaryAgoMin: num, lastEventAgoMin: num, createdAgoDays: num, agentIds: arr(str), leadId: str, executorId: opt(str), phases: arr(obj<PhaseDto>({ key: str, label: str, date: str, state: str })), staffing: opt(staffing), prePause: opt(oneOf(MISSION_STATUSES)),
   progress: num, tasksVerified: num, tasksTotal: num, blocked: num, summary: str, lastEvent: str, elapsedH: num, dueInDays: num, version: str,
   pendingApprovals: num, unread: num, archivedAt: opt(num), updatedAt: num,
 });
@@ -169,7 +176,7 @@ const provenance: V<Provenance> = obj<Provenance>({ source: oneOf(['demo-fixture
 const reliability: V<AgentReliability> = obj<AgentReliability>({ value: nullable(num), n: int, window: lit('90d' as const), evidence: str, includesSimulated: bool });
 const agentVersion: V<AgentVersionDto> = obj<AgentVersionDto>({ id: str, seq: int, label: str, parentVersionId: nullable(str), model: str, skills: arr(str), tools: arr(str), promptHash: str, createdBy: str, createdAt: iso });
 export const agent: V<AgentDto> = openObj<AgentDto>({
-  id: str, name: str, role: str, dept: str, duty: str, description: str, parentId: opt(str), managerId: opt(str), site: opt(str), avatar: rec,
+  id: str, name: str, role: str, dept: str, duty: str, description: str, parentId: opt(str), managerId: opt(str), site: opt(str), avatar: rec, metrics: opt(dict(num)),
   status: str, lifecycle: oneOf(['active', 'retired'] as const), model: str, skills: arr(str), tools: arr(str), version: str, versionId: str, versionLabel: str,
   rowVersion: int, provenance, createdAt: iso, versions: opt(arr(agentVersion)), reliability,
 });

@@ -54,11 +54,14 @@ export const EVENT_VALIDATORS: { [K in EventType]: V<EventPayloads[K]> } = {
   'auth.approved': obj({ userId: str, deviceId: opt(str) }),
 };
 
-const envelope: V<Omit<DomainEvent, 'payload'>> = obj<Omit<DomainEvent, 'payload'>>({
+const envelopeShape = {
   id: str, seq: nullable(int), type: str, tenantId: str, missionRunId: opt(str), missionId: opt(str),
   actor: obj({ kind: oneOf(['human', 'agent', 'system'] as const), id: str }), subject: obj({ kind: str, id: str }),
   occurredAt: iso, correlationId: str, schemaVersion: int,
-});
+};
+const envelope: V<Omit<DomainEvent, 'payload'>> = obj<Omit<DomainEvent, 'payload'>>(envelopeShape as any);
+/** The whole event (envelope and payload) as one validator, for the node-wide mutation and coverage tests. */
+export const eventValidator = (type: EventType): V<any> => obj<any>({ ...envelopeShape, payload: EVENT_VALIDATORS[type] } as any);
 
 /** Validate one domain event (the envelope and its payload); an unknown type is itself drift. */
 export function checkEvent(ev: unknown): string[] {
