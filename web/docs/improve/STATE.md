@@ -60,10 +60,11 @@ Rewritten 2026-11-22T07:35Z by the controller and again at 17:50Z after the live
 | — | Research round 2: research-r2.md plus research-r2-verified.md (22 CONFIRMED, 4 CORRECTED; R2-4 dropped) | done |
 | w57 | c58 Rule-of-Two profile + approval quality (R2-6, R2-9), e2e16, mig 0043, DL-100 | implementing (Wave 6) |
 | w58 | c59 origin-bound memory and skill records (R2-5), e2e17, mig 0044 | implementing (Wave 6) |
+| w60 | c61 eval instruments (R2-2, R2-3, R2-1), from c53 tip 2d23cca, e2e13, mig 0046 | implementing (Wave 6) |
 | w59 | c60 failure attribution + OTel mapping (R2-10, R2-8), e2e14, mig 0045 | fix round (review CLEAR AFTER FIXES) |
 | — | Integrator #5: verification pass on the merged tree | running |
 
-Waiting: c61 (R2-1, R2-2, R2-3) after c53 merges; c62 (R2-7) after owner Q12. No new lane starts after 2026-11-23T13:45Z. The gated Wave 4 items (R1, A1, M2, G1) still run last, as their own droppable batch (Q11).
+Waiting: c62 (R2-7) after owner Q12. No new lane starts after 2026-11-23T13:45Z. The gated Wave 4 items (R1, A1, M2, G1) still run last, as their own droppable batch (Q11).
 
 ## Owner questions
 Q1–Q11 are queued for the final report (PHASE2.md, LOG.md).
