@@ -114,7 +114,7 @@ describe('audit anchor (c49)', () => {
     it('creates the missing directory', async () => {
       await fresh(1);
       const nested = join(dir, 'a', 'b', 'anchors.jsonl');
-      await writeAnchor(s.pool, { key: KEY, file: nested });
+      await writeAnchor(s.pool, { ...o(), file: nested });
       expect(existsSync(nested)).toBe(true);
     });
     it('refuses to anchor a chain that does not verify', async () => {
