@@ -66,7 +66,7 @@ Rewritten 2026-11-22T07:35Z by the controller and again at 17:50Z after the live
 | w65 | c67 Agent Profile api-mode fit (H17), from 8c2c02e, e2e8 | implementing |
 | w66 | c68 operator attention queue (R3-9), from 24a8f05, e2e7, no migration | in review (tip 6a52faf) |
 | w67 | c69 process metrics (R3-5), from c66 tip 35bb4a9, e2e6 | implementing (Wave 7) |
-| w68 | c70 hardening bundle (H11b, H14, E1d), from 812c185, e2e5, mig 0052 | fix round (review CLEAR AFTER FIXES) |
+| w68 | c70 hardening bundle (H11b, H14, E1d), from 812c185, e2e5, mig 0052 | CLEARED at bdfcbde, batch 26 |
 | w58 | c59 origin-bound memory and skill records (R2-5), e2e17, mig 0044 | CLEARED at 67b40ed, batch 18 |
 | w60 | c61 eval instruments (R2-2, R2-3, R2-1), from c53 tip 2d23cca, e2e13, mig 0046 | CLEARED at 43c1b7c, batch 19 |
 | w59 | c60 failure attribution + OTel mapping (R2-10, R2-8), e2e14, mig 0045 | CLEARED at df8c17e, batch 16 |
