@@ -59,3 +59,42 @@ begin
   end if;
   return new;
 end $$;
+
+-- 2. resumable runs. A run is in one of three states:
+--      open      not finished, and at least one (case, attempt) result is missing (for example, the runner crashed);
+--      complete  not finished, every case has every attempt 1..k recorded (a failed attempt is a result with a NULL score);
+--      finished  finished_at is set. Immutable: the append-only guards refuse any change, and no result can be added.
+--    An open run is RESUMED (add the missing results from eval_run_missing), then finished with eval_finish_run. A second run on the
+--    same holdout is refused (holdout_rerun), so a crash never burns the holdout and never buys a second try.
+create function eval_run_missing(rid text) returns table(case_id text, attempt int) language plpgsql stable as $$
+declare r eval_runs;
+begin
+  select * into r from eval_runs where id = rid;
+  if not found then raise exception 'no such eval run %', rid; end if;
+  if r.finished_at is not null then raise exception 'eval run % is finished and immutable; nothing to resume', rid; end if;
+  return query
+    select c.case_id, a.n::int from eval_cases c cross join generate_series(1, r.k) as a(n)
+     where c.dataset_id = r.dataset_id
+       and not exists (select 1 from eval_results x where x.run_id = rid and x.case_id = c.case_id and x.attempt = a.n)
+     order by c.case_id, a.n;
+end $$;
+create function eval_run_state(rid text) returns text language plpgsql stable as $$
+declare r eval_runs;
+begin
+  select * into r from eval_runs where id = rid;
+  if not found then return null; end if;
+  if r.finished_at is not null then return 'finished'; end if;
+  return case when exists (select 1 from eval_run_missing(rid)) then 'open' else 'complete' end;
+end $$;
+-- the one way to finish: lock the run, refuse an unknown or finished run and an incomplete one (run_incomplete), then set finished_at
+create function eval_finish_run(rid text) returns timestamptz language plpgsql as $$
+declare r eval_runs; miss int;
+begin
+  select * into r from eval_runs where id = rid for update;
+  if not found then raise exception 'no such eval run %', rid; end if;
+  if r.finished_at is not null then raise exception 'eval run % is already finished', rid; end if;
+  select count(*) into miss from eval_run_missing(rid);
+  if miss > 0 then raise exception 'run_incomplete: eval run % is missing % result(s); resume it before finishing', rid, miss; end if;
+  update eval_runs set finished_at = now() where id = rid;
+  return (select finished_at from eval_runs where id = rid);
+end $$;

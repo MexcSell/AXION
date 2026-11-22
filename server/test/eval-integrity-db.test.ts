@@ -111,3 +111,63 @@ describe('item 1: the loader counts runs across proposals too (defence in depth)
     } finally { c.release(); }
   });
 });
+
+// ---- item 2 ---------------------------------------------------------------------------------------------------------------
+import { RUN_STATES, runState, missingResults, finishRun, existingRun } from '../src/evolution/eval-runs.ts';
+const res = (run: string, c: string, a: number, score: number | null) => q(`insert into eval_results(run_id, case_id, attempt, score, cost_units, trace) values ($1,$2,$3,$4,1,'{"steps":[]}')`, [run, c, a, score]);
+
+describe('item 2: resumable runs (states: open, complete, finished)', () => {
+  const cx = async <T>(fn: (c: pg.PoolClient) => Promise<T>) => { const c = await s.pool.connect(); try { return await fn(c); } finally { c.release(); } };
+  it('the states are explicit', () => { expect(RUN_STATES).toEqual(['open', 'complete', 'finished']); });
+  it('a crashed run is open, lists what is missing, and is resumed instead of re-started', async () => {
+    await makeDataset(s.pool, { id: 'H-RS', split: 'holdout', cases: 3 });
+    await run('RS1', 'H-RS', { proposal: 'P-3', k: 2 });
+    await res('RS1', 'c01', 1, 50); await res('RS1', 'c01', 2, 60); await res('RS1', 'c02', 1, null); // crashed here
+    await expect(run('RS1-again', 'H-RS', { proposal: 'P-3' })).rejects.toThrow(/holdout_rerun.*RS1.*unfinished/);
+    await cx(async (c) => {
+      expect(await runState(c, 'RS1')).toBe('open');
+      expect(await missingResults(c, 'RS1')).toEqual([{ caseId: 'c02', attempt: 2 }, { caseId: 'c03', attempt: 1 }, { caseId: 'c03', attempt: 2 }]);
+      expect(await existingRun(c, { tenantId: 't-1', datasetId: 'H-RS', proposalId: 'P-3' })).toEqual({ id: 'RS1', state: 'open' });
+    });
+    await expect(res('RS1', 'c01', 1, 99)).rejects.toThrow(); // an existing attempt is not rewritten
+    await res('RS1', 'c02', 2, 70); await res('RS1', 'c03', 1, 80); // resumed
+  });
+  it('finishing an open run is refused with run_incomplete; a complete run finishes', async () => {
+    await cx(async (c) => {
+      await expect(finishRun(c, 'RS1')).rejects.toThrow(/run_incomplete/);
+      await res('RS1', 'c03', 2, 90);
+      expect(await runState(c, 'RS1')).toBe('complete');
+      await finishRun(c, 'RS1');
+      expect(await runState(c, 'RS1')).toBe('finished');
+    });
+  });
+  it('a finished run is immutable: no more results, no second finish, no changes', async () => {
+    await expect(res('RS1', 'c01', 1, 1)).rejects.toThrow(/finished/);
+    await cx(async (c) => {
+      await expect(finishRun(c, 'RS1')).rejects.toThrow(/finished/);
+      await expect(missingResults(c, 'RS1')).rejects.toThrow(/finished/);
+    });
+    await expect(q(`update eval_runs set finished_at = now() where id='RS1'`)).rejects.toThrow(/append-only/);
+    await expect(q(`delete from eval_results where run_id='RS1'`)).rejects.toThrow(/append-only/);
+    await expect(run('RS1-late', 'H-RS', { proposal: 'P-3' })).rejects.toThrow(/holdout_rerun.*RS1.*finished/);
+  });
+  it('an unknown run has no state, and cannot be finished', async () => {
+    await cx(async (c) => {
+      expect(await runState(c, 'NOPE')).toBeNull();
+      await expect(finishRun(c, 'NOPE')).rejects.toThrow(/no such/);
+      expect(await existingRun(c, { tenantId: 't-1', datasetId: 'H-RS', proposalId: 'P-1' })).toBeNull();
+    });
+  });
+  it('a run with no results at all is open and lists every case and attempt', async () => {
+    await makeDataset(s.pool, { id: 'H-RS0', split: 'holdout', cases: 2 });
+    await run('RS0', 'H-RS0', { proposal: 'P-3' });
+    await cx(async (c) => { expect(await missingResults(c, 'RS0')).toHaveLength(2); await expect(finishRun(c, 'RS0')).rejects.toThrow(/run_incomplete/); });
+  });
+  it('two finishers racing: exactly one finishes', async () => {
+    await makeDataset(s.pool, { id: 'H-RSR', split: 'holdout', cases: 1 });
+    await run('RSR', 'H-RSR', { proposal: 'P-3' }); await res('RSR', 'c01', 1, 5);
+    const one = async () => cx((c) => finishRun(c, 'RSR'));
+    const r = await Promise.allSettled([one(), one(), one()]);
+    expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+  });
+});

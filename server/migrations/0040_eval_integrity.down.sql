@@ -28,3 +28,6 @@ begin
 end $$;
 drop index eval_runs_holdout_once;
 alter table eval_runs drop column holdout_key;
+drop function eval_finish_run(text);
+drop function eval_run_state(text);
+drop function eval_run_missing(text);
