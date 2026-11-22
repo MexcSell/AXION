@@ -31,7 +31,7 @@ Note on vector test shape: items 2 and 3 tests were written and run RED together
 | api-c36 (site-grants check) | PASS | 35/35, no page errors |
 | api-c56 (new) | PASS | 14/14, no page errors |
 | stage6 | PASS | api-stage6.mjs 94/94, no page errors |
-| a11y | PASS | a11y-check (api): 41 views, 65 dialogs, 0 violations in 212 s. It printed 20 informational `probe ... slow/fail` lines (pages still loading under load); none counts as a violation |
+| a11y | PASS | a11y-check (api): 41 views, 65 dialogs, 0 violations in 212 s. The 20 `probe ... slow/fail` lines are the check's deliberate injected slow and failed requests (each shows its state in a live region), not violations |
 | Contract entries for new code or field | PASS (none needed) | the code `public_suffix` already existed; no new route, field or allowlist line |
 
 
