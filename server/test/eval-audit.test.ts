@@ -337,14 +337,15 @@ describe('fix round 3: who may re-grade', () => {
     const p = await pair({ base: Array(12).fill(90), cand: Array(12).fill(40), bg: G1, cg: G2 });
     await cx(async (c) => { await expect(recordRegrade(c, { id: 'RG-' + p.pid, tenantId: 't-1', runId: p.base, to: G2, by: 'u-off', cases: all12(5) })).rejects.toThrow(/regrader/); });
   });
-  it('the author of the proposal cannot re-grade its runs (producer is not verifier): refused on the candidate run, not linked on the base run', async () => {
+  it('the author of the proposal cannot re-grade its runs (producer is not verifier): refused on the candidate run and on the base run, so nothing is linked', async () => {
     const n = ++seq, ds = 'AH' + n, pid = 'AP' + n;
     await makeDataset(s.pool, { id: ds, split: 'holdout', cases: 12 });
     await q(`insert into agent_version_proposals(id, tenant_id, agent_id, base_version_id, base_sha, candidate, candidate_sha, title, created_by) values ($1,'t-1','a-1',$2,'h',$4::jsonb,$3,'t','u-prop')`, [pid, v1, 'sha-A' + n, JSON.stringify({ model: 'qwen-72b', skills: ['sha-A' + n], tools: [] })]);
     await addRun(s.pool, { id: 'AB' + n, datasetId: ds, versionId: v1, scores: Array(12).fill(90), grader: G1, ...ev });
     await addRun(s.pool, { id: 'AC' + n, datasetId: ds, proposalId: pid, scores: Array(12).fill(75), grader: G2, ...ev });
     await cx(async (c) => { await expect(recordRegrade(c, { id: 'RGc' + n, tenantId: 't-1', runId: 'AC' + n, to: G1, by: 'u-prop', cases: all12(75) })).rejects.toThrow(/regrader/); });
-    await cx(async (c) => { await recordRegrade(c, { id: 'RGb' + n, tenantId: 't-1', runId: 'AB' + n, to: G2, by: 'u-prop', cases: all12(40) }); });
+    // c70 (E1d): the base run too is refused in the database (it used to be accepted and merely not linked by the loader)
+    await cx(async (c) => { await expect(recordRegrade(c, { id: 'RGb' + n, tenantId: 't-1', runId: 'AB' + n, to: G2, by: 'u-prop', cases: all12(40) })).rejects.toThrow(/regrader_is_author/); });
     const e = await cx(async (c) => (await loadEvaluations(c, 't-1', [{ id: pid, created_by: 'u-prop', base_version_id: v1, candidate: { model: 'qwen-72b' } }])).get(pid)!);
     expect(e.refusals.map((r) => r.code)).toContain('grader_mismatch'); expect(e.grading.regrade).toBeNull();
   });

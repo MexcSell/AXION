@@ -114,6 +114,7 @@ Not used on purpose: `gen_ai.provider.name`, `gen_ai.request.*`, `gen_ai.usage.*
 | `eval_runs.grader_name` | **no equivalent** |  | Who graded a run (c61, an instrument record). The spec has no attribute for a grader and it is not part of the agent's behaviour, so it is not exported. |
 | `eval_runs.grader_version` | **no equivalent** |  | The version of the grader that graded a run (c61); not exported, see eval_runs.grader_name. |
 | `eval_runs.holdout_key` | **no equivalent** |  | An internal uniqueness key (c53) that makes a holdout count once. It names no behaviour of the agent and is not exported. |
+| `eval_runs.holdout_content_key` | **no equivalent** |  | An internal uniqueness key (c70) that makes a holdout count once per dataset content, whatever the dataset id. It names no behaviour of the agent and is not exported. |
 | `eval_runs.started_at` | **no equivalent** |  | A run has no span of its own; the span of a result starts at the result's recorded time. |
 | `eval_runs.finished_at` | **no equivalent** |  | A run has no span of its own. |
 
@@ -189,4 +190,4 @@ These describe the export itself (resource attributes, with the pinned version) 
 
 ## Counts
 
-106 AXION fields listed; 7 map to a pinned GenAI attribute; 29 have no equivalent and are not exported; the rest map to a span property or an `axion.*` extension attribute.
+107 AXION fields listed; 7 map to a pinned GenAI attribute; 30 have no equivalent and are not exported; the rest map to a span property or an `axion.*` extension attribute.

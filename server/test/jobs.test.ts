@@ -6,6 +6,7 @@ import { makeSchema, makeTestApp, withAdmin, TEST_DB, type TestApp } from './hel
 import { migrate } from '../src/migrate.ts';
 import { clearDemo } from '../src/seed/demo.ts';
 import { JOB_STATUSES, isLegalEdge, nextOnFail, nextOnReclaim, classifyRefusal, type JobStatus } from '../src/jobs/machine.ts';
+import { watch, MAX_TEST_CONNECTIONS } from './pool-probe.ts';
 import { enqueueJob, claimJob, heartbeatJob, completeJob, failJob, reclaimExpired, requestCancel, acknowledgeCancel, getJob, type Job } from '../src/jobs/store.ts';
 
 const K = ['noop.test'] as const;
@@ -553,7 +554,8 @@ describe('the database clock decides, not the Node clock', () => {
 describe('concurrency', () => {
   it('20 parallel claimers over 50 jobs: each job is claimed exactly once, and the table agrees', async () => {
     const m = await makeSchema();
-    const pool = new pg.Pool({ connectionString: TEST_DB(), options: `-c search_path=${m.schema}`, max: 20 });
+    const pool = new pg.Pool({ connectionString: TEST_DB(), options: `-c search_path=${m.schema}`, max: MAX_TEST_CONNECTIONS }); // c70 (H14): 20 claimers share a bounded pool
+    const seen = watch(pool);
     try {
       for (let i = 0; i < 50; i++) await enqueueJob(pool, { tenantId: 't-1', kind: 'noop.test', idempotencyKey: `j${i}`, createdBy: 't' });
       const claimed: Job[][] = await Promise.all(Array.from({ length: 20 }, async (_, w) => {
@@ -587,6 +589,9 @@ describe('concurrency', () => {
       const rows2 = (await pool.query('select status, attempt, lease_token::int tok, lease_owner from system_jobs')).rows;
       for (const r of rows2) expect(r).toMatchObject({ status: 'leased', attempt: 2, tok: 3 });
       expect(new Set(rows2.map((r) => r.lease_owner)).size).toBeGreaterThan(1);
+      // c70 (H14): the test's own footprint is bounded (the shared role is capped at 45 connections), yet the claimers really overlapped
+      // (no `peakClients <= 8` assertion: max: 8 guarantees it)
+      expect(seen.peakBusy, 'claimers in flight at the same moment').toBeGreaterThanOrEqual(4);
     } finally { await pool.end(); await m.drop(); }
   }, 60_000);
 });

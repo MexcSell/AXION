@@ -335,7 +335,7 @@ async function reuseScenario(devInputs: string[], hoInputs: string[], opts: { de
   const id = ++n5, dev = 'RU-D' + id, ho = 'RU-H' + id, pid = 'RU-P' + id;
   const mk = async (ds: string, split: string, inputs: string[], ids?: string[]) => {
     await q(`insert into eval_datasets(id, tenant_id, name, split) values ($1,'t-1',$1,$2)`, [ds, split]);
-    for (const [i, inp] of inputs.entries()) await q(`insert into eval_cases(dataset_id, case_id, input, expected) values ($1,$2,$3::jsonb,'1')`, [ds, ids?.[i] ?? 'c' + String(i + 1).padStart(2, '0'), inp]);
+    for (const [i, inp] of inputs.entries()) await q(`insert into eval_cases(dataset_id, case_id, input, expected) values ($1,$2,$3::jsonb,$4::jsonb)`, [ds, ids?.[i] ?? 'c' + String(i + 1).padStart(2, '0'), inp, JSON.stringify(id)]); // c70: `expected` differs per scenario, because the same holdout CONTENT can host only one base run per version; the inputs under test are unchanged
     await q(`select eval_freeze_dataset($1)`, [ds]);
   };
   await mk(dev, 'dev', devInputs, opts.devIds); await mk(ho, 'holdout', hoInputs);

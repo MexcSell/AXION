@@ -99,6 +99,7 @@ export const FIELD_MAP: Record<string, FieldEntry> = {
   'eval_runs.grader_name': e(none, 'Who graded a run (c61, an instrument record). The spec has no attribute for a grader and it is not part of the agent\'s behaviour, so it is not exported.'),
   'eval_runs.grader_version': e(none, 'The version of the grader that graded a run (c61); not exported, see eval_runs.grader_name.'),
   'eval_runs.holdout_key': e(none, 'An internal uniqueness key (c53) that makes a holdout count once. It names no behaviour of the agent and is not exported.'),
+  'eval_runs.holdout_content_key': e(none, 'An internal uniqueness key (c70) that makes a holdout count once per dataset content, whatever the dataset id. It names no behaviour of the agent and is not exported.'),
   'eval_runs.started_at': e(none, 'A run has no span of its own; the span of a result starts at the result\'s recorded time.'),
   'eval_runs.finished_at': e(none, 'A run has no span of its own.'),
   'eval_results.run_id': e(ax('axion.eval.run_id'), 'See eval_runs.id.'),
