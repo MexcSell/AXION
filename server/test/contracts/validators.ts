@@ -115,12 +115,12 @@ const reviewActor: V<ReviewActor> = obj<ReviewActor>({ id: str, kind: oneOf(['us
 const rubricItem: V<RubricItem> = obj<RubricItem>({ criterion: str, result: oneOf(RUBRIC_RESULTS), note: str });
 const evidenceRef: V<EvidenceRef> = obj<EvidenceRef>({ kind: oneOf(EVIDENCE_KINDS), ref: str, label: opt(str) });
 const agreement: V<ReviewerAgreement> = obj<ReviewerAgreement>({ agreed: int, n: int, rate: nullable(num), state: oneOf(['ok', 'none'] as const) });
-const taskReview: V<TaskReviewDto> = obj<TaskReviewDto>({ id: str, taskId: str, missionId: str, reviewer: reviewActor, producer: reviewActor, verdict: oneOf(REVIEW_VERDICTS), rubric: arr(rubricItem), evidence: arr(evidenceRef), createdAt: iso, reviewerAgreement: agreement });
+const taskReview: V<TaskReviewDto> = obj<TaskReviewDto>({ id: str, taskId: str, missionId: str, reviewer: reviewActor, producer: reviewActor, verdict: oneOf(REVIEW_VERDICTS), rubric: arr(rubricItem), evidence: arr(evidenceRef), createdAt: iso, reviewerAgreement: agreement, stale: nullable(obj<{ beforeAttempt: number }>({ beforeAttempt: int })) });
 export const taskReviewBody = obj<{ review: TaskReviewDto }>({ review: taskReview });
 export const taskReviews: V<TaskReviewsDto> = obj<TaskReviewsDto>({
   taskId: str, missionId: str, producer: nullable(reviewActor), taskStatus: str, canAccept: bool,
   canReview: obj({ allowed: bool, code: nullable(str), reason: nullable(str) }), criteria: arr(str),
-  evidenceOptions: arr(obj({ kind: oneOf(EVIDENCE_KINDS), ref: str, label: str })), reviews: arr(taskReview),
+  evidenceOptions: arr(obj({ kind: oneOf(EVIDENCE_KINDS), ref: str, label: str })), reviews: arr(taskReview), verified: bool,
 });
 
 // ---- delegation briefs

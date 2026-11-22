@@ -142,7 +142,7 @@ describe('API coverage run', () => {
     await mkTask('T-c50p', 'passed', mine[1].id); // in the administrator's own mission: the owner may not review it
     await call(admin, 'GET', '/tasks/:id', '/tasks/T-c50a');
     await call(admin, 'POST', '/tasks/:id/:action', '/tasks/T-c50a/retry', { body: {}, headers: key() });
-    await call(admin, 'POST', '/tasks/:id/:action', '/tasks/T-c50b/reassign', { body: { toInstanceId: mine[0].id, reason: 'balance' }, headers: key() });
+    await call(admin, 'POST', '/tasks/:id/:action', '/tasks/T-c50b/reassign', { body: { toInstanceId: mine[0].id, reason: 'balance', brief: { goal: 'Take over the task', acceptance: ['The result is attached'], capabilities: [{ kind: 'read' }], escalation: 'Ask the mission owner when unsure' } }, headers: key() });
     await call(admin, 'POST', '/tasks/:id/:action', '/tasks/T-c50c/cancel', { body: {}, headers: key() });
     expect(Array.isArray(tasksR.body)).toBe(true);
     expect(((await call(admin, 'GET', '/missions/:id/tasks', `/missions/${m1}/tasks`)).body as unknown[]).length, 'the task list now has rows to validate').toBeGreaterThan(2);
@@ -150,6 +150,8 @@ describe('API coverage run', () => {
     await call(admin, 'GET', '/tasks/:id/reviews', '/tasks/T-c50r/reviews');
     expect((await call(admin, 'GET', '/tasks/:id/reviews', '/tasks/T-c50p/reviews')).body.canReview.allowed).toBe(false);
     await call(admin, 'POST', '/tasks/:id/reviews', '/tasks/T-c50r/reviews', { status: 201, headers: key(), body: { verdict: 'accepted', rubric: [{ criterion: 'The output is attached', result: 'pass', note: 'seen' }], evidence: [{ kind: 'url', ref: 'https://example.com/report' }] } });
+    // c51: the task is attempted again after the review, so the stored review no longer counts: `stale` is filled in the next read
+    await t.pool.query(`insert into task_attempts(task_id, attempt_no, started_at) values ('T-c50r', 1, now())`);
     await call(admin, 'GET', '/tasks/:id/reviews', '/tasks/T-c50r/reviews');
 
     // ---- delegation briefs
