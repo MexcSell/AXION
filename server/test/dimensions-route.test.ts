@@ -62,11 +62,13 @@ describe('access and shape', () => {
     expect(b.dimensions.map((d: any) => d.key)).toEqual([...DIMENSION_KEYS]);
     expect(b.departments).toContain('Engineering');
     for (const c of cells(b)) {
-      if (c.value === null) expect(c.evidence.startsWith(`not enough evidence (n = ${c.n})`), c.key).toBe(true);
+      if (c.state === 'hidden') expect([c.n, c.evidence.startsWith('hidden for your role')], c.key).toEqual([null, true]);
+      else if (c.state === 'unmeasured') expect([c.n, c.evidence.startsWith('not measured')], c.key).toEqual([null, true]);
+      else if (c.value === null) expect(c.evidence.startsWith(`not enough evidence (n = ${c.n})`), c.key).toBe(true);
       else expect(c.n).toBeGreaterThanOrEqual(c.minN);
     }
     expect(cell(b, 'capability.playbook_items')).toMatchObject({ basis: 'snapshot' });
-    expect(cell(b, 'environmental.site_navigation')).toMatchObject({ value: null, n: 0 });
+    expect(cell(b, 'environmental.site_navigation')).toMatchObject({ value: null, n: null, state: 'unmeasured' });
     expect(Object.keys(b)).not.toContain('score');
   });
   it('7d and 90d are accepted and the department filter is echoed', async () => {
@@ -106,7 +108,9 @@ describe('visibility and exclusion on recorded rows', () => {
       await tag(`FT-P${i}`, 'P', `P${i}`, 'FM-1.4');
       await grant(`SG-P${i}`, 'P', adminId);
     }
-    expect(strip(await dims(M))).toBe(before);
+    const nowS = strip(await dims(M));
+    const diff = JSON.parse(nowS).flatMap((r: any[], i: number) => r.filter((c, j) => JSON.stringify(c) !== JSON.stringify(JSON.parse(before)[i][j])));
+    expect(diff).toEqual([]);
     for (const d of ['Engineering', 'QA']) expect(strip(await dims(M, `?department=${d}`))).toBe(beforeDept[d]);
   });
   it('the administrator sees those same rows', async () => {
@@ -117,12 +121,12 @@ describe('visibility and exclusion on recorded rows', () => {
     expect(cell(b, 'collective.briefed_delegations')).toMatchObject({ n: 6, value: 100 });
     expect(cell(b, 'collective.cross_family_reviews')).toMatchObject({ n: 10, value: 100 });
     expect(cell(b, 'capability.site_grants')).toMatchObject({ n: 6, value: 6 });
-    expect(cell(b, 'environmental.env_tagged')).toMatchObject({ n: 6, value: 100 }); // every P task has two attempts, so all six are retried and tagged
+    expect(cell(b, 'cognitive.context_loss')).toMatchObject({ n: 6, value: 100 }); // every P task has two attempts, so all six are retried and tagged
     expect(cell(b, 'capability.first_pass')).toMatchObject({ n: 10, value: 40 }); // S: 4 first-time passes; P: 3 retried passes and 3 failures
   });
   it('a member never gets site grant or lesson counts, whatever the rows say', async () => {
     const b = await dims(M);
-    for (const k of ['capability.site_grants', 'knowledge.lessons_proposed', 'knowledge.lessons_accepted', 'knowledge.lessons_rolled_back']) expect(cell(b, k)).toMatchObject({ value: null, n: 0, state: 'none' });
+    for (const k of ['capability.site_grants', 'knowledge.lessons_proposed', 'knowledge.lessons_accepted', 'knowledge.lessons_rolled_back']) expect(cell(b, k)).toMatchObject({ value: null, n: null, state: 'hidden' });
   });
   it('sharing the private mission makes its rows visible to the member (the same predicate as the scorecard)', async () => {
     await q(`update missions set shared = true where id='P'`);
@@ -156,7 +160,7 @@ describe('knowledge and evolution rows for administrators', () => {
     const a = await dims(A);
     expect(cell(a, 'knowledge.lessons_proposed')).toMatchObject({ value: 4, n: 4 });
     expect(cell(a, 'knowledge.lessons_accepted')).toMatchObject({ value: 100, n: 4 });
-    expect(cell(await dims(A, '?department=QA'), 'knowledge.lessons_proposed')).toMatchObject({ value: null, n: 0 });
+    expect(cell(await dims(A, '?department=QA'), 'knowledge.lessons_proposed')).toMatchObject({ value: null, n: 0, state: 'none' });
     expect(cell(await dims(A, '?department=Engineering'), 'knowledge.lessons_proposed').n).toBe(4);
     expect(cell(a, 'evolutionary.org_revisions').n).toBe(0); // only the seeded starting chart exists
   });

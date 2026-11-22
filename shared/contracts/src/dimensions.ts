@@ -20,8 +20,8 @@ export interface DimensionCell {
   /** null when n is below `minN` (state 'none'); rates are percentages 0..100 */
   value: number | null;
   unit: '%' | 'h' | 'count';
-  /** the sample size behind the value */
-  n: number;
+  /** the sample size behind the value; null when the cell is 'hidden' or 'unmeasured' (n is not 0 there, it is unknown to this reader) */
+  n: number | null;
   /** the smallest n that yields a value (3, or 5 for task outcomes as in agent reliability) */
   minN: number;
   /** how the cell is measured over time: 'window' = events inside [from, to]; 'snapshot' = state as of `to` */
@@ -30,7 +30,13 @@ export interface DimensionCell {
   to: string | null;
   /** one sentence naming the evidence; for state 'none' it starts with "not enough evidence (n = k)" */
   evidence: string;
-  state: 'ok' | 'none';
+  /** which rows the cell reads: 'missions' = missions you can see (simulated and DEMO excluded); 'company' = recorded company-wide, no per-mission visibility */
+  scope: 'missions' | 'company';
+  /**
+   * ok = a value; none = measured but n is below minN; hidden = exists, but not for this reader's role (evidence starts "hidden for your role");
+   * unmeasured = no source exists yet (evidence starts "not measured"). hidden and unmeasured always have value null, n null, trend null.
+   */
+  state: 'ok' | 'none' | 'hidden' | 'unmeasured';
   /** the same cell over the previous equal window (or snapshot date); value null when that side lacks evidence */
   previous: { value: number | null; n: number };
   /** 'up' | 'down' | 'flat' only when both sides have a value; otherwise null */

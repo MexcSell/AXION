@@ -78,15 +78,27 @@ try {
   check('every row has its own ? help button', (await Promise.all(KEYS.map((k) => p.locator(`[data-dimension="${k}"] [data-help-key="dimensions.${k}"]`).count()))).every((n) => n === 1));
   check('the department selector, the window switch and "reading a cell" each have a ?', (await Promise.all(['dimensions.department', 'dimensions.window', 'dimensions.cell', 'dimensions.panel'].map((k) => dlg(p).locator(`[data-help-key="${k}"]`).count()))).every((n) => n === 1));
 
-  const cellsDom = () => p.locator('[data-cell]').evaluateAll((els) => els.map((e) => ({ key: e.getAttribute('data-cell'), state: e.getAttribute('data-state'), value: e.getAttribute('data-value'), n: Number(e.getAttribute('data-n')), text: e.innerText })));
+  const cellsDom = () => p.locator('[data-cell]').evaluateAll((els) => els.map((e) => ({ key: e.getAttribute('data-cell'), state: e.getAttribute('data-state'), value: e.getAttribute('data-value'), n: e.getAttribute('data-n') === '' ? null : Number(e.getAttribute('data-n')), text: e.innerText, cls: e.className })));
   const dom = await cellsDom();
   check('the panel shows at least 15 cells', dom.length >= 15, `${dom.length}`);
-  check('every cell is a value with n and window, or "not enough evidence (n = k)"', dom.every((c) => (c.state === 'none' ? new RegExp(`not enough evidence \\(n = ${c.n}\\)`).test(c.text) : c.value !== '' && new RegExp(`n = ${c.n} · (7d|30d|90d|as of now)`).test(c.text))), JSON.stringify(dom.filter((c) => c.state === 'ok').map((c) => c.key)));
+  check('every cell is a value with n and window, "not enough evidence (n = k)", "hidden for your role" or "not measured until Stage 7"', dom.every((c) => (c.state === 'none' ? new RegExp(`not enough evidence \\(n = ${c.n}\\)`).test(c.text) : c.state === 'hidden' ? /hidden for your role/.test(c.text) && c.n === null : c.state === 'unmeasured' ? /not measured/.test(c.text) && c.n === null : c.value !== '' && new RegExp(`n = ${c.n}`).test(c.text) && /(7d|30d|90d|as of now)/.test(c.text))), JSON.stringify(dom.filter((c) => c.state === 'ok').map((c) => c.key)));
+  check('no cell face says "n = 0" unless it was measured and empty (hidden and unmeasured show no n)', dom.every((c) => c.state === 'none' || c.state === 'ok' || !/n = /.test(c.text)));
   const seen = dom.find((c) => c.key === 'cognitive.first_attempt_verified');
   check('the seeded rows give a real value: 4 reviewed first-attempt tasks, all verified (100%, n = 4)', seen?.state === 'ok' && seen.value === '100' && seen.n === 4, JSON.stringify(seen));
   const rowsText = await p.locator('.dim-rows').innerText();
   check('no total, score or overall number anywhere in the rows', !/\b(score|overall|composite|total|average)\b/i.test(rowsText));
-  check('the not-measured cells say so (Stage 7)', (await p.locator('[data-cell="environmental.site_navigation"]').innerText()).includes('not enough evidence (n = 0)'));
+  check('Environmental holds exactly its two unmeasured cells, each saying "not measured until Stage 7 (browser execution)" on its face',
+    JSON.stringify(dom.filter((c) => c.key.startsWith('environmental.')).map((c) => [c.key, c.state, c.n])) === JSON.stringify([['environmental.site_navigation', 'unmeasured', null], ['environmental.model_availability', 'unmeasured', null]])
+    && (await p.locator('[data-cell="environmental.site_navigation"]').innerText()).includes('not measured until Stage 7 (browser execution)'));
+  check('the context-loss cell is under Cognitive, honestly named', !!(await p.locator('[data-dimension="cognitive"] [data-cell="cognitive.context_loss"]').count()) && (await p.locator('[data-cell="cognitive.context_loss"]').innerText()).includes('Context-loss failures (FM-1.4, FM-2.1)'));
+  const lay = await p.locator('[data-state="ok"] .dim-cv').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height));
+  check('the value, n and trend arrow stay on one line in every cell', lay.length > 0 && lay.every((h) => h < 30), JSON.stringify(lay));
+  const sizes = await p.evaluate(() => { const b = document.querySelector('[data-state="ok"].low .dim-cv b'); return b ? parseFloat(getComputedStyle(b).fontSize) : null; });
+  check('a small-n value (n < 10) is drawn small (15px, not the 19px of a large sample)', sizes !== null && sizes <= 16, `${sizes}`);
+  await p.locator('[data-cell="cognitive.first_attempt_verified"]').click();
+  check('a click on a cell shows its evidence sentence and scope in the line under the rows (reachable without hover)', await until(async () => { const t = await p.locator('[data-evidence="cognitive.first_attempt_verified"]').innerText(); return /accepted review with evidence/.test(t) && /missions you can see/.test(t); }, 5000));
+  await p.locator('[data-cell="evolutionary.promotions"]').click();
+  check('a company-wide cell says so, not "missions you can see"', await until(async () => /recorded company-wide/.test(await p.locator('[data-evidence="evolutionary.promotions"]').innerText()), 5000));
 
   // server agrees with the DOM
   const srv = (await apiGet(p, '/company/dimensions?window=30d')).body;
@@ -123,7 +135,7 @@ try {
     await dlg(p).locator(`[data-help-key="${k}"]`).click();
     const ok = await until(async () => (await p.locator('.help-pop').count()) === 1 && (await p.locator('.help-pop').innerText()).length > 80, 6000);
     const txt = ok ? await p.locator('.help-pop').innerText() : '';
-    if (ok && (k.startsWith('dimensions.') && KEYS.some((x) => k === `dimensions.${x}`) ? /not enough evidence/.test(txt) : true)) helpOk++;
+    if (ok && (KEYS.some((x) => k === `dimensions.${x}`) ? (k === 'dimensions.environmental' ? /not measured until Stage 7/ : /not enough evidence/).test(txt) : true)) helpOk++;
     await p.keyboard.press('Escape');
     await until(async () => (await p.locator('.help-pop').count()) === 0, 4000);
     if (!(await dlg(p).count())) await p.locator('[data-six-dimensions]').first().click(); // Escape closed the dialog too: reopen
@@ -151,9 +163,11 @@ try {
   await mem.p.locator('[data-six-dimensions]').first().click();
   check('a member opens the panel too', await until(async () => (await ready(mem.p).count()) === 1, 15000));
   await calm(mem.p);
-  const md = await mem.p.locator('[data-cell]').evaluateAll((els) => els.map((e) => ({ key: e.getAttribute('data-cell'), state: e.getAttribute('data-state'), n: Number(e.getAttribute('data-n')), text: e.innerText })));
+  const md = await mem.p.locator('[data-cell]').evaluateAll((els) => els.map((e) => ({ key: e.getAttribute('data-cell'), state: e.getAttribute('data-state'), n: e.getAttribute('data-n') === '' ? null : Number(e.getAttribute('data-n')), text: e.innerText })));
   const adminOnly = ['capability.site_grants', 'knowledge.lessons_proposed', 'knowledge.lessons_accepted', 'knowledge.lessons_rolled_back'];
-  check('administrator-only cells say "not enough evidence (n = 0)" for a member', adminOnly.every((k) => { const c = md.find((x) => x.key === k); return c && c.state === 'none' && c.n === 0 && /not enough evidence \(n = 0\)/.test(c.text); }));
+  check('administrator-only cells are state "hidden" with no n and say "hidden for your role" on their face (never "n = 0")', adminOnly.every((k) => { const c = md.find((x) => x.key === k); return c && c.state === 'hidden' && c.n === null && /hidden for your role/.test(c.text) && !/n = 0/.test(c.text); }));
+  const mu = md.filter((c) => c.key.startsWith('environmental.'));
+  check('a member sees the same two unmeasured Environmental cells', mu.length === 2 && mu.every((c) => c.state === 'unmeasured' && c.n === null && /not measured until Stage 7/.test(c.text)));
   const seenM = md.find((c) => c.key === 'cognitive.first_attempt_verified');
   check('the member sees the shared mission\'s values (same as the admin)', seenM?.n === 4 && seenM.state === 'ok');
   const msrv = (await apiGet(mem.p, '/company/dimensions?department=Engineering')).body;
