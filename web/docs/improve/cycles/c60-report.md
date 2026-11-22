@@ -53,7 +53,7 @@ Smoke of the real CLI: `npm run export:otlp` on the e2e database after the brows
 | `api-stage6.mjs` | PASS | 94/94 on its own run. In the combined run it stopped at 40/41 with `TypeError: Cannot read properties of undefined (reading 'csrf')` (`/me` returned no `me` while the machine was short of connections); the immediate rerun alone passed 94/94, so I record it as a load flake, not a fix |
 | `api-improve.mjs` | PASS | 107/107 |
 | `api-c60.mjs` (new) | PASS | 10/10 |
-| a11y (the UI changed) | PASS | `a11y-check.mjs` in api mode: 41 views, 65 dialogs, 0 violations (209 s, load about 10). Its `probe ... fail []` lines are informational and pre-date this work. The new markup only exists when an attribution exists, which that script never creates; `api-c60.mjs` checks it in the browser (icons `aria-hidden`, text content) |
+| a11y (the UI changed) | PASS | `a11y-check.mjs` in api mode: 41 views, 65 dialogs, 0 violations (209 s, load about 10). Its `probe ... fail []` lines (pages of a mission id the api seed does not have) did not fail the run (exit 0); I did not check whether they pre-date this work. The new markup only exists when an attribution exists, which that script never creates; `api-c60.mjs` checks it in the browser (icons `aria-hidden`, text content) |
 
 ## Files changed
 - new: `server/migrations/0045_failure_attributions.{up,down}.sql`, `server/src/otel/{pinned,mapping,export,cli,write-mapping-doc}.ts`, `server/src/cli/otlp-export.ts`, `server/test/{failure-attribution,otel-mapping,otel-export}.test.ts`, `web/scripts/api-c60.mjs`, `web/docs/improve/phase2/otel-mapping.md`, `web/docs/improve/phase2/otel-spec-v0.1.0/{SOURCE.md,gen-ai-agent-spans.md,execute-tool.md}`, this report.
