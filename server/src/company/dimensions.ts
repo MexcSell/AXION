@@ -258,7 +258,7 @@ const SPECS: { dim: DimensionKey; spec: Spec; measure: Measurer | typeof UNMEASU
     // c54: recomputed from stored runs at read time (verdictV2, the same call the proposal card uses); the count is evaluated proposals, never a score
     const vs = input.verdicts.filter((v) => c.agentIn(v.agentId) && c.inWin(v.at));
     const by = (o: string) => vs.filter((v) => v.outcome === o).length;
-    return count(vs.length, `${by('verified_better')} verified better, ${by('inconclusive')} inconclusive, ${by('worse')} worse: ${plural(vs.length, 'proposal')} with a finished evaluation run in the window, outcomes recomputed from the stored runs`, `${plural(vs.length, 'evaluated proposal')}`);
+    return count(vs.length, `${by('verified_better')} verified better, ${by('inconclusive')} inconclusive, ${by('worse')} worse: ${plural(vs.length, 'proposal')}, each placed by its newest finished run in the window; verdicts are recomputed from the stored runs, current, not as of the window end`, `${plural(vs.length, 'evaluated proposal')}`);
   } },
   { dim: 'evolutionary', spec: { key: 'evolutionary.org_revisions', label: 'Org revisions applied', unit: 'count', minN: MIN_N, scope: 'company' }, measure: (input, c) => {
     const first = input.orgRevisions.reduce((m, r) => Math.min(m, r.seq), Infinity); // the first revision is the starting chart, not an applied change

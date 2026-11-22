@@ -56,6 +56,8 @@ describe('evolutionary.verdict_outcomes from stored runs', () => {
       expect(c).toMatchObject({ state: 'ok', value: 3, n: 3, basis: 'window', unit: 'count', minN: 3, scope: 'company' });
       expect(c.evidence).toContain('1 verified better, 1 inconclusive, 1 worse');
       expect(c.evidence).toMatch(/recomputed|stored/);
+      expect(c.evidence).toContain('newest finished run');
+      expect(c.evidence).toContain('current, not as of the window end');
     }
   });
   it('writes nothing: no eval_runs, results or proposals changed by reading', async () => {
