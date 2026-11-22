@@ -28,6 +28,8 @@ export function modelFamily(model: string): string {
  * prompts is caught. The datasets are linked when at least max(MIN_REUSE_OVERLAP, min(10% of the holdout, REUSE_OVERLAP_CAP))
  * inputs are shared (capped at the holdout's size), so a leak of 9 cases in a 100-case holdout still counts. Case ids are not compared.
  */
+/** c70 (E1d): the repeat exemption covers SHORT inputs only (canonical JSON text shorter than this). A long input repeated on either side is a real input, so duplicating long inputs cannot hide a leak. */
+export const REPEAT_EXEMPT_MAX_LEN = 20;
 export const MIN_REUSE_OVERLAP = 2;
 export const REUSE_OVERLAP_SHARE = 0.1;
 export const REUSE_OVERLAP_CAP = 5;
@@ -116,7 +118,9 @@ export async function loadEvaluations(c: Tx, tenantId: string, proposals: Eviden
        from unnest($2::text[], $3::text[]) as u(pid, ds)
        join agent_version_proposals me on me.id = u.pid
        join agent_version_proposals q on q.agent_id = me.agent_id and eval_canon_config(q.candidate) = eval_canon_config(me.candidate)
-       join eval_runs r on r.subject_proposal_id = q.id and r.dataset_id = u.ds and r.tenant_id = $1
+       join eval_datasets d1 on d1.id = u.ds
+       join eval_datasets d2 on d2.tenant_id = d1.tenant_id and d2.split = d1.split and d2.content_sha256 = d1.content_sha256
+       join eval_runs r on r.subject_proposal_id = q.id and r.dataset_id = d2.id and r.tenant_id = $1
       group by u.pid`, [tenantId, pids, dsIds])).rows.map((r) => [r.pid as string, Number(r.n)] as const));
   const bases = new Map((await c.query(
     `select distinct on (u.pid) u.pid, r.id, r.k, r.judge_model_family, r.evaluator_id, r.grader_name, r.grader_version
@@ -136,11 +140,11 @@ export async function loadEvaluations(c: Tx, tenantId: string, proposals: Eviden
       const o = (await c.query(
         `with h as (select input, count(*) n from eval_cases where dataset_id=$1 group by input),
               d as (select input, max(n) n from (select input, count(*) n from eval_cases where dataset_id = any($2) group by dataset_id, input) x group by input)
-         select (select count(*) from h join d using (input) where h.n = 1 and d.n = 1)::int as shared, (select count(*) from eval_cases where dataset_id=$1)::int as total`,
+         select (select count(*) from h join d using (input) where (h.n = 1 and d.n = 1) or length(input::text) >= ${REPEAT_EXEMPT_MAX_LEN})::int as shared, (select count(*) from eval_cases where dataset_id=$1)::int as total`,
         [cand.dataset_id, devIds])).rows[0] as { shared: number; total: number };
       if (o.total && o.shared >= Math.min(o.total, Math.max(MIN_REUSE_OVERLAP, Math.min(REUSE_OVERLAP_CAP, Math.ceil(o.total * REUSE_OVERLAP_SHARE))))) tuned.push(cand.dataset_id);
     }
-    // c53: runs of ANY proposal with the same agent and candidate config on this dataset count (withdraw and re-propose buys nothing)
+    // c53/c70: runs of ANY proposal with the same agent and candidate config on this dataset count (withdraw and re-propose buys nothing)
     const runCount = runCounts.get(p.id) ?? 0;
     const holdoutSets = new Set(mine.filter((r) => r.split === 'holdout').map((r) => r.dataset_id));
     const base = bases.get(p.id);

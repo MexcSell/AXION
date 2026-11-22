@@ -81,7 +81,7 @@ export class HoldoutRerunError extends Error {
 }
 export function mapRunInsertError(e: unknown): unknown {
   const x = e as { code?: string; constraint?: string };
-  return x?.code === '23505' && x.constraint === 'eval_runs_holdout_once' ? new HoldoutRerunError() : e;
+  return x?.code === '23505' && (x.constraint === 'eval_runs_holdout_once' || x.constraint === 'eval_runs_holdout_content_once') ? new HoldoutRerunError() : e;
 }
 
 /**
