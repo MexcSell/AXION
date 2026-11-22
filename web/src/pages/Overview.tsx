@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Activity, Briefcase, HeartPulse, Gauge, Plus, Rocket, Dna, FileBarChart, ClipboardList, Users, Search, Pause, Play, RefreshCw,
   Server, Database, Cpu, Globe, Brain, Radio, Layers, CheckCircle2, ArrowRight, ArrowUpDown, GitBranch, MessageSquare, FileText, ShieldCheck,
-  AlertTriangle, Clock3, ChevronLeft, ChevronRight, Sparkles, Zap, Check, X, Stethoscope, Lock, ClipboardCheck, Flag, Eye, Landmark,
+  AlertTriangle, Clock3, BellRing, ChevronLeft, ChevronRight, Sparkles, Zap, Check, X, Stethoscope, Lock, ClipboardCheck, Flag, Eye, Landmark,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useCompanyKpis, CompanyHealth, CompanyScorecard } from '@/components/layout/CommandCenter';
@@ -27,6 +27,7 @@ import { useTab } from '@/hooks/useTab';
 import { useFitCount, useHeight } from '@/hooks/useFit';
 import { useData, allApprovals, useVisibleMissions } from '@/store/data';
 import { GateNote, useGate } from '@/features/approvals/ApprovalBinding';
+import { NeedsYou } from '@/features/attention/NeedsYou';
 import { openDialog, toast } from '@/store/ui';
 import { ago, cx } from '@/lib/format';
 import '@/theme/pages/overview-org-agent.css';
@@ -37,17 +38,18 @@ const ApiDemo = () => (isApi() ? <DemoTag title="Prototype data: not measured fr
 
 export default function OverviewPage() {
   const [tab, setTab, tabs] = useTab('overview');
-  const ICONS = [Gauge, Briefcase, Activity, HeartPulse];
+  const ICONS = [Gauge, BellRing, Briefcase, Activity, HeartPulse];
   const kpis = useCompanyKpis();
   return (
     <div className="page ov-page">
       <TopBoard icon={Landmark} title="Company Command Center" help="overview.tabs" sub="Run, build, verify, evolve, and grow your AI company."
         actions={<>{!isApi() && <><span className="dim oa-hide-sm" style={{ fontSize: 12 }}>Period</span><PeriodSelect /></>}<button className="btn primary" onClick={() => openDialog('mission-create')}><Plus size={16} />New Mission</button></>}
-        kpis={kpis} aside={isApi() ? <CompanyScorecard /> : <CompanyHealth />}
+        kpis={kpis} aside={tab === 'Needs you' ? undefined : isApi() ? <CompanyScorecard /> : <CompanyHealth />}
         tabs={{ tabs, value: tab, onChange: setTab, icons: ICONS, ariaLabel: 'Overview views' }}
-        toolbar={<span>{{ Pulse: 'Live agents, mission pipeline and what needs you.', Portfolio: 'Every mission by stage, value and risk.', Activity: 'Company-wide event stream.', Health: 'Services, models and dependencies.' }[tab]}</span>} />
+        toolbar={<span>{{ Pulse: 'Live agents, mission pipeline and what needs you.', 'Needs you': 'One ranked list of what needs a person now, with the reason for each.', Portfolio: 'Every mission by stage, value and risk.', Activity: 'Company-wide event stream.', Health: 'Services, models and dependencies.' }[tab]}</span>} />
       <FrameBody tab={tab} panel={false} className="col fb-gap ov-body">
         {tab === 'Pulse' && <Pulse />}
+        {tab === 'Needs you' && <NeedsYou />}
         {tab === 'Portfolio' && <Portfolio />}
         {tab === 'Activity' && <ActivityStream />}
         {tab === 'Health' && <Health />}

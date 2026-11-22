@@ -29,7 +29,7 @@ export const NAV: NavItem[] = [
 
 /** Tabs per route (spec §2) — pages read these so the command palette can deep-link every tab. */
 export const ROUTE_TABS: Record<string, string[]> = {
-  overview: ['Pulse', 'Portfolio', 'Activity', 'Health'],
+  overview: ['Pulse', 'Needs you', 'Portfolio', 'Activity', 'Health'],
   /** Missions = list + Mission Control workspace merged into one page: these are the workspace tabs (?tab=). */
   missions: ['Overview', 'Activity', 'Hierarchy', 'Task Flow', 'Browser', 'Conversations', 'Results', 'Approvals', 'Reports', 'Timeline', 'Ledger'],
   /** Agents + former Organization page merged (owner 2026-11-20). Directory has List / Cards / Hierarchy views (?view=). */

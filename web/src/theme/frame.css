@@ -25,6 +25,7 @@
 
 .tb-tabs { display: flex; align-items: center; gap: 10px; min-width: 0; padding-top: 2px; }
 .tb-tabs > .tabs { overflow-x: auto; max-width: 100%; scrollbar-width: none; flex: none; }
+.tb-tabs > .tabs > .tab { flex: none; } /* c68: a fifth tab scrolls (the strip fades its clipped edge) instead of squeezing the labels over their icons */
 .tb-tabs > .spacer { display: none; }
 .tb-toolbar { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 8px; justify-content: flex-end; color: var(--text-muted); font-size: 12.5px; }
 .tb-toolbar > span:only-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }

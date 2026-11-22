@@ -24,40 +24,42 @@ export interface AttentionReasonDef {
   code: AttentionReasonCode; kind: AttentionKind; icon: AttentionIcon;
   /** short plain-words name of the reason (a row chip) */
   label: string;
+  /** two or three words for a crowded row */
+  short: string;
   /** the `?` help: what it means, where it comes from, what the person can do. No claim about safety or error rates. */
   what: string; source: string; action: string;
 }
 
 export const ATTENTION_REASONS: readonly AttentionReasonDef[] = Object.freeze([
-  { code: 'approval_pending', kind: 'approval', icon: 'shield-check', label: 'Approval waiting',
+  { code: 'approval_pending', kind: 'approval', icon: 'shield-check', label: 'Approval waiting', short: 'Approval',
     what: 'An agent asked for permission and nobody has decided yet. The request carries a risk tier from the policy table and an expiry time.',
     source: 'The approval request, its tier and its expiry as stored. Same list as Notifications, Pending.',
     action: 'Open the request, check that the bound digest matches the action, then approve or deny. R3 and R4 can only be decided by an administrator, and never by whoever asked.' },
-  { code: 'review_stale', kind: 'task_review', icon: 'clipboard-check', label: 'Review out of date',
+  { code: 'review_stale', kind: 'task_review', icon: 'clipboard-check', label: 'Review out of date', short: 'Stale review',
     what: 'A task was reviewed, then the agent made another attempt. The old review judged an earlier attempt, so it no longer counts as verification for the task.',
     source: 'The latest stored review of the task compared with the task\'s latest attempt (the c51 freshness rule).',
     action: 'Open the task and review the latest attempt. A new review replaces the stale one.' },
-  { code: 'task_waiting_person', kind: 'task_waiting', icon: 'hourglass', label: 'Task waiting on you',
+  { code: 'task_waiting_person', kind: 'task_waiting', icon: 'hourglass', label: 'Task waiting on you', short: 'Waiting',
     what: 'A task has been in the state "waiting for a person" for longer than the expected time. The expected time is a fixed default of 24 hours.',
     source: 'The task state and the time of its last change to that state. Without a stored change time, the task\'s creation time is used and the evidence says so.',
     action: 'Open the task and answer, reassign it with a brief, or cancel it.' },
-  { code: 'failure_no_detection', kind: 'failure', icon: 'siren', label: 'Failure, no detection recorded',
+  { code: 'failure_no_detection', kind: 'failure', icon: 'siren', label: 'Failure, no detection recorded', short: 'No detection',
     what: 'A failure was confirmed, but nobody recorded how it was noticed (a test, an audit, a person looking, another agent, or reported later).',
     source: 'Confirmed failure tags of the last 30 days whose subject has no confirmed tag with a detection channel.',
     action: 'Tag the same task again with the detection channel. Without one, it stays unknown which control should have caught it.' },
-  { code: 'org_proposal_expiring', kind: 'proposal', icon: 'git-pull-request', label: 'Org proposal expiring',
+  { code: 'org_proposal_expiring', kind: 'proposal', icon: 'git-pull-request', label: 'Org proposal expiring', short: 'Org proposal',
     what: 'A proposed change to reporting lines is still waiting and will expire within 48 hours. An expired proposal cannot be decided; it must be made again.',
     source: 'The organisation proposal, its expiry time and the revision it was made on.',
     action: 'An administrator other than the author approves or rejects it. The author can withdraw it.' },
-  { code: 'version_proposal_expiring', kind: 'proposal', icon: 'git-pull-request', label: 'Version proposal expiring',
+  { code: 'version_proposal_expiring', kind: 'proposal', icon: 'git-pull-request', label: 'Version proposal expiring', short: 'Version',
     what: 'A proposed new agent version is still waiting and will expire within 48 hours.',
     source: 'The agent version proposal, its expiry time and the version it was made against.',
     action: 'An administrator other than the author promotes or rejects it. The author can withdraw it.' },
-  { code: 'lesson_awaiting_review', kind: 'lesson', icon: 'lightbulb', label: 'Lesson awaiting review',
+  { code: 'lesson_awaiting_review', kind: 'lesson', icon: 'lightbulb', label: 'Lesson awaiting review', short: 'Lesson',
     what: 'A candidate lesson for an agent\'s playbook has not been accepted or rejected. A candidate never becomes active without a person accepting it.',
     source: 'The lesson candidate with its sources, status "proposed".',
     action: 'An administrator other than the proposer reads the sources and accepts or rejects it.' },
-  { code: 'lesson_system_derived', kind: 'lesson', icon: 'lightbulb', label: 'System-derived lesson',
+  { code: 'lesson_system_derived', kind: 'lesson', icon: 'lightbulb', label: 'System-derived lesson', short: 'System lesson',
     what: 'The system opened this candidate after the same failure mode recurred in several departments. It was derived from stored failure tags, not written by a person.',
     source: 'The candidate and the failure pattern record (c63) that opened it.',
     action: 'Read the failures behind it. Accepting is always a person\'s decision.' },
