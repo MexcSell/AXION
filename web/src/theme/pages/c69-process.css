@@ -2,7 +2,7 @@
 .proc-wrap { display: flex; flex-direction: column; gap: 8px; }
 .proc-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
 .proc-li { min-width: 0; display: flex; }
-.proc-card { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; padding: 9px 11px 10px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); }
+.proc-card { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 8px 11px 8px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); }
 .proc-ch { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .proc-ico { color: var(--accent-2); flex: none; }
 .proc-cl { flex: 1 1 auto; min-width: 0; font-size: 12.5px; font-weight: 700; line-height: 1.15; }
@@ -30,4 +30,5 @@
 .proc-cv { outline: none; }
 .proc-note { font-size: 11px; margin: 0; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 1100px) { .proc-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@media (max-width: 720px) { .proc-grid { grid-template-columns: 1fr; } .proc-blank { flex-direction: column; } .proc-note { white-space: normal; } }
+@media (max-width: 720px) { .proc-grid { grid-template-columns: 1fr; } .proc-blank { flex-direction: column; } .dim-note.proc-note { white-space: normal; height: auto; overflow: visible; } }
+.proc-causes li.proc-cause-h { background: none; border: none; padding: 1px 0; color: var(--text-muted); font-style: italic; }

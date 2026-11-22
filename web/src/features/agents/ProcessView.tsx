@@ -50,7 +50,7 @@ function Card({ c, w, i, g, demo }: { c: ProcessCell; w: ProcessWindow; i: numbe
         : <div className="proc-cv proc-none">{c.state === 'unmeasured' && <Hourglass size={12} aria-hidden />}{c.state === 'none' ? `not enough evidence (n = ${c.n})` : c.evidence}</div>}
       <div className="proc-meta tnum">{demo ? 'SAMPLE · ' : ''}{c.state === 'unmeasured' ? 'no source' : WIN[w]}{c.state === 'none' && c.minN ? ` · needs ${c.minN}` : ''}</div>
       {c.open && <div className={cx('proc-open', c.open.n === 0 && 'zero')} data-open-line={c.open.n}><b className="tnum">{c.open.n} open</b> · {c.open.what}; not in the rate</div>}
-      {c.breakdown.length > 0 && <ul className="proc-causes" aria-label="Causes of the returns, with n" data-causes={c.breakdown.length}>{c.breakdown.map((b) => <li key={b.label} data-cause={b.label}>{b.label}<b className="tnum">{b.n}</b></li>)}</ul>}
+      {c.breakdown.length > 0 && <ul className="proc-causes" aria-label="Failure tags on the returned tasks, with n" data-causes={c.breakdown.length}><li className="proc-cause-h" aria-hidden>failure tags:</li>{c.breakdown.map((b) => <li key={b.label} data-cause={b.label}>{b.label}<b className="tnum">{b.n}</b></li>)}</ul>}
     </motion.article>
   );
 }

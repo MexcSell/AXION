@@ -7,7 +7,7 @@ import { MIN_N, trendOf } from './scorecard.ts';
  *
  * - Return-for-rework rate: among tasks whose FIRST review decision falls in the window, the share returned (changes requested or rejected)
  *   on it. The cause of each return is a confirmed failure tag mode known at the window end (one mode; "several failure modes" when
- *   there are more), else "a criterion failed (no failure tag)" when the review marked a rubric criterion failed, else "no recorded cause".
+ *   there are more), else "criterion failed, no tag" when the review marked a rubric criterion failed, else "no recorded cause".
  *   Open tasks (finished or verifying, no review yet as of the end) are reported beside it and are never in the denominator.
  * - First-pass acceptance: among tasks with at least one review in the window, the share whose FIRST review ever is accepted, was written against
  *   attempt 1, and is not stale (c51 freshness: a later attempt exists, so the acceptance no longer stands). A task accepted only after a return is not first-pass.
@@ -82,7 +82,7 @@ const SPECS: Spec[] = [
     const causes = new Map<string, number>();
     for (const r of returned) {
       const m = modes.get(r.taskId);
-      const cause = m && m.size === 1 ? [...m][0] : m && m.size > 1 ? 'several failure modes' : r.failedCriteria > 0 ? 'a criterion failed (no failure tag)' : 'no recorded cause';
+      const cause = m && m.size === 1 ? [...m][0] : m && m.size > 1 ? 'several failure modes' : r.failedCriteria > 0 ? 'criterion failed, no tag' : 'no recorded cause';
       causes.set(cause, (causes.get(cause) ?? 0) + 1);
     }
     const breakdown = [...causes].map(([label, n]) => ({ label, n })).sort((a, b) => b.n - a.n || (a.label < b.label ? -1 : 1));

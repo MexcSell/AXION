@@ -80,7 +80,7 @@ describe('return-for-rework rate (hand-computed)', () => {
   it('whole company', () => {
     const c = cell(run(reviewFixture()), 'rework_rate');
     expect(c).toMatchObject({ value: 57.1, n: 7, unit: '%', state: 'ok', open: { n: 2 } });
-    expect(c.breakdown).toEqual([{ label: 'FM-1.1', n: 1 }, { label: 'a criterion failed (no failure tag)', n: 1 }, { label: 'no recorded cause', n: 1 }, { label: 'several failure modes', n: 1 }]);
+    expect(c.breakdown).toEqual([{ label: 'FM-1.1', n: 1 }, { label: 'criterion failed, no tag', n: 1 }, { label: 'no recorded cause', n: 1 }, { label: 'several failure modes', n: 1 }]);
     expect(c.breakdown.reduce((s, b) => s + b.n, 0)).toBe(4);
     expect(c.evidence).toContain('4 of 7');
     expect(c.evidence).toContain('2 ');

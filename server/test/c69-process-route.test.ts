@@ -91,7 +91,7 @@ describe('exact values from real rows, DB time, visibility', () => {
   it('a member sees only the shared mission: 4 tasks, 2 returned = 50, open 1; the cause breakdown is a failed criterion and no recorded cause', async () => {
     const b = await proc(M);
     expect(cell(b, 'rework_rate')).toMatchObject({ value: 50, n: 4, state: 'ok', open: { n: 1 } });
-    expect(cell(b, 'rework_rate').breakdown).toEqual([{ label: 'a criterion failed (no failure tag)', n: 1 }, { label: 'no recorded cause', n: 1 }]);
+    expect(cell(b, 'rework_rate').breakdown).toEqual([{ label: 'criterion failed, no tag', n: 1 }, { label: 'no recorded cause', n: 1 }]);
     expect(cell(b, 'first_pass_acceptance')).toMatchObject({ value: 50, n: 4, open: { n: 1 } });
   });
   it('the administrator sees the private mission too (3 more rejected tasks: 2 + 3 = 5 of 7 = 71.4); DEMO and simulated rows are never counted for anyone', async () => {
