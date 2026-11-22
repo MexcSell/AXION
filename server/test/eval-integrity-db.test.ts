@@ -397,3 +397,20 @@ describe('F1: the holdout key comes from the canonical config, not from the sha 
   it('a different config is still its own key', async () => { await run('F1-R5', 'H-F1', { proposal: 'F1-E' }); });
 });
 
+describe('F2: a proposal\'s key fields cannot change once it exists', () => {
+  it.each([
+    ['candidate_sha', `candidate_sha = 'fresh'`], ['candidate', `candidate = '{"model":"x","skills":[],"tools":[]}'::jsonb`], ['agent_id', `agent_id = 'a-2'`],
+    ['tenant_id', `tenant_id = 't-2'`], ['base_sha', `base_sha = 'zz'`],
+  ])('%s is immutable, so a second run cannot be bought by editing it', async (_n, set) => {
+    await makeDataset(s.pool, { id: 'H-F2' + _n, split: 'holdout', cases: 3 });
+    await prop('F2-' + _n, 'a-1', v1, 'f2-' + _n);
+    await run('F2R-' + _n, 'H-F2' + _n, { proposal: 'F2-' + _n });
+    await expect(q(`update agent_version_proposals set ${set} where id='F2-${_n}'`)).rejects.toThrow(/immutable/);
+    await expect(run('F2R2-' + _n, 'H-F2' + _n, { proposal: 'F2-' + _n })).rejects.toThrow(/holdout_rerun/);
+  });
+  it('base_version_id is immutable too', async () => { await expect(q(`update agent_version_proposals set base_version_id = $1 where id='F2-candidate_sha'`, [v2])).rejects.toThrow(/immutable/); });
+  it('status and the decision fields can still change', async () => {
+    await q(`update agent_version_proposals set status='withdrawn', decided_by='u', decided_at=now(), note='n' where id='F2-candidate_sha'`);
+  });
+});
+

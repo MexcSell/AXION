@@ -130,3 +130,14 @@ begin
   end if;
   return false;
 end $$;
+
+-- F2. a proposal's identity (what its holdout slot is keyed on) cannot change once it exists: status and decision fields still can
+create function agent_version_proposals_identity() returns trigger language plpgsql as $$
+begin
+  if (new.tenant_id, new.agent_id, new.base_version_id, new.base_sha, new.candidate, new.candidate_sha)
+     is distinct from (old.tenant_id, old.agent_id, old.base_version_id, old.base_sha, old.candidate, old.candidate_sha) then
+    raise exception 'agent_version_proposals: tenant, agent, base and candidate are immutable (proposal %)', old.id;
+  end if;
+  return new;
+end $$;
+create trigger agent_version_proposals_identity before update on agent_version_proposals for each row execute function agent_version_proposals_identity();

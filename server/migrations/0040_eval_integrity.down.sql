@@ -47,3 +47,5 @@ begin
   return false;
 end $$;
 drop function eval_canon_config(jsonb);
+drop trigger agent_version_proposals_identity on agent_version_proposals;
+drop function agent_version_proposals_identity();
