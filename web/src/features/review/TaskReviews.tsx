@@ -46,6 +46,7 @@ export function ReviewList({ rv }: { rv: ReviewsRead }) {
           <li key={r.id} className="rv-item" data-verdict={r.verdict}>
             <div className="row" style={{ gap: 6 }}>
               <VerdictChip v={r.verdict} size="sm" />
+              {r.stale && <Chip hue={40} size="sm" title="The task was retried after this review, so it no longer counts as verification"><span data-testid="stale-review">stale (before attempt {r.stale.beforeAttempt})</span></Chip>}
               {r.reviewer.kind === 'agent' ? <Bot size={13} aria-hidden /> : <UserRound size={13} aria-hidden />}
               <b className="ellipsis" style={{ fontSize: 12.5 }}>{r.reviewer.name}</b>
               {r.reviewer.modelFamily && <Chip hue={205} size="sm" title="Model family of the reviewer">{r.reviewer.modelFamily}</Chip>}

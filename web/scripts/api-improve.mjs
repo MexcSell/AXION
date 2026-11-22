@@ -520,7 +520,7 @@ try {
   const toInst = ((await apiA('GET', '/missions/M-125/hierarchy')).body.nodes ?? []).find((n) => n.agentId === 'coder-01' && n.agentId !== fromAgent)?.instanceId;
   const before = await relOfApi(apiA, fromAgent, '?includeSimulated=1');
   const reads0 = agentReads;
-  const re = await apiA('POST', `/tasks/${demoTask.id}/reassign`, { toInstanceId: toInst }, { 'idempotency-key': `c03-re-${Date.now()}` });
+  const re = await apiA('POST', `/tasks/${demoTask.id}/reassign`, { toInstanceId: toInst, brief: { goal: 'Take over the task', acceptance: ['The result is attached'], capabilities: [{ kind: 'read' }], escalation: 'Ask the mission owner when unsure' } }, { 'idempotency-key': `c03-re-${Date.now()}` });
   check(`c03 user action: reassign DEMO task ${demoTask?.id} (failed) from ${fromAgent} to Coder-01`, re.status === 200, `status ${re.status}`);
   check('c03 live: the open profile re-reads the agents after task.delegated (no reload)', await until(async () => agentReads > reads0, 6000) && (await A.p.evaluate(() => window.__noReload)) === 'c03', `${agentReads - reads0} reads`);
   const after = await relOfApi(apiA, fromAgent, '?includeSimulated=1');
@@ -577,7 +577,7 @@ try {
   // user action: the GM's failed task R6 is reassigned to the executor. Fix round I2: the failure stays the GM's; the executor gets none
   await A.p.evaluate(() => { window.__noReload = 'c03b'; });
   const readsR6 = agentReads;
-  const re6 = await apiA('POST', `/tasks/T-${mR.id}-R6/reassign`, { toInstanceId: exec.instanceId }, { 'idempotency-key': `c03-re6-${Date.now()}` });
+  const re6 = await apiA('POST', `/tasks/T-${mR.id}-R6/reassign`, { toInstanceId: exec.instanceId, brief: { goal: 'Take over the task', acceptance: ['The result is attached'], capabilities: [{ kind: 'read' }], escalation: 'Ask the mission owner when unsure' } }, { 'idempotency-key': `c03-re6-${Date.now()}` });
   const srv6 = await relOfApi(apiA, exec.agentId);
   check('c03 user action: reassigning the GM\'s failed task to the executor adds no failure to the executor (still 3 of 5 → 60; "taken over … not counted")',
     re6.status === 200 && srv6.n === 5 && srv6.value === 60 && srv6.evidence === `3 of 5 finished tasks passed first time · 2 failed · 1 taken over after failing elsewhere (not counted) · ${SFX}`, JSON.stringify(srv6));

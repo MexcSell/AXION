@@ -47,14 +47,31 @@ async function visibleTaskRow(c: Tx | Db, ctx: ReviewCtx, id: string, lock = fal
   return r;
 }
 
-/** Agents that acted on EARLIER attempts of the task (received it by delegation, or owned it before a reassign): never independent of it. */
-async function priorActors(c: Tx | Db, t: TaskRow): Promise<Set<string>> {
+/**
+ * Agents that owned the task before (c51, O3a). Read from task_owner_history, which a trigger on tasks writes on every owner
+ * change (raw SQL included) and which is append-only. The older sources (delegations, reassign audit rows) are still unioned in,
+ * but they can only ADD names: they are no longer what the rule depends on. `rows` = 0 means the history is missing: fail closed.
+ */
+async function ownerHistory(c: Tx | Db, t: TaskRow): Promise<{ rows: number; current: boolean; actors: Set<string> }> {
+  const h = (await c.query('select agent_id, owner_agent, owner_instance_id from task_owner_history where task_id=$1 order by seq', [t.id])).rows;
+  const last = h[h.length - 1];
+  // c51 fix: the newest row must be the task's CURRENT owner, otherwise an owner change went unrecorded (fail closed)
+  const current = !!last && (last.owner_agent ?? null) === (t.owner_agent ?? null) && (last.owner_instance_id ?? null) === (t.owner_instance_id ?? null);
   const rs = (await c.query(
     `select i.agent_id from mission_delegations d join agent_instances i on i.id = d.to_instance where d.task_id = $1
      union select a.detail->>'fromAgent' from audit_events a where a.action = 'task.reassign' and a.subject = $1 and a.tenant_id = $2 and a.detail->>'fromAgent' is not null
      union select i.agent_id from audit_events a join agent_instances i on i.id = a.detail->>'fromInstanceId' where a.action = 'task.reassign' and a.subject = $1 and a.tenant_id = $2`, [t.id, t.tenant_id])).rows;
-  return new Set(rs.map((r) => r.agent_id as string).filter(Boolean));
+  return { rows: h.length, current, actors: new Set([...h, ...rs].map((r) => r.agent_id as string).filter(Boolean)) };
 }
+
+/**
+ * The review stays valid only for the attempt it judged (c51). A review is STALE (before attempt N) when the task has a later
+ * attempt than the one it was written against, or when the latest attempt started (database time) after the review was created.
+ * Evaluated in SQL so only the database clock is compared. `r` is the alias of task_reviews.
+ */
+export const STALE_BEFORE_SQL = (r = 'r') => `(select la.attempt_no from task_attempts la where la.task_id = ${r}.task_id
+    and la.attempt_no = (select max(x.attempt_no) from task_attempts x where x.task_id = ${r}.task_id)
+    and (coalesce((select ra.attempt_no from task_attempts ra where ra.id = ${r}.attempt_id), 0) < la.attempt_no or (la.started_at is not null and ${r}.created_at < la.started_at)))`;
 
 /** The producing agent of a task, with the model family of the version its instance is pinned to (the active version only when the task has no instance). */
 async function producerOf(c: Tx | Db, t: TaskRow): Promise<ReviewActor | null> {
@@ -76,7 +93,9 @@ async function reviewerOf(c: Tx | Db, ctx: ReviewCtx, who: Reviewer): Promise<Re
 }
 
 /** null when `reviewer` may review; otherwise the refusal. One rule for the route, the GET `canReview` and the recording. */
-export function independence(reviewer: ReviewActor, producer: ReviewActor, principalId: string, prior: ReadonlySet<string> = new Set()): { code: ErrorCode; message: string } | null {
+export function independence(reviewer: ReviewActor, producer: ReviewActor, principalId: string, history: { rows: number; current?: boolean; actors: ReadonlySet<string> }): { code: ErrorCode; message: string } | null {
+  const prior = history.actors;
+  if (history.rows === 0 || history.current === false) return { code: NOT_INDEPENDENT, message: 'The owner history of this task is missing or does not end at its current owner, so it cannot be shown that the reviewer did not work on it. No review is accepted until the history exists.' };
   if (reviewer.kind === 'agent' && prior.has(reviewer.id)) return { code: NOT_INDEPENDENT, message: 'This agent worked on an earlier attempt of the task, so it cannot review it.' };
   if (reviewer.id === producer.id) return { code: NOT_INDEPENDENT, message: 'The one who produced the work cannot review it.' };
   if (reviewer.kind === 'user' && reviewer.id === principalId) return { code: NOT_INDEPENDENT, message: 'You commissioned this mission, so you cannot be the independent reviewer of its work. Ask someone else to review it.' };
@@ -131,7 +150,7 @@ export async function recordReview(c: Tx, ctx: ReviewCtx, taskId: string, input:
   const st = reviewable(t.status, input.verdict);
   if (!st.ok) throw new ApiError('TASK_NOT_REVIEWABLE', 409, st.message);
   const who = await reviewerOf(c, ctx, reviewer);
-  const refusal = independence(who, producer, t.owner_id, await priorActors(c, t));
+  const refusal = independence(who, producer, t.owner_id, await ownerHistory(c, t));
   if (refusal) throw new ApiError(refusal.code, 403, refusal.message);
   checkVerdict(input);
   const evidence = await checkEvidence(c, t.mission_id, taskId, input.evidence);
@@ -146,7 +165,7 @@ export async function recordReview(c: Tx, ctx: ReviewCtx, taskId: string, input:
     detail: { missionId: t.mission_id, reviewId: id, verdict: input.verdict, reviewerId: who.id, reviewerKind: who.kind, producerId: producer.id, evidence: evidence.length } });
   await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, actorKind: who.kind === 'agent' ? 'agent' : 'human', correlationId: ctx.correlationId, subjectKind: 'task', subject: taskId, missionId: t.mission_id,
     type: 'task.reviewed', payload: { taskId, reviewId: id, verdict: input.verdict, reviewerId: who.id, reviewerKind: who.kind, by: ctx.user.name } });
-  return { review: { id, taskId, missionId: t.mission_id, reviewer: who, producer, verdict: input.verdict, rubric, evidence, createdAt: new Date(row.created_at).toISOString(),
+  return { review: { id, taskId, missionId: t.mission_id, reviewer: who, producer, verdict: input.verdict, rubric, evidence, createdAt: new Date(row.created_at).toISOString(), stale: null,
     reviewerAgreement: { agreed: 0, n: 0, rate: null, state: 'none' } } };
 }
 
@@ -157,8 +176,8 @@ export async function listReviews(c: Tx | Db, ctx: ReviewCtx, taskId: string): P
   const me: ReviewActor = { id: ctx.user.id, kind: 'user', name: ctx.user.name, modelFamily: null };
   const st = reviewable(t.status);
   const refusal: { code: ErrorCode; message: string } | null = !producer ? { code: 'TASK_NO_PRODUCER', message: 'This task has no owner yet, so there is no recorded producer to review.' }
-    : !st.ok ? { code: 'TASK_NOT_REVIEWABLE', message: st.message } : independence(me, producer, t.owner_id, await priorActors(c, t));
-  const rs = (await c.query(`select r.*, u.name as user_name, d.name as agent_name from task_reviews r
+    : !st.ok ? { code: 'TASK_NOT_REVIEWABLE', message: st.message } : independence(me, producer, t.owner_id, await ownerHistory(c, t));
+  const rs = (await c.query(`select r.*, ${STALE_BEFORE_SQL('r')} as stale_before, u.name as user_name, d.name as agent_name from task_reviews r
       left join users u on r.reviewer_kind='user' and u.id=r.reviewer_id left join agent_definitions d on r.reviewer_kind='agent' and d.id=r.reviewer_id
      where r.task_id=$1 order by r.seq`, [taskId])).rows;
   // agreement: over every review, by the same reviewers, in the missions the viewer can see
@@ -173,6 +192,8 @@ export async function listReviews(c: Tx | Db, ctx: ReviewCtx, taskId: string): P
       where th.mission_id=$1 and m.task_id=$2 order by m.id desc limit 20`, [t.mission_id, taskId])).rows;
   return {
     taskId, missionId: t.mission_id, producer, taskStatus: t.status, canAccept: t.status === 'passed',
+    // verified = the LATEST review accepts it with evidence, is not stale, and its writer is neither the stored producer nor the stored principal; the task is still passed
+    verified: (() => { const l = rs[rs.length - 1]; return !!l && t.status === 'passed' && l.verdict === 'accepted' && l.stale_before == null && Array.isArray(l.evidence) && l.evidence.length >= 1 && l.reviewer_id !== l.producer_id && l.reviewer_id !== l.principal_id; })(),
     canReview: refusal ? { allowed: false, code: refusal.code, reason: refusal.message } : { allowed: true, code: null, reason: null },
     criteria,
     evidenceOptions: [
@@ -183,7 +204,7 @@ export async function listReviews(c: Tx | Db, ctx: ReviewCtx, taskId: string): P
       id: r.id, taskId: r.task_id, missionId: r.mission_id,
       reviewer: { id: r.reviewer_id, kind: r.reviewer_kind, name: r.user_name ?? r.agent_name ?? r.reviewer_id, modelFamily: r.reviewer_model_family },
       producer: { id: r.producer_id, kind: r.producer_kind, name: producer && producer.id === r.producer_id ? producer.name : r.producer_id, modelFamily: r.producer_model_family },
-      verdict: r.verdict, rubric: r.rubric, evidence: r.evidence, createdAt: new Date(r.created_at).toISOString(),
+      verdict: r.verdict, rubric: r.rubric, evidence: r.evidence, createdAt: new Date(r.created_at).toISOString(), stale: r.stale_before == null ? null : { beforeAttempt: Number(r.stale_before) },
       reviewerAgreement: agree.get(`${r.reviewer_kind}:${r.reviewer_id}`) ?? { agreed: 0, n: 0, rate: null, state: 'none' },
     })),
   };

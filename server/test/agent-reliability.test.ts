@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { audit } from '../src/audit.ts';
 import { makeTestApp, withAdmin, Browser, type TestApp } from './helpers.ts';
+const BRIEF = { goal: 'Take over the task', acceptance: ['The result is attached'], capabilities: [{ kind: 'read' }], escalation: 'Ask the mission owner when unsure' }; // c51: a reassignment always carries a brief
 
 // Improvement cycle 3: `reliability` on GET /agents and GET /agents/:id — scoping (visibility, tenant, deleted, DEMO), the
 // finish-time rule and list/detail equality. passed/failed are system-only task states (nothing executes yet), so the
@@ -80,7 +81,7 @@ describe('measured from recorded tasks', () => {
     for (const id of ['P1', 'P2', 'P3', 'P4']) await task(id, 'P', 'coder-01', 'passed');
     await task('P5', 'P', 'coder-01', 'failed');
     await task('P6', 'P', 'tester-01', 'failed');
-    const r = await M.req('POST', '/tasks/P6/reassign', { toInstanceId: 'P:coder-01' }, key());
+    const r = await M.req('POST', '/tasks/P6/reassign', { toInstanceId: 'P:coder-01', brief: BRIEF }, key());
     expect(r.status).toBe(200);
     // after the handover Coder-01 makes its own (first) attempt and the system passes the task (nothing executes yet)
     await q(`insert into task_attempts(task_id, attempt_no, started_at, finished_at, result) values ('P6', 2, now(), now(), 'passed')`);
@@ -166,7 +167,7 @@ describe('measured from recorded tasks', () => {
   it('a reassignment made later through the API moves the count (live source, no cache)', async () => {
     await task('S4', 'S', 'coder-01', 'failed');
     expect(await relOf(K, 'coder-01')).toMatchObject({ n: 4, value: null });
-    const r = await K.req('POST', '/tasks/S4/reassign', { toInstanceId: 'S:gm' }, key());
+    const r = await K.req('POST', '/tasks/S4/reassign', { toInstanceId: 'S:gm', brief: BRIEF }, key());
     expect(r.status).toBe(200);
     // S4 failed under Coder-01: it stays one unreliable task for Coder-01 (now "reassigned away" instead of "failed").
     // The GM did not attempt it, so the failure is not the GM's (review I2): not counted, and its sentence says so.
@@ -183,7 +184,7 @@ describe('measured from recorded tasks', () => {
   });
   it('a task owned only by an agent id (no instance) is charged to that agent when reassigned away (audit fromAgent)', async () => {
     await q(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent) values ('S6','t-1','S','t','failed','tester-01')`);
-    const r = await K.req('POST', '/tasks/S6/reassign', { toInstanceId: 'S:coder-01' }, key());
+    const r = await K.req('POST', '/tasks/S6/reassign', { toInstanceId: 'S:coder-01', brief: BRIEF }, key());
     expect(r.status).toBe(200);
     const k = await relOf(K, 'tester-01');
     expect(k).toMatchObject({ n: 1 });
@@ -194,8 +195,8 @@ describe('measured from recorded tasks', () => {
   it('multiple reassignments through the API: Coder-01 → GM → Tester-01; each agent it left is charged once, the last owner only for its own attempt (m7)', async () => {
     await instance('S', 'tester-01');
     await task('S7', 'S', 'coder-01', 'failed');
-    expect((await K.req('POST', '/tasks/S7/reassign', { toInstanceId: 'S:gm' }, key())).status).toBe(200);
-    expect((await K.req('POST', '/tasks/S7/reassign', { toInstanceId: 'S:tester-01' }, key())).status).toBe(200);
+    expect((await K.req('POST', '/tasks/S7/reassign', { toInstanceId: 'S:gm', brief: BRIEF }, key())).status).toBe(200);
+    expect((await K.req('POST', '/tasks/S7/reassign', { toInstanceId: 'S:tester-01', brief: BRIEF }, key())).status).toBe(200);
     expect((await K.req('POST', '/tasks/S7/retry', undefined, key())).status).toBe(200); // attempt 2 (not started): Tester-01's
     await q(`update tasks set status='passed' where id='S7'`); // the system's pass
     expect(await relOf(K, 'coder-01')).toMatchObject({ n: 6, value: 33, evidence: expect.stringContaining('2 reassigned away') }); // S4, S7

@@ -191,6 +191,7 @@ try {
     await A.p.locator('[role="dialog"]').getByRole('button', { name: 'Reassign' }).click();
     await A.p.getByRole('button', { name: new RegExp(`^.*${(await apiA('GET', '/agents')).body.agents.find((a) => a.id === newOwner.agentId).name}`) }).first().click();
     await A.p.getByPlaceholder(/needs browser specialist/).fill('stage 6 e2e reassign');
+    await A.p.getByLabel('Acceptance criteria').fill('The reassigned task result is attached'); // c51: the hand-off brief is required
     await A.p.getByRole('button', { name: 'Submit Reassignment' }).click();
     check('Reassign in the dialog changes the owner on the server', await until(async () => (await apiA('GET', `/tasks/${movable.id}`)).body.task?.owner === newOwner.agentId, 8000));
     const ownerName = (await apiA('GET', '/agents')).body.agents.find((a) => a.id === newOwner.agentId).name;
@@ -200,7 +201,7 @@ try {
   if (running) {
     const mid = t126.some((t) => t.id === running.id) ? 'M-126' : 'M-127';
     const other = (await apiA('GET', `/missions/${mid}/hierarchy`)).body.nodes.find((n) => n.agentId !== running.owner && n.agentId !== 'gm');
-    const r = await apiA('POST', `/tasks/${running.id}/reassign`, { toInstanceId: other.instanceId }, { 'idempotency-key': key() });
+    const r = await apiA('POST', `/tasks/${running.id}/reassign`, { toInstanceId: other.instanceId, brief: { goal: 'Take over the task', acceptance: ['The result is attached'], capabilities: [{ kind: 'read' }], escalation: 'Ask the mission owner when unsure' } }, { 'idempotency-key': key() });
     check('reassigning a running task is refused (409) and the owner stays', r.status === 409 && (await apiA('GET', `/tasks/${running.id}`)).body.task.owner === running.owner, r.body.message);
   }
   await A.p.screenshot({ path: `${SHOTS}/stage6-task-actions.png` });

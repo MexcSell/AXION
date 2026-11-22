@@ -184,7 +184,7 @@ describe('delegation briefs (API)', () => {
     expect((await A.admin.req('GET', `/missions/${m}/delegation-briefs`)).body.kinds.length).toBeGreaterThan(10);
   });
 
-  it('reassign with a brief records it for the task; reassign without a brief still works (legacy)', async () => {
+  it('reassign with a brief records it for the task; reassign without a brief is 400 BRIEF_REQUIRED (c51: it was legacy-allowed in c42)', async () => {
     const { A, m, inst } = await setup();
     const tn = (await rows(`select tenant_id from missions where id=$1`, [m]))[0].tenant_id;
     await t.pool.query(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent, owner_instance_id) values ('T-c42a',$1,$2,'A task','ready',$3,$4),('T-c42b',$1,$2,'B task','ready',$3,$4)`, [tn, m, inst[1].agent_id, inst[1].id]);
@@ -195,7 +195,11 @@ describe('delegation briefs (API)', () => {
     expect(ok.status).toBe(200);
     const b = await rows(`select task_id, to_instance, depth from delegation_briefs where mission_id=$1`, [m]);
     expect(b).toEqual([{ task_id: 'T-c42a', to_instance: inst[2].id, depth: 1 }]);
-    expect((await A.admin.req('POST', '/tasks/T-c42b/reassign', { toInstanceId: inst[3].id, reason: 'x' }, key())).status).toBe(200);
+    // c51 (O2a): the legacy path is closed. No brief is refused and nothing moves.
+    const none = await A.admin.req('POST', '/tasks/T-c42b/reassign', { toInstanceId: inst[3].id, reason: 'x' }, key());
+    expect(none.status).toBe(400);
+    expect(none.body.code).toBe('BRIEF_REQUIRED');
+    expect((await rows(`select owner_instance_id o from tasks where id='T-c42b'`))[0].o).toBe(inst[1].id);
     expect((await rows(`select 1 from delegation_briefs where task_id='T-c42b'`)).length).toBe(0);
   });
 

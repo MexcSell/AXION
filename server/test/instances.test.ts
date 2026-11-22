@@ -118,7 +118,8 @@ describe('startup backfill', () => {
     // pretend this is the Stage 5 database: no instances at all
     await t.pool.query('alter table mission_delegations disable trigger user');
     await t.pool.query('delete from agent_instances');
-    await t.pool.query('delete from tasks');
+    await t.pool.query('alter table task_owner_history disable trigger user'); // c51: test-only wipe, like the delegations above
+    try { await t.pool.query('delete from tasks'); } finally { await t.pool.query('alter table task_owner_history enable trigger user'); }
     await t.pool.query('alter table mission_delegations enable trigger user');
     const before = (await A.admin.req('GET', '/missions')).body.missions as any[];
 

@@ -173,7 +173,7 @@ try {
     [T1, tn, mission.id, exec.agentId, exec.instanceId, T2]);
   await db.end();
   const open = async (p, d) => (await cardsOf(p))[d]?.open;
-  const re = await A.api('POST', `/tasks/${T1}/reassign`, { toInstanceId: lead.instanceId }, { 'idempotency-key': `c06-re-${Date.now()}` });
+  const re = await A.api('POST', `/tasks/${T1}/reassign`, { toInstanceId: lead.instanceId, brief: { goal: 'Take over the task', acceptance: ['The result is attached'], capabilities: [{ kind: 'read' }], escalation: 'Ask the mission owner when unsure' } }, { 'idempotency-key': `c06-re-${Date.now()}` });
   check(`user action: the waiting task is reassigned from ${exec.agentId} to the GM`, re.status === 200, JSON.stringify(re.body).slice(0, 200));
   const sameDept = execDept === 'Executive';
   const afterRe = await until(async () => (await open(A.p, execDept)) === (sameDept ? '1/1/0' : '1/0/0') && (await open(A.p, 'Executive')) === (sameDept ? '1/1/0' : '0/1/0'), 10000);

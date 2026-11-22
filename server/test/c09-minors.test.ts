@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { makeTestApp, withAdmin, type TestApp } from './helpers.ts';
 import { requestApproval } from '../src/approvals/service.ts';
 import { tx } from '../src/db.ts';
+const BRIEF = { goal: 'Take over the task', acceptance: ['The result is attached'], capabilities: [{ kind: 'read' }], escalation: 'Ask the mission owner when unsure' }; // c51: a reassignment always carries a brief
 
 // Cycle 9 (lane w7): the deferred server minors, one test each (RED first).
 let t: TestApp;
@@ -73,7 +74,7 @@ describe('3. task.delegated has one payload shape', () => {
     const i1 = await inst(m1);
     const tn = (await rows(`select tenant_id from missions where id=$1`, [m1]))[0].tenant_id;
     await t.pool.query(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent, owner_instance_id) values ('T-d1',$1,$2,'A task','ready',$3,$4)`, [tn, m1, i1[1].agent_id, i1[1].id]);
-    expect((await A.admin.req('POST', '/tasks/T-d1/reassign', { toInstanceId: i1[2].id }, key())).status).toBe(200);
+    expect((await A.admin.req('POST', '/tasks/T-d1/reassign', { toInstanceId: i1[2].id, brief: BRIEF }, key())).status).toBe(200);
     const ev = await rows(`select subject_kind, payload from events where type='task.delegated' and mission_id=$1`, [m1]);
     expect(ev.some((e) => e.subject_kind === 'instance')).toBe(true);
     expect(ev.some((e) => e.subject_kind === 'task')).toBe(true);
@@ -94,13 +95,13 @@ describe('4. reassign target must still be working in the mission', () => {
     await t.pool.query(`update agent_instances set ended_at=now() where id=$1`, [i1[2].id]);
     await t.pool.query(`update agent_instances set state='done' where id=$1`, [i1[3].id]);
     for (const x of [i1[2], i1[3]]) {
-      const r = await A.admin.req('POST', '/tasks/T-e1/reassign', { toInstanceId: x.id }, key());
+      const r = await A.admin.req('POST', '/tasks/T-e1/reassign', { toInstanceId: x.id, brief: BRIEF }, key());
       expect(r.status, x.id).toBe(422); expect(r.body.code).toBe('TASK_TARGET_INVALID');
     }
     expect((await rows(`select owner_instance_id from tasks where id='T-e1'`))[0].owner_instance_id).toBe(i1[1].id);
     // the precondition: the mission has a fifth instance that is still working, and it is a valid target
     expect(i1.length).toBeGreaterThan(4);
-    expect((await A.admin.req('POST', '/tasks/T-e1/reassign', { toInstanceId: i1[4].id }, key())).status).toBe(200);
+    expect((await A.admin.req('POST', '/tasks/T-e1/reassign', { toInstanceId: i1[4].id, brief: BRIEF }, key())).status).toBe(200);
   });
 });
 

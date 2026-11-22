@@ -24,6 +24,8 @@ export interface TaskReviewDto {
   rubric: RubricItem[];
   evidence: EvidenceRef[];
   createdAt: string;
+  /** c51: set when the task was retried (or its latest attempt started) after this review, so it no longer counts. Computed, never stored. */
+  stale: { beforeAttempt: number } | null;
   /** Computed over the reviews of the missions the viewer can see, never stored. */
   reviewerAgreement: ReviewerAgreement;
 }
@@ -42,6 +44,8 @@ export interface TaskReviewsDto {
   /** things the reviewer may cite: the mission's files and the messages about this task */
   evidenceOptions: { kind: EvidenceKind; ref: string; label: string }[];
   reviews: TaskReviewDto[];
+  /** c51: the latest review accepts the task with evidence, is not stale, and the task is still passed. */
+  verified: boolean;
 }
 
 export interface CreateTaskReviewBody { verdict: ReviewVerdict; rubric: RubricItem[]; evidence: EvidenceRef[] }

@@ -51,7 +51,9 @@ export default async function taskRoutes(app: FastifyInstance) {
     if (!(USER_TASK_ACTIONS as readonly string[]).includes(action)) throw new ApiError('ACTION_NOT_ALLOWED', 403, 'This action is not available to people.');
     const body = action === 'reassign' ? parse(ReassignIn, req.body) : (parse(NoBody, req.body), null);
     const out = await idempotent(app.db, req, ctx, async (c) => {
-      const t = await visibleTask(c, ctx, id, true);
+      const t = await visibleTask(c, ctx, id, true); // 404 first
+      // c51 (O2a): a reassignment always carries the scope contract (the typed brief); the brief itself is validated below by createBrief
+      if (action === 'reassign' && (body!.brief === undefined || body!.brief === null)) throw new ApiError('BRIEF_REQUIRED', 400, 'A reassignment needs a hand-off brief: a goal, at least one acceptance criterion, the allowed capabilities and an escalation.', { fieldErrors: { brief: 'required' } });
       const from = t.status;
       const to = transitionTask(from, action as TaskAction);
       const detail: Record<string, unknown> = { from, to };
@@ -69,8 +71,8 @@ export default async function taskRoutes(app: FastifyInstance) {
         if (fromInst !== target.id) await insertDelegation(c, { missionId: t.mission_id, from: fromInst, to: target.id, kind: 'delegated', taskId: id, simulated: sim });
         Object.assign(detail, { toInstanceId: target.id, fromInstanceId: t.owner_instance_id, fromAgent: t.owner_agent, reason: body!.reason ?? null }); // fromAgent: cycle 3 reliability (a task without an owner instance)
         delegated = { from: fromInst, to: target.id };
-        // c42: an optional typed brief is recorded in the same transaction (a refused brief refuses the whole reassignment)
-        if (body!.brief !== undefined) {
+        // c42: the typed brief is recorded in the same transaction (a refused brief refuses the whole reassignment); c51: it is required
+        {
           const b = await createBrief(c, { tenantId: ctx.tenantId, missionId: t.mission_id, toInstanceId: target.id, taskId: id, brief: body!.brief, actor: { id: ctx.user.id, role: ctx.user.role, name: ctx.user.name }, correlationId: ctx.correlationId, simulated: sim });
           detail.briefId = b?.id;
         }
