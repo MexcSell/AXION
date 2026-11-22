@@ -1,5 +1,6 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { makeSchema } from './helpers.ts';
+import { audit } from '../src/audit.ts';
 import { migrate } from '../src/migrate.ts';
 
 const tables = async (pool: import('pg').Pool, schema: string) =>
@@ -22,7 +23,7 @@ describe('migrations', () => {
   });
 
   it('audit_events is append-only', async () => {
-    await s.pool.query(`insert into audit_events(tenant_id, actor, action, subject, result, correlation_id) values ('t-1','system','test','x','ok','c1')`);
+    await audit(s.pool, { tenantId: 't-1', actor: 'system', action: 'test', subject: 'x', result: 'ok', correlationId: 'c1' });
     await expect(s.pool.query(`update audit_events set action='hacked'`)).rejects.toThrow(/audit_events is append-only/);
     await expect(s.pool.query(`delete from audit_events`)).rejects.toThrow(/audit_events is append-only/);
   });

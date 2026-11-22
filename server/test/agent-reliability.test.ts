@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { audit } from '../src/audit.ts';
 import { makeTestApp, withAdmin, Browser, type TestApp } from './helpers.ts';
 
 // Improvement cycle 3: `reliability` on GET /agents and GET /agents/:id — scoping (visibility, tenant, deleted, DEMO), the
@@ -125,9 +126,9 @@ describe('measured from recorded tasks', () => {
     await mission('O', 'u-x', { shared: true, tenant: 't-2' });
     for (const a of ['gm', 'coder-01']) await instance('O', a, 't-2');
     for (const id of ['O1', 'O2', 'O3', 'O4', 'O5']) await task(id, 'O', 'coder-01', 'failed', { tenant: 't-2' });
-    await q(`insert into audit_events(tenant_id, actor, action, subject, result, correlation_id, detail) values ('t-2','u-x','task.reassign','S1','ok','c','{"fromInstanceId":"S:coder-01","toInstanceId":"S:gm"}')`);
+    await audit(t.pool, { tenantId: 't-2', actor: 'u-x', action: 'task.reassign', subject: 'S1', result: 'ok', correlationId: 'c', detail: { fromInstanceId: 'S:coder-01', toInstanceId: 'S:gm' } });
     // a refused reassignment is not a reassignment
-    await q(`insert into audit_events(tenant_id, actor, action, subject, result, correlation_id, detail) values ('t-1',$1,'task.reassign','S1','denied','c','{"fromInstanceId":"S:coder-01","toInstanceId":"S:gm"}')`, [kenjiId]);
+    await audit(t.pool, { tenantId: 't-1', actor: kenjiId, action: 'task.reassign', subject: 'S1', result: 'denied', correlationId: 'c', detail: { fromInstanceId: 'S:coder-01', toInstanceId: 'S:gm' } });
   });
 
   it('an admin counts every visible real task of the tenant: 6 of 10 → 60', async () => {
