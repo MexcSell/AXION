@@ -38,6 +38,6 @@ const entries: Record<string, HelpEntry> = {
     undefined, 'Lessons under review are visible to administrators only, so other people see "hidden for your role" here.'),
   'dimensions.evolutionary': h('Evolutionary', 'Whether improvements to agents and structure are made carefully and hold up.',
     'Change is only progress if it is proven and can be undone.',
-    'Version proposals promoted and agent versions rolled back are counts in the window. Org revisions applied counts revisions after the starting chart (for a department: those that changed a reporting line of a member). Evaluation verdicts (win, inconclusive, loss) are computed on demand and not stored, so that cell says n = 0 until a later cycle records them. ' + EMPTY),
+    'Version proposals promoted and agent versions rolled back are counts in the window. Org revisions applied counts revisions after the starting chart (for a department: those that changed a reporting line of a member). Evaluation verdicts (win, inconclusive, loss) count the version proposals that have a finished evaluation run in the window. Each outcome is recomputed from the stored runs every time you look (nothing is stored, nothing is run), the count is the number of evaluated proposals, and it needs 3 like the other counts; it is never a score. ' + EMPTY),
 };
 export default entries;

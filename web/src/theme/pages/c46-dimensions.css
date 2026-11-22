@@ -1,21 +1,24 @@
-/* Improvement cycle 46: Six dimensions dialog (DL-98). No gauges, no total: rows of independent cells. */
-.dim-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+/* Improvement cycle 46: Six dimensions (a dialog, DL-98, until cycle 54; now a tab of Agents in System Operations). No gauges, no total: rows of independent cells. */
+.dim-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .dim-bar .select { height: 32px; min-width: 170px; }
 .dim-bar .dim-ctl { display: inline-flex; align-items: center; gap: 4px; }
-.dim-rows { display: flex; flex-direction: column; gap: 6px; }
-.dim-row { display: grid; grid-template-columns: 148px minmax(0, 1fr); gap: 10px; align-items: stretch; padding: 6px 8px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); }
+.dim-rows { display: flex; flex-direction: column; gap: 2px; }
+.dim-row { display: grid; grid-template-columns: 148px minmax(0, 1fr); gap: 10px; align-items: stretch; padding: 2px 8px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); }
 .dim-name { display: flex; align-items: center; gap: 7px; font-weight: 700; font-size: 13.5px; }
 .dim-name .dim-ico { color: var(--accent-2); flex: none; }
 .dim-cells { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; min-width: 0; }
-.dim-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; height: 62px; padding: 5px 8px; border-radius: 9px; background: var(--panel-3, var(--panel)); outline: none; overflow: hidden; }
+.dim-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; height: 34px; padding: 2px 8px; justify-content: center; border-radius: 9px; background: var(--panel-3, var(--panel)); outline: none; overflow: hidden; }
 .dim-cell:hover, .dim-cell:focus-visible { box-shadow: 0 0 0 1.5px var(--accent-2); }
 .dim-cl { font-size: 10.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dim-cv { display: flex; align-items: baseline; gap: 6px; flex-wrap: nowrap; white-space: nowrap; min-width: 0; font-size: 19px; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.dim-cv { display: flex; align-items: baseline; gap: 6px; flex-wrap: nowrap; white-space: nowrap; min-width: 0; font-size: 17px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .dim-cv small { white-space: nowrap; font-size: 11px; font-weight: 600; color: var(--text-muted); }
-.dim-cell.none .dim-cv { font-size: 11.5px; font-weight: 600; color: var(--text-muted); line-height: 1.2; white-space: normal; }
+.dim-cell.none .dim-cv { font-size: 11px; font-weight: 600; color: var(--text-muted); line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dim-cm { font-size: 10.5px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dim-tr { font-size: 11px; font-weight: 700; color: var(--text); }
-.dim-note { font-size: 11px; margin-top: 6px; }
+.dim-note { font-size: 11px; margin-top: 4px; }
+.dim-ct { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; min-width: 0; }
+.dim-ct .dim-cl { flex: 1 1 auto; min-width: 0; }
+.dim-ct .dim-cm { flex: none; font-size: 9.5px; }
 @media (max-width: 720px) { .dim-row { grid-template-columns: 1fr; } }
 
 .dim-cell { cursor: pointer; transition: box-shadow .15s, transform .15s; }
@@ -25,6 +28,14 @@
 .dim-cell.low .dim-nn { font-size: 12.5px; color: var(--text); }
 .dim-cell.st-hidden .dim-cv, .dim-cell.st-unmeasured .dim-cv { display: flex; align-items: center; gap: 5px; white-space: normal; font-style: italic; }
 .dim-cell.st-hidden { background: repeating-linear-gradient(135deg, transparent 0 6px, rgba(var(--accent-2-rgb), .05) 6px 12px), var(--panel-3, var(--panel)); }
-.dim-note { min-height: 32px; line-height: 1.35; }
+.dim-note { height: 28px; line-height: 1.25; overflow: hidden; }
 .dim-tr { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
 .dim-cell.st-unmeasured .dim-cv { font-size: 11px; }
+
+@media (max-width: 720px) { .dim-cell { height: auto; min-height: 40px; } .dim-cell.none .dim-cv, .dim-cell.st-hidden .dim-cv, .dim-cell.st-unmeasured .dim-cv { white-space: normal; } }
+@media (max-width: 720px) {
+  .panel:has(.dim-bar) .panel-head { flex-wrap: wrap; row-gap: 6px; }
+  .panel:has(.dim-bar) .panel-head .spacer { display: none; }
+  .dim-bar { width: 100%; }
+  .dim-bar .select { min-width: 0; flex: 1 1 150px; }
+}

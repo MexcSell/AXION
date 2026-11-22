@@ -20,7 +20,6 @@ import { useScorecard, rowOf, fmtRow, trendOf } from '@/api/scorecard';
 import { useThroughput } from '@/api/throughput';
 import { ThroughputChart } from '@/components/viz/ThroughputChart';
 import { IconButton } from '@/components/ui/IconButton';
-import { openDialog } from '@/store/ui';
 
 /** Company-wide KPI tiles (40-4 command center) — rendered through the shared TopBoard. */
 export function useCompanyKpis(): KpiItem[] {
@@ -78,6 +77,7 @@ const range = (d: { from: string; to: string }) => `${day(d.from)} – ${day(d.t
 /** "Company Scorecard" (api mode): the server's rows, each with its value or "—", n, window and evidence. Replaces the
  *  DEMO health ring as the Overview aside in api mode. */
 export function CompanyScorecard() {
+  const nav = useNavigate();
   const [win, setWin] = useState<ScorecardWindow>('30d');
   const [demo, setDemo] = useState(false);
   const { data, error } = useScorecard(win, demo);
@@ -92,7 +92,7 @@ export function CompanyScorecard() {
         <HelpTrigger k="company.scorecard" />
         <AnimatePresence>{demo && <motion.span key="demo" initial={{ opacity: 0, scale: .8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: .8 }}><DemoTag title="DEMO missions are included in these numbers" /></motion.span>}</AnimatePresence>
         <span className="spacer" />
-        <IconButton icon={Layers} size="sm" variant="bordered" label="Six dimensions" data-six-dimensions onClick={() => openDialog('six-dimensions')} />
+        <IconButton icon={Layers} size="sm" variant="bordered" label="Six dimensions" data-six-dimensions onClick={() => nav('/operations?tab=agents&sub=dimensions')} />
         <Segmented size="sm" ariaLabel="Scorecard window" value={win} onChange={setWin}
           options={(['7d', '30d', '90d'] as const).map((k) => ({ key: k, label: k, title: shown && k === win ? `${WINDOW_LABEL[k]}: ${range(shown)}` : WINDOW_LABEL[k] }))} />
       </header>
@@ -135,6 +135,7 @@ export function CompanyScorecard() {
 
 /** "Company Health" ring board — the aside of the Overview top board. */
 export function CompanyHealth() {
+  const nav = useNavigate();
   useAgentsCatalog();
   return (
     <motion.section className="panel cc-health" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .4, delay: .08 }} aria-label="Company health">
@@ -143,7 +144,7 @@ export function CompanyHealth() {
         <h2 className="panel-title">Company Health</h2>
         <HelpTrigger k="company.health" />
         <span className="spacer" />
-        <IconButton icon={Layers} size="sm" variant="bordered" label="Six dimensions (sample)" data-six-dimensions onClick={() => openDialog('six-dimensions')} />
+        <IconButton icon={Layers} size="sm" variant="bordered" label="Six dimensions (sample)" data-six-dimensions onClick={() => nav('/operations?tab=agents&sub=dimensions')} />
       </header>
       <div className="row" style={{ gap: 18, alignItems: 'center' }}>
         <RingGauge value={98} size={112} label="Company health" />

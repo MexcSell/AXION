@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { motion } from 'motion/react';
 import { Layers, Brain, Wrench, Globe2, Users, BookOpen, Dna, ArrowUp, ArrowDown, ArrowRight, EyeOff, Hourglass, type LucideIcon } from 'lucide-react';
 import { DIMENSION_KEYS, type DimensionCell, type DimensionKey, type DimensionWindow } from '@contracts';
-import { Modal } from '@/components/ui/Modal';
+import { Panel } from '@/components/ui/Panel';
 import { Segmented } from '@/components/ui/Form';
 import { DemoTag } from '@/components/ui/Chips';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
@@ -12,10 +12,9 @@ import { isApi } from '@/api/mode';
 import { useDimensions } from '@/api/dimensions';
 import { demoDimensions } from '@/data/dimensionsDemo';
 import { cx } from '@/lib/format';
-import type { DialogComponentProps } from '@/dialogs/DialogHost';
 import '@/theme/pages/c46-dimensions.css';
 
-/* DL-98: Six dimensions (improvement cycle 46). Spec §16.1: company and department levels with sample sizes, evidence and
+/* Six dimensions (improvement cycle 46; a tab of Agents in System Operations since cycle 54, formerly dialog DL-98). Spec §16.1: company and department levels with sample sizes, evidence and
    trend, never one number. Every cell is value + n + window, or "not enough evidence (n = k)". Nothing here adds cells up. */
 const ICON: Record<DimensionKey, LucideIcon> = { cognitive: Brain, capability: Wrench, environmental: Globe2, collective: Users, knowledge: BookOpen, evolutionary: Dna };
 const WIN: Record<DimensionWindow, string> = { '7d': 'last 7 days', '30d': 'last 30 days', '90d': 'last 90 days' };
@@ -47,17 +46,17 @@ function Cell({ c, w, i, selected, onSelect }: { c: DimensionCell; w: DimensionW
         onClick={onSelect} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); } }}
         data-cell={c.key} data-state={c.state} data-value={c.value ?? ''} data-n={c.n ?? ''} data-trend={c.trend ?? ''} data-scope={c.scope}
         initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .05 + i * .03 }}>
-        <span className="dim-cl">{c.label}</span>
+        <span className="dim-ct"><span className="dim-cl">{c.label}</span>
+          <span className="dim-cm tnum">{c.state === 'ok' || c.state === 'none' ? windowText(c, w) : c.state === 'hidden' ? 'admins only' : 'no source'}</span></span>
         {c.state === 'ok'
           ? <span className="dim-cv"><b className="tnum">{fmtCell(c)}</b><span className="dim-nn tnum">n = {c.n}</span>{T && <small className="dim-tr" title={`previous window: ${prev} (n = ${c.previous.n})`}><T size={12} aria-hidden />{prev}</small>}</span>
           : <span className="dim-cv">{Mark && <Mark size={13} aria-hidden />}{face}</span>}
-        <span className="dim-cm tnum">{c.state === 'ok' ? `${windowText(c, w)} · ${c.scope === 'missions' ? 'missions' : 'company'}` : c.state === 'none' ? `${windowText(c, w)} · ${c.scope === 'missions' ? 'missions' : 'company'}` : c.state === 'hidden' ? 'administrators only' : 'no source yet'}</span>
       </motion.div>
     </Tip>
   );
 }
 
-function SixDimensions({ close }: DialogComponentProps) {
+export function Dimensions() {
   const api_ = isApi();
   const [w, setW] = useState<DimensionWindow>('30d');
   const [dept, setDept] = useState<string | null>(null);
@@ -67,10 +66,8 @@ function SixDimensions({ close }: DialogComponentProps) {
   const shown = api_ ? (live.data && live.data.window === w && live.data.department === dept ? live.data : null) : demoData;
   const departments = shown?.departments ?? [];
   return (
-    <Modal title="Six dimensions" icon={Layers} help="dimensions.panel" dialogId="DL-98" size="xl" onClose={close}
-      sub="Cognitive, Capability, Environmental, Collective, Knowledge, Evolutionary. Each cell stands alone: value, sample size, window. There is no total.">
-      <div data-dimensions={shown ? 'ready' : live.error ? 'error' : 'loading'} data-window={w} data-department={dept ?? ''}>
-        <div className="dim-bar">
+    <Panel icon={Layers} tight title="Six dimensions" help="dimensions.panel" delay={.05}
+      actions={<div className="dim-bar">
           <span className="dim-ctl">
             <select className="select" aria-label="Department" value={dept ?? ''} onChange={(e) => setDept(e.target.value || null)}>
               <option value="">Whole company</option>
@@ -83,10 +80,10 @@ function SixDimensions({ close }: DialogComponentProps) {
             <Segmented size="sm" ariaLabel="Window" value={w} onChange={setW} options={(['7d', '30d', '90d'] as const).map((k) => ({ key: k, label: k, title: WIN[k] }))} />
             <HelpTrigger k="dimensions.window" />
           </span>
-          <span className="spacer" />
           {!api_ && <DemoTag title="SAMPLE cells: invented numbers that only show the layout. Switch to the server version for measured ones." />}
-          <span className="dim-ctl dim" style={{ fontSize: 12 }}>reading a cell <HelpTrigger k="dimensions.cell" /></span>
-        </div>
+          <span className="dim-ctl dim" style={{ fontSize: 12 }} title="Reading a cell"><HelpTrigger k="dimensions.cell" /></span>
+      </div>}>
+      <div className="dim-wrap" data-dimensions={shown ? 'ready' : live.error ? 'error' : 'loading'} data-window={w} data-department={dept ?? ''}>
         {!shown ? (live.error ? <LiveStatus kind="error" className="dim">{live.error}</LiveStatus> : <LiveStatus className="dim">Reading the six dimensions…</LiveStatus>) : (
           <div className="dim-rows" role="list" aria-label="Six dimensions">
             {DIMENSION_KEYS.map((k, ri) => {
@@ -106,8 +103,6 @@ function SixDimensions({ close }: DialogComponentProps) {
             ? <><b>{c.label}</b>: {c.evidence}. <span className="dim">{c.basis === 'none' ? 'No window' : `${WIN[w]}, ${new Date(c.from ?? shown!.from).toLocaleDateString()} to ${new Date(c.to ?? shown!.to).toLocaleDateString()}`} · {scopeText(c, !api_)}.</span></>
             : shown ? `Tap or press a cell to read how it was counted. ${shown.department ?? 'Whole company'} · ${new Date(shown.from).toLocaleDateString()} to ${new Date(shown.to).toLocaleDateString()}.` : ' '}</div>; })()}
       </div>
-    </Modal>
+    </Panel>
   );
 }
-
-export const dialogs = { 'six-dimensions': SixDimensions };

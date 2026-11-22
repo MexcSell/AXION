@@ -31,6 +31,7 @@ const MAX_AVATARS = 6;
 export function ServerDepartments() {
   useAgentsCatalog(); // names and roles of members (and DEPTS for hue and charter)
   const canEdit = useCanEditAgents();
+  const nav = useNavigate();
   const [win, setWin] = useState<ScorecardWindow>('30d');
   const [demo, setDemo] = useState(false);
   const { data, error } = useDepartments(win, demo);
@@ -43,7 +44,7 @@ export function ServerDepartments() {
       actions={<div className="row dpa-actions" data-departments={shown ? 'ready' : error ? 'error' : 'loading'} data-window={win} data-demo={demo ? '1' : '0'}>
         <AnimatePresence>{demo && <motion.span key="demo" initial={{ opacity: 0, scale: .8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: .8 }}><DemoTag title="DEMO missions and simulated tasks are included in these counts" /></motion.span>}</AnimatePresence>
         <label className="row sc-demo"><span>include DEMO</span><Switch checked={demo} onChange={setDemo} label="Include DEMO missions" /></label>
-        <button className="btn sm" data-six-dimensions onClick={() => openDialog('six-dimensions')}><Layers size={14} />Six dimensions</button>
+        <button className="btn sm" data-six-dimensions onClick={() => nav('/operations?tab=agents&sub=dimensions')}><Layers size={14} />Six dimensions</button>
         <Segmented size="sm" ariaLabel="Outcome window" value={win} onChange={setWin} options={(['7d', '30d', '90d'] as const).map((k) => ({ key: k, label: k, title: WINDOW_LABEL[k] }))} />
         {canEdit && <button className="btn primary" onClick={() => openDialog('department-create')}><Plus size={15} />New department</button>}
       </div>}>
