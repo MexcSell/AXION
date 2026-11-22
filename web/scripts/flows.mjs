@@ -9,6 +9,8 @@ const ctx = await b.newContext({ viewport: { width: 1672, height: 941 } }); // f
 await signIn(ctx);
 await ctx.addInitScript(() => localStorage.setItem('axion.settings.v1', JSON.stringify({ state: { themeMode: 'dark', skin: 'luminous', motion: 'reduced' }, version: 0 })));
 const p = await ctx.newPage(); await p.addInitScript(() => localStorage.setItem('axion.testhook', '1'));
+// FLOWS_CPU_THROTTLE=N slows the page's CPU N times: a deterministic stand-in for a loaded machine (cycle 29)
+if (Number(process.env.FLOWS_CPU_THROTTLE) > 1) await (await ctx.newCDPSession(p)).send('Emulation.setCPUThrottlingRate', { rate: Number(process.env.FLOWS_CPU_THROTTLE) });
 const errors = [];
 p.on('pageerror', (e) => errors.push(e.message));
 p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
