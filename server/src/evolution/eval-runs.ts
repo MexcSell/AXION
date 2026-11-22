@@ -65,7 +65,18 @@ export async function startRun(c: Tx, o: StartRunInput): Promise<void> {
   if (!!o.proposalId === !!o.versionId) throw new Error('name exactly one subject: a proposal or a version');
   judgeFamily(o.judgeLabel);
   if (!o.evaluatorId?.trim()) throw new Error('the evaluator is missing; name who evaluates the run');
-  await c.query(
+  try {
+    await c.query(
     `insert into eval_runs(id, tenant_id, dataset_id, subject_version_id, subject_proposal_id, k, judge_model_family, evaluator_id) values ($1,$2,$3,$4,$5,$6,$7,$8)`,
     [o.id, o.tenantId, o.datasetId, o.versionId ?? null, o.proposalId ?? null, o.k, o.judgeLabel.trim(), o.evaluatorId.trim()]);
+  } catch (e) { throw mapRunInsertError(e); }
+}
+/** The loser of a race for the same holdout slot fails on the unique index (23505) before any trigger can name it: map it to the named refusal. */
+export class HoldoutRerunError extends Error {
+  readonly code = 'holdout_rerun';
+  constructor() { super('holdout_rerun: another run took this subject\'s one slot on the holdout dataset at the same moment; resume that run, or freeze a fresh holdout dataset'); this.name = 'HoldoutRerunError'; }
+}
+export function mapRunInsertError(e: unknown): unknown {
+  const x = e as { code?: string; constraint?: string };
+  return x?.code === '23505' && x.constraint === 'eval_runs_holdout_once' ? new HoldoutRerunError() : e;
 }

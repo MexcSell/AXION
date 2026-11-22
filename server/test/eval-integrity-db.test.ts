@@ -449,3 +449,23 @@ describe('F4: dev_holdout_reuse counts distinct shared inputs and exempts only r
   });
 });
 
+describe('F5: the loser of a race for the same holdout slot gets the named code', () => {
+  it('two concurrent startRun calls: one wins, the other fails with holdout_rerun (not a bare 23505)', async () => {
+    await makeDataset(s.pool, { id: 'H-F5', split: 'holdout', cases: 2 });
+    await prop('F5-P', 'a-1', v1, 'f5p');
+    const c1 = await s.pool.connect(), c2 = await s.pool.connect();
+    try {
+      await c1.query('begin'); await c2.query('begin');
+      const base = { tenantId: 't-1', k: 1, evaluatorId: 'ev', datasetId: 'H-F5', proposalId: 'F5-P', judgeLabel: 'claude-judge' };
+      await startRun(c1, { ...base, id: 'F5-1' });
+      const second = startRun(c2, { ...base, id: 'F5-2' }).then(() => 'won', (e: Error) => e);
+      await new Promise((r) => setTimeout(r, 300)); // c2 is now waiting on the unique index
+      await c1.query('commit');
+      const lost = await second;
+      expect(lost).toBeInstanceOf(Error);
+      expect((lost as Error).message).toMatch(/holdout_rerun/);
+      expect((lost as { code?: string }).code).toBe('holdout_rerun');
+      await c2.query('rollback');
+    } finally { c1.release(); c2.release(); }
+  });
+});
