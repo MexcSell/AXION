@@ -44,14 +44,16 @@ export async function missingResults(c: Tx, runId: string): Promise<Array<{ case
 export async function finishRun(c: Tx, runId: string): Promise<void> {
   await c.query(`select eval_finish_run($1)`, [runId]);
 }
-/** The run already holding this subject's one slot on a holdout dataset (the one to resume or leave alone), or null. */
+/** The run already holding this subject's one slot on a holdout dataset (or on another dataset of the same content, c70) (the one to resume or leave alone), or null. */
 export async function existingRun(c: Tx, o: { tenantId: string; datasetId: string; proposalId?: string; versionId?: string }): Promise<{ id: string; state: RunState } | null> {
   if (!!o.proposalId === !!o.versionId) throw new Error('name exactly one subject: a proposal or a version');
   const r = (await c.query(
     o.proposalId
       ? `select r.id from eval_runs r join agent_version_proposals p on p.id = r.subject_proposal_id join agent_version_proposals me on me.id = $3
-          where r.tenant_id=$1 and r.dataset_id=$2 and (p.agent_id, eval_canon_config(p.candidate)) = (me.agent_id, eval_canon_config(me.candidate)) and r.holdout_key is not null limit 1`
-      : `select r.id from eval_runs r where r.tenant_id=$1 and r.dataset_id=$2 and r.subject_version_id=$3 and r.holdout_key is not null limit 1`,
+          where r.tenant_id=$1 and r.dataset_id in (select x.id from eval_datasets x join eval_datasets y on y.id = $2 and x.tenant_id = y.tenant_id and x.content_sha256 = y.content_sha256)
+            and (p.agent_id, eval_canon_config(p.candidate)) = (me.agent_id, eval_canon_config(me.candidate)) and r.holdout_key is not null limit 1`
+      : `select r.id from eval_runs r where r.tenant_id=$1 and r.dataset_id in (select x.id from eval_datasets x join eval_datasets y on y.id = $2 and x.tenant_id = y.tenant_id and x.content_sha256 = y.content_sha256)
+            and r.subject_version_id=$3 and r.holdout_key is not null limit 1`,
     [o.tenantId, o.datasetId, o.proposalId ?? o.versionId])).rows[0] as { id: string } | undefined;
   return r ? { id: r.id, state: (await runState(c, r.id))! } : null;
 }

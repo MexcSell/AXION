@@ -4,7 +4,7 @@ import { makeSchema } from './helpers.ts';
 import { migrate, listMigrations } from '../src/migrate.ts';
 import { makeDataset, addRun } from './eval-fixtures.ts';
 import { loadEvaluations } from '../src/evolution/proposal-evidence.ts';
-import { recordRegrade, mapRunInsertError } from '../src/evolution/eval-runs.ts';
+import { recordRegrade, mapRunInsertError, existingRun } from '../src/evolution/eval-runs.ts';
 
 // c70 (E1d): holdout shopping gaps left by the c53 and c61 reviews. Records only: nothing here runs an evaluation or calls a model.
 // Out of scope and still open (see the report): variant B on a holdout after A's result was seen; a re-created identical base version.
@@ -77,6 +77,11 @@ describe('1. the holdout limit is keyed on the dataset CONTENT too', () => {
     finally { await q(`alter table eval_runs enable trigger eval_runs_guard`); }
     const e = await cx(async (c) => (await loadEvaluations(c, 't-1', [{ id: 'CL-P', created_by: 'u', base_version_id: v1, candidate: cand({ skills: ['loader'] }) }])).get('CL-P')!);
     expect(e.refusals.map((r) => r.code)).toContain('holdout_rerun'); expect(e.runCount).toBe(2); expect(e.outcome).toBe('inconclusive');
+  });
+  it('existingRun finds the run to resume on the same content under another dataset id', async () => {
+    const r = await cx((c) => existingRun(c, { tenantId: 't-1', datasetId: 'CH-B', proposalId: 'CH-P1' }));
+    expect(r?.id).toBe('CH-R1');
+    expect((await cx((c) => existingRun(c, { tenantId: 't-1', datasetId: 'CH-B', versionId: v1 })))?.id).toBe('CH-B1');
   });
   it('a lost race on the content key maps to the named refusal too', () => {
     expect(mapRunInsertError({ code: '23505', constraint: 'eval_runs_holdout_content_once' })).toMatchObject({ code: 'holdout_rerun' });
