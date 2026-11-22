@@ -382,3 +382,72 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
   - **P5c measured:** events-lock hold p50 2.1 ms, p99 4.7 ms, max 14.8 ms over 4,658 transactions at concurrency 12, so it is far from the 5 s audit lock_timeout in normal operation.
   - Live update needs AUDIT_ANCHOR_KEY in the live .env, then `audit:anchor` and `audit:verify`.
   - Security reviewer dispatched.
+- 2026-11-22T10:51Z · c49 security review: **PASS-WITH-FIXES**. No tampered state reachable without the key reports ok, outside the documented limit.
+  - The single-tenant last-checkpoint limit is unavoidable with DB plus file; the closure is an off-host copy.
+  - Re-run: vitest 1492 green, api-c49 14/14.
+  - Findings:
+    - F8 (medium): the P5c script's guard doesn't tie it to the lane's own DB before `migrate down`.
+    - Lows: signature hex malleability; a directory or unreadable file gives a 500; symlink and file mode not checked.
+    - Plausible: lock taken after the read; no domain separation; low-entropy key accepted.
+  - Fix round dispatched.
+- 2026-11-22T10:55Z · c48 review: **PASS-WITH-FIXES**, no security or honesty gap.
+  - The refusal order is unchanged inside `decideRefusal`, and the flag is per viewer.
+  - A keyboard probe sent 0 POSTs on gated controls.
+  - Vitest 1462 ×2 green (the implementer's 4 failures didn't reproduce). api-c48, c35 and stage6 green; api a11y 0 violations.
+  - Fix round dispatched:
+    - `viewer` required;
+    - route-side expired test, and route expiry moved to DB `now()` (time rule);
+    - Overview queue tooltip and clipping;
+    - R4 help wording;
+    - client fail-closed when `canDecide` is missing.
+- 2026-11-22T10:56Z · c47 E1b (w46) reported at 5f7e9a8, migration 0037.
+  - Freeze: the hash is computed in SQL (`eval_freeze_dataset`) and must match JS `hashDataset`; it fails closed on shapes it can't render. Freeze vs insert is serialised, and zero-case and fake-hash freezes are refused.
+  - Loader and gate: the loader uses stored rows only. Promote needs `verified_better` or an override reason of ≥ 10 characters (audited); `EVAL_WORSE` is refused.
+  - Tests: 66 new. Vitest 1502, api-c47 24/24, c05 31/31, stage6 94/94, verify-all 10/10.
+  - Concern: the evaluation isn't bound to the reviewed sha.
+  - Reviewer dispatched.
+- 2026-11-22T11:03Z · c47 review: **PASS-WITH-FIXES**.
+  - No API path makes a candidate look better or bypasses the gate. Vitest 1502, api-c47, c05 and stage6 green.
+  - Findings:
+    - M1: freeze doesn't fail closed (numbers above 2^53, exponents, long decimals and astral/PUA key ordering hash differently), which leaves a silent permanent hash_mismatch.
+    - M2: `worse` is sign-test only.
+    - M3: promote isn't bound to the evaluation the reviewer saw.
+    - Lows: re-run shopping, base-run checks, audit run ids, a swallowed catch, and the override field below the fold.
+  - Fix round dispatched with `evaluationSha` → 409 `EVALUATION_CHANGED` and a `holdout_rerun` refusal.
+- 2026-11-22T11:19Z · c49 fix round at 66e3f45.
+  - Changes:
+    - lane-db-guard: exact .env URL, host 127.0.0.1, axion_e2e<N> only, CONFIRM_WIPE.
+    - Strict hex signature.
+    - New `unreadable` and `insecure_file` statuses, with O_NOFOLLOW and mode 0600.
+    - Lock taken first.
+    - MAC domain separation via AUDIT_ANCHOR_DOMAIN, defaulting to the db and schema.
+    - Key check relaxed to ≥ 8 distinct bytes (the implementer says 16 rejects valid hex keys).
+    - `--rotate` archives the file and writes an audit event.
+    - Runbook updated.
+  - Results: 66 anchor tests (16 RED on the pre-fix code), vitest 1502, api-c49 14/14, verify-all 10/10.
+  - Scoped security re-review dispatched: guard bypasses, a TOCTOU, the domain default against the restore-check DB, the key decoding, and `--rotate` laundering.
+- 2026-11-22T11:22Z · c49 re-review: CLEARED with follow-ups.
+  - The guard holds. The 8-distinct-byte key floor is correct, because the key is raw text and hex keys have 16 symbols.
+  - Medium: `--rotate` can move evidence out of the verify path without the key, and nothing shows a rotation happened.
+  - Low: query-string `?host=` in the guard.
+  - The domain default makes the restore-check DB look like tampering.
+  - Second (security) fix round dispatched: rotate requires the key, `--confirm` and `--force`; signed `rotatedFrom`; the tile shows the restart; AUDIT_ANCHOR_DOMAIN is required; the guard refuses query strings.
+- 2026-11-22T11:28Z · **c48 CLEARED** at d29339a (controller check of the fix round).
+  - Fixes:
+    - `viewer` required;
+    - expiry judged by DB `now()` in the list, the decision select and the response;
+    - Overview tooltips and head clipping, with a check;
+    - R4 help wording;
+    - api-mode fail-closed.
+  - Results: vitest 1464 green, api-c48 31/31, c35 and stage6 green, api a11y 0 violations, verify-all 10/10.
+  - Small inconsistency noted: the list filters `<= now()` while the flag uses `< now()`, which only matters at the boundary instant.
+  - Queued in the new batch 11.
+- 2026-11-22T11:34Z · c47 fix round at 15b1bd2.
+  - Changes:
+    - Freeze fails closed on risky number and key shapes, checked by a property test of 300 datasets.
+    - `evaluationSha` → 409 `EVALUATION_CHANGED`.
+    - `worse` also fires on the CI and the negative mean.
+    - New refusals `holdout_rerun`, base-run refusals and a real `dev_holdout_reuse` signal.
+    - Compact evidence UI, with the override and Promote visible at 1366×768.
+  - Results: vitest 1542, api-c47 26/26, c05 and stage6 green, verify-all 10/10.
+  - Scoped re-review dispatched.

@@ -550,7 +550,7 @@ FAIL 900 /operations?tab=logs tab=Logs: clipped control button.icon-btn.xs[Dismi
 
 **Follow-up commits:** `09dd6cb`. Controller files committed with this entry: BACKLOG.md, LANES.md, LOG.md, QUEUE.md, STATE.md, cycles/c44-review.md (modified); cycles/c47–c49 briefs (new).
 
-## Batch 9 (Phase 2 · Wave 3): c39, c38, [locks fix], c42, c41 (in progress)
+## Batch 9 (Phase 2 · Wave 3): c39, c38, [locks fix], c42, c41 (c40 not cleared yet)
 
 - Pre-batch commit `4e84729`.
 - **`b17bbe6` c39-mission-ledgers (0ef44e2).** Migration 0032, DL-91, own `ledgers` bucket.
@@ -570,3 +570,31 @@ FAIL 900 /operations?tab=logs tab=Logs: clipped control button.icon-btn.xs[Dismi
   - Guard `test/advisory-locks.test.ts`: fails on any `pg_advisory_*` call in server/src or server/test that does not take `LOCK_KEY_SQL` (RED with the old `src/agents/org.ts` put back), and proves two schemas get different keys that do not block each other.
   - Proof: full vitest **3/3 runs at 2 workers, 1549/1549**; api-stage6 94/94.
 - **Follow-up `4766aae` (c38):** c38 appends two scorecard rows, but api-improve's c02 check still counted 8 (106/107). It now expects 10 rows, each with its `scorecard.*` help: **api-improve 107/107.**
+- **`49090ab` c42-delegation-brief (6e1b3b7).** Migration 0034, typed hand-off briefs, staffing retry.
+  - Conflicts, all kept both sides:
+    - app.ts imports and registrations;
+    - ratelimit.ts and security.test.ts route lists;
+    - contracts index.ts;
+    - events.ts type list (checked: the exact union);
+    - `server/src/tasks/routes.ts` imports (non-list point a: c38's review routes and c42's reassign brief are different handlers, both present);
+    - `missions.tsx` (non-list point b): the drawer has the c33/c38 hooks and c42's brief hook, both the brief card and the review list, and the reassign dialog's brief form.
+  - My union helper twice produced bad joins (app.ts register lines, the end of the event list). tsc caught both before the commit; I fixed them, and the helper now token-merges only lines over 200 characters and refuses a broken list end.
+  - c42's `brief:` lock goes through `advisoryXactLock` (key name unchanged).
+  - vitest 1580/1580; **api-c38 23/23, api-c39 32/32, api-c42 16/16.**
+  - **Task drawer at 1366×768** (api mode, probe): an owned running task (M-134/T-13401) and a failed one (M-125/T-12506) both FIT. The drawer is 906..1366 × 0..768 with no modal-body or page scroll, and shows the review list, the brief area, Review and (failed task) Tag failure.
+- **`ff206b5` c41-playbooks (f06032b).** Migration 0033, lessons, playbook versions and skills, DL-92/93/95.
+  - Conflicts, kept both sides:
+    - route lists, with `LIMITED_KIND` also catching `\/lessons` and `\/skills`;
+    - contracts events.ts and index.ts; dialog-ledger.txt;
+    - events.ts imports, refreshers and routing; the reconnect keeps one `if (opened++)`, with c41's `if (opened) playbooks('p')` before it; the sign-out line plus `playbooks.cancel()`.
+  - c41's `playbook:` and `skill:` locks go through `advisoryXactLock` (key names unchanged; the skill name is lower-cased in JS instead of SQL).
+  - `dialogId=` values unique (DL-48 twice in one dialog, as since init). vitest 1676/1676.
+- **c40-mobile-debt:** not merged. The queue still says "once it clears"; its review is PASS-WITH-FIXES and the tip moved to dcedf7c.
+
+**Batch checks on `ff206b5`:**
+- **api-e2e (exit 0):** api-auth-flow 15/15; api-flows 23/23; api-stage6 94/94; api-improve 107/107; api-c38 23/23; api-c39 32/32; api-c41 45 passed, 0 failed; api-c42 16/16; api-c25-anchor PASS (0.4 / 0.1 / 0.1 px); a11y-check (api) 41 views, 64 dialogs, 0 violations.
+- **verify-all:** exit 0, "ALL 10 STEPS PASSED", no FAIL lines; dialog smoke 64 dialogs, 128 checks, 0 failures; ledger unchanged.
+- **fit-check:** 79/79 ALL FIT. **ov-fit:** 32/32, NO SCROLL ANYWHERE. **a11y-check (demo):** 51 views, 64 dialogs, 0 violations.
+- **8b follow-ups after batch 9:** batch 9's api scripts above (all PASS under c43's Modal first-focus guard). **`FLOWS_CPU_THROTTLE=4 node scripts/flows.mjs`: exit 0, 21/21**, so the palette and theme steps that failed under 4× throttle in batch 5f now pass. `c29-archive-race.mjs`: archived 14/14, 0 changes after.
+
+**Follow-up commits in batch 9:** `2abfbed`, `4eca9db` (locks, approved), `4766aae`. Controller files committed with this entry: LOG.md, QUEUE.md (modified); cycles/c47–c49 reviews (new). BACKLOG.md, LESSONS.md and cycles/c40-review.md went in with `b23b8a8`.
