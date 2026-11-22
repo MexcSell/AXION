@@ -4,6 +4,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { requireAdmin } from '../auth/session.ts';
 import { VERSION } from '../config.ts';
+import { queueSummary } from '../jobs/summary.ts';
 
 export const DEFAULT_BACKUP_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'backups');
 
@@ -37,5 +38,12 @@ export default async function opsRoutes(app: FastifyInstance) {
       execution: 'disabled',
       checkedAt: new Date().toISOString(),
     };
+  });
+
+  /** Read-only job records (c45): counts only. No route enqueues, claims or cancels; nothing runs a job in this build. */
+  app.get('/operations/queues', async (req) => {
+    const ctx = await requireAdmin(req);
+    const q = await queueSummary(app.db, ctx.tenantId);
+    return { ...q, execution: 'disabled', recordsOnly: true, checkedAt: new Date().toISOString() };
   });
 }
