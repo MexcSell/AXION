@@ -205,6 +205,10 @@ export interface Approval {
   status: 'pending' | 'approved' | 'denied';
   /** api mode: name of the user who decided it (server) */
   decidedByName?: string | null;
+  /** api mode, binding v2 (server): the policy tier, what the action touches and its effect */
+  riskTier?: 'R0' | 'R1' | 'R2' | 'R3' | 'R4';
+  target?: string | null; origin?: string | null; effect?: string | null; effectWhy?: string | null;
+  approver?: 'user' | 'admin' | 'owner' | null; consumed?: boolean;
 }
 
 export interface TimelineEvent {

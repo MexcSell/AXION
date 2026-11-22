@@ -29,8 +29,8 @@ async function finished(id: string, owner: string, to: 'completed' | 'failed' | 
 }
 async function approval(missionId: string, decidedBy: string, decision: 'approved' | 'denied' = 'approved') {
   const id = 'APR-' + missionId;
-  await q(`insert into approval_requests(id, tenant_id, mission_id, agent_id, kind, title, risk, action_digest, state, expires_at)
-           values ($1,'t-1',$2,'gm','release','Release','R2','d',$3, now() + interval '1 day')`, [id, missionId, decision]);
+  await q(`insert into approval_requests(id, tenant_id, mission_id, agent_id, kind, title, risk, action_digest, digest_version, state, expires_at)
+           values ($1,'t-1',$2,'gm','release','Release','R2','d',2,$3, now() + interval '1 day')`, [id, missionId, decision]);
   await q(`insert into approval_decisions(approval_id, decision, digest, decided_by, decided_at) values ($1,$2,'d',$3, now() - interval '2 hours')`, [id, decision, decidedBy]);
 }
 async function card(b: Browser, qs = '') {

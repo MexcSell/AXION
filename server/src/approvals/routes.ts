@@ -8,8 +8,8 @@ import { parse } from '../auth/routes.ts';
 import { emit } from '../events/hooks.ts';
 import { VISIBLE_SQL } from '../missions/visibility.ts';
 import { approverFor } from '../policy/baseline.ts';
-import { isTier } from '../policy/types.ts';
-import { approvalDto, settleMission, sweepExpired } from './service.ts';
+import { isTier, tierRank } from '../policy/types.ts';
+import { approvalDto, rowDigest, settleMission, sweepExpired } from './service.ts';
 import { tx as txRun } from '../db.ts';
 
 export default async function approvalRoutes(app: FastifyInstance) {
@@ -41,12 +41,15 @@ export default async function approvalRoutes(app: FastifyInstance) {
       // the decider must match the policy's approver for the stored tier (R3/R4: admin; no owner role exists yet, so an admin acts as owner)
       const need = isTier(a.risk) ? approverFor(a.risk) : 'owner'; // an unreadable tier fails closed
       if ((need === 'admin' || need === 'owner') && ctx.user.role !== 'admin') throw new ApiError('POLICY_DENIED', 403, `Policy: a ${a.risk} request can only be decided by an administrator.`);
+      // nobody decides a request they made themselves (R2 and above)
+      if (a.requested_by && a.requested_by === ctx.user.id && isTier(a.risk) && tierRank(a.risk) >= tierRank('R2')) throw new ApiError('SELF_APPROVAL', 403, 'You made this request. Someone else must decide it.');
       if (a.state === 'approved' || a.state === 'denied') throw new ApiError('APPROVAL_ALREADY_DECIDED', 409, 'Someone already decided this request.');
       if (a.state !== 'pending' || new Date(a.expires_at).getTime() < Date.now()) {
         if (a.state === 'pending') { await c.query(`update approval_requests set state='expired' where id=$1`, [id]); await settleMission(c, ctx.tenantId, a.mission_id, ctx.correlationId); }
         return { stale: 'This request expired. The agent must ask again.' };
       }
-      if (b.digest !== a.action_digest) return { stale: 'This request changed since you opened it. Review it again.' };
+      // the stored digest must still match the row, and the client must have seen it (the client's value is only compared, never used)
+      if (rowDigest(a) !== a.action_digest || b.digest !== a.action_digest) return { stale: 'This request changed since you opened it. Review it again.' };
       // compare-and-set: only a still-pending request can be decided (axor execution-gateway pattern)
       const u = await c.query(`update approval_requests set state=$2 where id=$1 and state='pending' returning id`, [id, b.decision]);
       if (!u.rowCount) throw new ApiError('APPROVAL_ALREADY_DECIDED', 409, 'Someone already decided this request.');

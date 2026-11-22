@@ -6,6 +6,7 @@ import {
   Plus, Inbox, Hourglass, Archive, SlidersHorizontal, Newspaper, Play, Pause, Layers, Cpu, Trash2,
 } from 'lucide-react';
 import { TopBoard, FrameBody, BottomBoard } from '@/components/layout/PageFrame';
+import { ApprovalFacts, GateHelp, isGated } from '@/features/approvals/ApprovalBinding';
 import { NewsTab, UserRequests } from '@/features/notifications/News';
 import { useNews } from '@/store/news';
 import { isApi } from '@/api/mode';
@@ -251,6 +252,7 @@ function PendingTab() {
   const missions = useVisibleMissions();
   const decisions = useData((s) => s.approvalDecisions);
   const decide = useData((s) => s.decideApproval);
+  const me = useMe();
   const appr = allApprovals(missions, decisions).filter((a) => a.status === 'pending').sort((a, b) => RISK_TIER[a.risk].order - RISK_TIER[b.risk].order || a.expiresMin - b.expiresMin);
   const notices = ALL_NOTICES.filter((n) => n.actionable && !resolved[n.id]);
   const groups: [string, Notice[]][] = [['Critical', notices.filter((n) => n.severity === 'critical')], ['Needs attention', notices.filter((n) => n.severity !== 'critical')]];
@@ -274,11 +276,13 @@ function PendingTab() {
             {appr.map((a) => (
               <motion.div key={a.id} layout className="nt-appr" style={{ ['--h' as string]: RISK_TIER[a.risk].hue }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: 80 }}>
                 <div className="row" style={{ gap: 6 }}><Chip hue={RISK_TIER[a.risk].hue} solid size="sm">{RISK_TIER[a.risk].tier}</Chip><b className="ellipsis" style={{ fontSize: 13 }}>{a.title}</b></div>
-                <div className="dim" style={{ fontSize: 12, margin: '3px 0 8px' }}>{a.missionId} · expires in {a.expiresMin} min</div>
-                <div className="row" style={{ gap: 6 }}>
+                <div className="dim" style={{ fontSize: 12, margin: '3px 0 6px' }}>{a.missionId} · expires in {a.expiresMin} min</div>
+                <ApprovalFacts a={a} />
+                <div className="row" style={{ gap: 6, marginTop: 6 }}>
                   <button className="btn sm ghost" onClick={() => openDialog('approval-decision', { approvalId: a.id })}>Details</button><span className="spacer" />
-                  <button className="btn sm danger" onClick={() => openDialog('approval-decision', { approvalId: a.id })}>Deny</button>
-                  <button className="btn sm good" onClick={() => { if (a.risk === 'critical') { openDialog('approval-decision', { approvalId: a.id }); return; } decide(a.id, 'approved'); toast({ tone: 'success', title: 'Approved (demo)', body: a.title }); }}>Approve</button>
+                  {isGated(a, me) && <GateHelp />}
+                  <button className="btn sm danger" disabled={isGated(a, me)} onClick={() => openDialog('approval-decision', { approvalId: a.id })}>Deny</button>
+                  <button className="btn sm good" disabled={isGated(a, me)} onClick={() => { if (a.risk === 'critical') { openDialog('approval-decision', { approvalId: a.id }); return; } decide(a.id, 'approved'); toast({ tone: 'success', title: 'Approved (demo)', body: a.title }); }}>Approve</button>
                 </div>
               </motion.div>))}
           </AnimatePresence>
