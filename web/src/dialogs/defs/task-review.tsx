@@ -91,7 +91,7 @@ function TaskReview({ close, props }: DialogComponentProps<{ missionId?: string;
                   <div className="row" style={{ gap: 6 }}>
                     <Segmented ariaLabel={`Result ${i + 1}`} size="sm" value={r.result ?? ('' as RubricResult)} onChange={(v) => { touch(); setRows((xs) => (xs ?? []).map((x, j) => (j === i ? { ...x, result: v } : x))); }}
                       options={RESULTS.map((o) => ({ key: o.key, label: <><o.icon size={12} />{o.label}</> }))} />
-                    <input className="input rv-note" style={{ flex: 1, minWidth: 0 }} value={r.note} maxLength={1000} aria-label={`Note ${i + 1}`} placeholder="Note (optional)" onChange={(e) => { touch(); setRows((xs) => (xs ?? []).map((x, j) => (j === i ? { ...x, note: e.target.value } : x))); }} />
+                    <input className="input rv-note" style={{ flex: 1, minWidth: 0 }} value={r.note} maxLength={1000} aria-label={`Note ${i + 1}`} placeholder="Note" onChange={(e) => { touch(); setRows((xs) => (xs ?? []).map((x, j) => (j === i ? { ...x, note: e.target.value } : x))); }} />
                   </div>
                 </motion.div>
               ))}
