@@ -33,7 +33,7 @@ export function GuardBody({ g }: { g: MetricGuardRow }) {
         {g.counter.kind === 'metric' ? <span>{g.counter.refLabel}: {g.counter.why}.</span> : <span data-counter-none="1">{g.counter.reason}.</span>}</div>
       <div className="gm-sec"><b><EyeOff size={12} aria-hidden /> Does not cover</b>
         <span className="gm-tags">{g.uncovered.map((u) => <i key={u.id} data-uncovered={u.id}>{u.label.replace(/ \(.*\)$/, '')}</i>)}</span></div>
-      <div className="gm-sec"><b><ClipboardCheck size={12} aria-hidden /> Human audit</b><span>{auditLine(g)}</span></div>
+      <div className="gm-sec"><b><ClipboardCheck size={12} aria-hidden /> Human audit</b><span>{auditLine(g)}</span><small className="gm-fine">Labels, and which samples to check, are entered by an administrator. The metric label is typed, not read from the metric, so a flag is only as good as the sampling.</small></div>
     </div>
   );
 }

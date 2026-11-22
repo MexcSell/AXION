@@ -103,12 +103,16 @@ export interface MetricGuard {
 
 export function counterText(c: CounterMetric): string { return 'none' in c ? `No known counter-metric: ${c.none}` : c.why; }
 
+const PLAIN: Record<string, string> = {
+  recordReview: 'task reviews', createTag: 'failure tags', proposeLesson: 'lesson proposals', createBrief: 'delegation briefs',
+  requestApproval: 'approval requests', joinMission: 'joining a mission and delegating',
+};
 export function gameableText(w: Writability, inputs: readonly string[]): string {
   if (inputs.length === 0) return 'Reads no stored field yet, so there is nothing for an agent to write.';
   if (!w.agentWritable) return 'No agent identity can write any field this row reads today. Only people (through a route) or the system can.';
-  const fns = [...new Set(w.agentSites.map((s) => s.fn))].join(', ');
+  const what = [...new Set(w.agentSites.map((s) => PLAIN[s.fn] ?? 'a service'))].join(', ');
   const gates = [...new Set(w.agentSites.map((s) => s.gate).filter(Boolean))];
-  return `An agent identity can write an input of this row (through ${fns}), so the agent being measured could move this number.${gates.length ? ` Gate in the way: ${gates.join('; ')}.` : ''} Display only: nothing changes because of this flag.`;
+  return `An agent identity can write an input of this row (through ${what}), so the agent being measured could move this number. That is what the code permits: no agent executes today, so none has.${gates.length ? ` Gate in the way: ${gates.join('; ')}.` : ''} Display only: nothing changes because of this flag.`;
 }
 
 export function guardOf(m: MetricMeta, byId: ReadonlyMap<string, MetricMeta> = METRIC_BY_ID): MetricGuard {

@@ -67,6 +67,8 @@ try {
   check('opening it shows the gameable flag in plain words, the counter-metric and what the row does not cover',
     await until(async () => (await pop.count()) === 1 && (await pop.locator('[data-gameable="1"]').count()) === 1, 6000)
     && /agent identity can write/.test(await pop.innerText()) && /Counter-metric/i.test(await pop.innerText()) && (await pop.locator('[data-uncovered]').count()) >= 2);
+  const popText = await pop.innerText();
+  check('the popover says no agent executes today, names no function, and says who enters the audit labels', /no agent executes today/.test(popText) && !/recordReview|createTag|joinMission/.test(popText) && /entered by an administrator/.test(popText) && /task reviews/.test(popText));
   check('the popover carries a ? that explains "gameable"', (await pop.locator('[data-help-key="guard.gameable"]').count()) === 1);
   await hit(pop.locator('[data-help-key="guard.gameable"]'));
   check('the ? opens its text (display only, R3-3 waits for Q13)', await until(async () => (await p.locator('.help-pop:not(.gm-pop)').count()) === 1 && /Display only/.test(await p.locator('.help-pop:not(.gm-pop)').innerText()), 6000));
@@ -74,6 +76,14 @@ try {
   await hit(p.locator('[data-guard-key="scorecard.waiting_approval_median_h"]'));
   check('a row with "no known counter-metric" says so with its reason', await until(async () => (await p.locator('.gm-pop [data-counter-none]').count()) === 1, 6000));
   await closeAll(p);
+
+  // ---- 390 px: a 24 px hit area without a taller row
+  await p.setViewportSize({ width: 390, height: 844 });
+  await until(async () => (await p.evaluate(() => innerWidth === 390)), 3000);
+  const hitSz = await p.evaluate(() => { const g = [...document.querySelectorAll('[data-row] [data-guard-key]')].find((e) => e.getBoundingClientRect().width > 0); const r = g?.closest('[data-row]'); return g ? { w: Math.round(g.getBoundingClientRect().width), h: Math.round(g.getBoundingClientRect().height), row: Math.round(r.getBoundingClientRect().height) } : null; });
+  check('at 390 px the compact guard button has a 24 px hit area and its row is still 18 px', !!hitSz && hitSz.w >= 24 && hitSz.h >= 24 && hitSz.row === 18, JSON.stringify(hitSz));
+  await p.setViewportSize({ width: 1366, height: 768 });
+  await until(async () => (await p.evaluate(() => innerWidth === 1366)), 3000);
 
   // ---- KPI tiles
   check('each measured KPI tile has a guard button', (await Promise.all(KPI.map((k) => p.locator(`.kt [data-guard-key="${k}"]`).count()))).every((n) => n === 1));

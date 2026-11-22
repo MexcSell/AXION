@@ -20,3 +20,9 @@
 .kt-guard { position: absolute; bottom: 6px; right: 4px; opacity: .85; line-height: 0; }
 .dim-guard-note { display: inline-flex; align-items: center; gap: 4px; vertical-align: middle; margin-left: 6px; }
 .gm-word { font-style: normal; font-size: 10.5px; font-weight: 700; color: var(--warn, #f59e0b); }
+.gm-fine { display: block; font-size: 10.5px; color: var(--text-muted); margin-top: 2px; }
+/* touch and phone: a 24 px hit area. Negative margins keep the layout size, so no row, tile or cell gets taller. */
+@media (pointer: coarse), (max-width: 720px) {
+  .gm-btn.cp { width: 24px; height: 24px; margin: -5px; }
+  .gm-btn:not(.cp) { width: 24px; height: 24px; margin: -4px; }
+}

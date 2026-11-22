@@ -38,7 +38,9 @@ describe('GET /company/metric-guard', () => {
     const r = (await A.req('GET', '/company/metric-guard')).body;
     const tv = r.rows.find((x: any) => x.id === 'scorecard.tasks_verified_by_review');
     expect(tv.gameable).toBe(true);
-    expect(tv.gameableText).toContain('recordReview');
+    expect(tv.gameableText).toContain('task reviews');
+    expect(tv.gameableText).not.toMatch(/recordReview|createTag|joinMission|proposeLesson|createBrief|requestApproval/); // plain words, no function names
+    expect(tv.gameableText).toContain('no agent executes today');
     expect(tv.gameableText).toContain('Display only');
     const fin = r.rows.find((x: any) => x.id === 'scorecard.finished');
     expect(fin.gameable).toBe(false);
