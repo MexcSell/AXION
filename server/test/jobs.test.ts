@@ -18,7 +18,16 @@ afterAll(async () => { await s.drop(); });
 async function tenant() { const id = `tj-${++n}`; await s.pool.query(`insert into tenants(id, name) values ($1,$1)`, [id]); return id; }
 const enq = (tenantId: string, key = `k${++n}`, extra: Partial<Parameters<typeof enqueueJob>[1]> = {}) => enqueueJob(s.pool, { tenantId, kind: 'noop.test', idempotencyKey: key, createdBy: 'tester', ...extra });
 const claim = (tenantId: string, owner = 'w1', leaseSeconds = 60) => claimJob(s.pool, { owner, kinds: [...K], leaseSeconds, tenantId });
-const expire = (id: string) => s.pool.query(`update system_jobs set lease_expires_at = now() - interval '1 second' where id=$1`, [id]);
+/** Test-only: the guard refuses to move a live lease's expiry backward, so tests age a lease with the trigger switched off for one statement. */
+async function rawAge(pool: pg.Pool, where: string, params: unknown[] = []) {
+  const c = await pool.connect();
+  try {
+    await c.query('begin'); await c.query('alter table system_jobs disable trigger system_jobs_no_edit');
+    await c.query(`update system_jobs set lease_expires_at = now() - interval '1 second' where ${where}`, params);
+    await c.query('alter table system_jobs enable trigger system_jobs_no_edit'); await c.query('commit');
+  } catch (e) { await c.query('rollback'); throw e; } finally { c.release(); }
+}
+const expire = (id: string) => rawAge(s.pool, 'id=$1', [id]);
 const row = async (id: string) => (await s.pool.query('select *, lease_token::int tok from system_jobs where id=$1', [id])).rows[0];
 const auditCount = async (tenantId: string, action: string) => (await s.pool.query('select count(*)::int n from audit_events where tenant_id=$1 and action=$2', [tenantId, action])).rows[0].n;
 const leased = async (max = 3) => { const t = await tenant(); const { job } = await enq(t, undefined, { maxAttempts: max }); const c = (await claim(t))!; return { t, id: job.id, c }; };
@@ -77,12 +86,13 @@ describe('migration 0035', () => {
     await raw(', max_attempts', [10]);
   });
   it("'leased' needs an owner, an expiry and a token", async () => {
-    await expect(raw(", status, lease_expires_at, heartbeat_at, lease_token", ['leased', new Date(Date.now() + 1e5), new Date(), 1])).rejects.toThrow(/check/);
-    await expect(raw(", status, lease_owner, heartbeat_at, lease_token", ['leased', 'w', new Date(), 1])).rejects.toThrow(/check/);
-    await expect(raw(", status, lease_owner, lease_expires_at, heartbeat_at, lease_token", ['leased', 'w', new Date(Date.now() + 1e5), new Date(), 0])).rejects.toThrow(/check/);
+    await expect(raw(", status, lease_expires_at, heartbeat_at, lease_token", ['leased', new Date(Date.now() + 1e5), new Date(), 1])).rejects.toThrow(/check|inserted queued/);
+    await expect(raw(", status, lease_owner, heartbeat_at, lease_token", ['leased', 'w', new Date(), 1])).rejects.toThrow(/check|inserted queued/);
+    await expect(raw(", status, lease_owner, lease_expires_at, heartbeat_at, lease_token", ['leased', 'w', new Date(Date.now() + 1e5), new Date(), 0])).rejects.toThrow(/check|inserted queued/);
   });
   it('last_error is bounded', async () => {
-    await expect(raw(', last_error', ['e'.repeat(1001)])).rejects.toThrow(/check/);
+    const t = await tenant(); const { job } = await enq(t);
+    await expect(s.pool.query('update system_jobs set last_error=$2 where id=$1', [job.id, 'e'.repeat(1001)])).rejects.toThrow(/check/);
   });
 });
 
@@ -147,14 +157,14 @@ describe('claim', () => {
   it('the token goes up on every claim and every reclaim', async () => {
     const { id } = await leased();
     expect((await row(id)).tok).toBe(1);
-    await expire(id); await reclaimExpired(s.pool);
+    await expire(id); await reclaimExpired(s.pool, { allTenants: true });
     expect((await row(id)).tok).toBe(2);
     const t = (await row(id)).tenant_id;
     const c = (await claim(t))!;
     expect(c.leaseToken).toBe(3); expect(c.attempt).toBe(2);
   });
   it('rejects a silly lease length', async () => {
-    await expect(claimJob(s.pool, { owner: 'w', kinds: [...K], leaseSeconds: 0 })).rejects.toThrow(/leaseSeconds/);
+    await expect(claimJob(s.pool, { owner: 'w', kinds: [...K], leaseSeconds: 0, allTenants: true })).rejects.toThrow(/leaseSeconds/);
   });
 });
 
@@ -176,7 +186,7 @@ describe('heartbeat', () => {
   });
   it('fencing: the old holder cannot heartbeat after a reclaim, nor after a second worker claimed', async () => {
     const { t, id, c } = await leased();
-    await expire(id); await reclaimExpired(s.pool);
+    await expire(id); await reclaimExpired(s.pool, { allTenants: true });
     expect(await heartbeatJob(s.pool, { tenantId: t, id, token: c.leaseToken, leaseSeconds: 60 })).toEqual({ ok: false, reason: 'not_leased' });
     const c2 = (await claim(t, 'w2'))!;
     expect(await heartbeatJob(s.pool, { tenantId: t, id, token: c.leaseToken, leaseSeconds: 60 })).toEqual({ ok: false, reason: 'stale_token' });
@@ -194,7 +204,7 @@ describe('complete', () => {
   });
   it('fencing: a stale holder cannot complete after a reclaim and a new claim', async () => {
     const { t, id, c } = await leased();
-    await expire(id); await reclaimExpired(s.pool); await claim(t, 'w2');
+    await expire(id); await reclaimExpired(s.pool, { allTenants: true }); await claim(t, 'w2');
     expect(await completeJob(s.pool, { tenantId: t, id, token: c.leaseToken })).toEqual({ ok: false, reason: 'stale_token' });
     expect((await row(id)).status).toBe('leased');
   });
@@ -232,7 +242,7 @@ describe('fail and dead letter', () => {
   });
   it('fencing: a stale holder cannot fail a job it no longer owns', async () => {
     const { t, id, c } = await leased();
-    await expire(id); await reclaimExpired(s.pool); await claim(t, 'w2');
+    await expire(id); await reclaimExpired(s.pool, { allTenants: true }); await claim(t, 'w2');
     expect(await failJob(s.pool, { tenantId: t, id, token: c.leaseToken, error: 'late' })).toEqual({ ok: false, reason: 'stale_token' });
     expect((await row(id)).last_error).toBeNull();
   });
@@ -250,7 +260,7 @@ describe('fail and dead letter', () => {
 describe('reclaimExpired', () => {
   it('requeues an expired lease and bumps the token', async () => {
     const { id } = await leased(); await expire(id);
-    const r = await reclaimExpired(s.pool);
+    const r = await reclaimExpired(s.pool, { allTenants: true });
     expect(r.find((j) => j.id === id)).toMatchObject({ status: 'queued', leaseOwner: null, leaseToken: 2 });
   });
   it('dead-letters an expired lease on the last attempt, with an audit row', async () => {
@@ -388,6 +398,120 @@ describe('the trigger refuses illegal transitions through raw SQL', () => {
   });
 });
 
+describe('fix round: trigger lease edges, insert guard, cancel edge', () => {
+  const lease = async () => { const x = await leased(); return x; };
+  it('a leased row cannot have its expiry moved while only raw SQL is used: not forward by a day, not into the past', async () => {
+    const { id } = await lease();
+    await expect(s.pool.query(`update system_jobs set lease_expires_at = now() - interval '1 second' where id=$1`, [id])).rejects.toThrow(/lease/);
+    // a live lease may be pushed forward (that is what a heartbeat does)
+    await s.pool.query(`update system_jobs set lease_expires_at = lease_expires_at + interval '1 minute', heartbeat_at = now() where id=$1`, [id]);
+  });
+  it('an expired lease cannot be revived by raw SQL (only a reclaim may touch it)', async () => {
+    const { id } = await lease(); await expire(id);
+    await expect(s.pool.query(`update system_jobs set lease_expires_at = now() + interval '1 day', heartbeat_at = now() where id=$1`, [id])).rejects.toThrow(/lease/);
+    expect((await row(id)).status).toBe('leased');
+  });
+  it('heartbeat time cannot go backward, and a lease change may not edit other columns', async () => {
+    const { id } = await lease();
+    await expect(s.pool.query(`update system_jobs set heartbeat_at = heartbeat_at - interval '1 hour' where id=$1`, [id])).rejects.toThrow(/lease/);
+    await expect(s.pool.query(`update system_jobs set last_error='sneaky' where id=$1`, [id])).rejects.toThrow(/lease/);
+  });
+  it('a heartbeat with a shorter lease never shortens the expiry', async () => {
+    const { t, id, c } = await lease();
+    const r = await heartbeatJob(s.pool, { tenantId: t, id, token: c.leaseToken, leaseSeconds: 1 });
+    expect(r.ok && new Date(r.job.leaseExpiresAt!).getTime()).toBeGreaterThanOrEqual(new Date(c.leaseExpiresAt!).getTime());
+  });
+  it('flagging a cancel on a lease that has already expired is still allowed', async () => {
+    const { t, id } = await lease(); await expire(id);
+    expect((await requestCancel(s.pool, { tenantId: t, id, actor: 'a' })).ok).toBe(true);
+  });
+  it('an unexpired lease is released to queued only with a recorded failure; an expired one by reclaim', async () => {
+    const { id } = await lease();
+    await expect(s.pool.query(`update system_jobs set status='queued', lease_token=lease_token+1, lease_owner=null, lease_expires_at=null where id=$1`, [id])).rejects.toThrow(/unexpired lease|illegal job transition/);
+    await s.pool.query(`update system_jobs set status='queued', lease_token=lease_token+1, lease_owner=null, lease_expires_at=null, last_error='holder failed' where id=$1`, [id]);
+    const b = await leased(); await expire(b.id);
+    await s.pool.query(`update system_jobs set status='queued', lease_token=lease_token+1, lease_owner=null, lease_expires_at=null where id=$1`, [b.id]);
+  });
+  it('INSERT guard: a row can only appear queued, fresh and unleased', async () => {
+    const ins = (cols: string, vals: unknown[]) => s.pool.query(`insert into system_jobs(tenant_id, kind, idempotency_key, created_by, ${cols}) values ('t-1','noop.test','ig-${++n}','x', ${vals.map((_, i) => '$' + (i + 1)).join(',')})`, vals);
+    await expect(ins('status, attempt, lease_token, lease_owner, lease_expires_at, heartbeat_at', ['leased', 1, 1, 'w', new Date(Date.now() + 1e5), new Date()])).rejects.toThrow(/inserted queued/);
+    await expect(ins('lease_token, attempt', [99, 2])).rejects.toThrow(/inserted queued/);
+    await expect(ins('lease_token', [1])).rejects.toThrow(/inserted queued/);
+    await expect(ins('cancel_requested', [true])).rejects.toThrow(/inserted queued/);
+    await expect(ins('status, finished_at', ['succeeded', new Date()])).rejects.toThrow(/inserted queued/);
+    await expect(ins('last_error', ['pre-failed'])).rejects.toThrow(/inserted queued/);
+    await expect(ins('heartbeat_at', [new Date()])).rejects.toThrow(/inserted queued/);
+    await ins('payload_ref', ['ok:1']);
+  });
+  it('queued -> canceled needs cancel_requested = true', async () => {
+    const t = await tenant(); const { job } = await enq(t);
+    await expect(s.pool.query(`update system_jobs set status='canceled', finished_at=now() where id=$1`, [job.id])).rejects.toThrow(/cancel/);
+    await s.pool.query(`update system_jobs set status='canceled', cancel_requested=true, finished_at=now() where id=$1`, [job.id]);
+  });
+});
+
+describe('fix round: token validation in Node, fail-closed tenancy, reclaim batch', () => {
+  const boom = { query: () => { throw new Error('SQL must not be touched'); }, connect: () => { throw new Error('SQL must not be touched'); } } as unknown as pg.Pool;
+  const bad: unknown[] = [1.5, NaN, Infinity, 2 ** 70, -1, '1', null, undefined, {}];
+  it('a token that is not a safe non-negative integer is a stale_token and never reaches SQL', async () => {
+    const id = '00000000-0000-0000-0000-000000000000';
+    for (const token of bad) {
+      const tk = token as number;
+      expect(await heartbeatJob(boom, { tenantId: 't', id, token: tk, leaseSeconds: 5 })).toEqual({ ok: false, reason: 'stale_token' });
+      expect(await completeJob(boom, { tenantId: 't', id, token: tk })).toEqual({ ok: false, reason: 'stale_token' });
+      expect(await failJob(boom, { tenantId: 't', id, token: tk, error: 'x' })).toEqual({ ok: false, reason: 'stale_token' });
+      expect(await acknowledgeCancel(boom, { tenantId: 't', id, token: tk })).toEqual({ ok: false, reason: 'stale_token' });
+    }
+  });
+  it('claimJob and reclaimExpired throw unless given a tenantId or an explicit allTenants: true', async () => {
+    await expect(claimJob(s.pool, { owner: 'w', kinds: [...K], leaseSeconds: 5 } as never)).rejects.toThrow(/tenantId|allTenants/);
+    await expect(reclaimExpired(s.pool)).rejects.toThrow(/tenantId|allTenants/);
+    await expect(reclaimExpired(s.pool, {})).rejects.toThrow(/tenantId|allTenants/);
+    await expect(claimJob(s.pool, { owner: 'w', kinds: [...K], leaseSeconds: 5, allTenants: false } as never)).rejects.toThrow(/tenantId|allTenants/);
+    await expect(claimJob(s.pool, { owner: 'w', kinds: [...K], leaseSeconds: 5, tenantId: '' })).rejects.toThrow(/tenantId|allTenants/);
+  });
+  it('reclaimExpired takes a batch limit (default 100) and leaves the rest for the next call', async () => {
+    const t = await tenant(); const ids: string[] = [];
+    for (let i = 0; i < 5; i++) { await enq(t); ids.push((await claim(t))!.id); }
+    await rawAge(s.pool, 'tenant_id=$1', [t]);
+    expect((await reclaimExpired(s.pool, { tenantId: t, limit: 2 })).length).toBe(2);
+    expect((await s.pool.query(`select count(*)::int n from system_jobs where tenant_id=$1 and status='leased'`, [t])).rows[0].n).toBe(3);
+    expect((await reclaimExpired(s.pool, { tenantId: t })).length).toBe(3);
+    await expect(reclaimExpired(s.pool, { tenantId: t, limit: 0 })).rejects.toThrow(/limit/);
+    await expect(reclaimExpired(s.pool, { tenantId: t, limit: 100000 })).rejects.toThrow(/limit/);
+  });
+  it('stress: 6 workers with 0.05 s leases, 2 reclaimers and a canceller never double-hold a job', async () => {
+    const m = await makeSchema();
+    const pool = new pg.Pool({ connectionString: TEST_DB(), options: `-c search_path=${m.schema}`, max: 12 });
+    const claims = new Map<string, string>(); const dupes: string[] = []; const badWins: string[] = [];
+    let stop = false;
+    try {
+      for (let i = 0; i < 24; i++) await enqueueJob(pool, { tenantId: 't-1', kind: 'noop.test', idempotencyKey: `s${i}`, createdBy: 't', maxAttempts: 3 });
+      const worker = async (w: number) => {
+        while (!stop) {
+          const j = await claimJob(pool, { owner: `w${w}`, kinds: ['noop.test'], leaseSeconds: 0.05, allTenants: true });
+          if (!j) { await new Promise((r) => setTimeout(r, 5)); continue; }
+          const key = `${j.id}:${j.leaseToken}`;
+          if (claims.has(key)) dupes.push(key); claims.set(key, `w${w}`);
+          const act = Math.random();
+          if (act < 0.3) await new Promise((r) => setTimeout(r, 80)); // outlive the lease
+          const ok = act < 0.6 ? await completeJob(pool, { tenantId: 't-1', id: j.id, token: j.leaseToken })
+            : act < 0.8 ? await failJob(pool, { tenantId: 't-1', id: j.id, token: j.leaseToken, error: 'e' }) : await heartbeatJob(pool, { tenantId: 't-1', id: j.id, token: j.leaseToken, leaseSeconds: 0.05 });
+          if (ok.ok && ok.job.leaseOwner !== null && ok.job.leaseOwner !== `w${w}`) badWins.push(key);
+        }
+      };
+      const reclaimer = async () => { while (!stop) { await reclaimExpired(pool, { allTenants: true, limit: 5 }); await new Promise((r) => setTimeout(r, 15)); } };
+      const canceller = async () => { while (!stop) { const r = (await pool.query(`select id from system_jobs where status in ('queued','leased') order by random() limit 1`)).rows[0]; if (r) await requestCancel(pool, { tenantId: 't-1', id: r.id, actor: 'c' }); await new Promise((r2) => setTimeout(r2, 60)); } };
+      const runs = [...Array.from({ length: 6 }, (_, w) => worker(w)), reclaimer(), reclaimer(), canceller()];
+      await new Promise((r) => setTimeout(r, 2500)); stop = true; await Promise.all(runs);
+      expect(dupes).toEqual([]); expect(badWins).toEqual([]);
+      const rows = (await pool.query('select status, attempt, lease_token::int tok, lease_owner, lease_expires_at from system_jobs')).rows;
+      for (const r of rows) { expect(r.tok).toBeGreaterThanOrEqual(r.attempt); expect((r.status === 'leased') === (r.lease_owner !== null)).toBe(true); }
+      expect(claims.size).toBeGreaterThan(24);
+    } finally { stop = true; await pool.end(); await m.drop(); }
+  }, 30_000);
+});
+
 describe('tenant isolation', () => {
   it('another tenant cannot read, heartbeat, complete, fail, cancel or acknowledge a job', async () => {
     const { t, id, c } = await leased();
@@ -434,7 +558,7 @@ describe('concurrency', () => {
       for (let i = 0; i < 50; i++) await enqueueJob(pool, { tenantId: 't-1', kind: 'noop.test', idempotencyKey: `j${i}`, createdBy: 't' });
       const claimed: Job[][] = await Promise.all(Array.from({ length: 20 }, async (_, w) => {
         const mine: Job[] = [];
-        for (;;) { const j = await claimJob(pool, { owner: `w${w}`, kinds: ['noop.test'], leaseSeconds: 60 }); if (!j) break; mine.push(j); }
+        for (;;) { const j = await claimJob(pool, { owner: `w${w}`, kinds: ['noop.test'], leaseSeconds: 60, allTenants: true }); if (!j) break; mine.push(j); }
         return mine;
       }));
       const all = claimed.flat();
@@ -449,13 +573,13 @@ describe('concurrency', () => {
         expect(claimed.filter((mine) => mine.some((j) => j.id === r.id)).length).toBe(1);
       }
       // second generation: all leases expire, five reclaimers race, then 20 claimers again
-      await pool.query(`update system_jobs set lease_expires_at = now() - interval '1 second'`);
-      const rc = await Promise.all(Array.from({ length: 5 }, () => reclaimExpired(pool)));
+      await rawAge(pool, 'true');
+      const rc = await Promise.all(Array.from({ length: 5 }, () => reclaimExpired(pool, { allTenants: true })));
       expect(rc.flat().length).toBe(50);
       expect(new Set(rc.flat().map((j) => j.id)).size).toBe(50);
       const gen2: Job[][] = await Promise.all(Array.from({ length: 20 }, async (_, w) => {
         const mine: Job[] = [];
-        for (;;) { const j = await claimJob(pool, { owner: `v${w}`, kinds: ['noop.test'], leaseSeconds: 60 }); if (!j) break; mine.push(j); }
+        for (;;) { const j = await claimJob(pool, { owner: `v${w}`, kinds: ['noop.test'], leaseSeconds: 60, allTenants: true }); if (!j) break; mine.push(j); }
         return mine;
       }));
       expect(gen2.flat().length).toBe(50);
@@ -478,7 +602,7 @@ describe('GET /operations/queues (admin only, tenant scoped)', () => {
     const q = (k: string, tn = tid) => t.pool.query(`insert into system_jobs(tenant_id, kind, idempotency_key, created_by, created_at) values ($1,'noop.test',$2,'x', now() - interval '2 minutes')`, [tn, k]);
     await q('a'); await q('b'); await q('c'); await q('foreign', other);
     const l = (await claimJob(t.pool, { owner: 'w', kinds: ['noop.test'], leaseSeconds: 60, tenantId: tid }))!;
-    await t.pool.query(`update system_jobs set lease_expires_at = now() - interval '1 s' where id=$1`, [l.id]);
+    await rawAge(t.pool, 'id=$1', [l.id]);
     const r = await A.admin.req('GET', '/operations/queues');
     expect(r.status).toBe(200);
     expect(r.body.kinds).toHaveLength(1);
@@ -509,25 +633,42 @@ describe('GET /operations/queues (admin only, tenant scoped)', () => {
 });
 
 describe('execution stays disabled', () => {
-  const walk = (d: string): string[] => readdirSync(d).flatMap((f) => { const p = join(d, f); return statSync(p).isDirectory() ? walk(p) : p.endsWith('.ts') ? [p] : []; });
-  const SRC = join(__dirname, '../src');
-  it('nothing outside src/jobs imports the store or names a claim or enqueue function', () => {
-    for (const f of walk(SRC)) {
-      if (f.includes('/src/jobs/')) continue;
+  // NOTE: these are greps over source text, not proofs. They catch accidents and the obvious bypasses (dynamic import, extra
+  // route methods, sleep loops); a determined author can still evade them. The real guarantee is code review plus the fact
+  // that no code in this build instantiates a worker.
+  const walk = (d: string): string[] => { try { return readdirSync(d).flatMap((f) => { const p = join(d, f); return statSync(p).isDirectory() ? (f === 'node_modules' ? [] : walk(p)) : /\.(ts|mjs|js|sh)$/.test(p) ? [p] : []; }); } catch { return []; } };
+  const ROOT = join(__dirname, '..');
+  const SRC = join(ROOT, 'src');
+  const outside = [...walk(SRC), ...walk(join(ROOT, 'scripts'))].filter((f) => !f.includes('/src/jobs/'));
+  const STORE_FNS = /\b(claimJob|reclaimExpired|enqueueJob|heartbeatJob|completeJob|failJob|requestCancel|acknowledgeCancel)\b/;
+  it('nothing outside src/jobs (src and scripts) imports the store, statically or dynamically, or names a store function', () => {
+    expect(outside.length).toBeGreaterThan(20);
+    for (const f of outside) {
       const txt = readFileSync(f, 'utf8');
       expect(txt, f).not.toMatch(/jobs\/store/);
-      expect(txt, f).not.toMatch(/\b(claimJob|reclaimExpired|enqueueJob|heartbeatJob|completeJob|failJob|requestCancel|acknowledgeCancel)\b/);
+      expect(txt, f).not.toMatch(/import\s*\([^)]*jobs/);
+      expect(txt, f).not.toMatch(/require\s*\([^)]*jobs/);
+      expect(txt, f).not.toMatch(STORE_FNS);
     }
   });
-  it('the jobs code starts no timer, interval or worker', () => {
+  it('the jobs code starts no timer, interval, sleep loop, worker, child process or listener', () => {
     for (const f of walk(join(SRC, 'jobs'))) {
       const txt = readFileSync(f, 'utf8');
-      expect(txt, f).not.toMatch(/setInterval|setTimeout|setImmediate|child_process|worker_threads|node-cron|\.listen\(/);
+      expect(txt, f).not.toMatch(/setInterval|setTimeout|setImmediate|child_process|worker_threads|node-cron|\.listen\(|pg_sleep|while\s*\(\s*(true|1)\s*\)|for\s*\(\s*;\s*;\s*\)|\bsleep\b/);
     }
   });
-  it('the ops route only reads', () => {
-    const txt = readFileSync(join(SRC, 'ops/routes.ts'), 'utf8');
-    expect(txt).toMatch(/queueSummary/);
-    expect(txt).not.toMatch(/app\.(post|put|patch|delete)\(/);
+  it('no route registration mentions jobs or queues except the one read-only GET in ops/routes.ts', () => {
+    const REG = /\b[A-Za-z_$][\w$]*\.(get|post|put|patch|delete|route|all|head|options)\s*\(\s*([^)]{0,300})/g;
+    for (const f of [...outside, ...walk(join(SRC, 'jobs'))]) {
+      const txt = readFileSync(f, 'utf8');
+      for (const m of txt.matchAll(REG)) {
+        if (!/jobs?\b|queues?\b/i.test(m[2])) continue;
+        const ok = f.endsWith('/src/ops/routes.ts') && m[1] === 'get' && /'\/operations\/queues'/.test(m[2]);
+        expect(ok, `${f}: ${m[0].slice(0, 80)}`).toBe(true);
+      }
+    }
+  });
+  it('the ops route file has no write handler at all', () => {
+    expect(readFileSync(join(SRC, 'ops/routes.ts'), 'utf8')).not.toMatch(/\.(post|put|patch|delete|route)\s*\(/);
   });
 });

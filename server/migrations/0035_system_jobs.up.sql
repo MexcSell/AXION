@@ -59,16 +59,24 @@ begin
       if new.attempt <> old.attempt + 1 or new.lease_token <> old.lease_token + 1 then raise exception 'a claim bumps attempt and token by one'; end if;
     elsif new.status = 'canceled' then
       if new.attempt <> old.attempt or new.lease_token <> old.lease_token then raise exception 'illegal job transition'; end if;
+      if not new.cancel_requested then raise exception 'a queued job is canceled only with cancel_requested'; end if;
     else raise exception 'illegal job transition: queued -> %', new.status; end if;
   else -- leased
     if new.status = 'leased' then
       if new.lease_token <> old.lease_token or new.attempt <> old.attempt or new.lease_owner <> old.lease_owner then raise exception 'a lease keeps its owner, token and attempt'; end if;
+      if new.last_error is distinct from old.last_error or new.finished_at is distinct from old.finished_at then raise exception 'a lease change only touches heartbeat, expiry or the cancel flag'; end if;
+      if new.lease_expires_at is distinct from old.lease_expires_at or new.heartbeat_at is distinct from old.heartbeat_at then
+        if old.lease_expires_at <= now() then raise exception 'an expired lease cannot be extended: only a reclaim may touch it'; end if;
+        if new.lease_expires_at < old.lease_expires_at or new.heartbeat_at < old.heartbeat_at then raise exception 'a lease only moves forward'; end if;
+      end if;
     elsif new.status in ('succeeded','failed') then
       if old.lease_expires_at <= now() then raise exception 'the lease has expired'; end if;
       if new.lease_token <> old.lease_token or new.attempt <> old.attempt then raise exception 'illegal job transition'; end if;
     elsif new.status in ('queued','dead','canceled') then
       if new.lease_token <> old.lease_token + 1 or new.attempt <> old.attempt then raise exception 'releasing a lease bumps the token by one'; end if;
       if new.status = 'queued' and (old.attempt >= old.max_attempts or old.cancel_requested) then raise exception 'illegal job transition: no retry left or cancel requested'; end if;
+      -- a live lease is released to queued only when the holder reports a failure (last_error is set); otherwise it must have expired (reclaim)
+      if new.status = 'queued' and old.lease_expires_at > now() and new.last_error is null then raise exception 'illegal job transition: an unexpired lease is released only with a recorded failure'; end if;
       if new.status = 'dead' and (old.attempt < old.max_attempts or old.cancel_requested) then raise exception 'illegal job transition: dead needs max attempts'; end if;
       if new.status = 'canceled' and not old.cancel_requested then raise exception 'a leased job is canceled only after a cancel request'; end if;
     else raise exception 'illegal job transition: leased -> %', new.status; end if;
@@ -77,3 +85,13 @@ begin
 end $$;
 create trigger system_jobs_no_edit before update or delete on system_jobs for each row execute function system_jobs_guard();
 create trigger system_jobs_no_truncate before truncate on system_jobs for each statement execute function system_jobs_guard();
+
+-- A job appears only as a fresh queued row: it cannot be inserted mid-life (leased, finished, with a token or attempts).
+create function system_jobs_insert_guard() returns trigger language plpgsql as $$
+begin
+  if new.status <> 'queued' or new.attempt <> 0 or new.lease_token <> 0 or new.lease_owner is not null or new.lease_expires_at is not null
+     or new.heartbeat_at is not null or new.cancel_requested or new.finished_at is not null or new.last_error is not null
+  then raise exception 'a job is inserted queued, with no attempts, lease or result'; end if;
+  return new;
+end $$;
+create trigger system_jobs_insert before insert on system_jobs for each row execute function system_jobs_insert_guard();

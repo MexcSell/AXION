@@ -53,6 +53,8 @@ try {
   const ok = await until(async () => (await A.p.getByTestId('job-records').count()) === 1 && (await A.p.getByTestId('job-expired').innerText()) === '1');
   check('admin: counts appear (2 queued, 1 leased), expired leases 1, oldest queued about 3 min', ok && /queued 2/.test(await A.p.getByTestId('job-kind-noop.test').innerText()) && /leased 1/.test(await A.p.getByTestId('job-kind-noop.test').innerText()) && /3 min/.test(await A.p.getByTestId('job-oldest').innerText()), (await panel.innerText()).replace(/\s+/g, ' ').slice(0, 200));
   check('admin: the panel says records only and there is no enqueue, claim or cancel control in it', /no workers run in this build/i.test(await panel.innerText()) && (await panel.getByRole('button', { name: /enqueue|claim|cancel|retry|run/i }).count()) === 0);
+  const demoQ = A.p.locator('.panel', { hasText: 'Prototype sample data (DEMO)' });
+  check('admin: the old mock Queues block carries the DEMO tag and says it is not the job records', (await demoQ.count()) > 0 && (await demoQ.first().getByText('DEMO', { exact: true }).count()) > 0);
   const fit = await A.p.evaluate(() => { const m = document.querySelector('main'); return { over: m.scrollHeight - m.clientHeight, doc: document.documentElement.scrollHeight - window.innerHeight }; });
   check('admin: fits 1366x768 (main does not scroll the page)', fit.over <= 2 && fit.doc <= 2, JSON.stringify(fit));
   if (process.env.DOC_SHOT_C45) await A.p.screenshot({ path: process.env.DOC_SHOT_C45 });

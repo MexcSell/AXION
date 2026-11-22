@@ -41,3 +41,28 @@ Lane w44, branch `c45-job-leases`, migration 0035. Execution stays disabled.
 - **Migration and clearDemo**: `system_jobs` rows are not demo rows, so `clearDemo` never touches them (tested); DELETE is only allowed under `axion.purge_demo`. No raw inserts into `system_jobs` exist in scripts or fixtures other than the api-c45 e2e fixture.
 - **Commit trailer**: used the `Co-Authored-By: Claude Opus 5.5` line the lane rules require; the session model is actually Sonnet 5.5, so the controller may want to adjust.
 - **Tests make leases expire by raw UPDATE** of `lease_expires_at` (the guard allows it on a leased row), plus one real 0.3 s lease; `leaseSeconds` accepts 0.05 to 3600 so tests can be short. A worker should use whole seconds.
+
+## Fix round (review verdict PASS-WITH-FIXES)
+Work was test-first: the 13 new tests were written and run against the unfixed code (RED: 10 failed, 66 passed of 76; the stress test was already green, which is its finding: no double holder before or after). Then fixed (GREEN: 76/76 in `jobs.test.ts`; full server suite 38 files, 662 tests).
+
+| # | Fix | Where | Test |
+|---|---|---|---|
+| 1 | leased -> leased: only heartbeat, expiry and the cancel flag may change; expiry/heartbeat only while the lease is unexpired (DB `now()`) and only forward; a lease change may not touch `last_error`/`finished_at`. Tokens and attempts never decrease (already). | 0035 trigger | lease-edge tests |
+| 1b | leased -> queued: allowed on an expired lease (reclaim), or on an unexpired lease only when a failure is recorded (`last_error` set). **Deviation from the controller's wording** ("only when expired or cancel requested"): a holder's own retry after `failJob` must release an unexpired lease, and cancel-requested jobs never go to queued (they go to canceled), so I required a recorded failure instead. Residual: raw SQL that sets any `last_error` can still release an unexpired lease; the token still bumps. | trigger | "released only with a recorded failure" |
+| 2 | INSERT guard trigger: a row is inserted queued, attempt 0, token 0, no owner/expiry/heartbeat, no cancel flag, no result. | `system_jobs_insert_guard` | 7 raw-insert probes |
+| 3 | queued -> canceled requires `cancel_requested = true`. | trigger | raw update test |
+| 4 | Token that is not a safe non-negative integer (1.5, NaN, Infinity, 2**70, -1, '1', null, undefined, {}) returns `stale_token` without any SQL (test passes a db that throws on touch). | `store.ts` | token test |
+| 5 | `claimJob` and `reclaimExpired` require `tenantId` or `allTenants: true`; neither, an empty tenant, `allTenants: false` or both all throw. | `store.ts` | fail-closed test |
+| 6 | `reclaimExpired` takes `limit` (default 100, 1..1000); the rest stays for the next call. | `store.ts` | batch test (5 expired, limit 2 then 3) |
+| 7 | Static tests now scan `src` and `scripts`, catch dynamic `import(`/`require(` of jobs, timers, `setImmediate`, `pg_sleep`, `while(true)`/`for(;;)`/`sleep` in `src/jobs`, and any `.post/.put/.patch/.delete/.route/.all/...(` registration whose path mentions jobs or queues (the only allowed one is the GET in `ops/routes.ts`). The test comment says plainly these are greps, not proofs. | `jobs.test.ts` | 4 static tests |
+| 8 | Comment on `claimJob`: `null` under contention means try again, not "queue empty". | `store.ts` | n/a |
+| 9 | The old mock Queues panel now says "Prototype sample data (DEMO): not the job records" next to its existing DEMO tag. | `Operations.tsx`, `api-c45.mjs` check 11 | e2e |
+
+Also: a heartbeat with a shorter lease never shortens the expiry (`greatest(...)`), because the trigger now refuses a backward move. An empty failure message is stored as `unspecified failure`. Down migration drops the insert-guard function too.
+
+Consequence for tests: the guard now refuses moving a live lease's expiry backward, so tests age a lease with the trigger switched off for one statement (`rawAge`, test-only `alter table ... disable trigger` inside a transaction). That is the one intentional back door and it is only in tests.
+
+Stress test added (own, not the reviewer's): 6 workers (complete / fail / heartbeat / outlive their 0.05 s lease), 2 reclaimers with batch limit 5, a random canceller, 24 jobs, 2.5 s. Asserts no duplicate (job, token) claim, no success returned to a non-owner, `lease_token >= attempt`, leased iff owner. Green.
+
+Checks: server tsc clean; web tsc clean; server vitest 38 files / 662 tests green; `api-c45.mjs` 11/11 (new DEMO-label check); verify-all result below.
+verify-all: ALL 10 STEPS PASSED (after the fixes).
