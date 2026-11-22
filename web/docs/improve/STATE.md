@@ -61,7 +61,7 @@ Rewritten 2026-11-22T07:35Z by the controller and again at 17:50Z after the live
 | w57 | c58 Rule-of-Two profile + approval quality (R2-6, R2-9), e2e16, mig 0043, DL-100 | CLEARED at 7f31c94, batch 17 |
 | w61 | c63 failure learning (R3-8), from c60 tip df8c17e, e2e12, mig 0047 | implementing (Wave 7) |
 | w62 | c64 restructure guardrails (R3-6), e2e11, mig 0048 | implementing (Wave 7) |
-| w58 | c59 origin-bound memory and skill records (R2-5), e2e17, mig 0044 | last fixes R1, R2a |
+| w58 | c59 origin-bound memory and skill records (R2-5), e2e17, mig 0044 | CLEARED at 67b40ed, batch 18 |
 | w60 | c61 eval instruments (R2-2, R2-3, R2-1), from c53 tip 2d23cca, e2e13, mig 0046 | re-review of fix rounds (tip 43c1b7c) |
 | w59 | c60 failure attribution + OTel mapping (R2-10, R2-8), e2e14, mig 0045 | CLEARED at df8c17e, batch 16 |
 | — | Integrator #5: verification pass on the merged tree | running |
