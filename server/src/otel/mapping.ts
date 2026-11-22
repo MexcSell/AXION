@@ -149,7 +149,7 @@ const targetText = (t: Target): string =>
 
 /** AXION attributes the exporter writes that belong to no table column: they describe the export itself or a relation between spans. */
 export const STRUCTURAL_AXION_ATTRIBUTES = [
-  'axion.mission.id', 'axion.task.status', 'axion.attempt.result', 'axion.instance.manager_id', 'axion.export.unmapped_steps',
+  'axion.mission.id', 'axion.task.status', 'axion.attempt.result', 'axion.instance.manager_id', 'axion.export.unmapped_steps', 'axion.export.linked_by',
   'axion.export.include_content', 'axion.export.semconv_repository', 'axion.export.semconv_tag', 'axion.export.semconv_commit', 'axion.export.semconv_status',
   'axion.agent.name_raw', 'axion.step.input', 'axion.step.output', // the inline text of a plan step (a tool step uses the spec's gen_ai.tool.call.* attributes), only with --include-content
 ] as const;

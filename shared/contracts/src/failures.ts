@@ -91,3 +91,15 @@ export interface FailureModesDto {
   window: '7d' | '30d' | '90d'; from: string; to: string; includeDemo: boolean; taxonomyVersion: string; source: string;
   n: number; /** of n: tags on DEMO missions (0 unless includeDemo) */ demo: number; /** of n: confirmed by the person who tagged them */ selfConfirmed: number; proposed: number; categories: FailureCategoryCount[];
 }
+
+/**
+ * c60: what the "different views" count means, and where it is rough. Shown as the help text of the count; kept here so the wording is tested.
+ * (1) There is no retraction: entries are append-only, so a person who changes their mind adds a second entry and so counts as a disagreement with themselves.
+ * (2) An agent-only entry and an agent-plus-step entry are different views, although they are compatible.
+ * (3) Comparison is exact-string: "Agent-1" and "agent-1" are different views.
+ * (4) Sending the same target again with a different "full trace available" flag is refused with 409 (the flag is not part of the target).
+ */
+export const ATTRIBUTION_HELP =
+  'People attributed this failure differently. Every entry is kept; none replaces another. There is no retraction: a person who changes their mind adds a second entry, which counts as a disagreement. '
+  + 'An agent-only entry and an agent-plus-step entry count as different views. The comparison is exact-string, so "Agent-1" and "agent-1" differ. '
+  + 'Sending the same target again with a different "full trace available" flag returns 409.';

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { Db } from '../db.ts';
+import type { Db, Tx } from '../db.ts';
 import { ALL_PINNED_ATTRIBUTES, CONTENT_ATTRIBUTES, OTEL_GENAI_SPEC, PINNED_SPANS, type PinnedSpan } from './pinned.ts';
 import { FIELD_MAP } from './mapping.ts';
 
@@ -25,24 +25,45 @@ export interface OtlpSpan {
 export interface OtlpDoc { resourceSpans: { resource: { attributes: OtlpAttr[] }; scopeSpans: { scope: { name: string; version: string }; spans: OtlpSpan[] }[] }[] }
 export interface ExportOptions { includeContent?: boolean }
 
-/** Reads the stored records of one mission (tenant-checked). A missing, deleted or other-tenant mission is the same error. */
-export async function loadMissionRecords(db: Db, tenantId: string, missionId: string): Promise<MissionRecords> {
-  const m = (await db.query(`select id from missions where id=$1 and tenant_id=$2 and deleted_at is null`, [missionId, tenantId])).rows[0];
-  if (!m) throw new Error(`No such mission "${missionId}" in tenant "${tenantId}".`);
-  const rows = async (sql: string, p: unknown[]) => (await db.query(sql, p)).rows as Row[];
-  const [instances, tasks, attempts, evalResults, tags, attributions] = await Promise.all([
-    rows(`select i.*, d.name as agent_name from agent_instances i join agent_definitions d on d.id=i.agent_id where i.mission_id=$1 and i.tenant_id=$2 order by i.seq`, [missionId, tenantId]),
-    rows(`select * from tasks where mission_id=$1 and tenant_id=$2 order by created_at, id`, [missionId, tenantId]),
-    rows(`select a.* from task_attempts a join tasks t on t.id=a.task_id where t.mission_id=$1 and t.tenant_id=$2 order by a.task_id, a.attempt_no`, [missionId, tenantId]),
+/** One transaction for all reads: REPEATABLE READ (one snapshot) and READ ONLY, with default_transaction_read_only on for its length (SET LOCAL, so a pooled connection is not left read-only). */
+export async function withReadOnlySnapshot<T>(db: Db, fn: (c: Tx) => Promise<T>): Promise<T> {
+  const c = await db.connect();
+  try {
+    await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    try {
+      await c.query('SET LOCAL default_transaction_read_only = on');
+      const out = await fn(c);
+      await c.query('COMMIT');
+      return out;
+    } catch (e) { await c.query('ROLLBACK').catch(() => {}); throw e; }
+  } finally { c.release(); }
+}
+
+/**
+ * Reads the stored records of one mission (tenant-checked) in ONE read-only snapshot: a REPEATABLE READ READ ONLY transaction on one connection
+ * (so the records agree with each other, and a write could not succeed). A missing, deleted or other-tenant mission is the same error.
+ */
+export async function loadMissionRecords(db: Db, tenantId: string, missionId: string): Promise<MissionRecords>;
+export async function loadMissionRecords(db: Db, tenantId: string, missionId: string, withDatabase: true): Promise<{ rec: MissionRecords; database: string }>;
+export async function loadMissionRecords(db: Db, tenantId: string, missionId: string, withDatabase?: boolean): Promise<MissionRecords | { rec: MissionRecords; database: string }> {
+  const out = await withReadOnlySnapshot(db, async (c) => {
+    const database = String((await c.query('select current_database() as d')).rows[0].d);
+    const m = (await c.query(`select id from missions where id=$1 and tenant_id=$2 and deleted_at is null`, [missionId, tenantId])).rows[0];
+    if (!m) throw new Error(`No such mission "${missionId}" in tenant "${tenantId}".`);
+    const rows = async (sql: string, p: unknown[]) => (await c.query(sql, p)).rows as Row[];
+    const instances = await rows(`select i.*, d.name as agent_name from agent_instances i join agent_definitions d on d.id=i.agent_id where i.mission_id=$1 and i.tenant_id=$2 order by i.seq`, [missionId, tenantId]);
+    const tasks = await rows(`select * from tasks where mission_id=$1 and tenant_id=$2 order by created_at, id`, [missionId, tenantId]);
+    const attempts = await rows(`select a.* from task_attempts a join tasks t on t.id=a.task_id where t.mission_id=$1 and t.tenant_id=$2 order by a.task_id, a.attempt_no`, [missionId, tenantId]);
     // evaluation results are not stored per mission: those of runs whose subject version one of the mission's instances pinned are the mission's
-    rows(`select res.run_id, ru.dataset_id, ru.subject_version_id, ru.k, ru.judge_model_family, res.case_id, res.attempt, res.score, res.cost_units, res.recorded_at, res.trace
+    const evalResults = await rows(`select res.run_id, ru.dataset_id, ru.subject_version_id, ru.k, ru.judge_model_family, res.case_id, res.attempt, res.score, res.cost_units, res.recorded_at, res.trace
           from eval_results res join eval_runs ru on ru.id=res.run_id
           where ru.tenant_id=$1 and ru.subject_version_id in (select agent_version_id from agent_instances where mission_id=$2 and tenant_id=$1)
-          order by res.recorded_at, res.run_id, res.case_id, res.attempt`, [tenantId, missionId]),
-    rows(`select * from failure_tags where mission_id=$1 and tenant_id=$2 order by created_at, id`, [missionId, tenantId]),
-    rows(`select * from failure_attributions where mission_id=$1 and tenant_id=$2 order by created_at, id`, [missionId, tenantId]),
-  ]);
-  return { tenantId, missionId, instances, tasks, attempts, evalResults, tags, attributions };
+          order by res.recorded_at, res.run_id, res.case_id, res.attempt`, [tenantId, missionId]);
+    const tags = await rows(`select * from failure_tags where mission_id=$1 and tenant_id=$2 order by created_at, id`, [missionId, tenantId]);
+    const attributions = await rows(`select * from failure_attributions where mission_id=$1 and tenant_id=$2 order by created_at, id`, [missionId, tenantId]);
+    return { rec: { tenantId, missionId, instances, tasks, attempts, evalResults, tags, attributions } as MissionRecords, database };
+  });
+  return withDatabase ? out : out.rec;
 }
 
 const ms = (x: unknown): number | null => { if (x === null || x === undefined) return null; const n = new Date(x as string).getTime(); return Number.isFinite(n) ? n : null; };
@@ -139,6 +160,7 @@ export function buildOtlp(rec: MissionRecords, opts: ExportOptions = {}): OtlpDo
     if (r.judge_model_family) a.set('axion.eval.judge_model_family', ident(r.judge_model_family));
     const score = num(r.score); if (score !== null) a.set('axion.eval.score', score);
     const cost = num(r.cost_units); if (cost !== null) a.set('axion.eval.cost_units', cost);
+    a.set('axion.export.linked_by', 'agent_version'); // not stored per mission: linked through the agent version an instance of the mission pinned
     add(rkey, parent, agent ? `invoke_agent ${agent}` : 'invoke_agent', base, null, a);
     let unmapped = 0;
     steps.forEach((raw, i) => {

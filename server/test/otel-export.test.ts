@@ -1,11 +1,13 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdtempSync, readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync, existsSync, statSync, symlinkSync, lstatSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { makeTestApp, withAdmin, type TestApp } from './helpers.ts';
 import { makeDataset, addRun } from './eval-fixtures.ts';
 import { buildOtlp, validateOtlp, loadMissionRecords, type MissionRecords, type OtlpAttr, type OtlpDoc } from '../src/otel/export.ts';
-import { exportMissionToFile, parseExportArgs } from '../src/otel/cli.ts';
+import { exportMissionToFile, parseExportArgs, resolveDatabaseUrl, describeExport, withReadOnlySnapshot, USAGE } from '../src/otel/cli.ts';
+import { ATTRIBUTION_HELP } from '../../shared/contracts/src/failures.ts';
 import { ALL_PINNED_ATTRIBUTES, CONTENT_ATTRIBUTES } from '../src/otel/pinned.ts';
 import { FIELD_MAP, STRUCTURAL_AXION_ATTRIBUTES } from '../src/otel/mapping.ts';
 
@@ -267,10 +269,77 @@ describe('from stored records (database) to a file', () => {
     expect(existsSync(join(dir, 'c.json'))).toBe(true);
   });
   it('parses the command line: content is opt-in, a mission id is required, unknown flags are refused', () => {
-    expect(parseExportArgs(['M-1'])).toMatchObject({ missionId: 'M-1', includeContent: false, force: false });
-    expect(parseExportArgs(['M-1', '--include-content', '--out', 'x.json', '--tenant', 't-2', '--force'])).toMatchObject({ includeContent: true, out: 'x.json', tenant: 't-2', force: true });
-    expect(() => parseExportArgs([])).toThrow(/mission id/);
-    expect(() => parseExportArgs(['M-1', '--endpoint', 'http://x'])).toThrow(/Unknown option/);
+    const D = ['--database-url-env', 'MY_DB'];
+    expect(parseExportArgs(['M-1', ...D])).toMatchObject({ missionId: 'M-1', includeContent: false, force: false, databaseUrlEnv: 'MY_DB' });
+    expect(parseExportArgs(['M-1', '--include-content', '--out', 'x.json', '--tenant', 't-2', '--force', ...D])).toMatchObject({ includeContent: true, out: 'x.json', tenant: 't-2', force: true });
+    expect(() => parseExportArgs(D)).toThrow(/mission id/);
+    expect(() => parseExportArgs(['M-1', '--endpoint', 'http://x', ...D])).toThrow(/Unknown option/);
+  });
+
+  // ---- fix round S3 and minors
+  it('S3: there is no default database: the command line is refused without --database-url-env, and the variable must be set', () => {
+    expect(() => parseExportArgs(['M-1'])).toThrow(/--database-url-env/);
+    expect(() => parseExportArgs(['M-1', '--database-url-env'])).toThrow(/needs a value/);
+    expect(() => resolveDatabaseUrl({ databaseUrlEnv: 'NOPE_DB' }, {})).toThrow(/NOPE_DB.*not set/);
+    expect(resolveDatabaseUrl({ databaseUrlEnv: 'X_DB' }, { X_DB: 'postgres://u:p@h/db' })).toBe('postgres://u:p@h/db');
+    const r = spawnSync('npx', ['tsx', 'src/cli/otlp-export.ts', 'M-E1'], { cwd: join(__dirname, '..'), env: { PATH: process.env.PATH, DATABASE_URL: 'postgres://nobody:secret@127.0.0.1:1/none' }, encoding: 'utf8', timeout: 60_000 });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/--database-url-env/);
+    expect(r.stderr + r.stdout).not.toMatch(/secret|127\.0\.0\.1/);
+  });
+  it('S3: the reads run in one REPEATABLE READ READ ONLY transaction, and a write inside it fails', async () => {
+    const seen = await withReadOnlySnapshot(t.app.db, async (c) => {
+      const iso = (await c.query('show transaction_isolation')).rows[0].transaction_isolation;
+      const ro = (await c.query('show transaction_read_only')).rows[0].transaction_read_only;
+      const dflt = (await c.query('show default_transaction_read_only')).rows[0].default_transaction_read_only;
+      const db = (await c.query('select current_database() d')).rows[0].d;
+      let err = '';
+      try { await c.query(`insert into missions(id, tenant_id, owner_id, shared, status, demo) values ('M-W','t-1','x',false,'running',false)`); } catch (e) { err = (e as Error).message; }
+      return { iso, ro, dflt, db, err };
+    });
+    expect(seen.iso).toBe('repeatable read'); expect(seen.ro).toBe('on'); expect(seen.dflt).toBe('on');
+    expect(seen.err).toMatch(/read-only transaction/);
+    expect((await q(`select 1 from missions where id='M-W'`)).rows).toHaveLength(0);
+    expect((await q('show default_transaction_read_only')).rows[0].default_transaction_read_only).toBe('off'); // the shared pool is not left read-only
+  });
+  it('S3: the result names the database (name only: no host, user or password)', async () => {
+    const out = join(dir, 'db.otlp.json');
+    const r = await exportMissionToFile(t.app.db, { tenant: 't-1', missionId: 'M-E1', out, includeContent: false, force: false });
+    const dbName = (await q('select current_database() d')).rows[0].d;
+    expect(r.database).toBe(dbName);
+    const line = describeExport(r);
+    expect(line).toContain(`database "${dbName}"`);
+    expect(line).toContain(out);
+    expect(line).not.toMatch(/postgres:|@|password|127\.0\.0\.1|localhost/);
+  });
+  it('minor: the file is created with mode 0600, and a symlink at --out is refused, with and without --force', async () => {
+    const out = join(dir, 'mode.otlp.json');
+    await exportMissionToFile(t.app.db, { tenant: 't-1', missionId: 'M-E1', out, includeContent: true, force: false });
+    expect(statSync(out).mode & 0o777).toBe(0o600);
+    writeFileSync(join(dir, 'loose.json'), 'x', { mode: 0o644 });
+    await exportMissionToFile(t.app.db, { tenant: 't-1', missionId: 'M-E1', out: join(dir, 'loose.json'), includeContent: false, force: true });
+    expect(statSync(join(dir, 'loose.json')).mode & 0o777).toBe(0o600);
+    const victim = join(dir, 'victim.txt'); writeFileSync(victim, 'keep me');
+    const link = join(dir, 'link.json'); symlinkSync(victim, link);
+    for (const force of [false, true]) await expect(exportMissionToFile(t.app.db, { tenant: 't-1', missionId: 'M-E1', out: link, includeContent: false, force })).rejects.toThrow(/symlink|already exists/);
+    await expect(exportMissionToFile(t.app.db, { tenant: 't-1', missionId: 'M-E1', out: link, includeContent: false, force: true })).rejects.toThrow(/symlink/);
+    expect(readFileSync(victim, 'utf8')).toBe('keep me'); expect(lstatSync(link).isSymbolicLink()).toBe(true);
+  });
+  it('minor: eval results linked through the agent version are marked, and the usage says the CLI is an operator tool', async () => {
+    const doc = buildOtlp(await loadMissionRecords(t.app.db, 't-1', 'M-E1'));
+    const res = spansOf(doc).filter((s) => attr(s, 'axion.eval.run_id'));
+    expect(res.length).toBeGreaterThan(0);
+    for (const s of res) expect(attr(s, 'axion.export.linked_by')).toBe('agent_version');
+    expect(validateOtlp(doc, { includeContent: false })).toEqual([]);
+    expect(USAGE).toMatch(/operator tool/i); expect(USAGE).toMatch(/tenant/); expect(USAGE).toMatch(/no per-person visibility/i);
+    expect(USAGE).toMatch(/--database-url-env/); expect(USAGE).toMatch(/pinned.*agent version|agent version/i);
+  });
+  it('minor: the attribution help text states the disagreement edge cases', () => {
+    expect(ATTRIBUTION_HELP).toMatch(/no retraction|cannot be retracted/i);
+    expect(ATTRIBUTION_HELP).toMatch(/changes? (their|his or her) mind/i);
+    expect(ATTRIBUTION_HELP).toMatch(/agent-only/i);
+    expect(ATTRIBUTION_HELP).toMatch(/exact/i);
+    expect(ATTRIBUTION_HELP).toMatch(/409/);
   });
 });
 

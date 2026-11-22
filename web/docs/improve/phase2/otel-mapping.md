@@ -175,7 +175,7 @@ Not used on purpose: `gen_ai.provider.name`, `gen_ai.request.*`, `gen_ai.usage.*
 
 ## Attributes that belong to no column
 
-These describe the export itself (resource attributes, with the pinned version) a relation between spans, or the inline text of a plan step or the raw agent name (with --include-content): `axion.mission.id`, `axion.task.status`, `axion.attempt.result`, `axion.instance.manager_id`, `axion.export.unmapped_steps`, `axion.export.include_content`, `axion.export.semconv_repository`, `axion.export.semconv_tag`, `axion.export.semconv_commit`, `axion.export.semconv_status`, `axion.agent.name_raw`, `axion.step.input`, `axion.step.output`.
+These describe the export itself (resource attributes, with the pinned version) a relation between spans, or the inline text of a plan step or the raw agent name (with --include-content): `axion.mission.id`, `axion.task.status`, `axion.attempt.result`, `axion.instance.manager_id`, `axion.export.unmapped_steps`, `axion.export.linked_by`, `axion.export.include_content`, `axion.export.semconv_repository`, `axion.export.semconv_tag`, `axion.export.semconv_commit`, `axion.export.semconv_status`, `axion.agent.name_raw`, `axion.step.input`, `axion.step.output`.
 
 ## Counts
 

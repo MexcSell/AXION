@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { Tags, Check, X, Loader2, ShieldAlert, Info, Bot, UserRound, ListChecks, BarChart3 } from 'lucide-react';
-import { FAILURE_TAXONOMY, FAILURE_TAXONOMY_VERSION, failureModeOf, type FailureSubjectKind, type FailureTagDto } from '@contracts';
+import { ATTRIBUTION_HELP, FAILURE_TAXONOMY, FAILURE_TAXONOMY_VERSION, failureModeOf, type FailureSubjectKind, type FailureTagDto } from '@contracts';
 import { Modal } from '@/components/ui/Modal';
 import { Field } from '@/components/ui/Form';
 import { Chip, DemoTag } from '@/components/ui/Chips';
@@ -131,7 +131,7 @@ function TagFailure({ close, props }: DialogComponentProps<{ missionId?: string;
                       <span className="col dim" style={{ flexBasis: '100%', gap: 2, fontSize: 11.5 }} data-attributions={t.attributions.length} data-disagreements={t.attributionDisagreements}>
                         <span className="row" style={{ gap: 6 }}>
                           <b>Where it came from</b>
-                          {t.attributionDisagreements > 0 ? <Chip hue={45} size="sm" title="People attributed this failure differently. Every entry is kept; none replaces another.">{t.attributionDisagreements + 1} different views</Chip>
+                          {t.attributionDisagreements > 0 ? <Chip hue={45} size="sm" title={ATTRIBUTION_HELP}>{t.attributionDisagreements + 1} different views</Chip>
                             : t.attributions.length > 1 ? <Chip hue={150} size="sm">views agree</Chip> : null}
                         </span>
                         {t.attributions.map((a) => (
