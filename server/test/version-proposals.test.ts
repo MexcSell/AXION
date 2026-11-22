@@ -195,6 +195,11 @@ describe('propose → another admin promotes', () => {
   });
 });
 
+/** c53 F2: a proposal's candidate is immutable (trigger); the PROPOSAL_CHANGED defence is still tested by switching the trigger off for one statement. */
+async function tamperCandidate(set: string, id: string) {
+  await t.pool.query(`alter table agent_version_proposals disable trigger agent_version_proposals_identity`);
+  try { await t.pool.query(`update agent_version_proposals set ${set} where id=$1`, [id]); } finally { await t.pool.query(`alter table agent_version_proposals enable trigger agent_version_proposals_identity`); }
+}
 describe('base and payload checks', () => {
   it('stale base: the agent is PATCHed after the proposal; promoting is 409 AGENT_CHANGED; it can still be rejected', async () => {
     const p = (await propose(A, addSkill('Rust'))).body.proposal;
@@ -214,13 +219,14 @@ describe('base and payload checks', () => {
 
   it('a stored candidate that no longer matches its sha is 409 PROPOSAL_CHANGED', async () => {
     const p = (await propose(A, addSkill('Elm'))).body.proposal;
-    await t.pool.query(`update agent_version_proposals set candidate = jsonb_set(candidate, '{model}', '"other-model"') where id=$1`, [p.id]); // behind the API's back
+    await expect(t.pool.query(`update agent_version_proposals set candidate = jsonb_set(candidate, '{model}', '"other-model"') where id=$1`, [p.id])).rejects.toThrow(/immutable/); // c53 F2: the trigger refuses it
+    await tamperCandidate(`candidate = jsonb_set(candidate, '{model}', '"other-model"')`, p.id); // behind the API's back, as a superuser could
     const r = await decide(B, p, 'promote');
     expect(r.status).toBe(409);
     expect(r.body.code).toBe('PROPOSAL_CHANGED');
     expect((await A.req('POST', `/version-proposals/${p.id}/withdraw`)).status).toBe(200);
     const q = (await propose(A, addSkill('Dart'))).body.proposal;
-    await t.pool.query(`update agent_version_proposals set candidate = '{"model": 1}' where id=$1`, [q.id]); // not even a config any more
+    await tamperCandidate(`candidate = '{"model": 1}'`, q.id); // not even a config any more
     const r2 = await decide(B, q, 'promote');
     expect(r2.status).toBe(409);
     expect(r2.body.code).toBe('PROPOSAL_CHANGED');

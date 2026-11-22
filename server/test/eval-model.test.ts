@@ -108,6 +108,8 @@ describe('runs and results', () => {
   });
   it('a run can be finished once and nothing else about it can change', async () => {
     await expect(q(`update eval_runs set k = 5 where id=$1`, [run])).rejects.toThrow(/append-only|immutable/);
+    await expect(q(`update eval_runs set finished_at = now() where id=$1`, [run])).rejects.toThrow(/run_incomplete/); // c53: not while results are missing
+    for (const m of (await q(`select case_id, attempt from eval_run_missing($1)`, [run])).rows) await q(`insert into eval_results(run_id, case_id, attempt, score, trace) values ($1,$2,$3,10,$4)`, [run, m.case_id, m.attempt, tr]);
     await q(`update eval_runs set finished_at = now() where id=$1`, [run]);
     await expect(q(`update eval_runs set finished_at = now() where id=$1`, [run])).rejects.toThrow();
     await expect(q(`insert into eval_results(run_id, case_id, attempt, score, trace) values ($1,'c2',1,10,$2)`, [run, tr])).rejects.toThrow(/finished/);

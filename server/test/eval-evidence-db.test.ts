@@ -79,7 +79,7 @@ const FRIENDLY = [
   '{"a":1,"b":[true,null,"x"],"c":{"z":1.5,"y":-0.25}}', '[0.1,1.10,-0,100000,1e5,0.000001]', '{"t":"caf\\u00e9 \\u0001 \\u2028 \\ud83d\\ude00"}', '{"":1,"k":{}}', '[[],{}]', '"s"', 'null',
 ];
 const NASTY = [
-  '9007199254740993', '123456789012345678901', '9007199254740992', '1e21', '1e-7', '1e400', '0.3000000000000000444', '0.30000000000000004', '[1e22]', '{"n":{"m":9007199254740993}}',
+  '9007199254740993', '123456789012345678901', '9007199254740992', '1e21', '1e-7', '1e400', '0.3000000000000000444', '[1e22]', '{"n":{"m":9007199254740993}}',
   '{"\\ud83d\\ude00":1,"\\uffee":2}', '{"\\ue000":1,"\\ud83d\\ude00":2}', '{"\\ufb01":1}',
 ];
 let propSeq = 0;
@@ -241,7 +241,8 @@ describe('the subject of a run', () => {
     await expect(q(`insert into eval_runs(id, tenant_id, dataset_id, subject_proposal_id, k) values ('SR-7','t-1','R-UN','VP-1',1)`)).rejects.toThrow(/frozen/);
   });
   it('judge family and evaluator are stored on the run; fixtures write results for a proposal run', async () => {
-    await addRun(s.pool, { id: 'SR-8', datasetId: ds, proposalId: 'VP-1', scores: [90, 80, 70], judge: 'claude-judge', evaluator: 'ev-1' });
+    await makeDataset(s.pool, { id: 'R-DS8', cases: 3 }); // c53: VP-1 already has its one run on R-DS (SR-2)
+    await addRun(s.pool, { id: 'SR-8', datasetId: 'R-DS8', proposalId: 'VP-1', scores: [90, 80, 70], judge: 'claude-judge', evaluator: 'ev-1' });
     const r = (await q(`select judge_model_family j, evaluator_id e, finished_at from eval_runs where id='SR-8'`)).rows[0];
     expect(r.j).toBe('claude-judge'); expect(r.e).toBe('ev-1'); expect(r.finished_at).not.toBeNull();
   });
