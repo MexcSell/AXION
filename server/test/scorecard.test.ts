@@ -32,7 +32,7 @@ describe('windows', () => {
   it('the response carries the window, its ISO bounds and includeDemo', () => {
     const out = computeScorecard(empty(), { window: '7d', from: windowOf('7d', NOW).from, to: NOW, includeDemo: true });
     expect(out).toMatchObject({ window: '7d', to: NOW.toISOString(), from: new Date(NOW.getTime() - 7 * D).toISOString(), includeDemo: true });
-    expect(out.rows.map((r) => r.key)).toEqual(['started', 'finished', 'verified_success_rate', 'completed_unverified', 'median_cycle_time_h', 'failure_rate', 'task_recovery_rate', 'waiting_approval_median_h']);
+    expect(out.rows.map((r) => r.key)).toEqual(['started', 'finished', 'verified_success_rate', 'completed_unverified', 'median_cycle_time_h', 'failure_rate', 'task_recovery_rate', 'waiting_approval_median_h', 'approved_by_non_owner', 'tasks_verified_by_review']);
   });
 });
 

@@ -28,6 +28,8 @@ export interface ScoreInput {
   attempts: { taskId: string; attemptNo: number; startedAt: Date | null; finishedAt: Date | null }[];
   decisions: { missionId: string; decision: string; decidedBy: string; human: boolean; at: Date }[];
   delegations: { missionId: string; edgeKind: string; simulated: boolean }[];
+  /** improvement cycle 38: independent task reviews (append-only rows), in recorded order */
+  reviews?: { taskId: string; missionId: string; verdict: string; reviewerId: string; producerId: string; evidenceCount: number; at: Date; seq: number }[];
 }
 
 export function windowOf(w: ScorecardWindow, now = new Date()) {
@@ -91,6 +93,15 @@ function computeRows(input: ScoreInput, optFrom: Date, optTo: Date): BaseRow[] {
   };
   const nVerified = done.filter((d) => d.outcome === 'completed' && verified(d.id, d.at)).length;
   const nUnverified = nCompleted - nVerified;
+  // cycle 38: the approval-based rule alone, kept as its own row so it never silently changes meaning
+  const nApprovedNonOwner = done.filter((d) => d.outcome === 'completed' && decisions.some((x) => x.missionId === d.id && x.decision === 'approved' && x.human && x.decidedBy !== owner.get(d.id) && x.at.getTime() <= d.at)).length;
+
+  // ---- cycle 38: a task is verified by review when its LATEST review (as of `to`) is accepted, cites evidence and was written by
+  // someone who is neither its producer nor the mission owner. The task is placed in the window by that review's time.
+  const lastReview = new Map<string, NonNullable<ScoreInput['reviews']>[number]>();
+  for (const r of mine(input.reviews ?? []).filter((x) => x.at.getTime() <= to).sort((a, b) => a.at.getTime() - b.at.getTime() || a.seq - b.seq)) lastReview.set(r.taskId, r);
+  const reviewed = [...lastReview.values()].filter((r) => inWin(r.at.getTime()));
+  const nTaskVerified = reviewed.filter((r) => r.verdict === 'accepted' && r.evidenceCount >= 1 && r.reviewerId !== r.producerId && r.reviewerId !== owner.get(r.missionId)).length;
 
   // ---- cycle time: first run start → final moment (missions that never ran are left out)
   const cycles = done.filter((d) => firstRun.has(d.id) && firstRun.get(d.id)! <= d.at).map((d) => (d.at - firstRun.get(d.id)!) / HOUR);
@@ -143,12 +154,16 @@ function computeRows(input: ScoreInput, optFrom: Date, optTo: Date): BaseRow[] {
       need(`${plural(retried.length, 'task')} with more than one attempt`)),
     med('waiting_approval_median_h', 'Waiting for approval', waits, (m) => `median ${fmtH(m)} over ${plural(waits.length, 'closed approval wait')}`,
       need(`${plural(waits.length, 'closed approval wait')}`)),
+    { key: 'approved_by_non_owner', label: 'Approved by a non-owner', value: nApprovedNonOwner, unit: 'missions', n: nCompleted, state: 'ok',
+      evidence: `${nApprovedNonOwner} of ${plural(nCompleted, 'completion')} had an approval from a person other than the owner (approval rule only)` },
+    { key: 'tasks_verified_by_review', label: 'Tasks verified by review', value: nTaskVerified, unit: 'tasks', n: reviewed.length, state: 'ok',
+      evidence: `${nTaskVerified} of ${plural(reviewed.length, 'reviewed task')} accepted with evidence by a reviewer other than the producer and the mission owner (latest review counts)` },
   ];
   return rows;
 }
 
 /** Improvement cycle 12 (trend): flat tolerance per unit. A trend is only ever drawn from two measured values. */
-const FLAT: Record<ScorecardRow['unit'], number> = { '%': 1, h: 0.1, missions: 0 };
+const FLAT: Record<ScorecardRow['unit'], number> = { '%': 1, h: 0.1, missions: 0, tasks: 0 };
 /**
  * 'up' | 'down' | 'flat', or null whenever either period lacks enough evidence: a value that is null (state 'none'), or a
  * sample size below MIN_N on either side. Flat means within ±1 percentage point (rates), ±0.1 h (times) or equal (counts).

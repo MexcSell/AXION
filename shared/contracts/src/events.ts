@@ -18,7 +18,7 @@ export interface DomainEvent<P = Record<string, unknown>> {
 export type EventType =
   | 'mission.created' | 'mission.revised' | 'mission.stateChanged' | 'mission.shared' | 'mission.deleted' | 'staffing.progressed'
   | 'approval.requested' | 'approval.decided' | 'notification.created'
-  | 'conversation.messageCreated' | 'conversation.receipt' | 'instance.created' | 'instance.stateChanged' | 'task.delegated' | 'task.stateChanged'
+  | 'conversation.messageCreated' | 'conversation.receipt' | 'instance.created' | 'instance.stateChanged' | 'task.delegated' | 'task.stateChanged' | 'task.reviewed'
   | 'agent.created' | 'agent.updated' | 'agent.versionCreated'
   | 'agent.versionProposed' | 'agent.versionPromoted' | 'agent.rolledBack' | 'agent.versionProposalDecided'
   | 'mentoring.planned' | 'mentoring.milestoneDone' | 'mentoring.closed'

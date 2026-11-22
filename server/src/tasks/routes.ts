@@ -9,6 +9,7 @@ import { idempotent } from '../idempotency.ts';
 import { emit } from '../events/hooks.ts';
 import { VISIBLE_SQL } from '../missions/visibility.ts';
 import { insertDelegation, taskById } from '../instances/service.ts';
+import { recordReview, listReviews, ReviewIn } from './reviews.ts';
 import { transitionTask, USER_TASK_ACTIONS, type TaskStatus, type TaskAction } from './machine.ts';
 
 const ReassignIn = z.object({ toInstanceId: z.string().min(1).max(120), reason: z.string().max(400).optional() }).strict();
@@ -28,6 +29,19 @@ export default async function taskRoutes(app: FastifyInstance) {
     const ctx = await requireUser(req);
     const t = await visibleTask(app.db, ctx, (req.params as { id: string }).id);
     return { task: await taskById(app.db, t.id) };
+  });
+
+  /** Improvement cycle 38: independent review. The producer, the principal and the reviewer's model family are derived on the server. */
+  app.get('/tasks/:id/reviews', async (req) => {
+    const ctx = await requireUser(req);
+    return listReviews(app.db, ctx, (req.params as { id: string }).id);
+  });
+  app.post('/tasks/:id/reviews', async (req, reply) => {
+    const ctx = await requireUser(req);
+    const { id } = req.params as { id: string };
+    const body = parse(ReviewIn, req.body);
+    const out = await idempotent(app.db, req, ctx, async (c) => ({ status: 201, body: await recordReview(c, ctx, id, body) }), async (c) => { await visibleTask(c, ctx, id); });
+    return reply.status(out.status).send(out.body);
   });
 
   app.post('/tasks/:id/:action', async (req, reply) => {
