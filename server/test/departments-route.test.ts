@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { makeTestApp, withAdmin, Browser, type TestApp } from './helpers.ts';
+const BRIEF = { goal: 'Take over the task', acceptance: ['The result is attached'], capabilities: [{ kind: 'read' }], escalation: 'Ask the mission owner when unsure' }; // c51: a reassignment always carries a brief
 
 // Improvement cycle 6: GET /api/v1/departments — scoping (visibility, tenant, deleted, DEMO missions, simulated tasks) and
 // the last org change following a newly applied revision. Agents do not execute yet: passed/failed are system-only task
@@ -192,7 +193,7 @@ describe('fix round: outcomes count against the owner at the time (as cycle 3)',
     await instance('F', 'ops-01'); // Operations
     await task('F1', 'F', 'coder-01', 'failed', { hoursAgo: 2 });
     const before = await eng();
-    const r = await A.req('POST', '/tasks/F1/reassign', { toInstanceId: 'F:ops-01' }, { 'idempotency-key': 'c06-fix-re' });
+    const r = await A.req('POST', '/tasks/F1/reassign', { toInstanceId: 'F:ops-01', brief: BRIEF }, { 'idempotency-key': 'c06-fix-re' });
     expect(r.status).toBe(200);
     const after = await eng();
     expect(after.Engineering.outcomes).toEqual(before.Engineering.outcomes); // the failure stays in Engineering

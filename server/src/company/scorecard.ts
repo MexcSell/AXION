@@ -29,7 +29,7 @@ export interface ScoreInput {
   decisions: { missionId: string; decision: string; decidedBy: string; human: boolean; at: Date }[];
   delegations: { missionId: string; edgeKind: string; simulated: boolean }[];
   /** improvement cycle 38: independent task reviews (append-only rows), in recorded order */
-  reviews?: { taskId: string; missionId: string; verdict: string; reviewerId: string; producerId: string; principalId: string; evidenceCount: number; at: Date; seq: number }[];
+  reviews?: { taskId: string; missionId: string; verdict: string; reviewerId: string; producerId: string; principalId: string; evidenceCount: number; at: Date; seq: number; stale?: boolean }[];
 }
 
 export function windowOf(w: ScorecardWindow, now = new Date()) {
@@ -102,7 +102,7 @@ function computeRows(input: ScoreInput, optFrom: Date, optTo: Date): BaseRow[] {
   for (const r of mine(input.reviews ?? []).filter((x) => x.at.getTime() <= to).sort((a, b) => a.at.getTime() - b.at.getTime() || a.seq - b.seq)) lastReview.set(r.taskId, r);
   const taskStatus = new Map(mine(input.tasks).map((t) => [t.id, t.status]));
   const reviewed = [...lastReview.values()].filter((r) => inWin(r.at.getTime()));
-  const nTaskVerified = reviewed.filter((r) => r.verdict === 'accepted' && r.evidenceCount >= 1 && r.reviewerId !== r.producerId && r.reviewerId !== r.principalId && taskStatus.get(r.taskId) === 'passed').length;
+  const nTaskVerified = reviewed.filter((r) => r.verdict === 'accepted' && r.evidenceCount >= 1 && r.reviewerId !== r.producerId && r.reviewerId !== r.principalId && !r.stale && taskStatus.get(r.taskId) === 'passed').length;
 
   // ---- cycle time: first run start → final moment (missions that never ran are left out)
   const cycles = done.filter((d) => firstRun.has(d.id) && firstRun.get(d.id)! <= d.at).map((d) => (d.at - firstRun.get(d.id)!) / HOUR);
@@ -158,7 +158,7 @@ function computeRows(input: ScoreInput, optFrom: Date, optTo: Date): BaseRow[] {
     { key: 'approved_by_non_owner', label: 'Approved by a non-owner', value: nApprovedNonOwner, unit: 'missions', n: nCompleted, state: 'ok',
       evidence: `${nApprovedNonOwner} of ${plural(nCompleted, 'completion')} had an approval from a person other than the owner (approval rule only)` },
     { key: 'tasks_verified_by_review', label: 'Tasks verified by review', value: nTaskVerified, unit: 'tasks', n: reviewed.length, state: 'ok',
-      evidence: `${nTaskVerified} of ${plural(reviewed.length, 'reviewed task')} accepted with evidence by a reviewer other than the producer and the mission owner (latest review counts)` },
+      evidence: `${nTaskVerified} of ${plural(reviewed.length, 'reviewed task')} accepted with evidence by a reviewer other than the producer and the mission owner (the latest review counts, and only if it is not older than the task's latest attempt)` },
   ];
   return rows;
 }

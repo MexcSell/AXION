@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { makeTestApp, withAdmin, type TestApp } from './helpers.ts';
 import { transitionTask } from '../src/tasks/machine.ts';
 import { TASK_STATUSES, USER_TASK_ACTIONS, SYSTEM_TASK_ACTIONS, type TaskStatus, type TaskAction } from '../../shared/contracts/src/index.ts';
+const BRIEF = { goal: 'Take over the task', acceptance: ['The result is attached'], capabilities: [{ kind: 'read' }], escalation: 'Ask the mission owner when unsure' }; // c51: a reassignment always carries a brief
 
 const LEGAL: [TaskStatus, TaskAction, TaskStatus][] = [
   ['created', 'ready', 'ready'], ['created', 'cancel', 'canceled'],
@@ -91,7 +92,7 @@ describe('task actions', () => {
     const i = await inst(m1);
     await mkTask(m1, 'T-run', 'running', i[1].id);
     expect((await A.admin.req('POST', '/tasks/T-run/retry', {}, key())).status).toBe(409);
-    expect((await A.admin.req('POST', '/tasks/T-run/reassign', { toInstanceId: i[0].id }, key())).status).toBe(409);
+    expect((await A.admin.req('POST', '/tasks/T-run/reassign', { toInstanceId: i[0].id, brief: BRIEF }, key())).status).toBe(409);
     const c = await A.admin.req('POST', '/tasks/T-run/cancel', {}, key());
     expect(c.status).toBe(200); expect(c.body.task.state).toBe('canceled');
     expect((await A.admin.req('POST', '/tasks/T-run/cancel', {}, key())).status).toBe(409);
@@ -102,14 +103,14 @@ describe('task actions', () => {
     const { A, m1, m2, inst, mkTask } = await setup();
     const i1 = await inst(m1), i2 = await inst(m2);
     await mkTask(m1, 'T-a1', 'ready', i1[1].id);
-    const bad = await A.admin.req('POST', '/tasks/T-a1/reassign', { toInstanceId: i2[1].id }, key());
+    const bad = await A.admin.req('POST', '/tasks/T-a1/reassign', { toInstanceId: i2[1].id, brief: BRIEF }, key());
     expect(bad.status).toBe(422); expect(bad.body.code).toBe('TASK_TARGET_INVALID');
-    expect((await A.admin.req('POST', '/tasks/T-a1/reassign', { toInstanceId: 'nope' }, key())).status).toBe(422);
-    expect((await A.admin.req('POST', '/tasks/T-a1/reassign', { toInstanceId: i1[1].id }, key())).status).toBe(422);
+    expect((await A.admin.req('POST', '/tasks/T-a1/reassign', { toInstanceId: 'nope', brief: BRIEF }, key())).status).toBe(422);
+    expect((await A.admin.req('POST', '/tasks/T-a1/reassign', { toInstanceId: i1[1].id, brief: BRIEF }, key())).status).toBe(422);
     expect((await A.admin.req('POST', '/tasks/T-a1/reassign', {}, key())).status).toBe(400);
     const target = i1.find((x, k) => k > 1)!;
     const before = (await rows(`select 1 from mission_delegations where task_id='T-a1'`)).length;
-    const r = await A.admin.req('POST', '/tasks/T-a1/reassign', { toInstanceId: target.id, reason: 'needs a specialist' }, key());
+    const r = await A.admin.req('POST', '/tasks/T-a1/reassign', { toInstanceId: target.id, reason: 'needs a specialist', brief: BRIEF }, key());
     expect(r.status).toBe(200); expect(r.body.task.owner).toBe(target.agent_id); expect(r.body.task.state).toBe('ready');
     const d = await rows(`select from_instance, to_instance, edge_kind, simulated from mission_delegations where task_id='T-a1'`);
     expect(d.length).toBe(before + 1);
