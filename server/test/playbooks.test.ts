@@ -118,6 +118,18 @@ describe('who sees which candidate', () => {
   });
 });
 
+describe('lists keep the visibility rule in SQL', () => {
+  it("a member's own proposal is still listed when more than 200 other people's proposals are newer", async () => {
+    const mine = await lessonId(M, 'release-01', 'Mia early idea about releases');
+    await q(`insert into lesson_candidates(id,tenant_id,agent_id,role,text,sources,proposed_by,sha256,created_at)
+      select 'LC-BULK-' || g, 't-1', 'release-01', 'release', 'Bulk lesson ' || g, $1::jsonb, $2, repeat('c', 64), now() + (g || ' seconds')::interval from generate_series(1, 210) g`, [JSON.stringify(SRC), aId]);
+    const own = (await M.req('GET', '/lessons?agentId=release-01')).body.lessons;
+    expect(own.map((x: any) => x.id)).toContain(mine);
+    expect(own.every((x: any) => x.proposedBy === mId || x.status === 'accepted')).toBe(true);
+    expect((await A.req('GET', '/lessons?agentId=release-01')).body.lessons).toHaveLength(200); // an administrator sees all, capped
+  });
+});
+
 describe('decide: the human rule', () => {
   it('the proposer deciding is 403 (and audited); a member deciding is 403; the other administrator accepts', async () => {
     const id = await lessonId(A, 'coder-01', 'Write the failing test first.');
@@ -360,6 +372,8 @@ describe('append-only', () => {
     await expect(t.pool.query(`delete from playbooks`)).rejects.toThrow(/append-only/);
     await expect(t.pool.query(`truncate playbooks cascade`)).rejects.toThrow(/append-only/);
     await expect(t.pool.query(`update lesson_candidates set text='rewritten' where status='proposed'`)).rejects.toThrow(/can only be decided/);
+    // "never active without a human decision" holds in the database: the system may only close a duplicate, never accept
+    await expect(t.pool.query(`update lesson_candidates set status='accepted', decided_by='system', decided_at=now(), accepted_in_version=1 where status='proposed'`)).rejects.toThrow();
     await expect(t.pool.query(`update lesson_candidates set status='rejected', decided_by='nobody', decided_at=now() where status='accepted'`)).rejects.toThrow(/never changes/);
     await expect(t.pool.query(`delete from lesson_candidates`)).rejects.toThrow(/append-only/);
     await expect(t.pool.query(`truncate lesson_candidates cascade`)).rejects.toThrow(/append-only/);

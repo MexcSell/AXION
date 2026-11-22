@@ -25,7 +25,8 @@ create table lesson_candidates (
   accepted_in_version int,
   check ((status = 'proposed') = (decided_at is null)),
   check ((decided_by is null) = (decided_at is null)),
-  check (decided_by is null or (decided_by <> proposed_by and decided_by is distinct from submitted_by) or decided_by = 'system'),
+  check (decided_by is null or (decided_by <> proposed_by and decided_by is distinct from submitted_by) or (decided_by = 'system' and status = 'superseded')),
+  check (decided_by is distinct from 'system' or status = 'superseded'),  -- the system only closes duplicates: accepting is always a person
   check ((status = 'accepted') = (accepted_in_version is not null))
 );
 create index lesson_candidates_tenant on lesson_candidates(tenant_id, created_at desc);

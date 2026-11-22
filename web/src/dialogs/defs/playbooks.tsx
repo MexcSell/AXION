@@ -18,7 +18,6 @@ import '@/theme/pages/overview-org-agent.css';
    propose a skill). Each opens with no props (demo mode shows the form only) and checks nothing the server does not check again. */
 
 const KINDS = Object.keys(SRC_LABEL) as SourceKind[];
-const today = () => new Date().toISOString().slice(0, 10);
 
 /** One to ten sources: a kind and an id each (a mission id is checked by the server against what you can see). */
 function SourcesEditor({ rows, onChange, error }: { rows: SourceRef[]; onChange: (r: SourceRef[]) => void; error?: string }) {
@@ -56,7 +55,7 @@ function LessonPropose({ close, props }: DialogComponentProps<{ agentId?: string
   const [fields, setFields] = useState<Record<string, string>>({});
   const key = useRef(newKey());
   const src = cleanSources(rows);
-  const err = !api_ ? 'Lessons are stored on the server' : !text.trim() ? 'Write the lesson' : src.length === 0 ? 'Add at least one source' : reviewBy && reviewBy < today() ? 'The review-by date is already past' : '';
+  const err = !api_ ? 'Lessons are stored on the server' : !text.trim() ? 'Write the lesson' : src.length === 0 ? 'Add at least one source' : '';
   const touch = () => { setSrvErr(null); setFields({}); };
   const submit = async () => {
     if (err || busy) return;
@@ -78,8 +77,8 @@ function LessonPropose({ close, props }: DialogComponentProps<{ agentId?: string
         </Field>
         <div className="oa-diff-cols">
           <SourcesEditor rows={rows} onChange={(r) => { touch(); setRows(r); }} error={fields.sources} />
-          <Field label="Review by (optional)" help="playbook.reviewBy" htmlFor="lc-review" error={fields.reviewBy} hint="After this date the item shows “needs re-review”.">
-            <input id="lc-review" className="input" type="date" min={today()} value={reviewBy} onChange={(e) => { touch(); setReviewBy(e.target.value); }} />
+          <Field label="Review by (optional)" help="playbook.reviewBy" htmlFor="lc-review" error={fields.reviewBy} hint="After this date the item shows “needs re-review”. The server checks the date.">
+            <input id="lc-review" className="input" type="date" value={reviewBy} onChange={(e) => { touch(); setReviewBy(e.target.value); }} />
           </Field>
         </div>
         {srvErr && <div className="oa-banner" role="alert" data-dialog-error><ShieldAlert size={15} /><span>{srvErr}</span></div>}

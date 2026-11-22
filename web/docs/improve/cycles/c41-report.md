@@ -29,7 +29,16 @@ Records only: nothing executes, and no agent reads a playbook yet.
   - New events wired into `api/events.ts`.
   - Accept and Reject are disabled when the viewer is the proposer, with the reason and a `?` (`playbook.decider`).
 
+## Fixes after the pre-handback review
+- The accept and rollback inserts run under a savepoint, so a unique violation (23505) answers 409 and the refusal is still audited; before, an aborted transaction would have made the audit insert fail (500). The path cannot be reached in a test, because the advisory lock and the compare-and-set refuse first; it is defence in depth and has no test.
+- The database now also refuses `decided_by = 'system'` unless the status is `superseded` (tested with a raw update): "never active without a human decision" holds in the table, not only in the route.
+- `GET /lessons` and `GET /skills` apply the visibility rule in SQL, before `limit 200` / `300` (test: a member's own proposal is still listed behind 210 newer rows).
+- DL-92 no longer compares the review-by date with the browser clock; the server's database-clock check (422 with a field error) is the only one.
+- After these fixes: server tsc clean, web tsc clean, vitest 637 passed, `api-c41.mjs` 43/43 re-run. Not re-run after them: verify-all, fit-check, a11y, api-flows and api-stage6 (their results above are from the commit before the fixes; the only web change is the one dialog's date check).
+
 ## Rulings and visibility (fail closed)
+- **Playbooks are keyed by agent, not by role string.** The brief said `unique (role, version)`; several seeded agents share a `role` value (`dev`, `browser`), so the key is `(tenant_id, agent_id, version)` and `role` is stored beside it. The rule "one agent per role" still holds for active agents.
+- Item fields are stored camelCase (`lessonId`, `addedInVersion`, ...), not the brief's `lesson_id` / `added_in_version`; the table columns keep snake_case.
 - Administrators see every candidate and draft. Everyone else sees accepted lessons, approved or retired skills and their own proposals. Anything else is 404, both on reads and in lists.
 - A `mission` source must be a mission the proposer can see (reuses `getVisibleRow`; otherwise 404). Only `mission` sources are existence-checked. `failure_tag` (c33), `review`, `task` and `note` are typed `{kind,id}` strings with no FK, because the c33 tables are not in this tree.
 - `superseded` is set by the system (`decided_by = 'system'`) on other proposed candidates with identical normalised text when their twin is accepted.
@@ -37,7 +46,7 @@ Records only: nothing executes, and no agent reads a playbook yet.
 
 ## RED / GREEN
 - RED: with the playbook route registration disabled, `playbooks.test.ts` gave 27 failed and 3 passed (the pure helpers). Honest note: the server code was written before the test file in this lane, and the RED run was done by disabling the registration, not before writing the code.
-- GREEN server: baseline before the change 37 files / 586 tests; after 39 files / 636 tests, all passed (`heavy.sh npx vitest run`). New: `playbooks.test.ts` 30 tests, `playbooks-migration.test.ts` 1, `security.test.ts` +1 and +6 routes × 3 CSRF/Origin checks. Server `tsc` clean. Web `tsc` clean.
+- GREEN server: baseline before the change 37 files / 586 tests; after 39 files / 637 tests, all passed (`heavy.sh npx vitest run`). New: `playbooks.test.ts` 31 tests, `playbooks-migration.test.ts` 1, `security.test.ts` +1 and +6 routes × 3 CSRF/Origin checks. Server `tsc` clean. Web `tsc` clean.
 
 ## Pass threshold
 | Item | Result | Evidence |
@@ -51,7 +60,7 @@ Records only: nothing executes, and no agent reads a playbook yet.
 | append-only holds | PASS | update, delete and truncate refused on all three tables; decided, retired and approved-by-proposer updates refused; a hand-inserted gap version refused; purge flag allows DELETE only (rolled back in the test); `clearDemo` still works and leaves the tables alone |
 | another tenant's or an invisible record is 404 | PASS | t-2 lesson, skill and agent: 404 for administrators and a member on reads, decisions, rollback and propose; another member's proposed lesson 404; a draft skill 404; a private mission source 404 |
 | `api-c41.mjs`: propose as B, accept as A, new version and diff, roll back, version after that | PASS | 43/43: B proposes through DL-92; B's Accept is disabled with the reason and `?`; A accepts through DL-93 (v1), a second lesson gives v2, History plus Diff, A rolls back to v1 through DL-94 and History shows v3 "rollback to v1"; also the contradiction override, skill propose and approve, member read-only |
-| server tsc and vitest green | PASS | 39 files, 636 tests passed |
+| server tsc and vitest green | PASS | 39 files, 637 tests passed (re-run after the review fixes below) |
 | web tsc | PASS | clean |
 | api-flows and api-stage6 | PASS | api-flows 23/23, api-stage6 94/94 (same run as api-c41) |
 | a11y | PASS | demo: 50 views, 60 dialogs, 0 violations; api mode: 40 views, 60 dialogs, 0 violations |
@@ -73,6 +82,7 @@ Records only: nothing executes, and no agent reads a playbook yet.
 - No raw inserts into the new tables exist in `server/scripts` or fixtures; `scale-bench.ts` is unaffected.
 
 ## Concerns
+0. **Reasons are readable by everyone signed in.** The rollback `note` (History) and an item's `overrideNote` sit on rows every signed-in user can read, unlike the agent-version rollback, which keeps its reason in the admin-only audit row. The events carry ids only, but the playbook API does not hide these notes. Do not put names or secrets in them (the dialog hint says the reason is "kept in the audit trail"; it is also shown in History).
 1. **Single-administrator case is dormant, as in earlier waves.** With one administrator who proposes, nobody can decide. The UI shows the disabled buttons and the reason, and the help says so, but the rule only bites with a second human admin. The e2e check and tests create one.
 2. **Agents cannot propose through any route**: there is no agent identity or session yet. `proposeLesson(kind: 'agent')` is a service function used by tests and by a future runtime. Its `submittedBy` person is also barred from deciding.
 3. **Contradiction check is simple by design**: it can miss paraphrases and can flag sentences that share keywords but differ in scope. The reviewer still decides, and the override note records the reasoning. Stopwords, negations and stemming are fixed lists in `playbooks.ts`.
@@ -81,4 +91,5 @@ Records only: nothing executes, and no agent reads a playbook yet.
 6. The migration number 0033 leaves a gap in this tree (0024–0032 live in other lanes); `migrate` sorts by version, and `playbooks-migration.test.ts` goes up to 32, inserts data and applies 0033 then down.
 7. The harness reminder asked for a different `Co-Authored-By` model name than LANES.md and the task. I used the task and LANES.md line (`Claude Opus 5.5`), as the task instructed.
 8. The 10-concurrent test needs the pool not to starve: handlers never query `app.db` inside a transaction. The test lifts the proposals rate limit, as `version-proposals.test.ts` does.
-9. Not checked: preview build (port 8991) was not run; `verify-all` runs a production build step and passed.
+9. The demo-mode screenshot script (scratchpad `shot-demo.mjs`, output in `/tmp/w39-shots/`) launched its own browser outside `heavy.sh`, against my dev server on 8990. It ran once; nothing committed from it.
+10. Not checked: preview build (port 8991) was not run; `verify-all` runs a production build step and passed.

@@ -122,7 +122,9 @@ function candidateDto(r: any, ctx: Ctx, conflictsNow: LessonConflict[]): LessonC
   };
 }
 async function candidates(c: Tx, ctx: Ctx, where: string, params: unknown[]): Promise<LessonCandidateDto[]> {
-  const rows = (await c.query(`${CAND_SELECT} where c.tenant_id=$1 and ${where} order by c.created_at desc, c.id limit 200`, [ctx.tenantId, ...params])).rows.filter((r) => visible(ctx, r));
+  const n = params.length + 2; // the visibility rule is in the SQL, so the limit never drops a row this person may see
+  const rows = (await c.query(`${CAND_SELECT} where c.tenant_id=$1 and ${where} and ($${n}::boolean or c.status='accepted' or c.proposed_by=$${n + 1} or c.submitted_by=$${n + 1}) order by c.created_at desc, c.id limit 200`,
+    [ctx.tenantId, ...params, ctx.user.role === 'admin', ctx.user.id])).rows.filter((r) => visible(ctx, r));
   const items = new Map<string, { lessonId: string; text: string }[]>();
   for (const id of new Set(rows.filter((r) => r.status === 'proposed').map((r) => r.agent_id as string)))
     items.set(id, ((await versionRow(c, ctx.tenantId, id, null))?.items ?? []) as { lessonId: string; text: string }[]);
@@ -298,13 +300,18 @@ export default async function playbookRoutes(app: FastifyInstance) {
       const stored = { ...item } as Partial<PlaybookItem>;
       delete stored.needsReReview; // computed on read, on the database clock
       const pid = 'PB-' + randomBytes(16).toString('hex').toUpperCase();
+      await c.query('savepoint pb_insert'); // a unique violation aborts the transaction; the savepoint lets the refusal still be audited
       try {
         await c.query(`insert into playbooks(id, tenant_id, agent_id, role, version, base_version, items, kind, lesson_id, created_by) values ($1,$2,$3,$4,$5,$6,$7,'accept',$8,$9)`,
           [pid, ctx.tenantId, l.agent_id, agent.role, version, curVersion, JSON.stringify([...items.map((i) => { const x = { ...i } as Partial<PlaybookItem>; delete x.needsReReview; return x; }), stored]), lid, ctx.user.id]);
       } catch (e) {
-        if ((e as { code?: string }).code === '23505') return refuse(c, ctx, A, lid, new ApiError('CONFLICT', 409, 'The playbook changed meanwhile. Reload it and decide again.'));
+        if ((e as { code?: string }).code === '23505') {
+          await c.query('rollback to savepoint pb_insert');
+          return refuse(c, ctx, A, lid, new ApiError('CONFLICT', 409, 'The playbook changed meanwhile. Reload it and decide again.'));
+        }
         throw e;
       }
+      await c.query('release savepoint pb_insert');
       await c.query(`update lesson_candidates set status='accepted', decided_by=$2, decided_at=now(), decision_note=$3, override_note=$4, accepted_in_version=$5 where id=$1`, [lid, ctx.user.id, note, item.overrideNote, version]);
       // another proposal with the very same text is now redundant: closed by the system, never silently dropped
       const dup = (await c.query(
@@ -337,8 +344,18 @@ export default async function playbookRoutes(app: FastifyInstance) {
       if (JSON.stringify(target.items) === JSON.stringify(cur.items)) return refuse(c, ctx, A, id, new ApiError('SAME_CONFIG', 422, `Version ${cur.version} already holds the same items as version ${target.version}.`));
       const version = cur.version + 1;
       const pid = 'PB-' + randomBytes(16).toString('hex').toUpperCase();
-      await c.query(`insert into playbooks(id, tenant_id, agent_id, role, version, base_version, items, kind, rollback_to, note, created_by) values ($1,$2,$3,$4,$5,$6,$7,'rollback',$8,$9,$10)`,
-        [pid, ctx.tenantId, id, agent.role, version, cur.version, JSON.stringify(target.items), target.version, b.why, ctx.user.id]); // the target's items, verbatim
+      await c.query('savepoint pb_insert');
+      try {
+        await c.query(`insert into playbooks(id, tenant_id, agent_id, role, version, base_version, items, kind, rollback_to, note, created_by) values ($1,$2,$3,$4,$5,$6,$7,'rollback',$8,$9,$10)`,
+          [pid, ctx.tenantId, id, agent.role, version, cur.version, JSON.stringify(target.items), target.version, b.why, ctx.user.id]); // the target's items, verbatim
+      } catch (e) {
+        if ((e as { code?: string }).code === '23505') {
+          await c.query('rollback to savepoint pb_insert');
+          return refuse(c, ctx, A, id, new ApiError('CONFLICT', 409, 'The playbook changed meanwhile. Reload it and try again.'));
+        }
+        throw e;
+      }
+      await c.query('release savepoint pb_insert');
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: A, subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { why: b.why, fromVersion: cur.version, toVersion: target.version, newVersion: version } });
       await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'playbook.versionCreated', subject: id, subjectKind: 'agent', payload: { version, rollbackTo: target.version } }); // the reason stays in the audit row
       return { playbook: playbookDto(await versionRow(c, ctx.tenantId, id, version), agent), versions: version };
@@ -351,7 +368,8 @@ export default async function playbookRoutes(app: FastifyInstance) {
   app.get('/skills', async (req) => {
     const ctx = await requireUser(req);
     return tx(app.db, async (c) => {
-      const rows = (await c.query(`${SKILL_SELECT} where s.tenant_id=$1 order by lower(s.name), s.version desc limit 300`, [ctx.tenantId])).rows.filter((r) => skillVisible(ctx, r));
+      const rows = (await c.query(`${SKILL_SELECT} where s.tenant_id=$1 and ($2::boolean or s.status <> 'draft' or s.proposed_by=$3 or s.submitted_by=$3) order by lower(s.name), s.version desc limit 300`,
+        [ctx.tenantId, ctx.user.role === 'admin', ctx.user.id])).rows.filter((r) => skillVisible(ctx, r));
       return { skills: rows.map((r) => skillDto(r, ctx)) };
     });
   });
