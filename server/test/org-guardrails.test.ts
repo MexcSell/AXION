@@ -144,6 +144,27 @@ describe('contract checks: shape and settings', () => {
     expect(run(c, 5).out.errors.map((e) => e.code)).toContain('ESCALATION_TOO_DEEP');
     expect(run(c, 6).out.errors).toEqual([]);
   });
+  it('S6: a limit of 0 means not enforced (not "the default"), and the check says so', () => {
+    const deep = moves(m('t2', 't1'), m('t3', 't2'), m('t4', 't3'), m('t5', 't4'), m('t6', 't5'), m('t7', 't6'), m('t8', 't7'));
+    const out = contractChecks(deep, BASE_AGENTS, BASE, { maxEscalationLevels: 0 });
+    expect(out.errors).toEqual([]);
+    const k = out.checks.find((x) => x.code === 'ESCALATION_WITHIN_LEVELS')!;
+    expect(k.ok).toBe(true);
+    expect(k.title).toMatch(/not enforced/i);
+    expect(contractChecks(deep, BASE_AGENTS, BASE, {}).errors.map((e) => e.code)).toContain('ESCALATION_TOO_DEEP'); // unset = the default of 6
+  });
+  it('S6: only chains the proposal changes are checked: an existing deep chain does not block an unrelated proposal', () => {
+    const deepNow = moves(m('t2', 't1'), m('t3', 't2'), m('t4', 't3'), m('t5', 't4'), m('t6', 't5'), m('t7', 't6'), m('t8', 't7'));
+    const unrelated = deepNow.map((e) => (e.subordinateId === 'd1' ? up('d1', 'lead-a') : e)); // d1 moves between two shallow teams
+    expect(contractChecks(unrelated, BASE_AGENTS, deepNow, { maxEscalationLevels: N }).errors.filter((e) => e.code === 'ESCALATION_TOO_DEEP')).toEqual([]);
+    expect(contractChecks(deepNow, BASE_AGENTS, deepNow, { maxEscalationLevels: N }).errors).toEqual([]); // no change at all
+    // a change inside the deep chain is still checked: t9 joins its end (its own chain is new and 9 levels deep)
+    const joined = unrelated.map((e) => (e.subordinateId === 't9' ? up('t9', 't8') : e));
+    expect(contractChecks(joined, BASE_AGENTS, deepNow, { maxEscalationLevels: N }).errors.some((e) => e.code === 'ESCALATION_TOO_DEEP' && e.agentId === 't9')).toBe(true);
+    // an ancestor re-pointed higher in the chain changes the chain of everything below it
+    const lifted = deepNow.map((e) => (e.subordinateId === 't2' ? up('t2', 'lead-a') : e)); // t2 is re-pointed to level 2, so t2..t8 sit at levels 2..8 and their chains changed
+    expect(contractChecks(lifted, BASE_AGENTS, deepNow, { maxEscalationLevels: N }).errors.some((e) => e.code === 'ESCALATION_TOO_DEEP')).toBe(true);
+  });
   it('is pure and cycle-safe: a loop does not hang it (the old dry run reports the loop)', () => {
     const loop = [...BASE.filter((e) => e.subordinateId !== 't1' && e.subordinateId !== 't2'), up('t1', 't2'), up('t2', 't1')];
     expect(() => contractChecks(loop, BASE_AGENTS, BASE, { maxEscalationLevels: N })).not.toThrow();

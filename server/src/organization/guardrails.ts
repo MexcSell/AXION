@@ -14,8 +14,8 @@ import { GM, type EdgeIn, type OrgAgent } from './validate.ts';
  *    whoever produced the work still has a possible reviewer in the team. Teams the proposal does not change are not checked, so an
  *    old weak team does not block an unrelated change. Whether a team spans two model families is NOT checked (the seeded company
  *    is almost all one family); see the report.
- *  - ESCALATION_WITHIN_LEVELS (ESCALATION_TOO_DEEP). Every active agent's chain of managers reaches the GM within N levels (the GM
- *    is level 0). "Reaches the GM at all, with no loop and no dangling chain" is already checked by NO_MANAGER, NOT_UNDER_GM and CYCLE
+ *  - ESCALATION_WITHIN_LEVELS (ESCALATION_TOO_DEEP). Every active agent whose chain of managers the proposal changes reaches the GM within N levels (the GM
+ *    is level 0; an unchanged chain is not checked; N = 0 turns the check off). "Reaches the GM at all, with no loop and no dangling chain" is already checked by NO_MANAGER, NOT_UNDER_GM and CYCLE
  *    (limit 64) and is not counted as new here; N (operator setting, default 6) is the tighter, new bound.
  *  - NOT built: "the output contract of each role is unchanged". The organisation model has no output-contract field to compare.
  */
@@ -37,7 +37,17 @@ function teams(edges: EdgeIn[], byId: Map<string, GuardAgent>): Map<string, stri
 }
 const able = (a: GuardAgent | undefined) => !!a && a.status === 'active' && modelFamily(a.model) !== null;
 
+/** manager chain of `id` (nearest first) from a subordinate -> manager map; stops at the GM, a loop, or a dangling end. */
+function chainOf(upMap: Map<string, string>, id: string): string[] {
+  const out: string[] = []; const seen = new Set<string>([id]);
+  let cur = id;
+  while (upMap.has(cur)) { cur = upMap.get(cur)!; out.push(cur); if (cur === GM || seen.has(cur) || out.length > 1000) break; seen.add(cur); }
+  return out;
+}
+
+/** `maxEscalationLevels`: unset = the default (6); 0 = the escalation check is not enforced; N > 0 = that many levels. */
 export function contractChecks(edges: EdgeIn[], agents: GuardAgent[], current: EdgeIn[], opts: { maxEscalationLevels?: number } = {}): { checks: OrgContractCheck[]; errors: OrgIssue[] } {
+  const enforced = opts.maxEscalationLevels !== 0;
   const max = opts.maxEscalationLevels && opts.maxEscalationLevels > 0 ? opts.maxEscalationLevels : DEFAULT_MAX_ESCALATION_LEVELS;
   const byId = new Map(agents.map((a) => [a.id, a]));
   const errors: OrgIssue[] = [];
@@ -75,13 +85,16 @@ export function contractChecks(edges: EdgeIn[], agents: GuardAgent[], current: E
     return null; // dangling: reported by the old dry run
   };
   const depthReasons: string[] = [];
-  for (const a of [...agents].sort((x, y) => cmp(x.id, y.id))) {
-    if (a.status !== 'active' || a.id === GM) continue;
-    const n = levelOf(a.id);
-    if (n === null || n <= max) continue;
-    const parent = up.get(a.id)!;
-    const pn = levelOf(parent);
-    if (pn !== null && pn > max) continue; // report only the first agent over the limit on each chain
+  // only chains the proposal CHANGES are checked (an agent whose chain of managers differs from the current one), so a deep chain that
+  // already exists does not block an unrelated proposal or a rollback
+  const upNow = new Map<string, string>();
+  for (const e of current) if (e.supervisorId !== e.subordinateId && !upNow.has(e.subordinateId)) upNow.set(e.subordinateId, e.supervisorId);
+  const changed = (id: string) => chainOf(up, id).join('>') !== chainOf(upNow, id).join('>');
+  const over = (id: string) => { const n = levelOf(id); return n !== null && n > max && changed(id); };
+  for (const a of enforced ? [...agents].sort((x, y) => cmp(x.id, y.id)) : []) {
+    if (a.status !== 'active' || a.id === GM || !over(a.id)) continue;
+    const n = levelOf(a.id)!;
+    if (over(up.get(a.id)!)) continue; // report only the first changed agent over the limit on each chain
     const msg = `${a.id} would be ${n} levels below the GM, more than the limit of ${max}: an escalation would pass through ${n - 1} managers.`;
     depthReasons.push(msg);
     errors.push({ code: 'ESCALATION_TOO_DEEP', agentId: a.id, message: msg });
@@ -91,7 +104,7 @@ export function contractChecks(edges: EdgeIn[], agents: GuardAgent[], current: E
     errors,
     checks: [
       { code: 'REVIEWER_PER_TEAM', title: 'Every changed team keeps two members able to review', ok: reviewerReasons.length === 0, reasons: reviewerReasons },
-      { code: 'ESCALATION_WITHIN_LEVELS', title: `Every chain of managers reaches the GM within ${max} levels`, ok: depthReasons.length === 0, reasons: depthReasons },
+      { code: 'ESCALATION_WITHIN_LEVELS', title: enforced ? `Every changed chain of managers reaches the GM within ${max} levels` : 'Escalation depth is not enforced (the operator set the limit to 0)', ok: depthReasons.length === 0, reasons: depthReasons },
     ],
   };
 }

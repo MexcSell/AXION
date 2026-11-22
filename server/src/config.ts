@@ -13,7 +13,7 @@ export interface Config {
   backupDir?: string;
   /** c49: tests pass the anchor key/file here; in production both come from the environment (AUDIT_ANCHOR_KEY, AUDIT_ANCHOR_FILE) and never from a config object that could be logged */
   auditAnchor?: { key?: string; file?: string; domain?: string };
-  /** c64: operator settings for organisation restructures (never routes). 0 or unset = not enforced. Env: ORG_COOLDOWN_HOURS, ORG_CHURN_BUDGET, ORG_CHURN_WINDOW_HOURS, ORG_MAX_ESCALATION_LEVELS. */
+  /** c64: operator settings for organisation restructures (never routes). 0 or unset = not enforced, except the escalation depth: unset = 6 levels, 0 = not enforced. Env: ORG_COOLDOWN_HOURS, ORG_CHURN_BUDGET, ORG_CHURN_WINDOW_HOURS, ORG_MAX_ESCALATION_LEVELS. */
   orgGuardrails?: OrgGuardrailSettings;
   /** SSE ping interval (tests shorten it) */
   sseHeartbeatMs?: number;
@@ -33,7 +33,7 @@ export interface OrgGuardrailSettings {
   /** reporting lines (added + removed + re-pointed) that approved proposals may change inside the window, this one included */
   churnBudget?: number;
   churnWindowHours?: number;
-  /** every active agent's chain must reach the GM within this many levels (default 6) */
+  /** every active agent whose chain the proposal changes must reach the GM within this many levels (unset = 6; 0 = not enforced) */
   maxEscalationLevels?: number;
 }
 export const DEFAULT_MAX_ESCALATION_LEVELS = 6;
