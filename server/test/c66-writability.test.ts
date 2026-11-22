@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { makeTestApp } from './helpers.ts';
-import { INPUT_FIELDS, INPUT_FIELD_IDS, WRITE_SITES, ROUTE_NO_INPUT, writabilityOf, type WriteSite } from '../../shared/contracts/src/index.ts';
-import { writeRoutes, routeWriteProblems, scanWrites, declaredWrites, siteProblems } from './contracts/writability.ts';
+import { INPUT_FIELDS, INPUT_FIELD_IDS, HELPER_CALLERS, WRITE_SITES, ROUTE_NO_INPUT, writabilityOf, type WriteSite } from '../../shared/contracts/src/index.ts';
+import { writeRoutes, routeWriteProblems, scanWrites, declaredWrites, siteProblems, scanCallers, callerProblems } from './contracts/writability.ts';
 
 /**
  * Improvement cycle 66, item 2: the writability inventory (shared/contracts/src/metric-guard.ts), tested against the route table
@@ -28,6 +28,44 @@ describe('writability inventory vs the route table', () => {
       expect(routeWriteProblems(['POST /me/password'], WRITE_SITES, { 'POST /me/password': 'too short' }).join('\n')).toContain('needs a real reason');
       expect(routeWriteProblems(['POST /failure-tags'], WRITE_SITES, { 'POST /failure-tags': 'writes nothing a row reads, which is wrong here' }).join('\n')).toContain('both as reaching an input site and as touching no input');
     } finally { await t.close(); }
+  });
+});
+
+/**
+ * LIMITS of the source scan (also in the c66 report): it reads literal SQL in server/src only. It sees `insert into|update [only]|delete from|merge into|truncate|copy`
+ * on a bare, schema-qualified or quoted input table, and fails closed on a templated table name (`${...}`), which is unknown. It does NOT see: SQL outside
+ * server/src (scripts, migrations), triggers and foreign-key cascades (checked by hand: none writes an input table; DELETE /missions/:id and clearDemo cascade, both
+ * human or system), columns (a new column written by an agent site on a declared table is invisible), or what a helper's caller passes. The caller scan below covers the
+ * helpers by name: a new file importing one must be declared. Which kinds reach a site is typed by hand in WRITE_SITES, checked against the code by review.
+ */
+describe('the source scan reads every spelling of a write (S1)', () => {
+  const src = (text: string) => [{ rel: 'zz/probe.ts', text }];
+  const found = (text: string) => [...scanWrites(INPUT_FIELDS, src(text))];
+  it('finds schema-qualified, quoted, only, merge, truncate, copy and multi-line forms', () => {
+    for (const q of ['insert into public.task_reviews (a) values (1)', 'update "tasks" set x=1', 'update only tasks set x=1', 'merge into tasks t using x', 'truncate tasks', 'truncate table only tasks',
+      'copy tasks from stdin', 'INSERT INTO\n  tasks (a)', 'delete from public."tasks" where 1=1', 'update  tasks set a=1'])
+      expect(found('await c.query(`' + q + '`)'), q).toEqual([expect.stringMatching(/^zz\/probe\.ts\|(tasks|task_reviews)$/)]);
+  });
+  it('fails closed on a templated table name: unknown, so it must be declared', () => {
+    expect(found('await c.query(`insert into ${tbl} (a) values (1)`)')).toEqual(['zz/probe.ts|${templated}']);
+    expect(found('await c.query(`update public.${tbl} set a=1`)')).toEqual(['zz/probe.ts|${templated}']);
+    expect(siteProblems(new Set(['zz/probe.ts|${templated}']), declaredWrites()).join('\n')).toContain('zz/probe.ts writes ${templated}');
+  });
+  it('does not report tables that are not inputs', () => {
+    expect(found('await c.query(`insert into users (a) values (1)`)')).toEqual([]);
+  });
+});
+
+describe('every importer of an exported write helper is a declared caller (S1)', () => {
+  it('the importers in server/src equal the declared callers, helper by helper', () => {
+    expect(callerProblems(scanCallers(), HELPER_CALLERS)).toEqual([]);
+  });
+  it('RED proof: a new file that calls insertDelegation, a stale caller and an unknown helper are each reported', () => {
+    const now = scanCallers();
+    const fake = { ...now, insertDelegation: [...now.insertDelegation, 'zz/new-agent-caller.ts'] };
+    expect(callerProblems(fake, HELPER_CALLERS).join('\n')).toContain('zz/new-agent-caller.ts imports insertDelegation');
+    expect(callerProblems(now, { ...HELPER_CALLERS, insertDelegation: [...HELPER_CALLERS.insertDelegation, 'gone.ts'] }).join('\n')).toContain('gone.ts is declared as a caller of insertDelegation but no longer imports it');
+    expect(callerProblems({ ...now, zzHelper: ['a.ts'] }, HELPER_CALLERS).join('\n')).toContain('zzHelper');
   });
 });
 

@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { INPUT_FIELDS, WRITE_SITES, ROUTE_NO_INPUT, ALL_WRITE_ROUTES, type WriteSite, type InputField } from '../../../shared/contracts/src/index.ts';
+import { INPUT_FIELDS, HELPER_CALLERS, WRITE_SITES, ROUTE_NO_INPUT, ALL_WRITE_ROUTES, type WriteSite, type InputField } from '../../../shared/contracts/src/index.ts';
 
 const SRC = join(__dirname, '../../src');
 const walk = (d: string): string[] => readdirSync(d).flatMap((f) => (statSync(join(d, f)).isDirectory() ? walk(join(d, f)) : f.endsWith('.ts') ? [join(d, f)] : []));
@@ -24,14 +24,39 @@ export function routeWriteProblems(routes: string[], sites: Record<string, Write
   return out;
 }
 
-/** `file|table` for every insert/update/delete on an input table, and `file|field` for every marker literal, found in server/src. */
+/**
+ * `file|table` for every write on an input table, and `file|field` for every marker literal, found in server/src. Spellings: insert into, update [only],
+ * delete from [only], merge into, truncate [table] [only], copy; the table bare, schema-qualified or quoted. A templated name (`${...}`) is unknown, so it is
+ * reported as `file|${templated}` and fails unless declared. See the LIMITS note in c66-writability.test.ts.
+ */
 export function scanWrites(fields: Record<string, InputField> = INPUT_FIELDS, src = files()): Set<string> {
   const tables = [...new Set(Object.values(fields).flatMap((f) => f.tables))];
-  const re = new RegExp(`\\b(?:insert\\s+into|update|delete\\s+from)\\s+(${tables.join('|')})\\b`, 'gi');
+  const verb = String.raw`(?:insert\s+into|update(?:\s+only)?|delete\s+from(?:\s+only)?|merge\s+into|truncate(?:\s+table)?(?:\s+only)?|copy)\s+`;
+  const qual = String.raw`(?:"?[a-z_][a-z0-9_]*"?\.)?`;
+  const re = new RegExp(`\\b${verb}${qual}"?(${tables.join('|')})"?\\b`, 'gi');
+  const templ = new RegExp(`\\b${verb}${qual}\\$\\{`, 'gi');
   const out = new Set<string>();
   for (const f of src) {
     for (const m of f.text.matchAll(re)) out.add(`${f.rel}|${m[1].toLowerCase()}`);
+    if (templ.test(f.text)) out.add(`${f.rel}|\${templated}`);
+    templ.lastIndex = 0;
     for (const [id, fd] of Object.entries(fields)) if (fd.marker && f.text.includes(fd.marker)) out.add(`${f.rel}|${id}`);
+  }
+  return out;
+}
+
+/** helper name -> files in server/src that import it (the defining file does not import itself). */
+export function scanCallers(helpers: readonly string[] = Object.keys(HELPER_CALLERS), src = files()): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const h of helpers) out[h] = src.filter((f) => new RegExp(String.raw`import\s+(?:type\s+)?\{[^}]*\b${h}\b[^}]*\}\s+from`).test(f.text)).map((f) => f.rel).sort();
+  return out;
+}
+export function callerProblems(found: Record<string, string[]>, declared: Record<string, readonly string[]>): string[] {
+  const out: string[] = [];
+  for (const [h, fs] of Object.entries(found)) {
+    if (!(h in declared)) { out.push(`${h}: a helper with no declared callers (add it to HELPER_CALLERS)`); continue; }
+    for (const f of fs) if (!declared[h].includes(f)) out.push(`${f} imports ${h}, an exported write helper, but is not a declared caller (classify who reaches it, in shared/contracts/src/metric-guard.ts)`);
+    for (const f of declared[h]) if (!fs.includes(f)) out.push(`${f} is declared as a caller of ${h} but no longer imports it (stale)`);
   }
   return out;
 }

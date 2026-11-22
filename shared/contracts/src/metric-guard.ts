@@ -108,6 +108,29 @@ export const WRITE_SITES: Record<string, WriteSite> = {
   grantRoutes: { file: 'grants/routes.ts', fn: 'handler', kinds: ['human'], writes: ['site_grants.window'], routes: R('POST /site-grants', 'POST /site-grants/:id/revoke'), note: 'administrators issue and revoke website grants' },
 };
 
+/**
+ * Exported write helpers, and the files in server/src that import each (a test compares this with the real imports). A new importer fails the test until it is
+ * listed here, which is the moment to ask what identity it passes and whether it needs a site above.
+ */
+export const HELPER_CALLERS: Record<string, readonly string[]> = {
+  insertDelegation: ['instances/backfill.ts', 'tasks/routes.ts'],
+  insertInstance: ['instances/backfill.ts', 'missions/staffing-sim.ts'],
+  joinMission: ['missions/staffing-sim.ts'],
+  setInstanceState: [],
+  attachSimBrief: ['instances/service.ts'],
+  proposeLesson: [],
+  createTag: ['failures/routes.ts'],
+  decideTag: ['failures/routes.ts'],
+  recordReview: ['tasks/routes.ts'],
+  createBrief: ['delegation/routes.ts', 'tasks/routes.ts'],
+  requestApproval: ['seed/demo.ts'],
+  consumeApproval: [],
+  settleMission: ['approvals/routes.ts'],
+  createOrgRevision: ['agents/routes.ts', 'agents/seed.ts', 'organization/proposals.ts'],
+  switchVersion: ['agents/versions.ts'],
+  addVersion: ['agents/routes.ts', 'agents/seed.ts'],
+};
+
 /** Non-GET routes that write no scorecard, KPI or dimension input, each with the reason. A route listed here and also reaching a site above is reported. */
 const ID = 'writes sign-in, device or profile records; no scorecard, KPI or dimension row reads them';
 const CHAT = 'writes conversation messages; no scorecard, KPI or dimension row reads them';
