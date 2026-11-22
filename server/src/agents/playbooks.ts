@@ -10,7 +10,7 @@ import { idempotent } from '../idempotency.ts';
 import { emit } from '../events/hooks.ts';
 import { getVisibleRow } from '../missions/service.ts';
 import type { LessonCandidateDto, LessonConflict, PlaybookDiff, PlaybookDto, PlaybookItem, PlaybookVersionRow, SkillDto, SourceRef } from '../../../shared/contracts/src/index.ts';
-import { advisoryXactLock } from '../locks.ts';
+import { advisoryXactLock, advisoryXactLockLower } from '../locks.ts';
 
 /**
  * Improvement cycle 41: reviewed playbooks and a skill library (ExpeL, ACE, Voyager, Agent Workflow Memory; spec Stage 9 knowledge:
@@ -219,7 +219,7 @@ function skillDto(r: any, ctx: Ctx): SkillDto { // eslint-disable-line @typescri
 }
 const skillVisible = (ctx: Ctx, r: { proposed_by: string; submitted_by: string | null; status: string }) => ctx.user.role === 'admin' || r.status !== 'draft' || mine(r, ctx.user.id);
 /** The lock key folds case in SQL, the same way the unique index does (lower()), so JS and SQL can never disagree on a name. */
-const skillLock = (c: Tx, tenantId: string, name: string) => advisoryXactLock(c, `skill:${tenantId}:${name.toLowerCase()}`); // schema-scoped (src/locks.ts); one key per name, case-insensitive as before
+const skillLock = (c: Tx, tenantId: string, name: string) => advisoryXactLockLower(c, `skill:${tenantId}:`, name); // schema-scoped (src/locks.ts); the key is built from SQL lower(name)
 
 export default async function playbookRoutes(app: FastifyInstance) {
   /** A refusal on an existing record is audited and the transaction still commits; the error is thrown after commit. */

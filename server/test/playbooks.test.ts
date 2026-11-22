@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { makeTestApp, withAdmin, type TestApp, type Browser } from './helpers.ts';
 import { tx } from '../src/db.ts';
+import { LOCK_KEY_SQL } from '../src/locks.ts';
 import { seedDemo, clearDemo } from '../src/seed/demo.ts';
 import type { SourceRef } from '../../shared/contracts/src/index.ts';
 import { findConflicts, conflicts, looksLikeCode, proposeLesson } from '../src/agents/playbooks.ts';
@@ -382,6 +383,32 @@ describe('skills: a closed structure, quoted data that is never executed', () =>
     expect(c.body.skill.version).toBe(3);
     const nfd = await post(body([st('Accents')], { name: 'Caf\u00e9 check' })), nfd2 = await post(body([st('Accents')], { name: 'Cafe\u0301 check' }));
     expect([nfd.status, nfd2.status, nfd2.body.skill.version]).toEqual([201, 201, 2]);
+  });
+  it('the skill lock key folds case in SQL: names that only SQL lower() treats as equal take the same lock (H10 item 1)', async () => {
+    // JS toLowerCase and PostgreSQL lower() disagree on these; the unique index uses lower(), so the lock must too.
+    const pairs: [string, string][] = [['i', '\u0130'], ['\u03b1\u03c3', '\u0391\u03a3']]; // [held, created]: i / İ ; ασ / ΑΣ (JS folds the final sigma to ς)
+    const tenant = (await q('select id from tenants limit 1'))[0].id as string;
+    for (const [held, other] of pairs) {
+      expect((await q('select lower($1) = lower($2) as eq', [held, other]))[0].eq, 'SQL treats the pair as equal').toBe(true);
+      expect(held.toLowerCase() === other.toLowerCase(), 'JS treats the pair as different (the case that used to slip through)').toBe(false);
+      const X = await t.pool.connect();
+      await X.query('begin');
+      await X.query(`select pg_advisory_xact_lock(${LOCK_KEY_SQL})`, [`skill:${tenant}:${(await q('select lower($1) l', [held]))[0].l}`]);
+      let done = false;
+      const p = post(body([st('Open it')], { name: other })).then((r) => { done = true; return r; });
+      await new Promise((r) => setTimeout(r, 400));
+      const waited = !done;
+      await X.query('commit'); X.release(); // always released, so a failure here cannot hang the hooks
+      expect(waited, `creating "${other}" must wait for the lock held for "${held}"`).toBe(true);
+      expect((await p).status).toBe(201);
+    }
+  });
+  it('two concurrent creates of names that SQL treats as equal serialise: versions 1 and 2, never a 500', async () => {
+    for (const [a, b] of [['\u0130x', 'ix'], ['\u0391\u03a3 run', '\u03b1\u03c3 run']]) {
+      const [r1, r2] = await Promise.all([post(body([st('One')], { name: a })), post(body([st('Two')], { name: b }))]);
+      expect([r1.status, r2.status]).toEqual([201, 201]);
+      expect([r1.body.skill.version, r2.body.skill.version].sort()).toEqual([1, 2]);
+    }
   });
   it('steps are a closed schema: enumerated kinds, bounded text, no extra keys', async () => {
     expect((await post(body([st('x', 'run_shell')]))).status).toBe(400);

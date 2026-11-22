@@ -9,3 +9,10 @@ import type { Tx } from './db.ts';
  */
 export const LOCK_KEY_SQL = "hashtextextended(current_schema() || ':' || $1, 0)";
 export const advisoryXactLock = (c: Tx, name: string) => c.query(`select pg_advisory_xact_lock(${LOCK_KEY_SQL})`, [name]);
+/**
+ * A lock named `prefix + lower(name)` where the folding is PostgreSQL's lower(), the function a lower(name) unique index uses.
+ * Folding in JS (toLowerCase) disagrees with it for some names (İ, Greek final sigma), so two names the index treats as equal
+ * could take different locks and race into a unique violation.
+ */
+export const advisoryXactLockLower = (c: Tx, prefix: string, name: string) =>
+  c.query(`select pg_advisory_xact_lock(${LOCK_KEY_SQL.replace('$1', "($1 || lower($2))")})`, [prefix, name]);
