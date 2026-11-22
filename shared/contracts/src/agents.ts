@@ -127,7 +127,11 @@ export interface ProposalEvaluationDto {
    * failure: with too few graded (`sufficient` false) the outcome is `inconclusive`, never `worse`. `regradeId` is the re-grade diff
    * that links two runs graded by different grader versions (its NEW grades are the ones compared); null when none was needed.
    */
-  grading: { baseline: GradingDto | null; candidate: GradingDto; excludedCases: number; sufficient: boolean; minFraction: number; regradeId: string | null };
+  grading: { baseline: GradingDto | null; candidate: GradingDto; excludedCases: number; sufficient: boolean; minFraction: number; regradeId: string | null;
+    /** cases each run kept (every attempt graded), of the cases both ran; below `minFraction` of either the verdict is inconclusive */
+    retained: { baseline: number; candidate: number; shared: number };
+    /** false when the verdict was withdrawn because it did not survive the worst case for the cases left out (ungraded) */
+    robust: boolean };
   /**
    * c61 (R2-3): was the dataset attested (ABC-style checklist, by an administrator who is not its author) before it was frozen? An
    * unattested dataset can still be used, but the verdict is flagged `unvalidated`. `failing`: attested, with at least one "no" answer.

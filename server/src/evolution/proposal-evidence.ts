@@ -156,9 +156,7 @@ export async function loadEvaluations(c: Tx, tenantId: string, proposals: Eviden
     let outcome: ProposalEvaluationDto['outcome'] = 'inconclusive';
     if (!refusals.length) {
       if (v.outcome === 'verified_better') outcome = 'verified_better';
-      else if (v.grading.sufficient && v.cases >= v.policy.minCases && (
-        (v.outcome === 'not_better' && (v.signTest.losses > v.signTest.wins || (v.delta ?? 0) < 0)) // significant, and either more losses or a lower mean
-        || (v.ci.high !== null && v.ci.high < 0))) outcome = 'worse'; // or the whole 95% interval of the mean difference is below 0
+      else if (v.worse) outcome = 'worse'; // significantly worse, a lower mean, or the whole 95% interval below 0, and it survives the worst case for ungraded cases
     }
     out.set(p.id, {
       outcome, n: v.cases, wins: v.signTest.wins, losses: v.signTest.losses, ties: v.signTest.ties, k: v.k, delta: v.delta,
@@ -167,7 +165,7 @@ export async function loadEvaluations(c: Tx, tenantId: string, proposals: Eviden
       grading: {
         baseline: base ? { ...v.grading.baseline, graderName: regradeBase ? gCand!.name : gBase?.name ?? null, graderVersion: regradeBase ? gCand!.version : gBase?.version ?? null } : null,
         candidate: { ...v.grading.candidate, graderName: regradeCand ? gBase!.name : gCand?.name ?? null, graderVersion: regradeCand ? gBase!.version : gCand?.version ?? null },
-        excludedCases: v.grading.excludedCases, sufficient: v.grading.sufficient, minFraction: v.grading.minFraction, regradeId: regradeBase ?? regradeCand,
+        excludedCases: v.grading.excludedCases, sufficient: v.grading.sufficient, minFraction: v.grading.minFraction, retained: v.grading.retained, robust: v.grading.robust, regradeId: regradeBase ?? regradeCand,
       },
       validity: await datasetValidity(c, cand.dataset_id),
       datasetId: cand.dataset_id, datasetSha: cand.content_sha256, baseRunId: base?.id ?? null, candidateRunId: cand.id, runCount,

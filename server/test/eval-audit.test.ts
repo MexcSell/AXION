@@ -109,9 +109,9 @@ const load = (p: string) => cx(async (c) => (await loadEvaluations(c, 't-1', [{ 
 const ev = { judge: 'claude-judge', evaluator: 'ev-b' };
 let seq = 0;
 /** a holdout of 12 cases with a base run and a candidate run */
-async function pair(o: { base: Array<number | null>; cand: Array<number | null>; bg?: { name: string; version: string }; cg?: { name: string; version: string }; bUn?: Record<number, string>; cUn?: Record<number, string> }) {
+async function pair(o: { cases?: number; base: Array<number | null>; cand: Array<number | null>; bg?: { name: string; version: string }; cg?: { name: string; version: string }; bUn?: Record<number, string>; cUn?: Record<number, string> }) {
   const n = ++seq, ds = 'AH' + n, pid = 'AP' + n;
-  await makeDataset(s.pool, { id: ds, split: 'holdout', cases: 12 });
+  await makeDataset(s.pool, { id: ds, split: 'holdout', cases: o.cases ?? 12 });
   await prop(pid, 'sha-A' + n);
   await addRun(s.pool, { id: 'AB' + n, datasetId: ds, versionId: v1, scores: o.base, grader: o.bg, ungraded: o.bUn, ...ev });
   await addRun(s.pool, { id: 'AC' + n, datasetId: ds, proposalId: pid, scores: o.cand, grader: o.cg, ungraded: o.cUn, ...ev });
@@ -257,5 +257,67 @@ describe('R2-2 loader: grader versions', () => {
     await expect(q(`truncate eval_regrade_cases, eval_regrades`)).rejects.toThrow(/append-only/);
     const c = await s.pool.connect();
     try { await c.query('begin'); await c.query(`set local axion.purge_demo='on'`); await c.query(`delete from eval_regrade_cases`); await c.query(`delete from eval_regrades`); await c.query('rollback'); } finally { c.release(); }
+  });
+});
+
+// ---- c61 fix round, item 1: leaving cases out must not manufacture a verdict (review finding 1) --------------------------------------
+const tiedBase = (): { base: number[]; cand: Array<number | null>; un: Record<number, string> } => {
+  // 100 cases; base and candidate each fail 40 (24 in common). 20 of the candidate's OWN failures time out (16 candidate-only + 4 shared).
+  const base = Array.from({ length: 100 }, (_, i) => (i < 40 ? 0 : 90));
+  const candFail = new Set([...Array.from({ length: 24 }, (_, i) => i), ...Array.from({ length: 16 }, (_, i) => 40 + i)]);
+  const un: Record<number, string> = {};
+  for (const i of [...Array.from({ length: 16 }, (_, i) => 40 + i), 20, 21, 22, 23]) un[i] = 'grader_timeout';
+  const cand = Array.from({ length: 100 }, (_, i) => (un[i] ? null : candFail.has(i) ? 0 : 90));
+  return { base, cand, un };
+};
+describe('fix round 1: excluded cases are imputed against the verdict', () => {
+  const cases = (n: number) => ids(n).map((caseId, i) => ({ caseId, input: { i }, expected: { a: i } }));
+  const mk = (n: number, baseline: CaseRuns[], candidate: CaseRuns[]) => { const sha = hashDataset(cases(n)); return { baseline, candidate, holdout: { datasetId: 'H', split: 'holdout' as const, frozenSha256: sha, observedSha256: sha }, tunedOnDatasetIds: [], authorId: 'u', evaluatorId: 'ev', candidateModelFamily: 'qwen', judgeModelFamily: 'claude' }; };
+  it('control: the tied runs with nothing ungraded are not verified better', () => {
+    const t = tiedBase();
+    const cand = t.cand.map((x, i) => (x === null ? (i < 56 && i >= 40 ? 0 : 0) : x));
+    expect(verdictV2(mk(100, runs(t.base), runs(cand))).outcome).not.toBe('verified_better');
+  });
+  it('20 of the candidate failures time out: NOT verified better (the review probe), and the reason names the worst case', () => {
+    const t = tiedBase();
+    const v = verdictV2(mk(100, runs(t.base), runs(t.cand, t.un)));
+    expect(v.grading.sufficient).toBe(true); // exactly 80% graded: the gate alone does not stop it
+    expect(v.outcome).toBe('inconclusive'); expect(v.grading.robust).toBe(false);
+    expect(v.reasons.join(' ')).toMatch(/worst case/);
+  });
+  it('a clear win with a couple of ungraded cases survives the worst case', () => {
+    const b = runs(Array(100).fill(20)), c = runs(Array(100).fill(90).map((x, i) => (i < 2 ? null : x)), { 0: 'grader_error', 1: 'grader_error' });
+    const v = verdictV2(mk(100, b, c));
+    expect(v.outcome).toBe('verified_better'); expect(v.grading.robust).toBe(true);
+  });
+  it('the mirror: a loss that rests on leaving out 20 candidate cases is not "worse"', () => {
+    const b = runs(Array(100).fill(90));
+    const un = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [i + 80, 'grader_timeout']));
+    const c = runs(Array.from({ length: 100 }, (_, i) => (i >= 80 ? null : i < 25 ? 80 : 90)), un);
+    const v = verdictV2(mk(100, b, c));
+    expect(v.outcome).toBe('inconclusive'); expect(v.worse).toBe(false); expect(v.reasons.join(' ')).toMatch(/worst case/);
+  });
+  it('a loss that survives the mirror stays worse', () => {
+    const b = runs(Array(100).fill(90));
+    const c = runs(Array.from({ length: 100 }, (_, i) => (i < 60 ? 20 : i < 62 ? null : 90)), { 60: 'grader_error', 61: 'grader_error' });
+    const v = verdictV2(mk(100, b, c));
+    expect(v.outcome).toBe('not_better'); expect(v.worse).toBe(true);
+  });
+  it('each side must keep 80% of its CASES, not only of its attempts (k = 3, 5 of 10 candidate cases have one ungraded attempt)', () => {
+    const cs = ids(10);
+    const b: CaseRuns[] = cs.map((caseId) => ({ caseId, attempts: [1, 2, 3].map(() => ({ score: 50, costUnits: 1 })) }));
+    const c: CaseRuns[] = cs.map((caseId, i) => ({ caseId, attempts: [1, 2, 3].map((a) => ({ score: 95, costUnits: 1, ungraded: i < 5 && a === 1 ? 'grader_error' : null })) }));
+    const v = verdictV2(mk(10, b, c));
+    expect(v.grading.candidate.graded / v.grading.candidate.attempted).toBeGreaterThanOrEqual(0.8); // attempts alone would pass
+    expect(v.grading.retained).toEqual({ baseline: 10, candidate: 5, shared: 10 });
+    expect(v.grading.sufficient).toBe(false); expect(v.outcome).toBe('inconclusive');
+  });
+});
+describe('fix round 1: the loader', () => {
+  it('the tied-base probe through the loader is not verified better', async () => {
+    const t = tiedBase();
+    const p = await pair({ cases: 100, base: t.base, cand: t.cand, bg: G1, cg: G1, cUn: t.un });
+    const e = await load(p.pid);
+    expect(e.outcome).not.toBe('verified_better'); expect(e.grading.robust).toBe(false); expect(e.grading.retained).toEqual({ baseline: 100, candidate: 80, shared: 100 });
   });
 });
