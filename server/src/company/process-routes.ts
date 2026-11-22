@@ -38,7 +38,8 @@ export default async function processRoutes(app: FastifyInstance) {
       const tasks = await q(`select t.id, t.mission_id, coalesce(i.agent_id, t.owner_agent) as owner, t.status, t.simulated from tasks t left join agent_instances i on i.id = t.owner_instance_id
           where t.tenant_id=$1 and t.mission_id = any($2::text[])`, [T, ids]);
       const reviews = await q(`select r.task_id, r.mission_id, r.verdict, r.created_at, r.seq, t.simulated, (${STALE_BEFORE_SQL('r')} is not null) as stale,
-            (select count(*) from jsonb_array_elements(r.rubric) x where x->>'result' = 'fail')::int as failed
+            (select count(*) from jsonb_array_elements(r.rubric) x where x->>'result' = 'fail')::int as failed,
+            (select ra.attempt_no from task_attempts ra where ra.id = r.attempt_id) as attempt_no
           from task_reviews r join tasks t on t.id = r.task_id where r.tenant_id=$1 and r.mission_id = any($2::text[]) and r.created_at <= now()`, [T, ids]);
       const tags = await q(`select subject_id, mode_id, coalesce(decided_at, created_at) as at from failure_tags
           where tenant_id=$1 and mission_id = any($2::text[]) and subject_kind='task' and status='confirmed' and taxonomy_version=$3`, [T, ids, FAILURE_TAXONOMY_VERSION]);
@@ -57,7 +58,7 @@ export default async function processRoutes(app: FastifyInstance) {
         agents: agents.map((a) => ({ id: a.id, dept: a.dept, active: a.status === 'active' })),
         missions: missions.map((m) => ({ id: m.id, demo: m.demo })),
         tasks: tasks.rows.map((t) => ({ id: t.id, missionId: t.mission_id, owner: t.owner, status: t.status, simulated: t.simulated })),
-        reviews: reviews.rows.map((r) => ({ taskId: r.task_id, missionId: r.mission_id, verdict: r.verdict, at: D(r.created_at), seq: Number(r.seq), stale: !!r.stale, failedCriteria: Number(r.failed), simulated: r.simulated })),
+        reviews: reviews.rows.map((r) => ({ taskId: r.task_id, missionId: r.mission_id, verdict: r.verdict, at: D(r.created_at), seq: Number(r.seq), stale: !!r.stale, failedCriteria: Number(r.failed), attemptNo: r.attempt_no === null ? null : Number(r.attempt_no), simulated: r.simulated })),
         tags: tags.rows.map((g) => ({ taskId: g.subject_id, modeId: g.mode_id, at: D(g.at) })),
         briefs: briefs.rows.map((b) => ({ id: b.id, missionId: b.mission_id, toAgent: b.to_agent, goal: typeof b.goal === 'string' ? b.goal : null, at: D(b.created_at), supersedesId: b.supersedes_id, simulated: b.simulated })),
         ownerHistory: history.rows.map((h) => ({ taskId: h.task_id, agentId: h.agent_id, at: D(h.at), seq: Number(h.seq) })),

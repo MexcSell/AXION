@@ -9,8 +9,8 @@ import { MIN_N, trendOf } from './scorecard.ts';
  *   on it. The cause of each return is a confirmed failure tag mode known at the window end (one mode; "several failure modes" when
  *   there are more), else "a criterion failed (no failure tag)" when the review marked a rubric criterion failed, else "no recorded cause".
  *   Open tasks (finished or verifying, no review yet as of the end) are reported beside it and are never in the denominator.
- * - First-pass acceptance: among tasks with at least one review in the window, the share whose FIRST review ever is accepted and not stale
- *   (c51 freshness: a later attempt exists, so the acceptance no longer stands). A task accepted only after a return is not first-pass.
+ * - First-pass acceptance: among tasks with at least one review in the window, the share whose FIRST review ever is accepted, was written against
+ *   attempt 1, and is not stale (c51 freshness: a later attempt exists, so the acceptance no longer stands). A task accepted only after a return is not first-pass.
  * - Duplicate delegation: current (not superseded) delegation briefs in the window whose goal, trimmed, lower-cased and with runs of white
  *   space collapsed, equals that of another brief of the same mission in the window. Count and share, with n.
  * - Reassign churn: per task first assigned in the window, the number of changes of owning agent up to the window end, from the append-only
@@ -29,7 +29,9 @@ export interface ProcInput {
   missions: { id: string; demo: boolean }[];
   tasks: { id: string; missionId: string; owner: string | null; status: string; simulated: boolean }[];
   /** every review of the visible missions, any order */
-  reviews: { taskId: string; missionId: string; verdict: string; at: Date; seq: number; stale: boolean; failedCriteria: number; simulated: boolean }[];
+  reviews: { taskId: string; missionId: string; verdict: string; at: Date; seq: number; stale: boolean; failedCriteria: number;
+    /** attempt_no of the attempt the review was written against (null when none is recorded) */
+    attemptNo: number | null; simulated: boolean }[];
   /** CONFIRMED failure tags on tasks */
   tags: { taskId: string; modeId: string; at: Date }[];
   briefs: { id: string; missionId: string; toAgent: string; goal: string | null; at: Date; supersedesId: string | null; simulated: boolean }[];
@@ -94,11 +96,11 @@ const SPECS: Spec[] = [
     const by = reviewsOf(i, c, tasks);
     const open = { n: openTasks(tasks, by), what: 'finished or verifying with no review yet' };
     const cohort = [...by.values()].filter((rs) => rs.some((r) => c.inWin(r.at)));
-    const ok = cohort.filter((rs) => rs[0].verdict === 'accepted' && !rs[0].stale).length;
+    const ok = cohort.filter((rs) => rs[0].verdict === 'accepted' && !rs[0].stale && rs[0].attemptNo === 1).length;
     const tail = open.n ? `; ${plural(open.n, 'task')} with no review yet ${open.n === 1 ? 'is' : 'are'} not counted` : '';
     if (cohort.length < MIN_N) return { ...none(cohort.length, `${plural(cohort.length, 'task')} with a review in the window`, MIN_N), open };
     return { value: round1((ok / cohort.length) * 100), n: cohort.length, open,
-      evidence: `${ok} of ${plural(cohort.length, 'task')} with a review in the window were accepted on their first review and that acceptance still stands (a stale one does not count)${tail}` };
+      evidence: `${ok} of ${plural(cohort.length, 'task')} with a review in the window were accepted on attempt 1 at their first review and that acceptance still stands (a stale one does not count)${tail}` };
   } },
   { key: 'duplicate_delegation', label: 'Duplicate delegations', unit: '%', minN: MIN_N, measure: (i, c) => {
     const superseded = new Set(i.briefs.filter((b) => b.supersedesId && b.at.getTime() <= c.to).map((b) => b.supersedesId!));

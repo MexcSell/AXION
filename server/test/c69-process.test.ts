@@ -20,7 +20,7 @@ const AGENTS = [{ id: 'a1', dept: 'Eng', active: true }, { id: 'a2', dept: 'Eng'
 const task = (id: string, owner: string, o: Partial<ProcInput['tasks'][number]> = {}): ProcInput['tasks'][number] => ({ id, missionId: 'M1', owner, status: 'passed', simulated: false, ...o });
 let seq = 0;
 const review = (taskId: string, verdict: string, at: Date, o: Partial<ProcInput['reviews'][number]> = {}): ProcInput['reviews'][number] =>
-  ({ taskId, missionId: 'M1', verdict, at, seq: ++seq, stale: false, failedCriteria: 0, simulated: false, ...o });
+  ({ taskId, missionId: 'M1', verdict, at, seq: ++seq, stale: false, failedCriteria: 0, attemptNo: 1, simulated: false, ...o });
 
 /** Reviews and tasks. See the hand computation in each test. */
 function reviewFixture(): ProcInput {
@@ -119,6 +119,15 @@ describe('first-pass acceptance (hand-computed)', () => {
   it('a stale first review never counts, even though it says accepted', () => {
     const i = reviewFixture(); i.reviews = i.reviews.map((r) => (r.taskId === 't1' ? { ...r, stale: true } : r));
     expect(cell(run(i), 'first_pass_acceptance')).toMatchObject({ value: 25, n: 8 }); // 2 of 8
+  });
+  it('F1: attempt 1 failed, a retry (attempt 2) passed and was accepted at the first review: NOT first-pass (accepted on attempt 1 only)', () => {
+    const i = reviewFixture(); i.tasks.push(task('t13', 'a1'));
+    i.reviews.push(review('t13', 'accepted', ago(3 * D), { attemptNo: 2 }));
+    // cohort 9, first-pass still 3 (t1 t6 t7): t13 is in the denominator but not the numerator. 3/9 = 33.3
+    expect(cell(run(i), 'first_pass_acceptance')).toMatchObject({ value: 33.3, n: 9 });
+    // a review with no recorded attempt (null) cannot be shown to be attempt 1: not counted
+    const j = reviewFixture(); j.tasks.push(task('t14', 'a1')); j.reviews.push(review('t14', 'accepted', ago(3 * D), { attemptNo: null }));
+    expect(cell(run(j), 'first_pass_acceptance')).toMatchObject({ value: 33.3, n: 9 });
   });
   it('an unreviewed task is not in the denominator', () => {
     const i = reviewFixture(); i.tasks.push(task('t12', 'a1'), task('t13', 'a1'));

@@ -151,3 +151,18 @@ describe('the window end is the database clock (c54 rule)', () => {
     expect(r.body.cells.find((c: any) => c.key === 'process.rework_rate').n, 'the three reviews written with now() are inside the window').toBeGreaterThanOrEqual(3);
   });
 });
+
+describe('F1: first-pass means accepted on attempt 1 (real rows)', () => {
+  it('a task whose attempt 1 failed and whose retry (attempt 2) was accepted at the first review is in the denominator and not the numerator', async () => {
+    const before = cell(await proc(A), 'first_pass_acceptance');
+    const num = Math.round((before.value * before.n) / 100);
+    await mission('FP', adminId, { shared: true });
+    await instance('FP', 'coder-01');
+    await task('FP1', 'FP', 'coder-01', 'passed');
+    await q(`insert into task_attempts(task_id, attempt_no, started_at, finished_at, result) values ('FP1',2, now() - interval '45 days', now() - interval '44 days','passed')`);
+    await review('TR-FP1', 'FP', 'FP1', 'coder-01', 'accepted', 3);
+    const after = cell(await proc(A), 'first_pass_acceptance');
+    expect(after.n).toBe(before.n + 1);
+    expect(after.value).toBe(Math.round((num / (before.n + 1)) * 1000) / 10);
+  });
+});
