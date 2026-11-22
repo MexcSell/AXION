@@ -2,7 +2,8 @@
 
 Branch `c26-thread-virtualise`, worktree `/home/luca/AXION-w24`, base a67d2dd. App code final at 82eef4a.
 
-**Status: DONE, but the timing threshold is NOT MET.** The pass line was fixed in the brief and is not moved here.
+**Status: NOT MET on the timing threshold** (long-task total and worst task). The pass line was fixed in the brief and is
+not moved here. Every behaviour check and verify-all are green.
 - **What improved:** virtualisation works. A live burst into a 1,000-message open thread now costs the same as one into a
   50-message thread, and less than half of what it cost before.
 - **Why it still misses:** the remaining busy time is page-level work that does not depend on the thread. A control run with
@@ -10,7 +11,8 @@ Branch `c26-thread-virtualise`, worktree `/home/luca/AXION-w24`, base a67d2dd. A
   163–343 ms, which is above or at the thresholds by itself.
 - **Behaviour:** every behaviour check is green. api-stage6 94/94, api-c22 14/14 (reload 1.5–2.1 s), api-improve 107/107,
   a11y-check 0 violations in demo and api mode.
-- **verify-all:** two steps fail, and they fail identically on the base. See "verify-all" below.
+- **verify-all:** all 10 steps pass on the final app code (82eef4a). An earlier run at load 20–39 had two red steps; §7 has
+  the comparison with the base.
 
 ## 1. Measure (`web/scripts/api-c26.mjs`, new)
 The method is cycle 22's, applied to the brief's scenario:
@@ -92,7 +94,7 @@ The burst-window variant gives the same picture:
 | 3 | api-improve green | **PASS.** 107/107 |
 | 3 | api-c09 green | **NOT RUN.** `api-c09.mjs` is absent at a67d2dd: it exists only on the unmerged branch `c09-server-minors` |
 | 3 | a11y-check 0 violations | **PASS.** Demo: 50 views, 55 dialogs, 0. Api: 40 views, 55 dialogs, 0 |
-| 3 | verify-all passes every step | **NOT MET**: see below. The same 2 steps fail on the base at the same load |
+| 3 | verify-all passes every step | **PASS.** 10/10 on 82eef4a (load about 10–19). An earlier run at load 20–39 was 8/10; §7 |
 | 3 | The minimap still counts every message | **PASS.** One block per message, in order (`data-mm` = message id), 1,202/1,202 |
 | 4 | DOM-row check asserts the intent; it fails on a forced defect | **PASS.** See §6, both defects RED |
 
@@ -168,12 +170,14 @@ Defects were applied in the working tree only and reverted with `git checkout`; 
 - **api-e2e.sh:** `api-stage6.mjs` **94/94**; `api-c22.mjs SIZES=130,1000 REPS=3` **14/14**, rc 0; `api-improve.mjs`
   **107/107**; `DATA_MODE=api a11y-check.mjs` **0 violations**. Load 14–23.
 - **a11y-check, demo** (dev 7490): **0 violations** (50 views, 55 dialogs).
-- **api-c26** (FILL 1,000, REPS 3): 10/10 checks, page errors 0. The timing is in §2.
-- **verify-all** (OUT=/tmp/axion-verify-w24): VERIFY_RESULT
+- **api-c26** (FILL 1,000, REPS 3): 10/10 checks, page errors 0. The timing is in §2. Later, a check for the status-line
+  announcer was added (script only, committed after the report): 11/11 at FILL 300.
+- **verify-all** (OUT=/tmp/axion-verify-w24, dev 7490, app code 82eef4a): **ALL 10 STEPS PASSED**, rc 0. That covers the
+  build, both crawls, flows, auth flow, u1 flows, dialog smoke, dialog ids, help keys and the fs guard.
 
-### verify-all failures that are not this cycle's
-Run 1 (on 24d3183, load 20–39): 2 of 10 steps failed, flows and auth flow. I re-ran both alone on HEAD and on the base
-(a67d2dd, a scratch copy served on 7491):
+### The earlier red verify-all run
+Run 1 (on 24d3183, load 20–39): 2 of 10 steps failed, flows and auth flow. I re-ran both alone at load 28–37 on HEAD and on
+the base (a67d2dd, a scratch copy served on 7491):
 - **auth-flow, base and HEAD alike:** "member has no admin approvals panel" and "v1 → v2 migration loads the old missions —
   0 rows". They touch no thread code.
 - **flows:**
@@ -181,6 +185,13 @@ Run 1 (on 24d3183, load 20–39): 2 of 10 steps failed, flows and auth flow. I r
   - On the base: "Conversations: … thread did not switch to Planner-01".
   - Both steps use the fixed 500 ms wait that cycle 22 already reported as load-sensitive. Run 1 also had "Delete (archive)"
     and "Modal focus trap" FAIL at load 39; neither recurred in the re-run.
+- **flows.mjs, three times each, back to back, after verify-all passed:**
+  - **HEAD:** all PASS at load 9.3, 10.0 and 12.9.
+  - **Base:** all PASS at load 8.9 and 11.3. At load 71, Hierarchy, Conversations switch, command palette and theme toggle
+    FAIL.
+  - Counting verify-all run 2, the Hierarchy step passed 4 of 4 times on HEAD at load ≤ 19. It failed on HEAD only at load
+    28–39 and on the base at load 71. I read it as the known load-sensitive wait, not a regression. It does exercise the
+    conversation pane that this cycle changed, so I name it here.
 
 ## 8. Screenshots (`web/docs/improve/cycles/c26-shots/`)
 | Pair | Before / after | Difference |
