@@ -104,7 +104,9 @@ export interface VersionProposalDto {
 export type EvalOutcome = 'verified_better' | 'inconclusive' | 'worse';
 /** attempts of a run, how many carry a grade, and the grader (name and version) that graded them; null = not recorded (runs before c61) */
 export interface GradingDto { attempted: number; graded: number; graderName: string | null; graderVersion: string | null }
-export interface DatasetValidityDto { unvalidated: boolean; status: 'attested' | 'failing' | 'unattested'; version: number | null; failedItems: string[] }
+export interface DatasetValidityDto { unvalidated: boolean; status: 'attested' | 'failing' | 'unattested'; version: number | null; failedItems: string[];
+  /** false for a dataset created before its author was recorded: the "not the author" rule cannot be checked, so it can never be attested */
+  canBeAttested: boolean }
 export interface EvalRefusalDto { code: string; detail: string }
 export interface ProposalEvaluationDto {
   outcome: EvalOutcome;

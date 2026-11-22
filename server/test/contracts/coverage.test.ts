@@ -230,7 +230,7 @@ describe('API coverage run', () => {
     // evaluation object is filled in the lists and the promote carries the evaluationSha the reviewer saw. Records only: nothing is executed.
     // c61: attested before the freeze by an administrator who is not the author, so the evaluation carries a non-null attested version
     const adminId = (await t.pool.query(`select id from users where role='admin' and status='approved' order by created_at limit 1`)).rows[0].id;
-    await makeDataset(t.pool, { id: 'HO-c50', split: 'holdout', cases: 12, createdBy: 'dataset-author', attestBy: adminId });
+    await makeDataset(t.pool, { id: 'HO-c50', split: 'holdout', cases: 12, createdBy: minaId, attestBy: adminId });
     await addRun(t.pool, { id: 'c50-base', datasetId: 'HO-c50', versionId: coder.versionId, scores: Array.from({ length: 12 }, () => 40), evaluator: minaId, judge: 'gpt-judge', grader: { name: 'rubric', version: '1' } });
     await addRun(t.pool, { id: 'c50-cand', datasetId: 'HO-c50', proposalId: vp1.id, scores: Array.from({ length: 12 }, (_, i) => 70 + (i % 3)), evaluator: minaId, judge: 'gpt-judge', grader: { name: 'rubric', version: '2' } });
     // c61: the base run was graded by version 1 and the candidate by version 2; a re-grade diff links them (so the DTO carries a regradeId and both graders)

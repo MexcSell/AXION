@@ -47,12 +47,15 @@ export interface DatasetValidity {
   version: number | null;
   /** items answered "no" in that version */
   failedItems: string[];
+  /** false for a dataset created before its author was recorded: the "not the author" rule cannot be checked, so it can never be attested */
+  canBeAttested: boolean;
 }
 /** What a verdict on this dataset says about its validity. Unattested (and unfrozen, and unknown) datasets are flagged, never refused. */
 export async function datasetValidity(c: Tx, datasetId: string): Promise<DatasetValidity> {
   const r = (await c.query(
-    `select d.attested_version v, a.answers from eval_datasets d left join eval_attestations a on a.dataset_id = d.id and a.version = d.attested_version where d.id = $1 and d.frozen_at is not null`, [datasetId])).rows[0] as { v: number | null; answers: AttestationAnswers | null } | undefined;
-  if (!r || r.v === null || !r.answers) return { unvalidated: true, status: 'unattested', version: null, failedItems: [] };
+    `select d.attested_version v, a.answers, d.created_by is not null as author from eval_datasets d left join eval_attestations a on a.dataset_id = d.id and a.version = d.attested_version where d.id = $1 and d.frozen_at is not null`, [datasetId])).rows[0] as { v: number | null; answers: AttestationAnswers | null; author: boolean } | undefined;
+  const canBeAttested = !!r?.author;
+  if (!r || r.v === null || !r.answers) return { unvalidated: true, status: 'unattested', version: null, failedItems: [], canBeAttested };
   const failed = Object.entries(r.answers).filter(([, a]) => a.answer === 'no').map(([id]) => id).sort();
-  return failed.length ? { unvalidated: true, status: 'failing', version: r.v, failedItems: failed } : { unvalidated: false, status: 'attested', version: r.v, failedItems: [] };
+  return failed.length ? { unvalidated: true, status: 'failing', version: r.v, failedItems: failed, canBeAttested } : { unvalidated: false, status: 'attested', version: r.v, failedItems: [], canBeAttested };
 }

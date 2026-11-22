@@ -198,7 +198,7 @@ const versionDiff: V<VersionDiff> = obj<VersionDiff>({ skillsAdded: arr(str), sk
 const nullOnly = nul;
 const evalRefusal: V<EvalRefusalDto> = obj<EvalRefusalDto>({ code: str, detail: str });
 const grading: V<GradingDto> = obj<GradingDto>({ attempted: int, graded: int, graderName: nullable(str), graderVersion: nullable(str) });
-const datasetValidity: V<DatasetValidityDto> = obj<DatasetValidityDto>({ unvalidated: bool, status: oneOf(['attested', 'failing', 'unattested'] as const), version: nullable(int), failedItems: arr(str) });
+const datasetValidity: V<DatasetValidityDto> = obj<DatasetValidityDto>({ unvalidated: bool, status: oneOf(['attested', 'failing', 'unattested'] as const), version: nullable(int), failedItems: arr(str), canBeAttested: bool });
 const proposalEvaluation: V<ProposalEvaluationDto> = obj<ProposalEvaluationDto>({
   outcome: oneOf(['verified_better', 'inconclusive', 'worse'] as const), n: int, wins: int, losses: int, ties: int, k: int,
   delta: nullable(num), ci: obj<ProposalEvaluationDto['ci']>({ low: nullable(num), high: nullable(num) }), baselineMean: nullable(num), candidateMean: nullable(num),

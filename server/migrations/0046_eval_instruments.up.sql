@@ -171,7 +171,8 @@ begin
   if d.tenant_id <> new.tenant_id then raise exception 'an attestation has the tenant of its dataset'; end if;
   if d.frozen_at is not null then raise exception 'dataset_frozen: eval dataset % is frozen; an attestation comes before the freeze', d.id; end if;
   if d.created_by is null or btrim(d.created_by) = '' then raise exception 'author_unknown: the author of eval dataset % is not recorded, so "the attestor is not the author" cannot be checked', d.id; end if;
-  if lower(btrim(new.attestor_id)) = lower(btrim(d.created_by)) then raise exception 'attestor_is_author: the author of a dataset cannot attest it'; end if;
+  -- both ids are database-checked (the author at insert, the attestor by the foreign key and the admin check below), so equality is exact: no spelling can stand in for an id
+  if new.attestor_id = d.created_by then raise exception 'attestor_is_author: the author of a dataset cannot attest it'; end if;
   if not exists (select 1 from users where id = new.attestor_id and tenant_id = new.tenant_id and role = 'admin' and status = 'approved') then
     raise exception 'attestor_not_admin: only an approved administrator can attest a dataset'; end if;
   prob := eval_attestation_problem(new.answers);
@@ -188,11 +189,16 @@ create trigger eval_attestations_check before insert on eval_attestations for ea
 create trigger eval_attestations_no_update before update or delete on eval_attestations for each row execute function instances_append_only();
 create trigger eval_attestations_no_truncate before truncate on eval_attestations for each statement execute function instances_append_only();
 
--- the dataset guard of 0037, plus: the author cannot change once recorded; the attested version of a freeze is computed here
+-- the dataset guard of 0037, plus: the author is a real id set at insert and immutable; the attested version of a freeze is computed here
 create or replace function eval_datasets_guard() returns trigger language plpgsql as $$
 begin
   if tg_op = 'INSERT' then
     if new.frozen_at is not null then raise exception 'eval dataset % cannot be created frozen; freeze it with eval_freeze_dataset', new.id; end if;
+    -- the author is set here, once: a real user or a real agent of the tenant, by id. Never free text, never changed (not even from NULL).
+    if new.created_by is not null and not (exists (select 1 from users where id = new.created_by and tenant_id = new.tenant_id)
+                                           or exists (select 1 from agent_definitions where id = new.created_by and tenant_id = new.tenant_id)) then
+      raise exception 'author_invalid: % is not a user or an agent of this tenant; the author of a dataset is a real id', new.created_by;
+    end if;
     new.attested_version := null;
     return new;
   end if;
@@ -203,7 +209,7 @@ begin
     return old;
   end if;
   if old.frozen_at is not null then raise exception 'eval dataset % is frozen', old.id; end if;
-  if old.created_by is not null and new.created_by is distinct from old.created_by then raise exception 'the author of eval dataset % cannot change', old.id; end if;
+  if new.created_by is distinct from old.created_by then raise exception 'the author of eval dataset % is set when it is created and cannot change (a dataset without a recorded author stays without one)', old.id; end if;
   new.attested_version := null;
   if new.frozen_at is not null then
     if not exists (select 1 from eval_cases where dataset_id = old.id) then

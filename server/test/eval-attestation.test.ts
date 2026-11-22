@@ -53,11 +53,25 @@ describe('who may attest', () => {
     expect(row.h).toBe((await q(`select eval_dataset_sha($1) h`, [d])).rows[0].h);
     expect(r.contentSha256).toBe(row.h);
   });
-  it('the author cannot attest their own dataset (also not with another spelling of the id)', async () => {
+  it('the author cannot attest their own dataset', async () => {
     const d = await ds();
     await expect(attest(d, 'u-author')).rejects.toThrow(/attestor_is_author/);
-    const d2 = await ds('U-Author ');
-    await expect(attest(d2, 'u-author')).rejects.toThrow(/attestor_is_author/);
+  });
+  it('the author is a real user or a real agent, never free text or another spelling of an id (review finding 2/7)', async () => {
+    for (const bad of ['someone-else', 'u-author@x.io', 'user:u-author', 'u-author/', 'U-Author', 'u-author\t', ' u-author', 'agent:a-1']) {
+      await expect(makeDataset(s.pool, { id: 'AB' + ++n, split: 'holdout', cases: 3, freeze: false, createdBy: bad }), bad).rejects.toThrow(/author_invalid/);
+    }
+    const d = await ds('a-1'); // a real agent id
+    expect((await attest(d, 'u-adm')).version).toBe(1);
+  });
+  it('an author that is NULL cannot be filled in later (NULL to value is refused), so "author unknown" cannot be rewritten into a stranger', async () => {
+    const d = await ds(null);
+    await expect(q(`update eval_datasets set created_by='u-adm2' where id=$1`, [d])).rejects.toThrow(/author/);
+    await expect(attest(d, 'u-adm')).rejects.toThrow(/author_unknown/);
+  });
+  it('the attestor is a real user: an id that merely contains the author or another spelling is not one', async () => {
+    const d = await ds();
+    for (const bad of ['u-author@x.io', 'user:u-author', 'u-author/', 'U-AUTHOR', 'u-author\t']) await expect(attest(d, bad), bad).rejects.toThrow(/attestor_not_admin|attestation|violates foreign key/);
   });
   it('a member, a disabled administrator and an unknown id cannot', async () => {
     const d = await ds();
@@ -174,10 +188,10 @@ describe('unattested datasets can be used, flagged "unvalidated"', () => {
   });
   it('an attested freeze is validated; a "no" answer makes it failing, still unvalidated, and names the item', async () => {
     const d = await ds(); await attest(d, 'u-adm'); await q(`select eval_freeze_dataset($1)`, [d]);
-    expect(await cx((c) => datasetValidity(c, d))).toEqual({ unvalidated: false, status: 'attested', version: 1, failedItems: [] });
+    expect(await cx((c) => datasetValidity(c, d))).toEqual({ unvalidated: false, status: 'attested', version: 1, failedItems: [], canBeAttested: true });
     const e = await ds(); const [first] = Object.keys(allYes());
     await attest(e, 'u-adm', { ...allYes(), [first]: { answer: 'no', note: 'a wrong answer is accepted' } }); await q(`select eval_freeze_dataset($1)`, [e]);
-    expect(await cx((c) => datasetValidity(c, e))).toEqual({ unvalidated: true, status: 'failing', version: 1, failedItems: [first] });
+    expect(await cx((c) => datasetValidity(c, e))).toEqual({ unvalidated: true, status: 'failing', version: 1, failedItems: [first], canBeAttested: true });
   });
   const six = (f: (i: number) => number) => Array.from({ length: 12 }, (_, i) => f(i));
   let pn = 0;
@@ -192,11 +206,15 @@ describe('unattested datasets can be used, flagged "unvalidated"', () => {
   it('the verdict on an unattested holdout carries the flag and the outcome is unchanged', async () => {
     const e = await evaluated(false);
     expect(e.outcome).toBe('verified_better');
-    expect(e.validity).toEqual({ unvalidated: true, status: 'unattested', version: null, failedItems: [] });
+    expect(e.validity).toEqual({ unvalidated: true, status: 'unattested', version: null, failedItems: [], canBeAttested: true });
   });
   it('the verdict on an attested holdout is not flagged', async () => {
     const e = await evaluated(true);
     expect(e.outcome).toBe('verified_better');
-    expect(e.validity).toEqual({ unvalidated: false, status: 'attested', version: 1, failedItems: [] });
+    expect(e.validity).toEqual({ unvalidated: false, status: 'attested', version: 1, failedItems: [], canBeAttested: true });
+  });
+  it('a dataset created before its author was recorded is flagged as one that can never be attested (the UI says so)', async () => {
+    const d = await ds(null); await q(`select eval_freeze_dataset($1)`, [d]);
+    expect(await cx((c) => datasetValidity(c, d))).toMatchObject({ unvalidated: true, canBeAttested: false });
   });
 });

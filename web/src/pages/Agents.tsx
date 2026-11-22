@@ -214,7 +214,7 @@ const DEMO_EVAL: ProposalEvaluationDto = {
   passHatK: { baseline: [0.5], candidate: [0.75] }, refusals: [], reasons: ['8 cases scored on both versions; the policy needs 10'], notes: [],
   datasetId: 'holdout-demo', datasetSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9', baseRunId: null, candidateRunId: 'demo', runCount: 1,
   grading: { baseline: { attempted: 8, graded: 8, graderName: 'rubric', graderVersion: '1' }, candidate: { attempted: 8, graded: 8, graderName: 'rubric', graderVersion: '1' }, excludedCases: 0, sufficient: true, minFraction: 0.8, regradeId: null, retained: { baseline: 8, candidate: 8, shared: 8 }, robust: true },
-  validity: { unvalidated: true, status: 'unattested', version: null, failedItems: [] },
+  validity: { unvalidated: true, status: 'unattested', version: null, failedItems: [], canBeAttested: true },
 };
 function Development() {
   const nav = useNavigate();
