@@ -34,6 +34,7 @@ import companyRoutes from './company/routes.ts';
 import departmentRoutes from './company/departments-routes.ts';
 import policyRoutes from './policy/routes.ts';
 import delegationRoutes from './delegation/routes.ts';
+import staffingRetryRoutes from './missions/staffing-retry.ts';
 import { API_CSP, API_SECURITY_HEADERS } from './http-headers.ts';
 import { installWriteLimits } from './ratelimit.ts';
 
@@ -105,6 +106,7 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   await app.register(departmentRoutes, { prefix: '/api/v1' });
   await app.register(policyRoutes, { prefix: '/api/v1' });
   await app.register(delegationRoutes, { prefix: '/api/v1' });
+  await app.register(staffingRetryRoutes, { prefix: '/api/v1' });
   await tx(db, (c) => seedCompany(c, app.cfg.tenantId)); // decision E1: company data, idempotent, independent of DEMO_SEED
   await tx(db, (c) => backfillMissionControl(c, app.cfg.tenantId, app.log)); // Stage 6: instances, delegations and tasks for missions that predate them (idempotent)
 

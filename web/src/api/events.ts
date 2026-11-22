@@ -117,7 +117,7 @@ export function startSync(): () => void {
       if (opened++) { agents('a'); instances('i'); proposals('o'); versions('v'); mentoring('m'); scorecard('s'); refreshLoadedMissionControl(); void refreshLoadedChannels(); departments('d'); } // a reconnect: re-read what this tab already shows
       else if (useAgentsVersion.getState().failed) agents('a'); // the first catalog load failed: try again now the server answers
     });
-    for (const t of ['mission.created', 'mission.revised', 'mission.stateChanged', 'mission.shared', 'mission.deleted', 'staffing.progressed', 'approval.requested', 'approval.decided', 'notification.created', 'user.requested', 'user.changed', 'auth.approved',
+    for (const t of ['mission.created', 'mission.revised', 'mission.stateChanged', 'mission.shared', 'mission.deleted', 'staffing.progressed', 'staffing.stalled', 'staffing.resumed', 'approval.requested', 'approval.decided', 'notification.created', 'user.requested', 'user.changed', 'auth.approved',
       'agent.created', 'agent.updated', 'agent.versionCreated', 'agent.versionProposed', 'agent.versionPromoted', 'agent.rolledBack', 'agent.versionProposalDecided', 'mentoring.planned', 'mentoring.milestoneDone', 'mentoring.closed', 'org.proposalCreated', 'org.proposalDecided', 'org.revisionApplied', 'conversation.messageCreated', 'conversation.receipt', 'instance.created', 'instance.stateChanged', 'task.delegated', 'task.stateChanged'])
       es.addEventListener(t, (ev) => { heard(); onEvent(t, ev as MessageEvent); });
     // the server ends the stream when this session was revoked: re-check, which returns to Connect with the reason

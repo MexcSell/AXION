@@ -83,6 +83,25 @@ try {
   check('the card shows the effective scope', /effective now/i.test(await card.locator('[data-testid="brief-effective"]').innerText()) && /read/.test(await card.locator('[data-testid="brief-effective"]').innerText()));
   await p.screenshot({ path: `${SHOTS}/c42-brief.png` });
 
+  // 3b. the stalled-staffing banner (fix round 2): the server's stalled state is injected into the mission responses of the browser
+  const stall = { code: 'P0001', reason: 'The staffing step failed 13 times in a row (P0001).', at: Date.now(), attempts: 13 };
+  const patch = (m) => (m && m.id === mid && m.staffing ? { ...m, staffing: { ...m.staffing, stalled: stall } } : m);
+  await ctx.route(/\/api\/v1\/missions(\/[^/?]+)?(\?.*)?$/, async (route) => {
+    const r = await route.fetch();
+    let j; try { j = await r.json(); } catch { return route.fulfill({ response: r }); }
+    if (j.mission) j.mission = patch(j.mission);
+    if (Array.isArray(j.missions)) j.missions = j.missions.map(patch);
+    await route.fulfill({ response: r, json: j });
+  });
+  await p.goto(`${base}/missions/${mid}`, { waitUntil: 'domcontentloaded' });
+  check('a stalled mission shows "Staffing stopped: <reason>" with Retry and a ? help', await until(async () => (await p.locator('[data-testid="staffing-stalled"]').count()) === 1, 10000)
+    && /Staffing stopped: The staffing step failed 13 times/.test(await p.locator('[data-testid="staffing-stalled"]').innerText())
+    && (await p.locator('[data-testid="staffing-stalled"]').getByRole('button', { name: 'Retry' }).count()) === 1);
+  await p.screenshot({ path: `${SHOTS}/c42-stalled.png` });
+  await p.locator('[data-testid="staffing-stalled"]').getByRole('button', { name: 'Retry' }).click();
+  check('Retry reaches the server (it answers 409: the real mission is not stalled)', await until(async () => (await p.getByText('Staffing is not stopped.').count()) > 0, 8000));
+  await ctx.unroute(/\/api\/v1\/missions(\/[^/?]+)?(\?.*)?$/);
+
   // 4. the server's rules
   const inst = hier.nodes.filter((n) => n.agentId !== 'gm');
   const mk = (caps, extra = {}) => ({ goal: 'Check the rules', acceptance: ['It is checked'], capabilities: caps.map((kind) => ({ kind })), escalation: 'Ask the owner', ...extra });

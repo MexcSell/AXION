@@ -361,7 +361,7 @@ describe('fix round: the random model drives the real service (M5)', () => {
     const origins = [undefined, 'https://a.example'];
     const pickCaps = (): Capability[] => Array.from({ length: Math.floor(rnd() * 5) }, () => { const o = origins[Math.floor(rnd() * 2)]; return { kind: kinds[Math.floor(rnd() * 4)], ...(o ? { origin: o } : {}) }; });
     const key2 = (c: Capability) => `${c.kind}|${c.origin ?? ''}`;
-    let accepted = 0, refused = 0, superseded = 0;
+    let accepted = 0, refused = 0, superseded = 0, gated = 0;
     for (let c = 0; c < 60; c++) {
       await t.pool.query('alter table delegation_briefs disable trigger user');
       await t.pool.query('delete from delegation_briefs');
@@ -376,6 +376,13 @@ describe('fix round: the random model drives the real service (M5)', () => {
         let res;
         if (r < 0.25 || held.size === 0) res = await post(A.admin, { toInstanceId: inst[to].id, ...(mine && rnd() < 0.7 ? { supersedes: mine.id } : {}), brief: base({ capabilities: caps }) });
         else res = await post(A.admin, { fromInstanceId: inst[from].id, toInstanceId: inst[to].id, brief: base({ capabilities: caps }) });
+        if (res.status === 201 && res.body.brief.fromKind === 'agent') {
+          // the creation gate: what was accepted lies inside the delegator's effective scope read just before the post
+          const before = list.filter((b) => b.toInstanceId === inst[from].id).pop();
+          const allowed = new Set<string>((before?.effective.capabilities ?? []).map(key2));
+          for (const cp of res.body.brief.brief.capabilities as Capability[]) expect(allowed.has(key2(cp)), `chain ${c} step ${step}: accepted ${key2(cp)} outside the delegator's effective scope`).toBe(true);
+          gated++;
+        }
         if (res.status === 201) { accepted++; held.add(to); if (res.body.brief.supersedesId) superseded++; } else { refused++; expect([400, 403, 422]).toContain(res.status); }
         // the invariant, on the whole current state: effective(b) is inside b and inside the latest brief of every ancestor
         const now = (await A.admin.req('GET', `/missions/${m}/delegation-briefs`)).body.briefs as any[];
@@ -391,6 +398,21 @@ describe('fix round: the random model drives the real service (M5)', () => {
         }
       }
     }
-    expect(accepted).toBeGreaterThan(100); expect(refused).toBeGreaterThan(20); expect(superseded).toBeGreaterThan(10);
+    expect(accepted).toBeGreaterThan(100); expect(refused).toBeGreaterThan(20); expect(superseded).toBeGreaterThan(10); expect(gated).toBeGreaterThan(30);
   }, 120_000);
+});
+
+describe('fix round 2: another tenant (404)', () => {
+  it('an admin of another tenant gets 404 on the briefs route and on reassign-with-brief', async () => {
+    const { A, m, inst, post } = await setup();
+    await t.pool.query(`insert into tenants(id,name) values ('t-2','Other')`);
+    await t.pool.query(`insert into users(id,tenant_id,name,name_key,pass_hash,role,status) values ('u-x','t-2','X','x','h','admin','approved')`);
+    await t.pool.query(`insert into missions(id,tenant_id,owner_id,shared,status) values ('M-9002','t-2','u-x',true,'running')`);
+    await t.pool.query(`insert into tasks(id, tenant_id, mission_id, title, status) values ('T-x2','t-2','M-9002','Other task','ready')`);
+    expect((await A.admin.req('GET', `/missions/M-9002/delegation-briefs`)).status).toBe(404);
+    expect((await post({ req: (mm: string, u: string, b: unknown, h: Record<string, string>) => A.admin.req(mm, u.replace(m, 'M-9002'), b, h) }, { toInstanceId: inst[0].id, brief: base() })).status).toBe(404);
+    const r = await A.admin.req('POST', '/tasks/T-x2/reassign', { toInstanceId: inst[0].id, reason: 'x', brief: base() }, key());
+    expect(r.status).toBe(404);
+    expect((await rows(`select 1 from delegation_briefs where mission_id='M-9002'`)).length).toBe(0);
+  });
 });

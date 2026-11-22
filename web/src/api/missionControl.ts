@@ -484,3 +484,9 @@ if (isApi()) {
     for (const mid of Object.keys(useMC.getState().byMission)) if (!ids.has(mid)) { forget(mid); memo.delete(mid); }
   });
 }
+
+/** Retry a stalled staffing run (administrator or mission owner). The mission follows through the `staffing.resumed` event. */
+export async function retryStaffing(mid: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  try { await api('POST', `/missions/${encodeURIComponent(mid)}/staffing/retry`, {}, { idempotencyKey: newKey() }); return { ok: true }; }
+  catch (e) { return { ok: false, message: msgOf(e) }; }
+}

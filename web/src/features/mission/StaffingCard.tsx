@@ -1,6 +1,12 @@
 import '@/theme/pages/mission-activity.css';
 import { AnimatePresence, motion } from 'motion/react';
-import { Crown, Loader2, CheckCircle2, UserPlus, BookOpen } from 'lucide-react';
+import { Crown, Loader2, CheckCircle2, UserPlus, BookOpen, OctagonAlert, RotateCcw } from 'lucide-react';
+import { useState } from 'react';
+import { isApi } from '@/api/mode';
+import { useMe, isAdmin } from '@/store/auth';
+import { retryStaffing } from '@/api/missionControl';
+import { toast } from '@/store/ui';
+import '@/theme/pages/c42-delegation.css';
 import { RobotAvatar } from '@/components/art/RobotAvatar';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { Chip } from '@/components/ui/Chips';
@@ -12,18 +18,36 @@ import { agoFromTs, cx } from '@/lib/format';
 /** GM → executor → agents, animated as it happens (owner update 2026-11-20 u1). */
 export function StaffingCard({ m }: { m: Mission }) {
   const s = m.staffing;
+  const me = useMe();
+  const [busy, setBusy] = useState(false);
   if (!s) return null;
+  const stalled = isApi() ? s.stalled : undefined;
+  const canRetry = !!me && (isAdmin(me) || me.id === m.ownerId);
+  const retry = async () => {
+    if (busy) return;
+    setBusy(true);
+    const r = await retryStaffing(m.id);
+    setBusy(false);
+    if (!r.ok) toast({ tone: 'error', title: 'Not retried', body: r.message });
+  };
   const exec = AGENT_BY_ID[m.executorId ?? ''];
   const done = s.stage === 'working';
   const pct = Math.round(((s.stage === 'reading' ? 0 : 1) + s.joined) / (s.plan.length + 1) * 100);
   return (
     <motion.div className={cx('stf subpanel', done && 'done')} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
       <div className="row" style={{ gap: 8, marginBottom: 10 }}>
-        {done ? <CheckCircle2 size={16} className="good" /> : <Loader2 size={16} className="spin warn" />}
-        <b>{done ? 'Staffed' : 'Staffing the mission'}</b><HelpTrigger k="mission.staffing" />
+        {done ? <CheckCircle2 size={16} className="good" /> : stalled ? <OctagonAlert size={16} className="bad" aria-hidden /> : <Loader2 size={16} className="spin warn" />}
+        <b>{done ? 'Staffed' : stalled ? 'Staffing stopped' : 'Staffing the mission'}</b><HelpTrigger k="mission.staffing" />
         <span className="spacer" />
         <Chip hue={done ? 150 : 38} size="sm">{done ? `${s.plan.length + 1} agents` : `${pct}%`}</Chip>
       </div>
+      {stalled && (
+        <div className="stf-stalled" role="alert" data-testid="staffing-stalled">
+          <OctagonAlert size={15} aria-hidden /><span className="grow">Staffing stopped: {stalled.reason}</span>
+          {canRetry && <button className="btn" disabled={busy} onClick={() => void retry()}><RotateCcw size={14} />Retry</button>}
+          <HelpTrigger k="mission.staffing.stalled" />
+        </div>
+      )}
       <div className="stf-chain">
         <div className="stf-node gm"><RobotAvatar role="manager" size={44} animated={!done} /><span><Crown size={11} />GM</span></div>
         <motion.div className="stf-link" initial={{ scaleX: 0 }} animate={{ scaleX: s.stage === 'reading' ? .3 : 1 }} />

@@ -21,7 +21,7 @@ const PatchIn = z.object({
   criteria: z.array(z.object({ text: z.string().max(400), done: z.boolean() })).max(50).optional(),
 }).strict();
 
-declare module 'fastify' { interface FastifyInstance { onMissionChanged?: (id: string, status: MissionStatus) => void } }
+declare module 'fastify' { interface FastifyInstance { onMissionChanged?: (id: string, status: MissionStatus) => void; retryStaffing?: (id: string) => void } }
 
 export default async function missionRoutes(app: FastifyInstance) {
   const T = () => app.cfg.tenantId;

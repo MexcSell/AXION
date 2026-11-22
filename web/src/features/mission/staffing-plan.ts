@@ -19,6 +19,8 @@ export interface StaffLog { at: number; text: string; agentId?: string; by?: str
 export interface Staffing {
   stage: StaffStage; plan: { agentId: string; why: string; managerId?: string }[]; joined: number; log: StaffLog[];
   org?: { revision?: number; dept: string; executorFrom: 'head' | 'fixture' };
+  /** api mode: set by the server when the staffing step failed 13 times in a row; cleared by Retry */
+  stalled?: { code: string; reason: string; at: number; attempts: number };
 }
 
 const KIND_WORDS: [Mission['kind'], RegExp][] = [

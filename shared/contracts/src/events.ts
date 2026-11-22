@@ -16,7 +16,7 @@ export interface DomainEvent<P = Record<string, unknown>> {
 }
 /** Event types the Stage 5 server sends. */
 export type EventType =
-  | 'mission.created' | 'mission.revised' | 'mission.stateChanged' | 'mission.shared' | 'mission.deleted' | 'staffing.progressed'
+  | 'mission.created' | 'mission.revised' | 'mission.stateChanged' | 'mission.shared' | 'mission.deleted' | 'staffing.progressed' | 'staffing.stalled' | 'staffing.resumed'
   | 'approval.requested' | 'approval.decided' | 'notification.created'
   | 'conversation.messageCreated' | 'conversation.receipt' | 'instance.created' | 'instance.stateChanged' | 'task.delegated' | 'task.stateChanged'
   | 'agent.created' | 'agent.updated' | 'agent.versionCreated'
