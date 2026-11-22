@@ -331,3 +331,24 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
   - Green: vitest 1436/1436, browser-contract 414/414; api auth/flows/stage6/improve/c33/c35/c36 all pass; a11y 0 violations.
   - verify-all showed 6/10 red because the live web dev server 5190 had a stale watcher: it served an old contracts/index.ts without the c33/c37 exports, and a `touch` didn't refresh it.
   - Controller restarted 5190 (kill by pid, same command, log /tmp/axion-web-5190.log). It now serves the new exports. Integrator re-running the demo checks.
+- 2026-11-22T09:59Z · c44 fix round at 0abda0c.
+  - I2 regression: the cause is a latent c26 anchor race (`record()` re-picks the reader's row after a restore, then `hold()` shifts the real anchor when the tall rows above are measured). `useMissionNodes` had only removed the re-render that masked it.
+  - Fix: the restored row stays the anchor for 1 s unless the user scrolls. api-c26 passed 22/22 ×3 with I2 shifts ≤ 0.5 px.
+  - lastEventAt hunk reverted. The flush falls back to 60 ms after a quiet gap; api-c44 passes, but RED was not shown.
+  - Timing at load 5–9:
+    - full burst 801 / 846 ms (PASS at that load; NOT MET at load ≥ 11 earlier);
+    - floor −72 to −80 %;
+    - worst period PASS in pass 1, one rep at 339 ms in pass 2.
+  - Unexplained: one api-c22 N=1000 reload hang at load 9–15.
+  - Scoped re-review dispatched to the same reviewer.
+- 2026-11-22T10:15Z · **c44 CLEARED-AS-PARTIAL** at 0abda0c.
+  - Re-review: api-c26 22/22 ×5 (two runs at load ~17), I2 ≤ 0.5 px. api-c44 shown RED on the round-1 flush and GREEN on the tip. events.ts identical to the base. api-c22 14/14 ×2 at load 12–16.
+  - Thresholds as recorded:
+    - floor PASS (−72 to −80 %);
+    - full burst PASS at load < 8 (801 / 846 ms), NOT MET at load ≥ 11;
+    - worst merged period NOT MET strictly (5 of 6 low-load reps ≤ 250 ms, one at 339 ms).
+  - Queued first in batch 10. Follow-ups go to backlog P2b.
+- 2026-11-22T10:17Z · Batches 7, 8 and 8b are merged (tip 09dd6cb: c43 merged and the archive-race scripts folded). Three follow-up lanes branched from 09dd6cb:
+  - **c47 E1b** (w46, e2e2, migration 0037): eval evidence on version proposals. The verdict is computed only from stored rows, and promote needs `verified_better` or an audited override. `worse` is refused.
+  - **c48 P3a** (w47, e2e3): the server-computed `canDecide` drives honest Approve/Deny with a `?`.
+  - **c49 P5b** (w48, e2e4, migration 0038 if needed): HMAC-signed anchors outside the DB detect tail truncation and full rehash. It also measures the P5c events-lock hold.

@@ -24,23 +24,25 @@ Rewritten 2026-11-22T07:35Z by the controller. The old w2–w18 lane list is his
 ## Integration queue (integrator #3 working through it)
 - Merged up to c17 (batch 6, c068a6d).
 - Next:
-  - batch 7: c32 → c31 → c30;
-  - batch 8: c36 → c37 → c33 → c35 (plus the required scale-bench digest_version=2 follow-up) → c34;
-  - batch 9: c39 → c38 → c42 → c41 → c40, when cleared.
-- c43 goes after c34 once it clears review. Required follow-ups: fold c34-archive-race into c29-archive-race, and run the batch 8–9 api scripts plus a 4× flows run on the merged tree, because its Modal focus change touches every dialog.
+  - batches 7, 8 and 8b (c43) MERGED (tip 09dd6cb; events lock schema-scoped 9e958f3; live 5190 Vite restarted ~09:16Z after a stale watcher);
+  - batch 9: c39 → c38 → c42 → c41 → c40 (when cleared): in progress;
+  - batch 10: c44 → c45.
 
 ## Lanes in flight
 | Lane | Cycle | Status |
 |---|---|---|
-| w38 | c40 mobile debt | implementer running |
-| w42 | c43 flows hardening (H7) | reported at 281ccb1; reviewer running (writes cycles/c43-review.md) |
-| w43 | c44 page/store perf (Wave 4) | implementer running; DB e2e16; ports 9390–93 |
-| w44 | c45 job leases J1 (Wave 4, records only) | implementer running; DB e2e17; ports 9490–93; migration 0035 |
+| w38 | c40 mobile debt | reported at 38306f5; reviewer running |
+| w42 | c43 flows hardening (H7) | MERGED (2aba0a0, 09dd6cb) |
+| w43 | c44 page/store perf | CLEARED-AS-PARTIAL at 0abda0c, queued batch 10 |
+| w44 | c45 job leases J1 | CLEARED at 17b6390, queued batch 10 |
 | (w45) | c46 six-dimension scorecard M1 | brief written; **start after batch 9 merges**; DB e2e18; ports 9590–93; migration 0036 if needed |
+| w46 | c47 E1b eval evidence | implementer running; e2e2; 9690–93; migration 0037 |
+| w47 | c48 P3a approvals UI | implementer running; e2e3; 9790–93 |
+| w48 | c49 P5b audit anchor (+P5c measurement) | implementer running; e2e4; 9890–93; migration 0038 if needed |
 
 ## Next after that
 - H9 contract-test refresh, after batch 8.
-- Backlog follow-ups on their merged bases: E1b, P3a, P3b, P4a, P4b, P5b, O2a, O3a, H8.
+- Backlog follow-ups: E1b, P3a, P5b running (c47–c49). Still open: P2b, P3b (needs Q9), P4a, P4b, P5c, O2a, O3a (after c38).
 - Gated Wave 4 items (R1, A1, M2, G1) run last as their own droppable batch (Q11).
 
 ## Owner questions

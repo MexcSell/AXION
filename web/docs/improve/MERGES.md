@@ -529,3 +529,23 @@ FAIL 900 /operations?tab=logs tab=Logs: clipped control button.icon-btn.xs[Dismi
 - **Race checks against 5190:** `c34-archive-race.mjs` STOP=archived 14/14 clean, STOP=paused 14/14 clean; `c29-archive-race.mjs` archived 14/14.
 
 **Follow-up commits:** `db4eb49`. Controller files committed with this entry: LOG.md (modified), cycles/c44-review.md (new).
+
+## Batch 8b (code health): c43 (flows hardening)
+
+- **Merged:** 2026-11-22 ~09:50 UTC. Pre-batch commit `28842ce`.
+- **Merge commit:** `2aba0a0` c43-flows-hardening (2cd883d), `--no-ff`. **Conflicts:** none.
+- **Server:** tsc OK; vitest 1436/1436. **web:** tsc OK.
+- **Follow-up `09dd6cb` (required fold):**
+  - `c29-archive-race.mjs` now carries c34's store-subscription check (any change to a mission after it reached the stopped status) next to its final-state check, with `STOP=archived|paused` (archived through `archiveMission`, paused through `setMissionStatus`).
+  - The duplicate `c34-archive-race.mjs` is deleted.
+  - Against 5190: archived 14/14 at the end, 0 changes after; paused 14/14, 0 changes after.
+
+**Batch checks on `09dd6cb`:**
+- **api-e2e (exit 0)**, including batch 8's api scripts re-run under c43's Modal first-focus guard: api-auth-flow 15/15; api-flows 23/23; api-stage6 94/94; api-improve 107/107; api-c33 41/41; api-c35 16 PASS, 0 FAIL; api-c36 35/35.
+- **c43-modal-focus:** PASS "dialog keeps focus in the field already focused". **c43-palette-hover:** PASS 6/6.
+- **flows (plain):** exit 0, 21/21.
+- **verify-all:** exit 0, "ALL 10 STEPS PASSED", no FAIL lines; flows 21/21 (the u1 News / Chat dock pair from batches 6 and 8 passed); dialog smoke 116 checks, 0 failures; ledger unchanged.
+- **fit-check:** 78/78 ALL FIT. **ov-fit:** 32/32, NO SCROLL ANYWHERE.
+- After batch 9: batch 9's api scripts plus one `FLOWS_CPU_THROTTLE=4` flows run (per the 8b row).
+
+**Follow-up commits:** `09dd6cb`. Controller files committed with this entry: BACKLOG.md, LANES.md, LOG.md, QUEUE.md, STATE.md, cycles/c44-review.md (modified); cycles/c47–c49 briefs (new).

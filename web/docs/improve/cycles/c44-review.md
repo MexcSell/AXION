@@ -66,3 +66,53 @@ So the full-burst result is better than the report says (1,367 → 1,084 vs a li
 1. Make the api-c26 I2 older-page check pass again on the tip (22/22 at low load, repeated at least twice). Start with `Missions.tsx`: either revert both call sites to `useMissionControl` (loses most of the floor gain, the report says step 2 was the big one) or find what the missing page re-render used to trigger and do that explicitly in ChatView.
 2. Clear `stampTimer` in the `startSync` cleanup, or remove the hunk.
 3. Update the report: 21/22 or 22/22 as measured, and the like-for-like base numbers above.
+
+---
+
+# Re-review of the fix round (tip `0abda0c`, code final at `bf367d6`)
+
+Same rules as round 1 (heavy.sh, ports 9390/9392/9393, DB `axion_e2e16`). The lane ends at `0abda0c`, clean; `web/src` is identical to the tip. Servers stopped by port.
+
+## Verdict: CLEARED-AS-PARTIAL
+The round-1 regression is fixed and the fix holds, including at high load. The thresholds are only met at low load (see 5), and two weak spots remain (below). Nothing blocks merging.
+
+## 1. The I2 fix (`ChatView.tsx`, `restored` ref, `RESTORE_HOLD_MS = 1000`)
+Results (api-c26, REPS=1 FILL=1000, all checks on):
+
+| Run | Load (start) | Checks | I2 older-page shifts (px) |
+|---|---|---|---|
+| tip 1 | 6.7 | 22/22 | 0.2 0.5 0.0 0.5 |
+| tip 2 | 8.2 | 22/22 | 0.1 0.4 0.3 0.3 |
+| tip 3 | 6.5 | 22/22 | 0.3 0.3 0.0 0.1 |
+| loaded 1 (8 busy-loop node processes beside it, load 5.8 at start, climbing) | 5.8 (rising to about 17) | 22/22 | 0.0 0.3 0.0 0.5 |
+| loaded 2 | 17.1 | 22/22 | 0.1 0.2 0.5 0.4 |
+
+Round 1 on the same tip without the fix: 150-436 px on 3 of 3. So the fix is not a timing coincidence at either load; it held at load 17. (api-c26 has no CPU-throttle switch, hence the busy-loop processes; with 32 cores that is a moderate stress, not a 4x slowdown.)
+
+- **Mechanism:** plausible and consistent with my bisect (only the commit timing changed with `useMissionNodes`; the base had the race latent). I read the code and did not re-instrument. The restore sets the anchor row at `ChatView.tsx:450`, and `hold()` (lines 282-299) now corrects against that row instead of the freshly recorded one.
+- **1 s window:** the weak spot. Rows measured after 1 s (heavy load, slow image decode) fall back to the old behaviour, i.e. the original race. Passing at load 17 shows the window is enough for the test's images, but there is no condition-based end (for example "until the rows above are all measured"). Low severity, plausible only.
+- **Pinned reader:** no conflict. The correction runs only when `!atBottomRef.current`, and the pin effect at line 457 resets `own.current`, which also cancels a pending hold. New messages append below the anchor, so they do not move it.
+- **User-scroll detection:** the hold is dropped when `el.scrollTop !== own.current`, i.e. by position, not by input type, so wheel, keys, touch, scrollbar drag and any programmatic scroll all cancel it (the over-cancelling side is safe). It is the same test the existing `onScroll` uses (line 541, `moving`). Gap: the cancel is only evaluated when `hold()` next runs, but the first `hold()` after a user scroll cancels before correcting, so a scroll is never fought. Not exercised by a test; checked by reading.
+
+## 2. api-c22 N=1000 reload hang
+`SIZES=130,1000 REPS=3` twice on the tip: **14/14 and 14/14**, all six N=1000 reps interactive in 1.16-1.51 s, at load 14-16 and 12-13 (higher than the 9-15 where the implementer saw the hang). Not reproduced, so I cannot attribute it. Nothing in the c44 diff touches the reload path (flush only affects live events, the anchor fix only older-page loads, `useMissionNodes` is the page shell). I did not run the base: with zero hangs in 2 runs there was nothing to compare. Judgement: most likely load or an existing flake; keep it flagged, not blocking.
+
+## 3. api-c44 RED/GREEN
+- Round-1 `missionControl.ts` (from `69bca39`) restored temporarily: **FAIL**, lone message after a burst 261 173 197 174 179 ms vs quiet 136 100 110 94 124 (load 12). Restored exactly (`git checkout 0abda0c -- ...`).
+- Tip, same load: **PASS**, 121 118 121 130 112 ms, no loss, no page errors.
+- Weakness: the RED margin is thin. Four of five round-1 probes were under the 200 ms bar, only one failed. Under heavy load a correct implementation could also exceed 200 ms (quiet control reaches 136 ms). A tighter bar (for example compare against the quiet control + 60 ms) would discriminate better. Low severity; the check works as a regression guard today.
+
+## 4. `events.ts`
+`git diff --quiet c068a6d HEAD -- web/src/api/events.ts` is clean: **byte-identical** to the base. The leaked `stampTimer` is gone with the hunk.
+
+## 5. Thresholds: what to record
+- **Floor:** PASS. Report both numbers: -65 % in my interleaved round-1 runs at load 11-16, and -72/-80 % in the implementer's low-load runs.
+- **Full burst total (<= 887 ms):** record as **PASS at load below 8** (implementer 801 / 846 ms), **NOT MET at load 11-16** (my round-1 tip: 1,319 / 849 on the unfixed tip, mean 1,084 against a like-for-like base of 1,684). State the load next to the number; do not call it unconditional. I did not repeat the full-burst timings in this re-review (the single REPS=1 c26 runs gave 1,181 ms at load 7 and 1,289 ms at load 17, whole trace including the profiler start-up task, so they are not comparable with the REPS=3 means).
+- **Worst merged period (<= 250 ms):** record as **NOT MET, strictly**. A rep of 339 ms exists in 6 low-load reps (5 of 6 under 250; per-pass means 191 and 228), and my round-1 runs at load 11-16 had 527/650/295. Say "met in 5 of 6 low-load reps", not "met".
+- The base figures differ by load as well (implementer 1,528 / 847 at load 9-11; mine 1,684 / 960 at 11-16); both agree on direction.
+
+## Findings
+- Low (plausible): 1 s fixed hold may expire before late row measurements under heavy load (`ChatView.tsx:RESTORE_HOLD_MS`, hold at line 288).
+- Low (confirmed): `api-c44.mjs` RED margin is thin (1 probe of 5 failed on the old logic); consider a relative bar.
+- Info: api-c22 N=1000 hang not reproduced in 12 reps over 2 runs at load 12-16.
+- Info: report's "I did not run it RED" is now closed by this re-review.
