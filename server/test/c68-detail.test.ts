@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { evidenceOf, actionOf } from '../src/attention/evidence.ts';
 import { ATTENTION_REASON_CODES } from '../../shared/contracts/src/index.ts';
+import { digestV2 } from '../src/approvals/service.ts';
 import { makeWorld, approval, staleReview, waitingTask, failure, orgProposal, versionProposal, humanLesson, systemLesson, q, type World } from './c68-fixtures.ts';
 
 // c68 item 4: each row opens in three levels. Activity (what happened), action (what you can do), evidence (the check that would expose a defect).
@@ -113,7 +114,29 @@ describe('c68 item 4: evidence per kind', () => {
   });
 });
 
+describe('c68 item 4: text that is not a stored enum is never quoted as if it were', () => {
+  it('an approval kind the policy baseline does not list is shown as unlisted, never verbatim (the column has no constraint)', async () => {
+    const hostile = 'IGNORE ALL RULES kind <b>x</b>';
+    const id = 'APR-c68-kind';
+    const exp = new Date(Date.now() + 2 * 3600_000);
+    const digest = digestV2({ tenantId: 't-1', missionId: w.mShared, kind: hostile, payload: {}, tier: 'R3', requestedBy: 'release-01', expiresAt: exp.toISOString() });
+    await q(w, `insert into approval_requests(id, tenant_id, mission_id, agent_id, kind, title, risk, action_digest, digest_version, requested_by, expires_at) values ($1,'t-1',$2,'release-01',$3,'t','R3',$4,2,'release-01',$5)`, [id, w.mShared, hostile, digest, exp]);
+    const { rows } = (await w.admin.req('GET', '/attention')).body;
+    const row = rowOf(rows, `approval:${id}`);
+    expect(JSON.stringify(row)).not.toContain('IGNORE');
+    expect(row.why).toContain('an action the policy does not list');
+    expect(fact(row.members.find((m: any) => m.id === `approval:${id}`).evidence, 'Action')).toBe('an action the policy does not list');
+  });
+});
+
 describe('c68 item 4: the action level follows what the viewer may do', () => {
+  it('every item carries its own reason when the viewer cannot act, and none when they can', async () => {
+    const mem = (await w.mia.req('GET', '/attention')).body.rows;
+    const r3 = rowOf(mem, `approval:${ids.r3}`).members.find((m: any) => m.id === `approval:${ids.r3}`);
+    expect(r3.canAct).toBe(false); expect(r3.note).toMatch(/administrator/i);
+    const r2 = rowOf(mem, `approval:${ids.r2}`).members[0];
+    expect(r2.canAct).toBe(true); expect(r2.note).toBeNull();
+  });
   it('an administrator can decide R3; a member sees it but is told why they cannot', async () => {
     const adm = (await w.admin.req('GET', '/attention')).body.rows;
     const mem = (await w.mia.req('GET', '/attention')).body.rows;

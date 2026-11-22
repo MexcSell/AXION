@@ -15,15 +15,16 @@ const approvalEv = (tier: string, kind: string, who: string, fired = 'no'): Atte
 
 let n = 0;
 const member = (id: string, subject: string, ageSec: number, expiresInSec: number | null, tier: string | null, evidence: AttentionEvidence, canAct = true, route = '/notifications?tab=pending'): AttentionMemberDto =>
-  ({ id: `${id}:demo-${++n}`, subject, ageSec, expiresInSec, route, tier, canAct, demo: true, evidence });
+  ({ id: `${id}:demo-${++n}`, subject, ageSec, expiresInSec, route, tier, canAct, note: canAct ? null : 'Locked in this sample.', demo: true, evidence });
 const row = (reason: AttentionReasonCode, why: string, members: AttentionMemberDto[], o: { tier?: string | null; groupedBy?: string | null; label?: string; note?: string | null } = {}): AttentionRowDto => {
   const def = ATTENTION_REASONS.find((r) => r.code === reason)!;
+  if (!members[0].canAct) members[0].note = o.note ?? 'Only administrators decide.';
   const lead = members[0];
   const exp = members.map((m) => m.expiresInSec).filter((e): e is number => e !== null);
   return {
     id: members.length > 1 ? `group:${lead.id}` : lead.id, reason, kind: def.kind, icon: def.icon, tier: o.tier ?? null, why, subject: lead.subject,
     ageSec: Math.max(...members.map((m) => m.ageSec)), expiresInSec: exp.length ? Math.min(...exp) : null, count: members.length, members,
-    action: { label: o.label ?? 'Open', route: lead.route, canAct: lead.canAct, note: lead.canAct ? null : (o.note ?? 'Only administrators decide.') },
+    action: { label: o.label ?? 'Open', route: lead.route, canAct: lead.canAct, note: lead.note },
     evidence: lead.evidence, groupedBy: o.groupedBy ?? null, missionId: 'M-126',
   };
 };

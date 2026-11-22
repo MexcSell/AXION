@@ -1,7 +1,7 @@
 import type { Db, Tx } from '../db.ts';
 import { VISIBLE_SQL } from '../missions/visibility.ts';
 import { isTier } from '../policy/types.ts';
-import { approverFor } from '../policy/baseline.ts';
+import { approverFor, CURRENT_BASELINE } from '../policy/baseline.ts';
 import { decideRefusal, rowDigest } from '../approvals/service.ts';
 import { STALE_BEFORE_SQL } from '../tasks/reviews.ts';
 import { failureModeOf } from '../failures/taxonomy.ts';
@@ -21,8 +21,11 @@ const secs = (v: unknown) => (v === null || v === undefined ? null : Math.max(0,
  */
 export async function loadItems(c: Q, v: Viewer): Promise<AttentionItem[]> {
   const admin = v.user.role === 'admin';
-  const out = await Promise.all([approvals(c, v, admin), staleReviews(c, v, admin), waitingTasks(c, v, admin), undetectedFailures(c, v, admin), orgProposals(c, v), versionProposals(c, v), lessons(c, v, admin)]);
-  return out.flat();
+  // one after another: the queries share one transaction client, which runs one statement at a time
+  const out: AttentionItem[] = [];
+  out.push(...await approvals(c, v, admin), ...await staleReviews(c, v, admin), ...await waitingTasks(c, v, admin), ...await undetectedFailures(c, v, admin),
+    ...await orgProposals(c, v), ...await versionProposals(c, v), ...await lessons(c, v, admin));
+  return out;
 }
 
 /** Org and version proposals are decided by an administrator who did not make them (the decision routes' rule). */
@@ -42,10 +45,12 @@ async function approvals(c: Q, v: Viewer, admin: boolean): Promise<AttentionItem
     const rot = (r.rule_of_two ?? null) as { flags?: Record<string, boolean>; fired?: boolean } | null;
     const yn = (b: unknown) => (rot ? (b === true ? 'yes' : 'no') : 'not recorded');
     const tier = isTier(r.risk) ? r.risk : 'R4';
+    // the action kind is text in a column with no constraint: it is quoted only when the policy baseline knows it
+    const kind = Object.prototype.hasOwnProperty.call(CURRENT_BASELINE.kinds, r.kind) ? (r.kind as string) : 'an action the policy does not list';
     return {
       id: `approval:${r.id}`, reason: 'approval_pending' as const, kind: 'approval' as const, tier, subject: r.title,
       ageSec: secs(r.age_s)!, expiresInSec: secs(r.exp_s), missionId: r.mission_id, demo: !!r.demo, route: '/notifications?tab=pending', canAct: !refusal, note: refusal?.message ?? null,
-      facts: { tier, kind: r.kind, missionId: r.mission_id, ageSec: secs(r.age_s)!, expiresInSec: secs(r.exp_s), boundDigest: r.action_digest, recomputedDigest: rowDigest(r), digestVersion: r.digest_version ?? 1,
+      facts: { tier, kind, missionId: r.mission_id, ageSec: secs(r.age_s)!, expiresInSec: secs(r.exp_s), boundDigest: r.action_digest, recomputedDigest: rowDigest(r), digestVersion: r.digest_version ?? 1,
         approver: isTier(r.risk) ? approverFor(r.risk) : 'owner', origin: r.origin ?? null, target: r.target ?? null, requestedByKind: r.requested_by && r.requested_by !== r.agent_id ? 'a person' : 'an agent',
         flagUntrusted: yn(rot?.flags?.untrustedInput), flagSensitive: yn(rot?.flags?.sensitiveAccess), flagChange: yn(rot?.flags?.canChangeState), ruleFired: yn(rot?.fired) },
     };

@@ -98,7 +98,7 @@ export interface AttentionAction { label: string; route: string; canAct: boolean
 /** One underlying item. A row holds one item, or several that were collapsed. */
 export interface AttentionMemberDto {
   id: string; subject: string; ageSec: number; expiresInSec: number | null; route: string;
-  tier: string | null; canAct: boolean; /** from a prototype (demo) mission */ demo: boolean; evidence: AttentionEvidence;
+  tier: string | null; canAct: boolean; /** why the viewer cannot act on this item, when canAct is false */ note: string | null; /** from a prototype (demo) mission */ demo: boolean; evidence: AttentionEvidence;
 }
 export interface AttentionRowDto {
   id: string; reason: AttentionReasonCode; kind: AttentionKind; icon: AttentionIcon;

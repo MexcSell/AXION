@@ -114,7 +114,7 @@ function Detail({ row, level, setLevel, item, setItem }: { row: AttentionRowDto 
   const Icon = row ? ICON[row.icon] : BellRing;
   const key = row ? `${row.id}|${level}|${m?.id}` : 'none';
   return (
-    <Panel icon={Icon} title={def ? def.label : 'Detail'} help={undefined} delay={.1} className="ny-detail-panel" aria-live="polite"
+    <Panel icon={Icon} title={def ? def.label : 'Detail'} help={undefined} delay={.1} className="ny-detail-panel"
       headExtra={def ? <HelpTrigger k={`attention.reason.${def.code}`} /> : undefined}
       actions={row && row.count > 1 ? <Chip hue={200} size="sm" icon={Layers}>{row.count} items</Chip> : undefined}>
       {!row || !m ? <div className="ov-fill ny-state">Choose a row to see its activity, the action and the evidence.</div> : (
@@ -148,7 +148,7 @@ function Detail({ row, level, setLevel, item, setItem }: { row: AttentionRowDto 
                 <div className="ny-action">
                   {m.canAct
                     ? <button type="button" className="btn primary" onClick={() => nav(m.route)}>{row.action.label}<ArrowRight size={15} /></button>
-                    : <div className="ny-locked"><Lock size={14} aria-hidden /><span>{row.action.note ?? 'You cannot act on this.'}</span></div>}
+                    : <div className="ny-locked"><Lock size={14} aria-hidden /><span>{m.note ?? 'You cannot act on this.'}</span></div>}
                   <p className="dim">{m.canAct ? 'Opens the screen where it is decided. Nothing here changes the item.' : 'You can still open it to see the details.'}</p>
                   {!m.canAct && <button type="button" className="btn sm" onClick={() => nav(m.route)}>Open it<ArrowRight size={14} /></button>}
                   {row.count > 1 && <p className="dim">This row stands for {row.count} items. Pick one under Activity to act on that one.</p>}
