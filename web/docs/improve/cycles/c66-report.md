@@ -157,6 +157,6 @@ At n = 100 and 5% auditor error the rates are the same as before, because the se
 - tsc: server and web clean.
 - Full vitest via heavy.sh at default workers (concurrent with the browser checks, load high): 79 files, 2175 tests, **2 failed**, both in `test/seed.test.ts` with `too many connections for role "axion"` (the shared 45-connection cap): `demo seed > runs automatically when the first admin registers (DEMO_SEED)` and `demo clear after a decision > removes demo missions even when one of their approvals was decided (append-only decisions cascade)` (the second also `Called end on pool more than once`, a consequence of the first). Serial fallback (`--maxWorkers=1 --no-file-parallelism`) on that file: 3/3 passed. So 2173 passed first time, the other 2 on the serial rerun, and no failure is a c66 test.
 - api-c66 26/26, api-c46 36/36, api-stage6 94/94 (heavy.sh api-e2e.sh, ports 11492/11493, db axion_e2e9).
-- api-mobile: "NO FAILURES". Its SMALL-target notes are informational (the compact guard no longer appears among them).
+- api-mobile: "NO FAILURES". Its SMALL-target notes are informational (the script does not fail on them); the compact guard is still listed once, now at 24x24 instead of 14x14 (the script's own bar is higher than the 24 px asked for).
 - fit-check 1366x768: ALL FIT. a11y api: 41 views, 64 dialogs, 0 violations.
 - Dev server on 11490 stopped; ports 11490-11493 are free.
