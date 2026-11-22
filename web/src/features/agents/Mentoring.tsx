@@ -1,3 +1,4 @@
+import { LiveStatus } from '@/components/ui/LiveStatus';
 import { AnimatePresence, motion } from 'motion/react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -139,7 +140,7 @@ export function ServerMentoring({ agentId, agentName, canStart }: { agentId: str
           <HelpTrigger k="mentoring.start" />
         </div> : <Chip hue={225} icon={Lock} size="sm" title="Only administrators start and close plans">Read only</Chip>}>
         {error && <div className="oa-banner" role="alert"><AlertOctagon size={15} /><span>Mentoring plans not loaded: {error}</span><button className="btn sm" onClick={retry}>Retry</button></div>}
-        {!data && !error ? <div className="dim" style={{ padding: 12 }}>Loading plans…</div>
+        {!data && !error ? <LiveStatus className="dim" style={{ padding: 12 }}>Loading plans…</LiveStatus>
           : active ? <MentoringPlanCard p={active} admin={admin} index={0} err={errs[active.id]} setErr={setErr(active.id)} />
           : <EmptyState icon={GraduationCap} title="No active mentoring plan" body={admin ? 'Start a plan: choose a mentor agent, a target skill, up to five milestones and a re-evaluation date.' : 'Administrators record mentoring plans here.'} />}
       </Panel>
@@ -162,7 +163,7 @@ export function ServerMentoringList() {
     <Panel icon={GraduationCap} titleSize="lg" title="Mentoring plans" help="mentoring.dev" delay={.1} data-dev-mentoring={data ? 'ready' : error ? 'error' : 'loading'}
       sub="Active plans: a mentor, a target skill, milestones ticked off by a person and a re-evaluation date. Start one from an agent's Mentoring tab.">
       {error && <div className="oa-banner" role="alert"><AlertOctagon size={15} /><span>Mentoring plans not loaded: {error}</span><button className="btn sm" onClick={retry}>Retry</button></div>}
-      {!data && !error ? <div className="dim" style={{ padding: 12 }}>Loading plans…</div>
+      {!data && !error ? <LiveStatus className="dim" style={{ padding: 12 }}>Loading plans…</LiveStatus>
         : active.length === 0 ? <EmptyState icon={GraduationCap} title="No active mentoring plans" body={admin ? 'Open an agent › Mentoring and use “Start a plan”.' : 'Administrators record mentoring plans here.'} />
         : <div className="oa-prop-grid"><AnimatePresence>{active.map((p, i) => <MentoringPlanCard key={p.id} p={p} admin={admin} index={i} showMentee err={errs[p.id]} setErr={setErr(p.id)} />)}</AnimatePresence></div>}
     </Panel>

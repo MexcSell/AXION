@@ -139,7 +139,7 @@ export function startSync(): () => void {
   const fallback = window.setTimeout(() => { if (!useData.getState().loaded) void loadSnapshot().catch(() => undefined); }, 3000);
   return () => {
     closed = true; es?.close(); window.clearTimeout(staleTimer); window.clearTimeout(fallback); window.clearInterval(watchdog);
-    mission.cancel(); approvals.cancel(); notices.cancel(); people.cancel(); agents.cancel(); instances.cancel(); proposals.cancel(); mentoring.cancel(); scorecard.cancel(); reliability.cancel(); departments.cancel(); // no refresh fires after sign-out
+    mission.cancel(); approvals.cancel(); notices.cancel(); people.cancel(); agents.cancel(); instances.cancel(); proposals.cancel(); versions.cancel(); mentoring.cancel(); scorecard.cancel(); reliability.cancel(); departments.cancel(); // no refresh fires after sign-out
     set('off');
   };
 }

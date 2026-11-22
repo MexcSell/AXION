@@ -11,6 +11,8 @@ import { loadAgents } from './agents';
  */
 const useTick = create<{ n: number }>(() => ({ n: 0 }));
 export const bumpVersionProposals = () => useTick.setState((s) => ({ n: s.n + 1 }));
+/** How many refreshes were requested so far (a check reads it to prove a pending refresh was cancelled on sign-out). */
+export const versionProposalsTick = () => useTick.getState().n;
 
 interface Read<T> { data: T | null; error: string | null; retry: () => void }
 function useTickedRead<T>(path: string | null, pick: (r: any) => T): Read<T> { // eslint-disable-line @typescript-eslint/no-explicit-any
