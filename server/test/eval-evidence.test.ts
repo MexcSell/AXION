@@ -36,12 +36,16 @@ const decide = async (id: string, sha: string, extra: Record<string, unknown> = 
 };
 const ids = (k: number) => Array.from({ length: k }, (_, i) => i);
 /** base scores b[i], candidate scores c[i], on dataset ds, with honest defaults (different judge family, evaluator = B). */
+const baseSigs = new Map<string, string>();
 async function evidence(p: { id: string; baseId: string }, ds: string, b: RunOpts['scores'], c: RunOpts['scores'], o: { judge?: string | null; evaluator?: string | null; cand?: Partial<Parameters<typeof addRun>[1]>; base?: Partial<Parameters<typeof addRun>[1]> } = {}) {
   const tag = 'R' + ++seq;
   if (!(await t.pool.query(`select 1 from eval_datasets where id=$1`, [ds])).rowCount) await makeDataset(t.pool, { id: ds, split: 'holdout', cases: b.length });
   // c53: a holdout takes one base run per base version (the DB refuses a second), so a later proposal on the same dataset reuses it
+  const sig = JSON.stringify({ b, judge: o.judge, evaluator: o.evaluator ?? bId, base: o.base ?? null });
+  const baseKey = p.baseId + '|' + ds;
   const haveBase = (await t.pool.query(`select 1 from eval_runs where subject_version_id=$1 and dataset_id=$2`, [p.baseId, ds])).rowCount;
-  if (!haveBase) await addRun(t.pool, { id: tag + 'b', datasetId: ds, versionId: p.baseId, scores: b, judge: o.judge, evaluator: o.evaluator ?? bId, ...o.base });
+  if (!haveBase) { await addRun(t.pool, { id: tag + 'b', datasetId: ds, versionId: p.baseId, scores: b, judge: o.judge, evaluator: o.evaluator ?? bId, ...o.base }); baseSigs.set(baseKey, sig); }
+  else if (baseSigs.get(baseKey) !== sig) throw new Error(`evidence(): the base run on ${ds} already exists with other scores/judge/evaluator; use a fresh dataset for this base (reused: ${baseSigs.get(baseKey)}, asked: ${sig})`);
   await addRun(t.pool, { id: tag + 'c', datasetId: ds, proposalId: p.id, scores: c, judge: o.judge, evaluator: o.evaluator ?? bId, ...o.cand });
 }
 const BETTER = { b: ids(12).map(() => 40), c: ids(12).map((i) => 70 + (i % 3)) };
@@ -179,18 +183,18 @@ describe('refusals: each dishonest setup is inconclusive with its own reason', (
   });
   it('self-judging: the judge is the candidate\'s model family', async () => {
     const p = await propose('qwen-72b');
-    await evidence(p, 'HO', BETTER.b, BETTER.c, { judge: 'Qwen-max' });
+    await evidence(p, 'HO-J1', BETTER.b, BETTER.c, { judge: 'Qwen-max' });
     const e = (await get(A, p.id)).evaluation;
     expect(e.outcome).toBe('inconclusive'); expect(codes(e)).toContain('self_judging');
   });
   it('a missing judge counts as self-judging', async () => {
     const p = await propose();
-    await evidence(p, 'HO', BETTER.b, BETTER.c, { judge: null });
+    await evidence(p, 'HO-J2', BETTER.b, BETTER.c, { judge: null });
     expect(codes((await get(A, p.id)).evaluation)).toContain('self_judging');
   });
   it('evaluator = author', async () => {
     const p = await propose();
-    await evidence(p, 'HO', BETTER.b, BETTER.c, { evaluator: aId });
+    await evidence(p, 'HO-EA', BETTER.b, BETTER.c, { evaluator: aId });
     const e = (await get(A, p.id)).evaluation;
     expect(e.outcome).toBe('inconclusive'); expect(codes(e)).toContain('evaluator_is_author');
   });
@@ -208,7 +212,7 @@ describe('refusals: each dishonest setup is inconclusive with its own reason', (
   });
   it('a candidate run that covers only some of the dataset (cherry-picked cases)', async () => {
     const p = await propose();
-    await evidence(p, 'HO', BETTER.b, BETTER.c, { base: { scores: BETTER.b }, cand: { scores: BETTER.c.slice(0, 11), partialFinish: true } });
+    await evidence(p, 'HO-PC', BETTER.b, BETTER.c, { base: { scores: BETTER.b }, cand: { scores: BETTER.c.slice(0, 11), partialFinish: true } });
     const e = (await get(A, p.id)).evaluation;
     expect(e.outcome).toBe('inconclusive'); expect(codes(e)).toEqual(expect.arrayContaining(['partial_coverage']));
   });
@@ -401,7 +405,7 @@ describe('a caller cannot influence the verdict', () => {
     const bad = await A.req('POST', `/agents/${AG}/version-proposals`, { title: 'x', hypothesis: 'y', candidate: { model: 'm', skills: [], tools: [] }, baseVersionId: a.versionId, evaluation: { outcome: 'verified_better' }, observedSha256: 'a'.repeat(64) }, key());
     expect(bad.status).toBe(400);
     const p = await propose();
-    await evidence(p, 'HO', BETTER.b, BETTER.c);
+    await evidence(p, 'HO-FK', BETTER.b, BETTER.c);
     const plain = (await M.req('GET', `/agents/${AG}/version-proposals`)).body.proposals.find((x: any) => x.id === p.id).evaluation;
     const spoof = (await M.req('GET', `/agents/${AG}/version-proposals?observedSha256=${'0'.repeat(64)}&outcome=worse&scores=1,2,3`)).body.proposals.find((x: any) => x.id === p.id).evaluation;
     expect(spoof).toEqual(plain);
