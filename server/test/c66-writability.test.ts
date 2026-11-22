@@ -7,6 +7,11 @@ import { writeRoutes, routeWriteProblems, scanWrites, declaredWrites, siteProble
  * Improvement cycle 66, item 2: the writability inventory (shared/contracts/src/metric-guard.ts), tested against the route table
  * and against the source. A new write route, or a new write to a table a scorecard, KPI or dimension row reads, fails here until
  * somebody classifies who can reach it.
+ *
+ * What the SCAN cannot see (stated limits, so nobody reads a green run as more than it is): SQL comments placed between keywords
+ * (a block comment between `insert` and `into`), SQL built by string concatenation, `.sql` files read at runtime, namespace imports (`import * as m`),
+ * re-exports, dynamic imports, and edits inside `instances/service.ts` (one file holds several helpers, so the caller scan classifies the
+ * file, not the function). It is a net for the usual shapes of a write, not a proof that no other write exists.
  */
 describe('writability inventory vs the route table', () => {
   it('every non-GET route is classified exactly once, and every classified route is registered', async () => {
@@ -87,8 +92,9 @@ describe('writability inventory vs the source', () => {
   it('every site names fields that exist, and every input field has a reason to exist (a writer, or a stated absence)', () => {
     for (const [id, s] of Object.entries(WRITE_SITES)) for (const w of s.writes) expect(INPUT_FIELD_IDS, `${id} writes ${w}`).toContain(w);
     const written = new Set(Object.values(WRITE_SITES).flatMap((s) => s.writes));
-    // eval_runs has no writer in server/src on purpose (c53: no run-write route); the scan above fails if one appears
-    expect(INPUT_FIELD_IDS.filter((f) => !written.has(f))).toEqual(['eval_runs.results']);
+    // every input field has a declared writer. eval_runs.results had none when c66 was written ("the scan above fails if one appears"); c53's startRun
+    // appeared, the scan failed, and it is now declared as a system site (not called by any server code yet).
+    expect(INPUT_FIELD_IDS.filter((f) => !written.has(f))).toEqual([]);
   });
 });
 

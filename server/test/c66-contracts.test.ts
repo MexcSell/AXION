@@ -23,13 +23,13 @@ describe('c66 contracts', () => {
   it('no allowlist line was added: the sweep, member-403 and unexercised lists have the sizes of the c54 base, and none names a c66 route', () => {
     expect(Object.keys(SWEEP_SKIP).length).toBe(6);
     expect(Object.keys(MEMBER_403_ALLOWED).length).toBe(4);
-    expect(UNEXERCISED_ALLOWED.length).toBe(14);
+    expect(UNEXERCISED_ALLOWED.length).toBeLessThanOrEqual(14); // the c54 base had 14; c57 deleted one (an allowlist may shrink, never grow)
     const text = JSON.stringify([SWEEP_SKIP, MEMBER_403_ALLOWED, UNEXERCISED_ALLOWED.map(([r, w]) => [r.source, w])]);
     expect(text).not.toMatch(/metric-guard|metric-audits/);
   });
 
   it('the validator is not vacuous: it rejects a missing audit block, an unknown counter kind and an extra key', () => {
-    const rows = guardRows().map((r) => ({ ...r, audit: { n: 0, disagreements: 0, metricOver: 0, auditOver: 0, divergence: null, bar: 15, minN: 60, state: 'none', flagged: false, lastAuditedAt: null } }));
+    const rows = guardRows().map((r) => ({ ...r, audit: { n: 0, disagreements: 0, metricOver: 0, auditOver: 0, divergence: null, bar: 15, minN: 100, state: 'none', flagged: false, lastAuditedAt: null } }));
     const ok = { rows, promotionNote: PROMOTION_NOTE };
     const run = (b: unknown) => { const e: string[] = []; V.metricGuard(b, '$', e); return e; };
     expect(run(ok)).toEqual([]);
