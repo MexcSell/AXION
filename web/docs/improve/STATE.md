@@ -60,7 +60,7 @@ Rewritten 2026-11-22T07:35Z by the controller and again at 17:50Z after the live
 | — | Research round 2: research-r2.md plus research-r2-verified.md (22 CONFIRMED, 4 CORRECTED; R2-4 dropped) | done |
 | w57 | c58 Rule-of-Two profile + approval quality (R2-6, R2-9), e2e16, mig 0043, DL-100 | CLEARED at 7f31c94, batch 17 |
 | w61 | c63 failure learning (R3-8), from c60 tip df8c17e, e2e12, mig 0047 | CLEARED at 99376e4, batch 22 |
-| w62 | c64 restructure guardrails (R3-6), e2e11, mig 0048 | re-review of fix round (tip 9f7582a) |
+| w62 | c64 restructure guardrails (R3-6), e2e11, mig 0048 | CLEARED at 9f7582a, batch 23 |
 | w63 | c65 review capacity (R3-10), from c58 tip 7f31c94, e2e10, no migration | in review (tip d0764e3) |
 | w64 | c66 metric-gaming guard (R3-4), from c54 tip 78e149f, e2e9, mig 0050 if needed | implementing (Wave 7) |
 | w58 | c59 origin-bound memory and skill records (R2-5), e2e17, mig 0044 | CLEARED at 67b40ed, batch 18 |
