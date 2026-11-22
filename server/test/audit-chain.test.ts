@@ -197,8 +197,12 @@ describe('fix round c31', () => {
       const { Browser } = await import('./helpers.ts');
       const b = new Browser(t.app);
       await hold.query(`select pg_advisory_lock(${EVENTS_LOCK})`); // a writer stuck holding the events lock
+      const t0 = Date.now();
       const r = await b.connect('Luca', 'wrong-password');
+      const waited = Date.now() - t0;
       expect(r.status).toBe(401);
+      // the held key really blocked the sign-in's audit (same schema-scoped key): it waited for the 5 s lock_timeout
+      expect(waited).toBeGreaterThanOrEqual(4500);
       expect(r.body.code).toBe('WRONG_PASSWORD');
       await hold.query(`select pg_advisory_unlock(${EVENTS_LOCK})`);
       expect((await verifyChain(t.pool, 't-1')).ok).toBe(true);
