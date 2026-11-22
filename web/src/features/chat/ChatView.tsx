@@ -29,8 +29,9 @@ export const KIND_HUE: Record<MessageKind, number> = { delegation: 190, report: 
 
 /** a scroll the reader started counts as moving until this many ms after its last scroll event */
 const SCROLL_IDLE = 160;
-/** after an older page lands, the restored row stays the scroll anchor for this long (ms) unless the reader scrolls */
-const RESTORE_HOLD_MS = 1000;
+/** after an older page lands, the restored row stays the scroll anchor until every row above it is measured (c55; c44 used a
+ *  1 s timer, which a slow device outlasts). A bounded exit: after this many ms the anchor is released anyway, and logged. */
+const RESTORE_MAX_MS = 10_000;
 const MINIMAP_KEY = 'axion.thread.minimap';
 const readMinimap = () => { try { return localStorage.getItem(MINIMAP_KEY) !== '0'; } catch { return true; } };
 const writeMinimap = (v: boolean) => { try { localStorage.setItem(MINIMAP_KEY, v ? '1' : '0'); } catch { /* per-viewer convenience only */ } };
@@ -277,15 +278,33 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
   const own = useRef(-1);
   const moving = useRef(-1e9);
   // c44: after an older page is restored, the row the reader was on (not the first row the next record() happens to find: the
-  // window may be cut a little off while estimates are replaced by measurements) is the anchor for RESTORE_HOLD_MS, as long
-  // as nobody scrolled. It was the missing piece when a thread write no longer re-rendered the whole page (a timing change).
+  // window may be cut a little off while estimates are replaced by measurements) is the anchor, as long as nobody scrolled.
+  // c55: it stays the anchor until every rendered row above it has been measured (a timer is wrong on a slow device: a row
+  // measured later than the timer moves the anchor), checked after a commit with no measurement pending. The bound
+  // RESTORE_MAX_MS releases it with a console warning, from its own timer (hold() may never run again).
   const restored = useRef<{ id: string; top: number; until: number } | null>(null);
-  const hold = () => {
+  const restoreT = useRef(0);
+  const unmeasuredAbove = (el: HTMLElement, id: string) => {
+    for (const r of el.querySelectorAll<HTMLElement>('[data-mid]')) {
+      if (r.dataset.mid === id) return false;
+      if (r.dataset.gk && !geo.current.has(r.dataset.gk)) return true;
+    }
+    return true; // the anchor row is not rendered: nothing to compare yet
+  };
+  const hold = (commit = false) => {
     const el = scroller.current, v = vis.current;
     if (!el) return;
+    // c55: pinned to the bottom there is nothing to keep in place, so no layout read at all (the scrollTop read and record()'s
+    // getBoundingClientRect forced a synchronous layout after every commit of a live burst). record() runs when the reader
+    // scrolls away (onScroll), so the row it recorded last is never older than the position it was recorded for.
+    if (!restored.current && atBottomRef.current) return;
     const now = performance.now();
     const rh = restored.current;
-    if (rh && (now > rh.until || el.scrollTop !== own.current)) restored.current = null;
+    if (rh && el.scrollTop !== own.current) restored.current = null; // the reader scrolled
+    else if (rh && now > rh.until) {
+      if (unmeasuredAbove(el, rh.id)) console.warn(`[chat] restore anchor released after ${RESTORE_MAX_MS} ms with rows above it still unmeasured`);
+      restored.current = null;
+    }
     const reading = now - moving.current < SCROLL_IDLE && el.scrollTop >= 80;
     if (!atBottomRef.current && !reading) {
       const ra = restored.current;
@@ -298,6 +317,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
         if (r) { const d = r.getBoundingClientRect().top - el.getBoundingClientRect().top - v.top; if (Math.abs(d) >= .5) { el.scrollTop += d; own.current = el.scrollTop; } }
       }
     }
+    if (commit && restored.current && !meter.pending && !unmeasuredAbove(el, restored.current.id)) restored.current = null; // every row above is measured
     record();
   };
   const holdRef = useRef(hold);
@@ -357,8 +377,10 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
       },
       get(): ResizeObserver {
         return (me.ro ??= new ResizeObserver((ents) => {
-          let changed = false, wide = false;
+          let changed = false, wide = false, above = false; // above: a row at or before the reader's row changed (or the width did)
           const sc = scroller.current;
+          // c55: a row after the reader's row (a message arriving at the end) moves nothing the reader sees, so it needs no hold()
+          const vr = vis.current && sc ? sc.querySelector<HTMLElement>(`[data-mid="${CSS.escape(vis.current.id)}"]`) : null;
           for (const en of ents) {
             const t = en.target as HTMLElement;
             if (t === sc) {
@@ -367,24 +389,25 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
                 geo.current.clear();
                 if (sc.querySelector('[data-gk]')) relearn(est.current); // estimates are learned again from the rows on screen
                 sc.querySelectorAll<HTMLElement>('[data-gk]').forEach((r) => me.row(r));
-                changed = wide = true;
+                changed = wide = above = true;
               }
               box.current.width = w;
               if (sc.clientHeight !== vpRef.current.h) moveVp(sc);
-            } else if (me.row(t)) changed = true;
+            } else if (me.row(t)) { changed = true; if (!vr || t === vr || !(vr.compareDocumentPosition(t) & Node.DOCUMENT_POSITION_FOLLOWING)) above = true; }
           }
-          if (changed) { holdRef.current(); me.bump(wide); } // a row above the reader changed size: keep the reader's row in place
+          if (changed) { if (above) holdRef.current(); me.bump(wide); } // a row above the reader changed size: keep the reader's row in place
         }));
       },
       // a measurement re-renders the thread (window, spacers, minimap) at most every GEO_WAIT ms, and within GEO_MAX_WAIT
       // during a burst: what is mounted is already laid out by the browser, so only the model catches up
-      t: 0, first: 0,
+      t: 0, first: 0, pending: false, // pending: a measurement has been taken that the next commit has not caught up with yet
       bump(now = false) {
         window.clearTimeout(me.t);
+        me.pending = true;
         const t = performance.now();
         if (!me.first) me.first = t;
         const wait = now ? 0 : Math.max(0, Math.min(GEO_WAIT, me.first + GEO_MAX_WAIT - t));
-        me.t = window.setTimeout(() => { me.first = 0; setGeoV((v) => v + 1); }, wait);
+        me.t = window.setTimeout(() => { me.first = 0; me.pending = false; setGeoV((v) => v + 1); }, wait);
       },
     };
     return me;
@@ -402,7 +425,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
     el.scrollTo({ top: 1e6 });
     moveVp(el);
     setGeoV((v) => v + 1);
-    return () => { o.disconnect(); meter.ro = null; window.clearTimeout(meter.t); };
+    return () => { o.disconnect(); meter.ro = null; window.clearTimeout(meter.t); window.clearTimeout(restoreT.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meter]);
   const firstId = messages[0]?.id;
@@ -447,7 +470,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
     const el = scroller.current, a = anchor.current;
     if (!el || !a) return;
     const n = el.querySelector<HTMLElement>(`[data-mid="${CSS.escape(a.id)}"]`);
-    if (n) { el.scrollTop += n.getBoundingClientRect().top - el.getBoundingClientRect().top - a.top; own.current = el.scrollTop; restored.current = { id: a.id, top: a.top, until: performance.now() + RESTORE_HOLD_MS }; }
+    if (n) { el.scrollTop += n.getBoundingClientRect().top - el.getBoundingClientRect().top - a.top; own.current = el.scrollTop; restored.current = { id: a.id, top: a.top, until: performance.now() + RESTORE_MAX_MS }; window.clearTimeout(restoreT.current); restoreT.current = window.setTimeout(() => holdRef.current(), RESTORE_MAX_MS + 50); }
     anchor.current = null;
   }, [firstId]);
   useEffect(() => { if (!loadingOlder) anchor.current = null; }, [loadingOlder]); // a failed or empty load leaves nothing to restore
@@ -490,7 +513,17 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
   };
 
   // after every change: keep the reader's row in place (declared after the other layout effects, so it runs last)
-  useLayoutEffect(() => { atBottomRef.current = atBottom; hold(); });
+  const holdKey = useRef('');
+  useLayoutEffect(() => {
+    atBottomRef.current = atBottom;
+    // c55: a commit that only appended messages below the reader changed nothing above them, so there is nothing to keep in
+    // place and no layout to force (every size change above arrives through the ResizeObserver, which calls hold() itself). The
+    // rest runs as before: an older page, a new measurement model (geoV), a moved window, a view change, a restore in progress.
+    const key = `${geoV}|${vp.top}|${vp.h}|${firstShown}|${view}|${atBottom}`;
+    const same = key === holdKey.current;
+    holdKey.current = key;
+    if (!same || restored.current) hold(true);
+  });
 
   const rows: ReactNode[] = [];
   let at = 0, sp = 0;
