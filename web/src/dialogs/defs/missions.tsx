@@ -327,7 +327,7 @@ function TaskReassign({ close, props }: DialogComponentProps<{ missionId: string
   const taskId = props.taskId ?? tasks.find((t) => t.state !== 'passed')?.id ?? tasks[0]?.id;
   const task = tasks.find((t) => t.id === taskId);
   const criteria = accept.split('\n').map((x) => x.trim()).filter(Boolean);
-  // api mode: with at least one acceptance criterion the reassignment carries a typed brief; without, it is recorded as before (legacy, no brief)
+  // api mode (c51): the reassignment always carries a typed brief, so at least one acceptance criterion is required (the server answers 400 BRIEF_REQUIRED otherwise)
   // api mode: only agents that joined this mission can take a task (the server decides; a stranger is 422)
   const joined = isApi() ? new Set(getMissionControl(m).nodes.map((n) => n.agentId)) : null;
   const candidates = AGENTS.filter((a) => a.id !== task?.owner && a.id !== 'gm' && (!joined || joined.has(a.id))).slice(0, 14);
@@ -336,7 +336,7 @@ function TaskReassign({ close, props }: DialogComponentProps<{ missionId: string
     if (!task || busy) return;
     setBusy(true);
     const node = getMissionControl(m).nodes.find((n) => n.agentId === to);
-    const brief = criteria.length ? { goal: goal.trim() || task.title, acceptance: criteria, capabilities: (kinds ?? []).filter((k) => k.allowed && caps.includes(k.kind)).map((k) => ({ kind: k.kind })), escalation: esc.trim() || 'Ask the mission owner when scope is unclear', ...(deadline ? { deadline: new Date(deadline).toISOString() } : {}) } : undefined;
+    const brief = { goal: goal.trim() || task.title, acceptance: criteria, capabilities: (kinds ?? []).filter((k) => k.allowed && caps.includes(k.kind)).map((k) => ({ kind: k.kind })), escalation: esc.trim() || 'Ask the mission owner when scope is unclear', ...(deadline ? { deadline: new Date(deadline).toISOString() } : {}) };
     const r = node ? await taskAction(m.id, task.id, 'reassign', { toInstanceId: node.instanceId, reason: why.trim(), brief }) : { ok: false as const, message: 'This agent has not joined the mission.' };
     setBusy(false);
     setFe(!r.ok && r.fieldErrors ? r.fieldErrors : {});
@@ -345,7 +345,7 @@ function TaskReassign({ close, props }: DialogComponentProps<{ missionId: string
   };
   return (
     <Modal title="Delegate / reassign task" icon={GitBranch} dialogId="DL-12" help="hierarchy.delegation" onClose={close} sub={task ? `${task.id} · ${task.title}` : m.id}
-      footer={<><button className="btn" onClick={close}>Cancel</button><button className="btn primary" disabled={!to || !why.trim() || busy} onClick={() => void submit()}>Submit Reassignment</button></>}>
+      footer={<><button className="btn" onClick={close}>Cancel</button><button className="btn primary" disabled={!to || !why.trim() || busy || (isApi() && criteria.length === 0)} title={isApi() && criteria.length === 0 ? 'Add at least one acceptance criterion to the hand-off brief' : undefined} onClick={() => void submit()}>Submit Reassignment</button></>}>
       <Field label="Assign to" required>
         <div className="pick-grid">
           {candidates.map((a) => (
@@ -360,8 +360,8 @@ function TaskReassign({ close, props }: DialogComponentProps<{ missionId: string
         <div className="dbrief-form" data-testid="brief-form">
           <div className="row" style={{ gap: 6 }}><span className="section-label">Hand-off brief</span><HelpTrigger k="delegation.brief" /></div>
           <input className="input" aria-label="Goal" aria-invalid={!!fe.goal} maxLength={500} value={goal} onChange={(e) => setGoal(e.target.value)} placeholder={task ? `Goal (default: ${task.title})` : 'Goal'} />
-          <textarea className="input" aria-label="Acceptance criteria" aria-invalid={!!(fe.acceptance || Object.keys(fe).some((k) => k.startsWith('acceptance.')))} maxLength={3000} value={accept} onChange={(e) => setAccept(e.target.value)} placeholder="Acceptance criteria, one per line. Leave empty to delegate without a brief (legacy)." />
-          <div className="dbrief-hint">Each line 3 to 300 characters, at most 20 lines.</div>
+          <textarea className="input" aria-label="Acceptance criteria" aria-invalid={!!(fe.acceptance || Object.keys(fe).some((k) => k.startsWith('acceptance.')))} maxLength={3000} value={accept} onChange={(e) => setAccept(e.target.value)} placeholder="Acceptance criteria, one per line (required)." />
+          <div className="dbrief-hint">Required: at least one line. Each line 3 to 300 characters, at most 20 lines.</div>
           {Object.entries(fe).filter(([k]) => k === 'goal' || k.startsWith('acceptance') || k === 'escalation' || k === 'deadline' || k === 'capabilities' || k === 'budget' || k === 'depth').map(([k, v]) => <div key={k} className="dbrief-err" role="alert">{k.replace(/\.\d+$/, '')}: {v}</div>)}
           <div className="dbrief-pick" role="group" aria-label="Allowed capabilities">
             {(kinds ?? []).filter((k) => k.tier === 'R0' || k.tier === 'R1' || k.tier === 'R2').map((k) => (
