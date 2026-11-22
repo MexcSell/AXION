@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { makeTestApp, withAdmin, type TestApp } from './helpers.ts';
 import { requestApproval, consumeApproval, loadBoundAction, digestV2, digestOf, type BoundAction } from '../src/approvals/service.ts';
-import { tx } from '../src/db.ts';
+import { tx, makePool } from '../src/db.ts';
+import { watch, lockWaits, MAX_TEST_CONNECTIONS } from './pool-probe.ts';
+import { TEST_DB } from './helpers.ts';
 
 let t: TestApp;
 let A: Awaited<ReturnType<typeof withAdmin>>;
@@ -114,7 +116,15 @@ describe('consume', () => {
     const r = await ask(m);
     await decide(r.id);
     const a = await action(r.id);
-    const res = await Promise.allSettled(Array.from({ length: 20 }, (_, i) => consume(r.id, a, { by: 'exec-' + i })));
+    const pool = makePool(TEST_DB(), t.schema, MAX_TEST_CONNECTIONS);
+    const seen = watch(pool);
+    const waits = lockWaits(t.pool, '%approval_requests%for update%');
+    let res: PromiseSettledResult<unknown>[];
+    try { res = await Promise.allSettled(Array.from({ length: 20 }, (_, i) => tx(pool, (c) => consumeApproval(c, { approvalId: r.id, action: a, by: 'exec-' + i })))); }
+    finally { await waits.stop(); await pool.end(); }
+    // c70 (H14): 20 logical consumers, but the test's own pool is bounded, and they really queued on the one row
+    expect(seen.peakClients, 'connections this test opened').toBeLessThanOrEqual(MAX_TEST_CONNECTIONS);
+    expect(waits.stats.maxWaiting, 'consumers blocked on the approval row lock at one moment').toBeGreaterThanOrEqual(1);
     const ok = res.filter((x) => x.status === 'fulfilled');
     const bad = res.filter((x): x is PromiseRejectedResult => x.status === 'rejected');
     expect(ok).toHaveLength(1);
