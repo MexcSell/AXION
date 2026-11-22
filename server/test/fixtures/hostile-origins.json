@@ -1,0 +1,590 @@
+[
+ {
+  "input": "https://good.com@evil.com",
+  "reason": "userinfo",
+  "why": "userinfo makes the real host evil.com while the text starts with good.com"
+ },
+ {
+  "input": "https://good.com:443@evil.com",
+  "reason": "userinfo",
+  "why": "userinfo with a fake port hides the real host"
+ },
+ {
+  "input": "https://evil.com\\@good.com",
+  "reason": "backslash",
+  "why": "browsers treat \\ as / so the host becomes evil.com"
+ },
+ {
+  "input": "https://good.com\\.evil.com",
+  "reason": "backslash",
+  "why": "backslash is read as a path separator by WHATWG parsers"
+ },
+ {
+  "input": "https://good.com%2eevil.com",
+  "reason": "percent_encoding",
+  "why": "percent-encoded dot is decoded differently by different parsers"
+ },
+ {
+  "input": "https://good%2Ecom",
+  "reason": "percent_encoding",
+  "why": "encoded dot"
+ },
+ {
+  "input": "https://%67ood.com",
+  "reason": "percent_encoding",
+  "why": "encoded letter hides the real name"
+ },
+ {
+  "input": "https://good.com%00.evil.com",
+  "reason": "percent_encoding",
+  "why": "encoded NUL truncates the host in some parsers"
+ },
+ {
+  "input": "https://good.com/path",
+  "reason": "path",
+  "why": "a path is not part of an origin; a grant must not look narrower than it is"
+ },
+ {
+  "input": "https://good.com/a/../",
+  "reason": "path",
+  "why": "path traversal after the slash"
+ },
+ {
+  "input": "https://good.com//",
+  "reason": "path",
+  "why": "only a single trailing slash is allowed"
+ },
+ {
+  "input": "https://good.com?x=1",
+  "reason": "query_or_fragment",
+  "why": "query is not part of an origin"
+ },
+ {
+  "input": "https://good.com/?x=1",
+  "reason": "query_or_fragment",
+  "why": "query after the root slash"
+ },
+ {
+  "input": "https://good.com#frag",
+  "reason": "query_or_fragment",
+  "why": "fragment is not part of an origin"
+ },
+ {
+  "input": "https://good.com#@evil.com",
+  "reason": "query_or_fragment",
+  "why": "fragment hides a fake userinfo"
+ },
+ {
+  "input": "https://*.good.com",
+  "reason": "wildcard",
+  "why": "wildcards widen a grant beyond one exact origin"
+ },
+ {
+  "input": "https://good*.com",
+  "reason": "wildcard",
+  "why": "partial wildcard"
+ },
+ {
+  "input": "*.good.com",
+  "reason": "wildcard",
+  "why": "wildcard without scheme"
+ },
+ {
+  "input": "http://good.com",
+  "reason": "scheme_not_https",
+  "why": "plain http can be intercepted and rewritten"
+ },
+ {
+  "input": "ftp://good.com",
+  "reason": "scheme_not_https",
+  "why": "not https"
+ },
+ {
+  "input": "file:///etc/passwd",
+  "reason": "scheme_not_https",
+  "why": "local file access"
+ },
+ {
+  "input": "javascript:alert(1)",
+  "reason": "scheme_not_https",
+  "why": "script URL"
+ },
+ {
+  "input": "data:text/html,<script>alert(1)</script>",
+  "reason": "scheme_not_https",
+  "why": "data: URL carries script and has an opaque origin"
+ },
+ {
+  "input": "blob:https://good.com/uuid",
+  "reason": "scheme_not_https",
+  "why": "blob URL has an opaque origin"
+ },
+ {
+  "input": "//good.com",
+  "reason": "scheme_required",
+  "why": "scheme-relative reference"
+ },
+ {
+  "input": "good.com",
+  "reason": "scheme_required",
+  "why": "no scheme: ambiguous, so refused"
+ },
+ {
+  "input": "httpss://good.com",
+  "reason": "scheme_not_https",
+  "why": "lookalike scheme"
+ },
+ {
+  "input": "https:good.com",
+  "reason": "scheme_required",
+  "why": "missing // after the scheme"
+ },
+ {
+  "input": "https:/good.com",
+  "reason": "scheme_required",
+  "why": "one slash only; browsers repair it silently"
+ },
+ {
+  "input": "https:///good.com",
+  "reason": "empty_host",
+  "why": "triple slash: some parsers skip the slash and read good.com"
+ },
+ {
+  "input": " https://good.com",
+  "reason": "control_or_space",
+  "why": "leading space is stripped by URL parsers"
+ },
+ {
+  "input": "https://good.com ",
+  "reason": "control_or_space",
+  "why": "trailing space"
+ },
+ {
+  "input": "https://good .com",
+  "reason": "control_or_space",
+  "why": "inner space"
+ },
+ {
+  "input": "https://good.com\t",
+  "reason": "control_or_space",
+  "why": "tab is removed by the URL parser"
+ },
+ {
+  "input": "https://go\nod.com",
+  "reason": "control_or_space",
+  "why": "newline is removed by the URL parser, joining the parts"
+ },
+ {
+  "input": "https://good.com\r\nHost: evil.com",
+  "reason": "control_or_space",
+  "why": "CRLF injection"
+ },
+ {
+  "input": "https://good.com\u0000",
+  "reason": "control_or_space",
+  "why": "a NUL byte truncates the host in C-based parsers"
+ },
+ {
+  "input": "https://good\u200b.com",
+  "reason": "control_or_space",
+  "why": "zero-width space is invisible"
+ },
+ {
+  "input": "https://good.com\u202e",
+  "reason": "control_or_space",
+  "why": "bidi override reverses the displayed text"
+ },
+ {
+  "input": "https://good\u00a0.com",
+  "reason": "control_or_space",
+  "why": "no-break space"
+ },
+ {
+  "input": "https://127.0.0.1",
+  "reason": "ip_literal",
+  "why": "loopback address reaches services on the server itself"
+ },
+ {
+  "input": "https://0.0.0.0",
+  "reason": "ip_literal",
+  "why": "0.0.0.0 reaches the local host on Linux"
+ },
+ {
+  "input": "https://169.254.169.254",
+  "reason": "ip_literal",
+  "why": "cloud metadata service"
+ },
+ {
+  "input": "https://10.0.0.5",
+  "reason": "ip_literal",
+  "why": "private range"
+ },
+ {
+  "input": "https://192.168.1.1",
+  "reason": "ip_literal",
+  "why": "private range"
+ },
+ {
+  "input": "https://2130706433",
+  "reason": "ip_literal",
+  "why": "decimal form of 127.0.0.1"
+ },
+ {
+  "input": "https://017700000001",
+  "reason": "ip_literal",
+  "why": "octal form of 127.0.0.1"
+ },
+ {
+  "input": "https://0x7f000001",
+  "reason": "ip_literal",
+  "why": "hex form of 127.0.0.1"
+ },
+ {
+  "input": "https://0x7f.0x0.0x0.0x1",
+  "reason": "ip_literal",
+  "why": "dotted hex form"
+ },
+ {
+  "input": "https://0177.0.0.1",
+  "reason": "ip_literal",
+  "why": "dotted octal form"
+ },
+ {
+  "input": "https://127.1",
+  "reason": "ip_literal",
+  "why": "short form of 127.0.0.1"
+ },
+ {
+  "input": "https://[::1]",
+  "reason": "ip_literal",
+  "why": "IPv6 loopback"
+ },
+ {
+  "input": "https://[::1]:443",
+  "reason": "ip_literal",
+  "why": "IPv6 loopback with port"
+ },
+ {
+  "input": "https://[::ffff:127.0.0.1]",
+  "reason": "ip_literal",
+  "why": "IPv4-mapped IPv6 loopback"
+ },
+ {
+  "input": "https://[::ffff:7f00:1]",
+  "reason": "ip_literal",
+  "why": "IPv4-mapped IPv6 loopback, hex"
+ },
+ {
+  "input": "https://[2001:db8::1]",
+  "reason": "ip_literal",
+  "why": "any IPv6 literal"
+ },
+ {
+  "input": "https://::1",
+  "reason": "ip_literal",
+  "why": "bare IPv6 without brackets"
+ },
+ {
+  "input": "https://1.2.3.4.",
+  "reason": "trailing_dot",
+  "why": "dotted quad with a trailing dot"
+ },
+ {
+  "input": "https://\uff11\uff12\uff17.\uff10.\uff10.\uff11",
+  "reason": "idna_mapped",
+  "why": "fullwidth digits are folded to 127.0.0.1"
+ },
+ {
+  "input": "https://localhost",
+  "reason": "reserved_name",
+  "why": "loopback name"
+ },
+ {
+  "input": "https://localhost.",
+  "reason": "trailing_dot",
+  "why": "trailing dot form of localhost"
+ },
+ {
+  "input": "https://LOCALHOST",
+  "reason": "reserved_name",
+  "why": "case-insensitive localhost"
+ },
+ {
+  "input": "https://foo.localhost",
+  "reason": "reserved_name",
+  "why": "*.localhost resolves to loopback"
+ },
+ {
+  "input": "https://metadata.google.internal",
+  "reason": "metadata_name",
+  "why": "GCP metadata service"
+ },
+ {
+  "input": "https://instance-data",
+  "reason": "metadata_name",
+  "why": "AWS metadata alias, single label"
+ },
+ {
+  "input": "https://printer.local",
+  "reason": "reserved_name",
+  "why": "mDNS name on the local network"
+ },
+ {
+  "input": "https://router.home.arpa",
+  "reason": "reserved_name",
+  "why": "home network name"
+ },
+ {
+  "input": "https://db.internal",
+  "reason": "reserved_name",
+  "why": "internal name"
+ },
+ {
+  "input": "https://intranet",
+  "reason": "reserved_name",
+  "why": "intranet is a reserved internal name"
+ },
+ {
+  "input": "https://com",
+  "reason": "single_label",
+  "why": "single-label host"
+ },
+ {
+  "input": "https://good.com.",
+  "reason": "trailing_dot",
+  "why": "trailing dot makes a different origin string for the same host"
+ },
+ {
+  "input": "https://.good.com",
+  "reason": "empty_label",
+  "why": "leading dot"
+ },
+ {
+  "input": "https://good..com",
+  "reason": "empty_label",
+  "why": "empty label"
+ },
+ {
+  "input": "https://",
+  "reason": "empty_host",
+  "why": "no host after the scheme"
+ },
+ {
+  "input": "https://:443",
+  "reason": "empty_host",
+  "why": "port without host"
+ },
+ {
+  "input": "https://good.com:",
+  "reason": "bad_port",
+  "why": "empty port"
+ },
+ {
+  "input": "https://good.com:0",
+  "reason": "bad_port",
+  "why": "port zero"
+ },
+ {
+  "input": "https://good.com:65536",
+  "reason": "bad_port",
+  "why": "port out of range"
+ },
+ {
+  "input": "https://good.com:99999",
+  "reason": "bad_port",
+  "why": "port out of range"
+ },
+ {
+  "input": "https://good.com:0443",
+  "reason": "bad_port",
+  "why": "leading zero: a second spelling of the same port"
+ },
+ {
+  "input": "https://good.com:abc",
+  "reason": "bad_port",
+  "why": "non-numeric port"
+ },
+ {
+  "input": "https://good.com:443:443",
+  "reason": "ip_literal",
+  "why": "two colons look like an IPv6 address"
+ },
+ {
+  "input": "https://-good.com",
+  "reason": "bad_label",
+  "why": "label starts with a hyphen"
+ },
+ {
+  "input": "https://good-.com",
+  "reason": "bad_label",
+  "why": "label ends with a hyphen"
+ },
+ {
+  "input": "https://good_name.com",
+  "reason": "bad_label",
+  "why": "underscore is not a hostname character"
+ },
+ {
+  "input": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com",
+  "reason": "label_too_long",
+  "why": "label over 63 characters"
+ },
+ {
+  "input": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com",
+  "reason": "host_too_long",
+  "why": "host over 253 characters"
+ },
+ {
+  "input": "https://good.123",
+  "reason": "ip_literal",
+  "why": "numeric last label reads as an IPv4 form"
+ },
+ {
+  "input": "https://good.0x1",
+  "reason": "ip_literal",
+  "why": "hex last label reads as an IPv4 form"
+ },
+ {
+  "input": "https://good.invalid",
+  "reason": "reserved_name",
+  "why": "reserved TLD that never resolves"
+ },
+ {
+  "input": "https://p\u0430ypal.com",
+  "reason": "mixed_script",
+  "why": "Cyrillic a inside a Latin label"
+ },
+ {
+  "input": "https://xn--pypal-4ve.com",
+  "reason": "mixed_script",
+  "why": "punycode of the Cyrillic-a lookalike"
+ },
+ {
+  "input": "https://XN--PYPAL-4VE.com",
+  "reason": "mixed_script",
+  "why": "same, upper case"
+ },
+ {
+  "input": "https://\u0430\u0440\u0440\u04cf\u0435.com",
+  "reason": "whole_script_confusable",
+  "why": "every letter is a Cyrillic lookalike of Latin 'apple'"
+ },
+ {
+  "input": "https://xn--80ak6aa92e.com",
+  "reason": "whole_script_confusable",
+  "why": "punycode of the all-Cyrillic apple lookalike"
+ },
+ {
+  "input": "https://\u0261oogle.com",
+  "reason": "confusable_char",
+  "why": "Latin small script g looks like g"
+ },
+ {
+  "input": "https://\u0131nstagram.com",
+  "reason": "confusable_char",
+  "why": "dotless i looks like i"
+ },
+ {
+  "input": "https://\u0142ink.com",
+  "reason": "confusable_char",
+  "why": "Latin l with stroke looks like l"
+ },
+ {
+  "input": "https://\u03bf\u03bd\u03bf.gr",
+  "reason": "whole_script_confusable",
+  "why": "Greek letters that all look Latin"
+ },
+ {
+  "input": "https://\u03b1pple.com",
+  "reason": "mixed_script",
+  "why": "Greek alpha with Latin letters"
+ },
+ {
+  "input": "https://\uff45xample.com",
+  "reason": "idna_mapped",
+  "why": "fullwidth e is folded to ASCII by IDNA, the text differs from the host"
+ },
+ {
+  "input": "https://exam\u00adple.com",
+  "reason": "control_or_space",
+  "why": "soft hyphen is invisible"
+ },
+ {
+  "input": "https://evil\u3002com",
+  "reason": "idna_mapped",
+  "why": "ideographic full stop becomes a dot"
+ },
+ {
+  "input": "https://evil\uff0ecom",
+  "reason": "idna_mapped",
+  "why": "fullwidth full stop becomes a dot"
+ },
+ {
+  "input": "https://xn--a.com",
+  "reason": "invalid_punycode",
+  "why": "not decodable punycode"
+ },
+ {
+  "input": "https://xn--.com",
+  "reason": "invalid_punycode",
+  "why": "empty punycode"
+ },
+ {
+  "input": "https://xn--abc-.com",
+  "reason": "invalid_punycode",
+  "why": "punycode with a bare trailing hyphen"
+ },
+ {
+  "input": "https://\ud83d\udca9.la",
+  "reason": "bad_charset",
+  "why": "emoji label"
+ },
+ {
+  "input": "https://\u0661\u0662\u0663.com",
+  "reason": "idna_mapped",
+  "why": "Arabic-Indic digits are folded to ASCII 123 by IDNA"
+ },
+ {
+  "input": "https://\u65e5\u672c\u8a9e\u3072\u3089.jp",
+  "reason": "mixed_script",
+  "why": "Han mixed with Hiragana is refused: only single-script labels"
+ },
+ {
+  "input": "https://ab--cd.com",
+  "reason": "bad_label",
+  "why": "'--' in the third and fourth position is reserved for IDNA"
+ },
+ {
+  "input": "https://xn--zca@evil.com",
+  "reason": "userinfo",
+  "why": "userinfo after a punycode label"
+ },
+ {
+  "input": "https://good.comxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "reason": "too_long",
+  "why": "input over 300 characters",
+  "display": "good.com + 400 x"
+ },
+ {
+  "input": null,
+  "reason": "not_string",
+  "why": "null is not a string"
+ },
+ {
+  "input": "",
+  "reason": "empty",
+  "why": "empty string"
+ },
+ {
+  "input": "   ",
+  "reason": "control_or_space",
+  "why": "whitespace only"
+ },
+ {
+  "input": {
+   "toString": "x"
+  },
+  "reason": "not_string",
+  "why": "object input"
+ }
+]

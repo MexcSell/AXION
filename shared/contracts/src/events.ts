@@ -22,6 +22,7 @@ export type EventType =
   | 'agent.created' | 'agent.updated' | 'agent.versionCreated'
   | 'agent.versionProposed' | 'agent.versionPromoted' | 'agent.rolledBack' | 'agent.versionProposalDecided'
   | 'mentoring.planned' | 'mentoring.milestoneDone' | 'mentoring.closed'
+  | 'grant.issued' | 'grant.revoked'
   | 'org.proposalCreated' | 'org.proposalDecided' | 'org.revisionApplied'
   | 'user.requested' | 'user.changed' | 'auth.approved';
 

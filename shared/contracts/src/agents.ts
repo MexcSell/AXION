@@ -125,3 +125,16 @@ export interface MentoringPlanDto {
   /** always null: re-evaluation needs evaluation data and agents do not execute yet */
   evaluation: null;
 }
+
+/** c36: site grants. One exact origin, one mission, a few low-risk capabilities, a limited time. */
+export type SiteGrantCapability = 'read' | 'screenshot' | 'summarize' | 'fill_draft';
+export type SiteGrantState = 'active' | 'expired' | 'revoked';
+export interface SiteGrantDto {
+  id: string; missionId: string; origin: string; capabilities: SiteGrantCapability[];
+  issuedBy: string; issuedByName: string; issuedAt: string; expiresAt: string;
+  state: SiteGrantState;
+  revokedAt: string | null; revokedBy: string | null; revokedByName: string | null; reason: string | null;
+  /** risk tier of issuing a grant, from the policy (R3) */
+  tier: string;
+}
+export interface OriginCheckDto { ok: boolean; origin?: string; reason?: string; message?: string }

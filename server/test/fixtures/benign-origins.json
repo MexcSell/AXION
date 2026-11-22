@@ -1,0 +1,78 @@
+[
+ {
+  "input": "https://example.com",
+  "origin": "https://example.com"
+ },
+ {
+  "input": "https://example.com/",
+  "origin": "https://example.com"
+ },
+ {
+  "input": "HTTPS://Example.COM",
+  "origin": "https://example.com"
+ },
+ {
+  "input": "https://example.com:443",
+  "origin": "https://example.com"
+ },
+ {
+  "input": "https://example.com:443/",
+  "origin": "https://example.com"
+ },
+ {
+  "input": "https://example.com:8443",
+  "origin": "https://example.com:8443"
+ },
+ {
+  "input": "https://www.example.co.uk",
+  "origin": "https://www.example.co.uk"
+ },
+ {
+  "input": "https://sub.domain.example.org/",
+  "origin": "https://sub.domain.example.org"
+ },
+ {
+  "input": "https://a-b.example.com",
+  "origin": "https://a-b.example.com"
+ },
+ {
+  "input": "https://xn--bcher-kva.de",
+  "origin": "https://xn--bcher-kva.de"
+ },
+ {
+  "input": "https://b\u00fccher.de",
+  "origin": "https://xn--bcher-kva.de"
+ },
+ {
+  "input": "https://B\u00dcCHER.de",
+  "origin": "https://xn--bcher-kva.de"
+ },
+ {
+  "input": "https://fa\u00df.de",
+  "origin": "https://xn--fa-hia.de"
+ },
+ {
+  "input": "https://\u043f\u0440\u0438\u043c\u0435\u0440.\u0440\u0444",
+  "origin": "https://xn--e1afmkfd.xn--p1ai"
+ },
+ {
+  "input": "https://1password.com",
+  "origin": "https://1password.com"
+ },
+ {
+  "input": "https://example.com:65535",
+  "origin": "https://example.com:65535"
+ },
+ {
+  "input": "https://deploy.vercel.app",
+  "origin": "https://deploy.vercel.app"
+ },
+ {
+  "input": "https://xn--fiq228c.com",
+  "origin": "https://xn--fiq228c.com"
+ },
+ {
+  "input": "https://\u00e9cole.fr",
+  "origin": "https://xn--cole-9oa.fr"
+ }
+]
