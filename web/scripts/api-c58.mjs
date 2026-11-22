@@ -55,7 +55,8 @@ try {
   check('Mina connects after approval', await until(async () => (await B.p.locator('.rail-nav').count()) > 0, 15000));
   const apiB = apiOf(B.p);
 
-  execFileSync('node', ['--env-file=.env', '--import', 'tsx', 'src/cli/e2e-extra-approvals.ts', '4'], { cwd: new URL('../../server/', import.meta.url).pathname, stdio: 'inherit' });
+  const h = JSON.parse(execFileSync('node', ['--env-file=.env', '--import', 'tsx', 'src/cli/e2e-extra-approvals.ts', '6', '--fired'], { cwd: new URL('../../server/', import.meta.url).pathname, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }).trim().split('\n').pop());
+  await apiA('POST', `/missions/${h.missionId}/share`, { shared: true }, { 'idempotency-key': key() }); // Mina can then see and decide the R2 extras
 
   // ---- server data: every request carries the server-derived record
   const list0 = (await apiA('GET', '/approvals')).body.approvals ?? [];
@@ -64,44 +65,38 @@ try {
   check('nothing decided yet: no decisionRecord anywhere', list0.every((a) => a.decisionRecord === null));
 
   // ---- the approval dialog shows the flags in plain words, with a ?
-  const target = list0.find((a) => a.status === 'pending' && a.riskTier === 'R3');
-  const rewrite = (fired) => async (route) => {
-    const res = await route.fetch(); const j = await res.json();
-    for (const a of j.approvals ?? []) if (a.id === target.id) a.ruleOfTwo = fired
-      ? { flags: { untrustedInput: true, sensitiveAccess: true, canChangeState: true }, because: { untrustedInput: ['site grant for https://example.com'], sensitiveAccess: ['action release (infra)'], canChangeState: ['action release (infra)'] }, fired: true, rule: 'rule_of_two', policyVersion: 1 }
-      : { flags: { untrustedInput: false, sensitiveAccess: true, canChangeState: true }, because: { untrustedInput: [], sensitiveAccess: ['action release (infra)'], canChangeState: ['action release (infra)'] }, fired: false, rule: null, policyVersion: 1 };
-    await route.fulfill({ response: res, json: j });
-  };
-  const showDialog = async (P, theme, fired) => {
-    await P.route('**/api/v1/approvals', rewrite(fired));
+  const target = list0.find((a) => a.id === h.firedId);
+  const plain = list0.find((a) => a.title === 'Extra approval 1');
+  check('F7: the harness made a REAL request through requestApproval and the server itself fired the rule (all three flags, from a brief, a read at an origin and a release)', !!target && target.ruleOfTwo?.fired === true && target.ruleOfTwo.rule === 'rule_of_two' && Object.values(target.ruleOfTwo.flags).every((v) => v === true) && target.ruleOfTwo.because.untrustedInput.includes('capability read at https://example.com'), JSON.stringify(target?.ruleOfTwo?.flags));
+  check('F7: an ordinary request is real and not fired (two flags: it can change things, and the mission has uploaded files; nothing sensitive)', !!plain && plain.ruleOfTwo?.fired === false && plain.ruleOfTwo.flags.canChangeState === true && plain.ruleOfTwo.flags.untrustedInput === true && plain.ruleOfTwo.flags.sensitiveAccess === false && plain.ruleOfTwo.because.untrustedInput.includes('uploaded files'));
+  const showDialog = async (P, ap) => {
     await P.goto(base + '/notifications?tab=pending', { waitUntil: 'domcontentloaded' });
-    const card = P.locator('.nt-appr').filter({ hasText: target.title }).first();
+    const card = P.locator('.nt-appr').filter({ hasText: ap.title }).first();
     await card.waitFor({ timeout: 10000 });
     await card.getByRole('button', { name: 'Details' }).click();
     const dlg = P.locator('[data-dialog="DL-48"]');
     await dlg.waitFor({ timeout: 8000 });
     await dlg.locator('[data-testid="approval-rule-of-two"]').waitFor({ timeout: 8000 });
-    await P.unroute('**/api/v1/approvals');
     return dlg;
   };
-  const dlg = await showDialog(A.p, 'dark', true);
+  const dlg = await showDialog(A.p, target);
   const note = dlg.locator('[data-testid="approval-rule-of-two"]');
   const txt = await note.innerText();
-  check('dialog: flags in plain words, fired state named', (await note.getAttribute('data-fired')) === 'yes' && /Reads content nobody vetted/.test(txt) && /Can reach live systems or credentials/.test(txt) && /Can change things or contact the outside/.test(txt) && /person must decide/.test(txt), txt.replace(/\s+/g, ' ').slice(0, 160));
+  check('dialog (real server response): flags in plain words, fired state named', (await note.getAttribute('data-fired')) === 'yes' && /Reads content nobody vetted/.test(txt) && /Can reach live systems or credentials/.test(txt) && /Can change things or contact the outside/.test(txt) && /person must decide/.test(txt), txt.replace(/\s+/g, ' ').slice(0, 160));
   check('dialog: three flags, all on', (await note.locator('[data-on="yes"]').count()) === 3);
-  check('dialog: a flag hover/title names its source', /site grant for https:\/\/example\.com/.test((await note.locator('[data-flag="untrustedInput"]').getAttribute('title')) ?? ''));
+  check('dialog: a flag hover/title names its real source', /capability read at https:\/\/example\.com/.test((await note.locator('[data-flag="untrustedInput"]').getAttribute('title')) ?? '') && /action release|capability release/.test((await note.locator('[data-flag="sensitiveAccess"]').getAttribute('title')) ?? ''));
   await note.locator('[data-help-key="approval.ruleOfTwo"]').click();
   const pop = A.p.locator('.help-pop');
-  check('dialog: the ? opens and says it is a heuristic, a stopgap', await until(async () => { const t = await pop.innerText(); return /heuristic/i.test(t) && /stopgap/i.test(t) && /never from what the agent or the requester wrote/i.test(t); }));
+  check('dialog: the ? opens, says heuristic and stopgap, and says what the second flag means', await until(async () => { const t = await pop.innerText(); return /heuristic/i.test(t) && /stopgap/i.test(t) && /never from what the agent or the requester wrote/i.test(t) && /credentials/i.test(t) && /not counted yet/i.test(t); }));
   await A.p.screenshot({ path: `${SHOTS}/dialog-flags-help-dark.png` });
   await A.p.keyboard.press('Escape');
-  await A.p.waitForTimeout(0);
   check('dialog: fits inside 1366x768', await inView(A.p, '[data-dialog="DL-48"]'));
   await frame(A.p);
   await A.p.screenshot({ path: `${SHOTS}/dialog-flags-fired-dark.png` });
   await A.p.keyboard.press('Escape');
-  const dlg2 = await showDialog(A.p, 'dark', false);
-  check('dialog: not fired reads "Not all three at once" with two flags on', (await dlg2.locator('[data-testid="approval-rule-of-two"]').getAttribute('data-fired')) === 'no' && /Not all three at once/.test(await dlg2.locator('[data-testid="approval-rule-of-two"]').innerText()) && (await dlg2.locator('[data-on="yes"]').count()) === 2);
+  const dlg2 = await showDialog(A.p, plain);
+  const n2 = dlg2.locator('[data-testid="approval-rule-of-two"]');
+  check('dialog (real server response): not fired reads "Not all three at once" with two flags on', (await n2.getAttribute('data-fired')) === 'no' && /Not all three at once/.test(await n2.innerText()) && (await n2.locator('[data-on="yes"]').count()) === 2);
   await frame(A.p);
   await A.p.screenshot({ path: `${SHOTS}/dialog-flags-notfired-dark.png` });
   await A.p.keyboard.press('Escape');
@@ -118,8 +113,13 @@ try {
   await A.p.screenshot({ path: `${SHOTS}/quality-empty-admin-dark.png` });
   await A.p.keyboard.press('Escape');
 
-  // ---- admin decides every pending approval, quickly (R2 and above)
-  const pend = list0.filter((a) => a.status === 'pending');
+  // ---- Mina (a member) decides two R2 extras; the administrator decides everything else, quickly
+  const listB0 = (await apiB('GET', '/approvals')).body.approvals ?? [];
+  const mineIds = listB0.filter((a) => a.title === 'Extra approval 5' || a.title === 'Extra approval 6');
+  const mr = [];
+  for (const a of mineIds) mr.push(await apiB('POST', `/approvals/${a.id}/decision`, { decision: 'approved', digest: a.digest, reason: 'c58' }, { 'idempotency-key': key() }));
+  check('Mina decides two R2 requests (a second approver)', mineIds.length === 2 && mr.every((r) => r.status === 200 && r.body?.approval?.state === 'approved'));
+  const pend = list0.filter((a) => a.status === 'pending' && !mineIds.some((m) => m.id === a.id));
   const results = [];
   for (const [i, a] of pend.entries()) {
     const want = i % 4 === 3 ? 'denied' : 'approved';
@@ -137,7 +137,10 @@ try {
   check('a member never gets decisionRecord', listB.filter((a) => pend.some((p) => p.id === a.id)).every((a) => a.decisionRecord === null));
   check('member API: per-approver route is refused with 403', (await apiB('GET', '/approvals/quality/approvers')).status === 403);
   const qa = (await apiB('GET', '/approvals/quality')).body.quality;
-  check('member API: the aggregate has numbers and names nobody', qa && qa.n >= 5 && qa.enough === true && typeof qa.approvalRate === 'number' && !JSON.stringify(qa).includes('Luca') && !('approvers' in qa));
+  check('F3 member API: with only two approvers the aggregate shows a member nothing (no rate, no median, no count of quick runs) and names nobody', qa && qa.n >= 5 && qa.approverCount === 2 && qa.minApprovers === 3 && qa.enough === false && qa.approvalRate === null && qa.medianLatencyMs === null && qa.fastBulk === null && !JSON.stringify(qa).includes('Luca') && !('approvers' in qa), JSON.stringify(qa));
+  check('F3: demo requests are not counted (the four demo approvals were decided too, but n is only the real ones)', qa && qa.n === 7, `n = ${qa?.n}`);
+  check('F3: an arbitrary window is refused (400), the fixed ones work', (await apiB('GET', '/approvals/quality?windowDays=45')).status === 400 && (await apiB('GET', '/approvals/quality?windowDays=7')).status === 200);
+  check('admin API: the aggregate still has numbers (the administrator sees the per-approver table anyway)', (await apiA('GET', '/approvals/quality')).body.quality?.enough === true);
 
   // ---- admin dialog with numbers and the per-approver table
   await A.p.goto(base + '/notifications?tab=pending', { waitUntil: 'domcontentloaded' });
@@ -145,7 +148,7 @@ try {
   const q2 = A.p.locator('[data-dialog="DL-100"]');
   await q2.locator('[data-approval-quality="ready"]').waitFor({ timeout: 8000 });
   check('quality (admin): numbers shown, enough evidence', (await q2.locator('[data-cell="rate"]').getAttribute('data-enough')) === 'yes' && /%/.test(await q2.locator('[data-cell="rate"]').innerText()) && /\d/.test(await q2.locator('[data-cell="latency"]').innerText()));
-  check('quality (admin): per-approver table lists Luca with n and a rate', await until(async () => (await q2.locator('[data-approvers="table"] [data-approver="Luca"]').count()) === 1) && /%/.test(await q2.locator('[data-approver="Luca"]').innerText()));
+  check('quality (admin): per-approver table lists Luca and Mina with n and a rate', await until(async () => (await q2.locator('[data-approvers="table"] [data-approver="Luca"]').count()) === 1) && /%/.test(await q2.locator('[data-approver="Luca"]').innerText()) && (await q2.locator('[data-approver="Mina"]').count()) === 1);
   check('quality (admin): fits 1366x768', await inView(A.p, '[data-dialog="DL-100"]'));
   await q2.getByRole('radio', { name: '7d' }).click();
   check('quality: switching the window re-reads (7d)', await until(async () => /last 7 days/.test(await q2.innerText())));
@@ -171,7 +174,7 @@ try {
   await B.p.locator('[data-open-approval-quality]').click();
   const q3 = B.p.locator('[data-dialog="DL-100"]');
   await q3.locator('[data-approval-quality="ready"]').waitFor({ timeout: 8000 });
-  check('quality (member): totals shown', (await q3.locator('[data-cell="rate"]').getAttribute('data-enough')) === 'yes');
+  check('quality (member): with two approvers the totals read "not enough evidence" and the floor note says why', (await q3.locator('[data-cell="rate"]').getAttribute('data-enough')) === 'no' && (await q3.locator('[data-approvers-floor="shown"]').count()) === 1 && /at least 3 different people/.test(await q3.innerText()));
   check('quality (member): per-approver table is not rendered and says administrators only', (await q3.locator('[data-approvers="table"]').count()) === 0 && (await q3.locator('[data-approvers="hidden"]').count()) === 1 && !/Luca/.test(await q3.innerText()));
   check('quality (member): the browser never asked for the per-approver route', memberNet.approvers.length === 0 && memberNet.quality.length >= 1, `${memberNet.quality.length} aggregate reads`);
   check('quality (member): fits 1366x768', await inView(B.p, '[data-dialog="DL-100"]'));
