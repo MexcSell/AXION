@@ -69,6 +69,9 @@ describe('the row registry covers every live row', () => {
       expect(g.inputs.map((i) => i.id)).toEqual([...m.inputs]);
     }
     expect(guardRows().length).toBe(METRICS.length);
+    // S2: the verified rule reads verifies edges, and no agent-reachable site writes that edge kind (joinMission writes delegated edges only)
+    for (const id of ['scorecard.verified_success_rate', 'scorecard.completed_unverified', 'kpi.success.api']) expect(guardRows().find((g) => g.id === id)!.gameable, id).toBe(false);
+    expect(guardRows().filter((g) => g.gameable).length).toBe(11);
     // the rows an agent identity can reach today, by the inventory (a change here is a reviewed decision)
     expect(guardRows().filter((g) => g.gameable).map((g) => g.id).sort()).toMatchSnapshot();
   });

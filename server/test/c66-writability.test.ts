@@ -116,8 +116,8 @@ describe('writabilityOf (threshold b: a row fed by an agent-writable field is fl
   });
 
   it('what the code permits today: reviews, tags, lessons, approval requests, briefs and instances are agent-reachable; decisions, grants and catalogue edits are not', () => {
-    for (const f of ['task_reviews.review', 'failure_tags.mode', 'lesson_candidates.status', 'approval_requests.record', 'delegation_briefs.brief', 'agent_instances.assignment', 'mission_delegations.edge'] as const) expect(writabilityOf([f]).agentWritable, f).toBe(true);
-    for (const f of ['approval_decisions.decision', 'failure_tags.status', 'site_grants.window', 'agent_definitions.catalog', 'tasks.status', 'mission_runs.started', 'org_revisions.lines'] as const) expect(writabilityOf([f]).agentWritable, f).toBe(false);
+    for (const f of ['task_reviews.review', 'failure_tags.mode', 'lesson_candidates.status', 'approval_requests.record', 'delegation_briefs.brief', 'agent_instances.assignment', 'mission_delegations.delegated_edge'] as const) expect(writabilityOf([f]).agentWritable, f).toBe(true);
+    for (const f of ['approval_decisions.decision', 'failure_tags.status', 'site_grants.window', 'agent_definitions.catalog', 'tasks.status', 'mission_runs.started', 'org_revisions.lines', 'mission_delegations.verifies_edge'] as const) expect(writabilityOf([f]).agentWritable, f).toBe(false);
     void INPUT_FIELDS;
   });
 });

@@ -12,9 +12,6 @@ exports[`the row registry covers every live row > writability is derived: no row
   "dimension.knowledge.lessons_rolled_back",
   "kpi.approvals",
   "kpi.staffedAgents",
-  "kpi.success.api",
-  "scorecard.completed_unverified",
   "scorecard.tasks_verified_by_review",
-  "scorecard.verified_success_rate",
 ]
 `;
