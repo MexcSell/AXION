@@ -7,7 +7,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 const base = process.env.BASE || 'http://127.0.0.1:5193';
 const SHOTS = process.env.SHOTS || `/tmp/axion-api-c59-${new URL(base).port}`;
-const DOC_SHOT = process.env.DOC_SHOT_C41;
+const DOC_SHOT = process.env.DOC_SHOT_C59; // e.g. docs/screenshots/improve-c59 writes the committed shots
 mkdirSync(SHOTS, { recursive: true });
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
 const results = [];
@@ -44,6 +44,9 @@ const X = 'coder-01';
 const CAP = 3;
 let A, B, C;
 const view = async (p, name) => { await p.getByRole('radio', { name }).click(); };
+// a screenshot waits until the first card of the list stops moving (an entry animation), measured twice 200 ms apart; no fixed sleep
+const still = (p, sel) => until(async () => { const a = await p.locator(sel).first().boundingBox(); await new Promise((r) => setTimeout(r, 200)); const c = await p.locator(sel).first().boundingBox(); return !!a && !!c && a.y === c.y && a.height === c.height; }, 8000);
+const shot = async (p, name, sel) => { await still(p, sel); await p.screenshot({ path: `${SHOTS}/c59-${name}.png` }); if (DOC_SHOT) await p.screenshot({ path: `${DOC_SHOT}-${name}.png` }); };
 const panel = (p) => p.locator('[data-dev-playbooks]');
 const e2eUrl = () => { try { return /^E2E_DATABASE_URL=(.*)$/m.exec(readFileSync('../server/.env', 'utf8'))?.[1].trim(); } catch { return null; } };
 const sql = (q) => { const r = spawnSync('psql', [e2eUrl(), '-v', 'ON_ERROR_STOP=1', '-q', '-t', '-A', '-c', q], { encoding: 'utf8' }); if (r.status !== 0) throw new Error('psql: ' + (r.stderr || '').slice(0, 200)); return r.stdout.trim(); };
@@ -93,7 +96,7 @@ try {
       && (await A.p.locator(`[data-lesson="${d1.id}"]`).getByRole('button', { name: /contribution log/ }).count()) === 1);
   await A.p.locator(`[data-lesson="${d1.id}"]`).getByRole('button', { name: /Show the contribution log/ }).click();
   check('opening the Log lists who proposed it (the append-only contribution log), with a ?', await until(async () => (await A.p.locator(`[data-contrib-log="${d1.id}"] [data-contrib="proposed"]`).count()) === 1, 8000) && (await A.p.locator('[data-help-key="playbook.log"]').count()) >= 1);
-  await A.p.screenshot({ path: `${SHOTS}/c59-candidates.png` });
+  await shot(A.p, 'candidates', '[data-lesson]');
 
   // ------------------------------------------------------------ the dialog says a cited record makes a derived record
   await A.p.getByRole('button', { name: 'Propose a lesson', exact: true }).click();
@@ -115,13 +118,13 @@ try {
   check('A (no reload): the cap chip reads "active 3 of 3" and Accept is disabled with the reason and a ? (Reject still works)',
     await until(async () => (await A.p.locator('[data-cap="3"]').getAttribute('data-at-cap')) === '1', 10000)
       && await until(async () => { const c = A.p.locator(`[data-lesson="${h4.id}"]`); return (await c.count()) === 1 && (await c.getByRole('button', { name: /^Accept lesson/ }).isDisabled()) && !(await c.getByRole('button', { name: /^Reject lesson/ }).isDisabled()) && (await c.locator('[data-help-key="playbook.cap"]').count()) === 1; }, 8000));
-  await A.p.screenshot({ path: `${SHOTS}/c59-cap.png` });
+  await shot(A.p, 'cap', '[data-lesson]');
   check('C (member) sees the cap chip too', (await (async () => { await view(C.p, /^Playbook/); return until(async () => (await C.p.locator('[data-cap="3"]').count()) === 1, 8000); })()));
   await view(A.p, /^Playbook/);
   check('the playbook items carry their origin chips and each has a Log', await until(async () => (await A.p.locator('[data-playbook-item] [data-origin]').count()) === 3 && (await A.p.locator('[data-playbook-item]').first().getByRole('button', { name: /contribution log/ }).count()) === 1, 8000));
   await A.p.locator('[data-playbook-item]').first().getByRole('button', { name: /Show the contribution log/ }).click();
   check('a playbook item\'s Log shows proposed then accepted (Bea, v1)', await until(async () => (await A.p.locator(`[data-contrib-log="${h1.id}"] li`).count()) === 2 && (await A.p.locator(`[data-contrib-log="${h1.id}"]`).innerText()).includes('accepted'), 8000));
-  await A.p.screenshot({ path: `${SHOTS}/c59-playbook.png` });
+  await shot(A.p, 'playbook', '[data-playbook-item]');
 
   // ------------------------------------------------------------ retirement proposals (fixture-only)
   const skill = (await apiB('POST', '/skills', { name: 'Triage a failing check', description: 'Find the cause of a red check.', steps: [{ kind: 'observe', detail: 'Name the failing selector' }], preconditions: [], sources: [{ kind: 'review', id: 'REV-59' }] }, key())).body.skill;
@@ -139,7 +142,7 @@ try {
   const prop = A.p.locator(`[data-retirement-proposal="${skill.id}"]`);
   check('with a fixture score below the floor a proposal appears (score and n labelled fixture), the strip still says "no outcome data yet" and the skill is still approved',
     await until(async () => (await prop.count()) === 1 && (await prop.innerText()).includes('fixture') && (await A.p.locator('[data-retirement]').innerText()).includes('no outcome data yet'), 12000) && (await A.p.locator(`[data-skill="${skill.id}"]`).getAttribute('data-status')) === 'approved');
-  await A.p.screenshot({ path: `${SHOTS}/c59-retirement.png` });
+  await shot(A.p, 'retirement', '[data-retirement-proposal]');
   await prop.getByRole('button', { name: /^Keep skill/ }).click();
   check('Keep: the proposal goes away, the skill stays approved, and its log says kept', await until(async () => (await prop.count()) === 0, 10000)
     && ((await apiA('GET', `/skills/${skill.id}`)).body.skill.status === 'approved')
