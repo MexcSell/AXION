@@ -27,7 +27,7 @@ export const SYSTEM_PROPOSER = 'failure-pattern-review';
 export const PATTERN_WINDOW_DAYS = 30;
 type Q = Tx | Db;
 
-interface PatternFailure { task_id: string; agent_id: string; dept: string; tag_id: string; new_evidence: boolean }
+interface PatternFailure { task_id: string; agent_id: string; dept: string; dept_key: string; tag_id: string; new_evidence: boolean }
 /** One row per failed task of the pattern, with its owner agent and department. Newest decided first. */
 async function qualifying(c: Q, tenantId: string, modeId: string, taxonomyVersion: string, days: number): Promise<PatternFailure[]> {
   return (await c.query(`
@@ -39,7 +39,7 @@ async function qualifying(c: Q, tenantId: string, modeId: string, taxonomyVersio
       from failure_tags f join missions m on m.id = f.mission_id
       where f.tenant_id = $1 and m.tenant_id = $1 and f.mode_id = $2 and f.taxonomy_version = $3 and f.status = 'confirmed' and f.subject_kind in ('task', 'task_attempt')
         and not m.demo and m.deleted_at is null and f.created_at > now() - make_interval(days => $4::int) and f.created_at <= now())
-    select distinct on (t.id) t.id as task_id, d.id as agent_id, d.dept, c.tag_id, c.new_evidence
+    select distinct on (t.id) t.id as task_id, d.id as agent_id, btrim(d.dept) as dept, lower(btrim(d.dept)) as dept_key, c.tag_id, c.new_evidence
     from conf c join tasks t on t.id = c.task_id and t.tenant_id = $1
       left join agent_instances i on i.id = t.owner_instance_id
       join agent_definitions d on d.id = coalesce(i.agent_id, t.owner_agent) and d.tenant_id = $1
@@ -48,6 +48,19 @@ async function qualifying(c: Q, tenantId: string, modeId: string, taxonomyVersio
 
 /** Plain text for c41's lesson rule: letters, digits and common punctuation only. */
 const plainText = (s: string) => s.replace(/[^\p{L}\p{M}\p{N} .,;:!?'"()\-_/&%+=@#*[\]]/gu, ' ').replace(/\p{Default_Ignorable_Code_Point}/gu, '').replace(/:\/\/|\bwww\./gi, ' ').replace(/\s+/g, ' ').trim();
+
+/**
+ * The candidate's text. c41 allows 600 plain characters and a failure here would fail the person's confirmation, so it is built to stay under 560 whatever the data:
+ * at most 3 department names of at most 40 characters each, counts capped at 6 digits, and the names dropped altogether if it is still long.
+ */
+export function patternText(modeId: string, failures: number, departments: string[], days: number): string {
+  const mode = failureModeOf(modeId);
+  const shown = departments.slice(0, 3).map((d) => plainText(d).slice(0, 40).trim()).filter(Boolean);
+  const names = shown.join(', ') + (departments.length > 3 ? ` and ${Math.min(departments.length - 3, 999999)} more` : '');
+  const build = (list: string) => `System-derived from tool records, not written by a person. Failure mode ${modeId} (${plainText(mode?.mode.name ?? modeId).slice(0, 80)}) was confirmed on ${Math.min(failures, 999999)} failed tasks in ${Math.min(departments.length, 999999)} departments${list} in the last ${days} days. Review whether a lesson for this agent would help; rejecting it changes nothing.`;
+  const text = build(names ? ` (${names})` : '');
+  return text.length <= 560 ? text : build('');
+}
 
 export type PatternResult = { opened: false; reason: 'below_threshold' | 'already_open' | 'no_new_evidence' } | { opened: true; candidateId: string; failures: number; departments: string[] };
 /**
@@ -61,7 +74,10 @@ export async function evaluateFailurePattern(c: Tx, tenantId: string, modeId: st
     where p.tenant_id = $1 and p.mode_id = $2 and p.window_days = $3 order by p.created_at desc, p.id desc limit 1`, [tenantId, modeId, days])).rows[0] as { status: string } | undefined;
   if (open?.status === 'proposed') return { opened: false, reason: 'already_open' };
   const rows = await qualifying(c, tenantId, modeId, opts.taxonomyVersion ?? FAILURE_TAXONOMY_VERSION, days);
-  const departments = [...new Set(rows.map((r) => r.dept))].sort();
+  // departments are compared case-insensitively and trimmed (in SQL, lower(btrim())); the name kept is the first spelling seen
+  const byKey = new Map<string, string>();
+  for (const r of rows) if (!byKey.has(r.dept_key)) byKey.set(r.dept_key, r.dept);
+  const departments = [...byKey.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map((e) => e[1]);
   if (rows.length < FAILURE_PATTERN_MIN_FAILURES || departments.length < FAILURE_PATTERN_MIN_DEPARTMENTS) return { opened: false, reason: 'below_threshold' };
   if (open && !rows.some((r) => r.new_evidence)) return { opened: false, reason: 'no_new_evidence' };
 
@@ -69,8 +85,7 @@ export async function evaluateFailurePattern(c: Tx, tenantId: string, modeId: st
   for (const r of rows) count.set(r.agent_id, (count.get(r.agent_id) ?? 0) + 1);
   const agentId = [...count.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0][0];
   const mode = failureModeOf(modeId);
-  const names = departments.slice(0, 5).map(plainText).join(', ') + (departments.length > 5 ? ` and ${departments.length - 5} more` : '');
-  const text = `System-derived from tool records, not written by a person. Failure mode ${modeId} (${plainText(mode?.mode.name ?? modeId)}) was confirmed on ${rows.length} failed tasks in ${departments.length} departments (${names}) in the last ${days} days. Review whether a lesson for this agent would help; rejecting it changes nothing.`;
+  const text = patternText(modeId, rows.length, departments, days);
   const sources = rows.slice(0, 10).map((r) => ({ kind: 'failure_tag' as const, id: r.tag_id })); // c41 allows at most 10 sources; the link row below keeps every tag
   const lessonId = await proposeLesson(c, { tenantId, agentId, proposedBy: SYSTEM_PROPOSER, kind: 'agent', text, sources, correlationId: opts.correlationId ?? '' });
   const id = 'FP-' + randomBytes(16).toString('hex').toUpperCase(); // 128-bit

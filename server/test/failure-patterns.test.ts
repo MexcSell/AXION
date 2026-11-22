@@ -2,6 +2,9 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { makeTestApp, withAdmin, type TestApp, type Browser } from './helpers.ts';
 import { clearDemo } from '../src/seed/demo.ts';
+import { patternText } from '../src/failures/patterns.ts';
+import { proposeLesson } from '../src/agents/playbooks.ts';
+import { tx } from '../src/db.ts';
 import { FAILURE_PATTERN_MIN_FAILURES, FAILURE_PATTERN_MIN_DEPARTMENTS, FAILURE_TAXONOMY } from '../../shared/contracts/src/failures.ts';
 
 // Improvement cycle 63 (Phase 2, R3-8), item 2: the recurrence rule. When the same failure mode recurs in at least 3 failures across at least
@@ -107,6 +110,26 @@ describe('the rule fires at exactly 3 failures in 2 departments', () => {
     expect((await allCandidates('FM-2.2')).length).toBe(1);
     expect((await allCandidates('FM-2.2'))[0].failure_count).toBe(3); // the 40-day-old tag and the DEMO one are not in it
     expect((await allCandidates('FM-2.2'))[0].departments).toEqual(['Engineering', 'Operations']);
+  });
+});
+
+describe('fix round: department spelling and text length', () => {
+  it('departments are compared case-insensitively and trimmed: "Engineering" and " engineering " are one department', async () => {
+    await agent('ag-lc1', 'engineering'); await agent('ag-lc2', ' ENGINEERING ');
+    await fail('M-P1', 'ag-eng1', 'FM-2.4'); await fail('M-P1', 'ag-lc1', 'FM-2.4'); await fail('M-P1', 'ag-lc2', 'FM-2.4');
+    expect(await allCandidates('FM-2.4')).toHaveLength(0);       // 3 failures, one department in three spellings
+    await fail('M-P1', 'ag-ops1', 'FM-2.4');
+    const l = await allCandidates('FM-2.4');
+    expect(l).toHaveLength(1);
+    expect(l[0].department_count).toBe(2);
+  });
+  it('the generated text always fits c41\'s 600 characters and its plain-text rule, worst case: every mode, 99999 failures, 20 departments of 60 odd characters', async () => {
+    const depts = Array.from({ length: 20 }, (_, i) => `D${i}-` + '\u00e9<>`~'.repeat(12) + 'x'.repeat(5)).map((d) => d.slice(0, 60));
+    for (const m of FAILURE_TAXONOMY.flatMap((c) => c.modes)) {
+      const text = patternText(m.id, 99999, depts, 90);
+      expect(text.length, m.id).toBeLessThanOrEqual(560);
+      await tx(t.app.db, (c) => proposeLesson(c, { tenantId: 't-1', agentId: 'ag-eng1', proposedBy: 'failure-pattern-review', kind: 'agent', text, sources: [{ kind: 'failure_tag', id: 'FT-X' }], correlationId: '' })); // would throw on a length or character failure
+    }
   });
 });
 
