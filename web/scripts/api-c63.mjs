@@ -95,7 +95,7 @@ try {
   const hs = dlg().locator('[data-human-only]');
   check('below 5 failures with a channel the share is "—", with n and the window', await until(async () => (await hs.count()) === 1 && (await hs.getAttribute('data-human-only')) === 'null' && (await hs.getAttribute('data-human-only-n')) === '1'
     && /—/.test(await hs.locator('[data-human-share]').innerText()) && /n=1, last 30 days, needs 5/.test(await hs.innerText())), (await hs.innerText().catch(() => '')).replace(/\n/g, ' | '));
-  check('the missing count is shown, not hidden (0 of 1 lack a "found by")', /not recorded: 0 of 1 \(0%\)/.test(await hs.innerText()));
+  check('the missing count is shown, not hidden (0 of 1 lack a "found by")', /no “found by” given: 0 of 1 \(0%\) · no stored failure time: 1 of 1/.test(await hs.innerText()));
 
   // four more confirmed tags with a channel (mission subjects take no failure time): 3 of 5 were found by a person
   const more = [['FM-2.1', 'human_review'], ['FM-2.2', 'test'], ['FM-2.3', 'human_review'], ['FM-3.1', 'audit']];
@@ -103,11 +103,11 @@ try {
     const r = await apiA('POST', '/failure-tags', { subjectKind: 'mission', subjectId: first.mid, modeId: mode, detectionChannel: ch }, key());
     await apiA('POST', `/failure-tags/${r.body.tag.id}/decision`, { decision: 'confirm' });
   }
-  check('at 5 failures with a channel the share is a number: 3 of 5 = 60%', await until(async () => (await hs.getAttribute('data-human-only-n')) === '5' && (await hs.locator('[data-human-share]').innerText()).trim() === '60%' && /n=5, last 30 days/.test(await hs.innerText()), 12000), (await hs.innerText().catch(() => '')).replace(/\n/g, ' | '));
+  check('at 5 failures with a channel the share is a number: 3 of 5 recorded', await until(async () => (await hs.getAttribute('data-human-only-n')) === '5' && /^3 of 5 recorded$/.test((await hs.locator('[data-human-share]').innerText()).trim()) && /n=5, last 30 days/.test(await hs.innerText()), 12000), (await hs.innerText().catch(() => '')).replace(/\n/g, ' | '));
   const m = (await apiA('GET', '/company/failure-modes?window=30d&includeDemo=1')).body;
   check('the server agrees: humanOnly 3/5, missing 0, minN 5', m.detection.humanOnly.humanReview === 3 && m.detection.humanOnly.withChannel === 5 && m.detection.humanOnly.share === 0.6 && m.detection.humanOnly.minN === 5, JSON.stringify(m.detection.humanOnly));
   await apiA('POST', '/failure-tags', { subjectKind: 'mission', subjectId: first.mid, modeId: 'FM-3.3' }, key()).then((r) => apiA('POST', `/failure-tags/${r.body.tag.id}/decision`, { decision: 'confirm' }));
-  check('a confirmed tag with no channel raises the missing count (1 of 6, 17%) and leaves the share alone', await until(async () => /not recorded: 1 of 6 \(17%\)/.test(await hs.innerText()) && (await hs.locator('[data-human-share]').innerText()).trim() === '60%', 12000), (await hs.innerText().catch(() => '')).replace(/\n/g, ' | '));
+  check('a confirmed tag with no channel raises the missing count (1 of 6, 17%) and leaves the share alone; the failure-time gap is counted apart', await until(async () => /no “found by” given: 1 of 6 \(17%\)/.test(await hs.innerText()) && /^3 of 5 recorded$/.test((await hs.locator('[data-human-share]').innerText()).trim()), 12000), (await hs.innerText().catch(() => '')).replace(/\n/g, ' | '));
   await hs.locator('[data-help-key="failure.humanOnly"]').click();
   check('the ? on the share says what it is, that n is shown and that it gives no rate', await until(async () => /Found only by a person/.test(await p.locator('.help-pop').innerText()) && /gives no expected rate/.test(await p.locator('.help-pop').innerText())));
   await p.keyboard.press('Escape');

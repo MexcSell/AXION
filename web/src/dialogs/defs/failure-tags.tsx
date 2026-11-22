@@ -167,7 +167,8 @@ function TagFailure({ close, props }: DialogComponentProps<{ missionId?: string;
                     {(t.detectionChannel || t.mechanism || t.controlExpected || t.controlCaught) && (
                       <span className="row dim" style={{ flexBasis: '100%', gap: 8, flexWrap: 'wrap', fontSize: 11.5 }} data-detection={t.detectionChannel ?? ''} data-detected-after={t.detectedAfterSeconds ?? ''}>
                         <UserSearch size={11} aria-hidden />
-                        {t.detectionChannel && <span>Found by <b>{labelOf(DETECTION_CHANNELS, t.detectionChannel)}</b>{t.detectedAfterSeconds !== null ? ` after ${span(t.detectedAfterSeconds)}` : ''}</span>}
+                        {t.detectionChannel && <span>Found by <b>{labelOf(DETECTION_CHANNELS, t.detectionChannel)}</b></span>}
+                        {t.detectedAfterSeconds !== null && <span title="Measured to the moment the tag was made, not to when someone first noticed. Tagging late makes it longer.">tagged <b>{span(t.detectedAfterSeconds)}</b> after the failure</span>}
                         {t.mechanism && <span>Failed: <b>{labelOf(FAILURE_MECHANISMS, t.mechanism)}</b></span>}
                         {t.controlExpected && <span>Should have caught it: <b>{labelOf(FAILURE_CONTROLS, t.controlExpected)}</b></span>}
                         {t.controlCaught && <span>Did: <b>{labelOf(FAILURE_CONTROLS, t.controlCaught)}</b></span>}
@@ -221,11 +222,11 @@ function TagFailure({ close, props }: DialogComponentProps<{ missionId?: string;
               <div className="oa-move" style={{ gap: 8 }} data-human-only={c.detection.humanOnly.share === null ? 'null' : String(c.detection.humanOnly.share)} data-human-only-n={c.detection.humanOnly.withChannel} data-missing-channel={c.detection.fields.channel.missing}>
                 <UserSearch size={14} className="info" aria-hidden />
                 <b>Found only by a person</b>
-                <span className="tnum" data-human-share>{c.detection.humanOnly.share === null ? '—' : pct(c.detection.humanOnly.share)}</span>
+                <span className="tnum" data-human-share>{c.detection.humanOnly.share === null ? '—' : `${c.detection.humanOnly.humanReview} of ${c.detection.humanOnly.withChannel} recorded`}</span>
                 <span className="dim tnum" title={`Failures with a recorded way of being found, in the last ${c.detection.humanOnly.window.replace('d', '')} days`}>
                   n={c.detection.humanOnly.withChannel}, {c.detection.humanOnly.window === '30d' ? 'last 30 days' : c.detection.humanOnly.window}{c.detection.humanOnly.share === null ? `, needs ${c.detection.humanOnly.minN}` : ''}
                 </span>
-                <span className="dim tnum" data-missing>· not recorded: {c.detection.fields.channel.missing} of {c.n}{c.detection.fields.channel.missingShare !== null ? ` (${pct(c.detection.fields.channel.missingShare)})` : ''} have no “found by”</span><HelpTrigger k="failure.missing" />
+                <span className="dim tnum" data-missing>· no “found by” given: {c.detection.fields.channel.missing} of {c.n}{c.detection.fields.channel.missingShare !== null ? ` (${pct(c.detection.fields.channel.missingShare)})` : ''} · no stored failure time: {c.detection.noFailureTime} of {c.detection.fields.channel.have}</span><HelpTrigger k="failure.missing" />
                 <span className="spacer" /><HelpTrigger k="failure.humanOnly" />
               </div>)}
           </div>
