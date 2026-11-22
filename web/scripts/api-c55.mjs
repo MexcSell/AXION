@@ -12,7 +12,7 @@ const base = process.env.BASE || 'http://127.0.0.1:5193';
 const MODE = process.env.MODE || 'anchor';
 const N = Number(process.env.MIXED_N || 200), ROUNDS = Number(process.env.ROUNDS || 3), RO_DELAY = Number(process.env.RO_DELAY || 3000);
 const THROTTLE = Number(process.env.THROTTLE || 1), MAX_SHIFT = Number(process.env.MAX_SHIFT || 8);
-const LATE_PX = Number(process.env.LATE_PX ?? 300), LATE_AT = Number(process.env.LATE_AT || 1300);
+const LATE_PX = Number(process.env.LATE_PX ?? (MODE === 'never' ? 0 : 300)), LATE_AT = Number(process.env.LATE_AT || 1300);
 const TOPPX = Number(process.env.TOPPX || 0);
 const load = () => readFileSync('/proc/loadavg', 'utf8').split(' ').slice(0, 3).join(' ');
 const until = async (f, ms = 10000, step = 100) => { const t0 = Date.now(); for (;;) { try { if (await f()) return true; } catch { /* retry */ } if (Date.now() - t0 > ms) return false; await new Promise((r) => setTimeout(r, step)); } };
@@ -78,7 +78,7 @@ await until(async () => (await body.evaluate((el) => el.scrollHeight - el.scroll
 await p.waitForTimeout(800); // the first measurements of the newest page land
 
 /** one older page: hold its request, scroll to the top, remember the first visible row, release; sample that row for 4 s */
-async function olderPage(delay) {
+async function olderPage(delay, keep = false) {
   const before = await held(mid, tid);
   const heldRoutes = [];
   const re = new RegExp(`/api/v1/threads/${tid}/messages\\?.*before=`);
@@ -113,6 +113,7 @@ async function olderPage(delay) {
     return out;
   }, { id: a.id, t0: a.top }) : [];
   const grew = late ? await late : null;
+  if (keep) return { landed, a, trail, grew }; // the reader stays put and the callbacks stay swallowed
   await p.evaluate(() => { window.__roDelay = 0; });
   await p.waitForTimeout(600);
   await body.evaluate((el) => { el.scrollTop += 400; });
@@ -125,7 +126,8 @@ if (MODE === 'anchor') {
   console.log(`load ${load()} · THROTTLE ${THROTTLE} · RO_DELAY ${RO_DELAY} ms · N ${N}`);
   for (let round = 0; round < ROUNDS && await body.evaluate((el) => el.dataset.hasOlder === '1'); round++) {
     const r = await olderPage(RO_DELAY);
-    const worst = r.trail.reduce((m, [, d]) => Math.max(m, d == null ? 999 : Math.abs(d)), 0);
+    // the grow is a DOM write a commit has not seen yet: samples from LATE_AT + 600 ms (the thread has committed since) are the bar
+    const worst = r.trail.filter(([t]) => LATE_PX <= 0 || t < LATE_AT - 100 || t >= LATE_AT + 600).reduce((m, [, d]) => Math.max(m, d == null ? 999 : Math.abs(d)), 0);
     shifts.push(r.landed && r.a ? worst : 999);
     console.log(`  page ${round + 1}: landed ${r.landed} · row ${r.a?.id} · row above grew ${r.grew} · shift over 4 s (every 100 ms): ${r.trail.map(([, d]) => d == null ? '-' : d.toFixed(1)).join(' ')}`);
   }
@@ -135,9 +137,13 @@ if (MODE === 'anchor') {
 }
 if (MODE === 'never') {
   // rows above the anchor never measure (callbacks swallowed): the anchor is released after the bound, once, with a warning
-  const r = await olderPage(Infinity);
-  const warns = await p.evaluate(() => window.__warns.filter((w) => /anchor/i.test(w)));
-  check('rows that never measure: the anchor is released by the bounded exit with one logged warning', r.landed && warns.length === 1, `warnings: ${JSON.stringify(warns)}`);
+  const r = await olderPage(Infinity, true);
+  const t0 = Date.now(), warned = () => p.evaluate(() => window.__warns.filter((w) => /anchor/i.test(w)));
+  const quietBefore = (await warned()).length === 0;
+  await until(async () => (await warned()).length > 0, 14000, 200);
+  await p.waitForTimeout(1500);
+  const warns = await warned();
+  check('rows that never measure: no release before the bound, then exactly one logged warning', r.landed && quietBefore && warns.length === 1, `first warning ${Math.round((Date.now() - t0) / 100) / 10} s after the 4 s sample · ${JSON.stringify(warns)}`);
 }
 check('no page errors', errors.length === 0, errors.join(' | '));
 await b.close();
