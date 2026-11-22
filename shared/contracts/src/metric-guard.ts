@@ -119,6 +119,7 @@ export const ROUTE_NO_INPUT: Record<string, string> = {
   'POST /uploads': 'stores an uploaded file; a review may cite it as evidence, but no row reads the upload itself',
   'POST /notifications/:id/ack': 'marks a notice read; notices are not an input of any row', 'POST /notifications/ack-all': 'marks notices read; notices are not an input of any row',
   'POST /agents/:id/mentoring': 'writes a mentoring plan; no row reads plans', 'POST /mentoring/:pid/close': 'closes a mentoring plan; no row reads plans', 'POST /mentoring/:pid/milestones/:mid/done': 'ticks a mentoring milestone; no row reads plans',
+  'POST /company/metric-audits': 'appends a human audit label (administrators only) to its own table; a row\'s flag reads the labels, but no row\'s value or input does',
   'POST /skills': 'writes a skill record; no row reads skills', 'POST /skills/:sid/approve': 'writes a skill record; no row reads skills', 'POST /skills/:sid/retire': 'writes a skill record; no row reads skills',
   'POST /organization/proposals': ORG, 'POST /organization/proposals/:id/withdraw': ORG, 'POST /organization/revisions/:seq/rollback-proposal': ORG,
 };

@@ -83,6 +83,7 @@ export const ROUTES: Record<string, RouteEntry> = {
   'POST /auth/cancel': { v: C.okBody },
   'POST /auth/connect': { v: C.connectResult },
   'POST /auth/logout': { v: C.okBody },
+  'POST /company/metric-audits': { v: C.metricAuditResult, admin: true },
   'POST /channels/:key/messages': { v: C.messageBody },
   'POST /channels/admin/:userId/messages': { v: C.messageBody },
   'POST /failure-tags': { v: C.failureTagBody },

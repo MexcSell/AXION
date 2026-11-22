@@ -336,7 +336,9 @@ describe('API coverage run', () => {
     await call(admin, 'GET', '/company/dimensions', '/company/dimensions', { query: `?window=7d&department=${encodeURIComponent(dim.departments[0])}` });
     await call(mina, 'GET', '/company/dimensions', '/company/dimensions');
     await call(admin, 'GET', '/company/metric-guard', '/company/metric-guard');
+    await call(admin, 'POST', '/company/metric-audits', '/company/metric-audits', { status: 201, body: { metricId: 'scorecard.finished', samples: Array.from({ length: 64 }, (_, i) => ({ sampleRef: `m${i}`, metricLabel: true, auditLabel: i >= 12 })) } });
     await call(mina, 'GET', '/company/metric-guard', '/company/metric-guard');
+    await call(admin, 'GET', '/company/metric-guard', '/company/metric-guard'); // second read: the audit state is now filled
     await call(mina, 'GET', '/departments', '/departments');
     await call(admin, 'GET', '/departments', '/departments', { query: '?window=7d&includeDemo=1' });
     await call(admin, 'GET', '/operations/health', '/operations/health');

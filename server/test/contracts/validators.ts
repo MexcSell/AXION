@@ -12,7 +12,7 @@ import {
   type PolicyKindDto, type ProgressBody, type Provenance, type ReviewActor, type ReviewerAgreement, type RubricItem, type ScorecardRow, type SiteGrantDto, type SkillDto,
   type SkillStep, type SourceRef, type TaskBody, type TaskDto, type TaskReviewDto, type TaskReviewsDto, type ThreadDto, type ThreadPartnerDto, type ThroughputDto,
   type UploadDto, type VersionConfig, type VersionDiff, type VersionProposalDto, type AgentReliability, type QueueSummaryDto, type AnchorStatusDto, type AnchorTenantDto, ANCHOR_STATUS_NAMES, JOB_STATUS_NAMES,
-  type MetricGuardDto, type MetricGuard, QUALITY_DIMENSION_IDS, type ProposalEvaluationDto, type EvalRefusalDto, type CompanyDimensionsDto, type DimensionRowDto, type DimensionCell, DIMENSION_KEYS, DIMENSION_WINDOWS,
+  type MetricGuardDto, type MetricGuard, type MetricGuardRow, type MetricAuditState, type MetricAuditResult, QUALITY_DIMENSION_IDS, type ProposalEvaluationDto, type EvalRefusalDto, type CompanyDimensionsDto, type DimensionRowDto, type DimensionCell, DIMENSION_KEYS, DIMENSION_WINDOWS,
 } from '../../../shared/contracts/src/index.ts';
 
 export const errorEnvelope: V<ErrorEnvelope> = obj<ErrorEnvelope>({ code: oneOf(ERROR_CODES), message: str, correlationId: str, retryable: bool, fieldErrors: opt(dict(str)) });
@@ -353,10 +353,14 @@ export const dimensions: V<CompanyDimensionsDto> = obj<CompanyDimensionsDto>({
 });
 
 // ---- metric guard (c66)
-const metricGuardRow: V<MetricGuard> = obj<MetricGuard>({
+const metricAuditState: V<MetricAuditState> = obj<MetricAuditState>({
+  n: int, disagreements: int, metricOver: int, auditOver: int, divergence: nullable(num), bar: num, minN: int, state: oneOf(['none', 'ok'] as const), flagged: bool, lastAuditedAt: nullable(iso),
+});
+const metricGuardRow: V<MetricGuardRow> = obj<MetricGuardRow>({
   id: str, kind: oneOf(['scorecard', 'dimension', 'kpi'] as const), label: str,
   counter: either(obj<Extract<MetricGuard['counter'], { kind: 'metric' }>>({ kind: lit('metric' as const), ref: str, refLabel: str, why: str }), obj<Extract<MetricGuard['counter'], { kind: 'none' }>>({ kind: lit('none' as const), reason: str })),
   uncovered: arr(obj<MetricGuard['uncovered'][number]>({ id: oneOf(QUALITY_DIMENSION_IDS), label: str })),
-  gameable: bool, gameableText: str, inputs: arr(obj<MetricGuard['inputs'][number]>({ id: str, what: str })),
+  gameable: bool, gameableText: str, inputs: arr(obj<MetricGuard['inputs'][number]>({ id: str, what: str })), audit: metricAuditState,
 });
 export const metricGuard: V<MetricGuardDto> = obj<MetricGuardDto>({ rows: arr(metricGuardRow), promotionNote: str });
+export const metricAuditResult: V<MetricAuditResult> = obj<MetricAuditResult>({ recorded: int, audit: metricAuditState });

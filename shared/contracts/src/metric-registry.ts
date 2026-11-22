@@ -149,4 +149,25 @@ export function registryProblems(metrics: readonly MetricMeta[], liveIds: readon
 
 /** GET /company/metric-guard (c66). The flag is display only; the promotion-input rule waits for R3-3 and is recorded as this note, nothing more. */
 export const PROMOTION_NOTE = 'The "gameable" flag is display only. Whether a gameable row may ever be an input to a promotion decision belongs to R3-3, which waits for the owner\'s answer to Q13. Nothing in AXION changes because of this flag.';
-export interface MetricGuardDto { rows: MetricGuard[]; promotionNote: string }
+export interface MetricGuardDto { rows: MetricGuardRow[]; promotionNote: string }
+
+/** c66 item 4: what a periodic human audit says about a row. Percentages are 0..100. `divergence` is null below `minN` samples (state 'none'). */
+export interface MetricAuditState {
+  /** audited samples (the latest label of each sample counts) */
+  n: number;
+  disagreements: number;
+  /** the metric counted the sample as a success and the person found it was not (the direction gaming pushes) */
+  metricOver: number;
+  /** the person found a success the metric did not count */
+  auditOver: number;
+  divergence: number | null;
+  /** the stated bar: a row is flagged when divergence is at or above it */
+  bar: number;
+  minN: number;
+  state: 'none' | 'ok';
+  flagged: boolean;
+  lastAuditedAt: string | null;
+}
+export interface MetricGuardRow extends MetricGuard { audit: MetricAuditState }
+export interface MetricAuditIn { metricId: string; samples: { sampleRef: string; metricLabel: boolean; auditLabel: boolean; note?: string }[] }
+export interface MetricAuditResult { recorded: number; audit: MetricAuditState }
