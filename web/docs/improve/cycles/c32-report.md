@@ -26,15 +26,26 @@ Branch `c32-eval-model` (from improve-30h 4ff1b40). Records and pure functions o
 | Hash mismatch, dev/holdout reuse, self-judging refused with reason | PASS (`hash_mismatch`, `dev_holdout_reuse`, `self_judging`; plus missing/not-holdout/not-frozen) |
 | c13 verdict tests unchanged and green; tsc clean; full vitest green | PASS. 625/625, verdict.test.ts and verdict.ts untouched |
 
-## Verification not fully done
+## Verification
 - Migration up -> down -> up: PASS inside a populated test schema (`eval-model.test.ts`, on axion_test).
-- NOT RUN: the api-improve browser check and a migration run on `axion_e2e30`. That database does not exist and the `axion` role has no CREATEDB permission, so I could not create it (a sudo-as-postgres attempt was blocked by the permission classifier and I stopped). `api-e2e.sh` fails at API start (`InitPostgres`), output "0/1 passed", which is the missing database, not a code failure. No web code changed (web tsc clean). Needs the controller to create `axion_e2e30` (owner axion), then rerun `cd web && E2E_API_PORT=8092 E2E_WEB_PORT=8093 /home/luca/AXION-lanes/heavy.sh ./scripts/api-e2e.sh api-improve.mjs`.
+- Browser check: `E2E_API_PORT=8092 E2E_WEB_PORT=8093 heavy.sh ./scripts/api-e2e.sh api-improve.mjs` -> `107/107 passed`, no page errors, 0 FAIL. It ran against `axion_e2e4`, a retired lane's e2e DB that the controller pointed this lane at, because `axion_e2e30` could not be created (the `axion` role has no CREATEDB). No web code changed.
 
 ## Files changed
 - new: server/src/evolution/stats.ts, server/src/evolution/verdict-v2.ts, server/migrations/0027_eval_model.up.sql, server/migrations/0027_eval_model.down.sql, server/test/stats.test.ts, server/test/verdict-v2.test.ts, server/test/eval-model.test.ts, this report.
 
+## Fix round (after review CLEAR)
+RED first: 4 new tests failed (zero-case freeze, truncate x4 tables, cross-tenant run, tQuantile975(Infinity)).
+- TRUNCATE guards (statement-level, `instances_append_only`) added on `eval_datasets` and `eval_cases` (`eval_runs` and `eval_results` already had them); test truncates all four with cascade and expects refusal.
+- Freezing a dataset with zero cases is refused (`eval_datasets_guard`).
+- `eval_runs` insert checks the subject version's agent belongs to the run's tenant (join agent_versions -> agent_definitions; cheap).
+- Tests now assert `unpaired_cases` (candidate missing a case) and `bad_scores` (score 150, negative cost) with their codes; the verdict code already behaved correctly.
+- `tQuantile975(Infinity)` returns 1.959964.
+- Migration 0027 edited in place (unmerged, reserved to this lane). v1 untouched.
+- Result: server tsc clean; full vitest 40 files, 630 tests passed.
+- Left to the wiring follow-up: checking `content_sha256` against the stored cases, and binding `observedSha256` / run -> dataset inside the verdict input.
+
 ## Concerns
-- Policy numbers not fixed by the brief and chosen by me: minCases 10 (a two-sided sign test cannot reach p < 0.05 below n = 6, and I wanted headroom), passScore 70, null attempt = 0. The controller may want to confirm.
+- (Accepted by the controller.) Policy numbers not fixed by the brief and chosen by me: minCases 10 (a two-sided sign test cannot reach p < 0.05 below n = 6, and I wanted headroom), passScore 70, null attempt = 0. The controller may want to confirm.
 - Requiring the t-interval lower bound > 0 in addition to the sign test is stricter than the brief's minimum; it only ever turns a "verified" into "inconclusive".
 - Migrations 0024-0026 are on other lanes; the migration test computes the previous version dynamically so it holds after they merge.
 - Nothing yet wires `verdictV2` into the version-proposal flow (proposals still show `evaluation: null`).

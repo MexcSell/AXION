@@ -54,6 +54,9 @@ begin
     return old;
   end if;
   if old.frozen_at is not null then raise exception 'eval dataset % is frozen', old.id; end if;
+  if new.frozen_at is not null and not exists (select 1 from eval_cases where dataset_id = old.id) then
+    raise exception 'eval dataset % has no cases; it cannot be frozen', old.id;
+  end if;
   return new;
 end $$;
 create trigger eval_datasets_guard before update or delete on eval_datasets for each row execute function eval_datasets_guard();
@@ -76,12 +79,14 @@ create trigger eval_cases_guard before insert or update or delete on eval_cases 
 
 -- a run needs a frozen dataset of the same tenant; afterwards only finished_at may be set, once
 create function eval_runs_guard() returns trigger language plpgsql as $$
-declare fz timestamptz; tn text;
+declare fz timestamptz; tn text; vt text;
 begin
   if tg_op = 'INSERT' then
     select frozen_at, tenant_id into fz, tn from eval_datasets where id = new.dataset_id;
     if fz is null then raise exception 'eval dataset % is not frozen; a run needs a frozen dataset', new.dataset_id; end if;
     if tn <> new.tenant_id then raise exception 'eval run tenant differs from its dataset'; end if;
+    select d.tenant_id into vt from agent_versions v join agent_definitions d on d.id = v.agent_id where v.id = new.subject_version_id;
+    if vt is distinct from new.tenant_id then raise exception 'eval run tenant differs from the tenant of its subject version'; end if;
     return new;
   end if;
   if tg_op = 'DELETE' then
@@ -114,3 +119,7 @@ end $$;
 create trigger eval_results_check before insert on eval_results for each row execute function eval_results_check();
 create trigger eval_results_no_update before update or delete on eval_results for each row execute function instances_append_only();
 create trigger eval_results_no_truncate before truncate on eval_results for each statement execute function instances_append_only();
+
+-- no TRUNCATE on any evaluation record (same guard as the other append-only history tables)
+create trigger eval_datasets_no_truncate before truncate on eval_datasets for each statement execute function instances_append_only();
+create trigger eval_cases_no_truncate before truncate on eval_cases for each statement execute function instances_append_only();

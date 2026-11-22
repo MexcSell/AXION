@@ -125,6 +125,15 @@ describe('refusals', () => {
     expect(codes(verdictV2(mk(b, c, { evaluatorId: 'author' })))).toContain('evaluator_is_author');
     expect(codes(verdictV2(mk(b, c, { candidate: runs(c, 1, 2) })))).toContain('unequal_attempts');
   });
+  it('unpaired cases and bad scores are refused with their codes', () => {
+    expect(codes(verdictV2(mk(b, c, { candidate: runs(c).slice(1) })))).toContain('unpaired_cases');
+    const bad = runs(c); bad[0] = { caseId: 'c1', attempts: [{ score: 150, costUnits: 1 }] };
+    const r = verdictV2(mk(b, c, { candidate: bad }));
+    expect(codes(r)).toContain('bad_scores');
+    expect(r.outcome).toBe('inconclusive');
+    const negCost = runs(c); negCost[0] = { caseId: 'c1', attempts: [{ score: 50, costUnits: -1 }] };
+    expect(codes(verdictV2(mk(b, c, { candidate: negCost })))).toContain('bad_scores');
+  });
   it('a clean input has no refusals', () => { expect(verdictV2(mk(b, c)).refusals).toEqual([]); });
 });
 

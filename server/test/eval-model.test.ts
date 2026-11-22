@@ -55,10 +55,30 @@ describe('datasets and cases', () => {
   });
 });
 
+describe('fix round', () => {
+  it('cannot freeze a dataset with zero cases', async () => {
+    await q(`insert into eval_datasets(id, tenant_id, name, version, split) values ('DS-E','t-1','empty',1,'dev')`);
+    await expect(q(`update eval_datasets set frozen_at = now(), content_sha256 = $1 where id='DS-E'`, ['d'.repeat(64)])).rejects.toThrow(/no cases/);
+  });
+  it('truncate is refused on all four tables', async () => {
+    for (const t of ['eval_datasets', 'eval_cases', 'eval_runs', 'eval_results']) {
+      await expect(q(`truncate ${t} cascade`)).rejects.toThrow(/append-only/);
+    }
+    expect((await q(`select count(*)::int n from eval_cases`)).rows[0].n).toBeGreaterThan(0);
+  });
+  it('a run cannot evaluate a version of another tenant\'s agent', async () => {
+    await q(`insert into tenants(id,name) values ('t-2','Other')`);
+    await q(`insert into agent_definitions(id, tenant_id, name, role, dept, duty, created_by) values ('a-2','t-2','B','r','D','duty2','u')`);
+    const v2 = (await q(`insert into agent_versions(agent_id, seq, label, model, prompt_hash, created_by) values ('a-2',1,'v1','m','h','u') returning id`)).rows[0].id;
+    await q(`update eval_datasets set frozen_at = now(), content_sha256 = $1 where id='DS-1' and frozen_at is null`, ['c'.repeat(64)]);
+    await expect(q(`insert into eval_runs(id, tenant_id, dataset_id, subject_version_id, k) values ('ER-T','t-1','DS-1',$1,1)`, [v2])).rejects.toThrow(/tenant/);
+  });
+});
+
 describe('runs and results', () => {
   let run: string;
   beforeAll(async () => {
-    await q(`update eval_datasets set frozen_at = now(), content_sha256 = $1 where id='DS-1'`, ['c'.repeat(64)]);
+    await q(`update eval_datasets set frozen_at = now(), content_sha256 = $1 where id='DS-1' and frozen_at is null`, ['c'.repeat(64)]);
     run = 'ER-1';
     await q(`insert into eval_runs(id, tenant_id, dataset_id, subject_version_id, k) values ($1,'t-1','DS-1',$2,2)`, [run, vid]);
   });

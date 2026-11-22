@@ -82,6 +82,7 @@ export function tCdf(t: number, df: number): number {
 /** The 97.5th percentile of Student's t (two-sided 95 % critical value), by bisection on the exact CDF. */
 export function tQuantile975(df: number): number {
   if (!(df >= 1)) throw new Error('df must be >= 1');
+  if (df === Infinity) return 1.959964; // the normal 97.5th percentile
   let lo = 0;
   let hi = 1e6;
   for (let i = 0; i < 200; i++) {

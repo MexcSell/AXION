@@ -41,6 +41,7 @@ describe('t quantile and paired CI', () => {
     expect(r4(tQuantile975(29))).toBe(2.0452);
     expect(r4(tQuantile975(120))).toBe(1.9799);
   });
+  it('infinite df gives the normal value 1.95996', () => { expect(Math.round(tQuantile975(Infinity) * 1e5) / 1e5).toBe(1.95996); });
   it('95% CI of the mean: [1,2,3,4,5] -> 3 +/- 1.9600?', () => {
     // mean 3, sd sqrt(2.5), se = sqrt(0.5) = 0.70711, t(4)=2.7764 -> half 1.9632
     const ci = pairedMeanCI([1, 2, 3, 4, 5]);
