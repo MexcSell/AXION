@@ -25,6 +25,9 @@ import '@/theme/pages/settings-ops-help.css';
 import '@/theme/pages/settings-nav.css';
 import { NavigationSettings } from '@/features/settings/NavigationSettings';
 import { UsersSettings } from '@/features/settings/UsersSettings';
+import { SiteGrants } from '@/features/settings/SiteGrants';
+import { isApi } from '@/api/mode';
+import { isAdmin, useMe } from '@/store/auth';
 import '@/theme/pages/users-settings.css';
 
 const ICONS = [SlidersHorizontal, UsersRound, PanelLeft, Palette, ScanFace, Accessibility, Globe, Plug, HardDrive, ShieldCheck, DatabaseBackup];
@@ -262,6 +265,7 @@ function BrowserTab() {
   const [dl, setDl] = useState(false);
   const [grant, setGrant] = useState('1h');
   const [testing, setTesting] = useState(0);
+  const grantsUi = isApi() && isAdmin(useMe()); // c36: real site grants, administrators, api mode
   const run = () => {
     setTesting(1);
     let p = 1;
@@ -287,10 +291,13 @@ function BrowserTab() {
           </div>
         </div>
       </Panel>
-      <Panel icon={ShieldCheck} title="Effective policy" help="settings.browser" delay={.12} actions={<DemoTag />}>
-        <div className="table-wrap"><table className="table"><thead><tr><th>Setting</th><th>Value</th><th>Source</th></tr></thead>
-          <tbody>{policy.map(([a, b, c]) => <tr key={a}><td>{a}</td><td className="mono">{b}</td><td><Chip hue={c === 'Policy' ? 268 : 205} size="sm">{c}</Chip></td></tr>)}</tbody></table></div>
-      </Panel>
+      <div className="col" style={{ gap: 'var(--gap)' }}>
+        {grantsUi && <SiteGrants />}
+        <Panel icon={ShieldCheck} title="Effective policy" help="settings.browser" delay={.12} actions={<DemoTag />}>
+          <div className="table-wrap"><table className="table"><thead><tr><th>Setting</th><th>Value</th><th>Source</th></tr></thead>
+            <tbody>{policy.map(([a, b, c]) => <tr key={a}><td>{a}</td><td className="mono">{b}</td><td><Chip hue={c === 'Policy' ? 268 : 205} size="sm">{c}</Chip></td></tr>)}</tbody></table></div>
+        </Panel>
+      </div>
     </div>
   );
 }

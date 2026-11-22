@@ -1,0 +1,74 @@
+[
+ {
+  "input": "https://example.com",
+  "origin": "https://example.com"
+ },
+ {
+  "input": "https://example.com/",
+  "origin": "https://example.com"
+ },
+ {
+  "input": "HTTPS://Example.COM",
+  "origin": "https://example.com"
+ },
+ {
+  "input": "https://example.com:443",
+  "origin": "https://example.com"
+ },
+ {
+  "input": "https://example.com:443/",
+  "origin": "https://example.com"
+ },
+ {
+  "input": "https://example.com:8443",
+  "origin": "https://example.com:8443"
+ },
+ {
+  "input": "https://www.example.co.uk",
+  "origin": "https://www.example.co.uk"
+ },
+ {
+  "input": "https://sub.domain.example.org/",
+  "origin": "https://sub.domain.example.org"
+ },
+ {
+  "input": "https://a-b.example.com",
+  "origin": "https://a-b.example.com"
+ },
+ {
+  "input": "https://1password.com",
+  "origin": "https://1password.com"
+ },
+ {
+  "input": "https://example.com:65535",
+  "origin": "https://example.com:65535"
+ },
+ {
+  "input": "https://deploy.vercel.app",
+  "origin": "https://deploy.vercel.app"
+ },
+ {
+  "input": "https://api.stripe.com",
+  "origin": "https://api.stripe.com"
+ },
+ {
+  "input": "https://docs.python.org",
+  "origin": "https://docs.python.org"
+ },
+ {
+  "input": "https://news.ycombinator.com/",
+  "origin": "https://news.ycombinator.com"
+ },
+ {
+  "input": "https://EN.Wikipedia.org:443",
+  "origin": "https://en.wikipedia.org"
+ },
+ {
+  "input": "https://example.co.uk",
+  "origin": "https://example.co.uk"
+ },
+ {
+  "input": "https://myorg.github.io",
+  "origin": "https://myorg.github.io"
+ }
+]
