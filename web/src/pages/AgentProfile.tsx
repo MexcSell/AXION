@@ -120,7 +120,8 @@ function Profile({ agent }: { agent: Agent }) {
           <div className="oa-hero-side">
             <ReliabilityStat agent={agent} />
             <div className="oa-kv-big"><div><b className="display tnum">{noEv ? '–' : <CountUp value={agent.success} suffix="%" />}</b><span>Verified success</span></div><div><b className="display tnum">{agent.sample}</b><span>Tasks evaluated</span></div><div><b className="display tnum">{agent.missions}</b><span>Missions</span></div><div><b className="display tnum">{agent.load}%</b><span>Load</span></div></div>
-            <div className="row wrap" style={{ gap: 8 }}>
+            <div className="oa-hero-actions">
+            <div className="row wrap oa-hero-btns" style={{ gap: 8 }}>
               <button className="btn primary" onClick={() => openDialog('agent-assign', { agentId: agent.id })}><Target size={15} />Assign to mission</button>
               <button className="btn" onClick={() => openDialog('mentoring-session', { agentId: agent.id })}><GraduationCap size={15} />Mentor</button>
               {canEdit && <button className="btn" onClick={() => openDialog('agent-edit', { agentId: agent.id })}><PencilLine size={15} />Edit</button>}
@@ -131,6 +132,7 @@ function Profile({ agent }: { agent: Agent }) {
               ]} />
             </div>
             <div className="dim" style={{ fontSize: 12 }}>{mgr ? <>Reports to <button className="oa-link-btn" onClick={() => nav(`/agents/${mgr.id}`)}>{mgr.name}</button> · </> : null}created {agent.createdAgo}d ago</div>
+            </div>
           </div>
         </div>
       </motion.section>
