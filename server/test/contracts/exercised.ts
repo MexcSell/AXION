@@ -19,5 +19,4 @@ export const UNEXERCISED_ALLOWED: [RegExp, string][] = [
   [/^GET \/operations\/anchors \.(lastAnchorAt|restartedAt|tenants\[\]\.(anchoredSeq|anchoredAt)) never non-null$/, 'a checkpoint needs AUDIT_ANCHOR_KEY, a domain and a file written by the operator CLI (npm run audit:anchor), and a rotation needs a signed rotate; the flow has none configured. audit-anchor.test.ts validates the route against a written checkpoint and a rotated file, and api-c49 does it in the browser'],
   [/^GET \/operations\/health \.backup\.(last|file) never non-null$/, 'no backup job has run in the test database'],
   [/^(GET \/lessons|GET \/lessons\/:lid|POST \/agents\/:id\/lessons) \S*submittedBy never non-null$/, 'submittedBy is set only when a lesson is proposed by an agent on a person\'s behalf; no route sets it'],
-  [/^POST \/approvals\/:id\/decision \.approval\.decidedByName never non-null$/, 'FINDING (c50 report): the decision response is built from a bare approval_requests row without the decider join, so it reports decidedByName null while the next GET /approvals shows the name'],
 ];
