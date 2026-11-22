@@ -2,7 +2,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { LiveStatus } from '@/components/ui/LiveStatus';
 import { useAgentsCatalog, useAgentInstances } from '@/api/agents';
 import { useNavigate } from 'react-router-dom';
-import { Target, Users, ClipboardList, Trophy, Database, HeartPulse, CheckCircle2, Scale, PlayCircle, Flag, BadgeCheck, ShieldQuestion, Timer, XCircle, RotateCcw, Hourglass } from 'lucide-react';
+import { Target, Users, ClipboardList, Trophy, Database, HeartPulse, CheckCircle2, Scale, PlayCircle, Flag, BadgeCheck, ShieldQuestion, Timer, XCircle, RotateCcw, Hourglass, UserCheck, ClipboardCheck } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { ScorecardRow, ScorecardWindow } from '@contracts';
@@ -67,6 +67,7 @@ export function useCompanyKpis(): KpiItem[] {
 const ROW_ICON: Record<ScorecardRow['key'], LucideIcon> = {
   started: PlayCircle, finished: Flag, verified_success_rate: BadgeCheck, completed_unverified: ShieldQuestion,
   median_cycle_time_h: Timer, failure_rate: XCircle, task_recovery_rate: RotateCcw, waiting_approval_median_h: Hourglass,
+  approved_by_non_owner: UserCheck, tasks_verified_by_review: ClipboardCheck,
 };
 const WINDOW_LABEL: Record<ScorecardWindow, string> = { '7d': 'last 7 days', '30d': 'last 30 days', '90d': 'last 90 days' };
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });

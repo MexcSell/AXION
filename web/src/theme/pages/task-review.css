@@ -1,0 +1,17 @@
+/* Improvement cycle 38: independent task review (list in the task drawer, DL-80 dialog). Tokens only. */
+.rv-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 190px; overflow: auto; }
+.rv-item { background: var(--panel-2); border: 1px solid var(--border-soft); border-left: 3px solid var(--border-strong); border-radius: var(--r-md); padding: 7px 9px; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.rv-item[data-verdict='accepted'] { border-left-color: var(--good); }
+.rv-item[data-verdict='changes_requested'] { border-left-color: var(--warn); }
+.rv-item[data-verdict='rejected'] { border-left-color: var(--bad); }
+.rv-meta { flex-wrap: wrap; row-gap: 2px; }
+.rv-meta svg { vertical-align: -1px; }
+.rv-action { flex: none; }
+.rv-dialog .rv-rubric { display: flex; flex-direction: column; gap: 6px; max-height: 250px; overflow: auto; padding-right: 2px; }
+.rv-crit { background: var(--panel-2); border: 1px solid var(--border-soft); border-radius: var(--r-md); padding: 6px 8px; display: flex; flex-direction: column; gap: 5px; }
+.rv-crit-t { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; }
+.rv-note { height: 26px; font-size: 12px; }
+.rv-evid { display: flex; flex-direction: column; gap: 4px; max-height: 190px; overflow: auto; }
+.rv-opt { display: flex; align-items: center; gap: 7px; padding: 5px 8px; border: 1px solid var(--border-soft); border-radius: var(--r-md); font-size: 12px; cursor: pointer; min-width: 0; background: var(--panel-2); }
+.rv-opt.on { border-color: rgba(var(--accent-2-rgb), .55); background: rgba(var(--accent-2-rgb), .1); }
+.rv-opt input { accent-color: var(--accent-2); }

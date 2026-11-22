@@ -9,6 +9,7 @@ import { bumpProposals } from './orgProposals';
 import { bumpVersionProposals } from './versionProposals';
 import { bumpMentoring } from './mentoring';
 import { bumpScorecard, clearScorecard } from './scorecard';
+import { bumpTaskReviews } from './taskReviews';
 import { bumpDepartments, clearDepartments } from './departments';
 import { onChannelEvent, refreshLoadedChannels, clearChannels, setChatUser } from './chat';
 import { onMissionControlEvent, refreshLoadedMissionControl, clearMissionControl, setMcUser } from './missionControl';
@@ -47,6 +48,7 @@ export function startSync(): () => void {
   const proposals = debounceKeyed(() => bumpProposals(), 150);
   const versions = debounceKeyed(() => bumpVersionProposals(), 150);
   const mentoring = debounceKeyed(() => bumpMentoring(), 150);
+  const taskReviews = debounceKeyed(() => bumpTaskReviews(), 150);
   const scorecard = debounceKeyed(() => bumpScorecard(), 400);
   // improvement cycle 3: each agent's measured reliability follows task outcomes and reassignments (the catalog carries it)
   const reliability = debounceKeyed(() => { void loadAgents().catch(() => undefined); }, 400);
@@ -84,6 +86,8 @@ export function startSync(): () => void {
     if (type.startsWith('agent.')) versions('v');
     // improvement cycle 19: mentoring plans, milestones and closures
     if (type.startsWith('mentoring.')) mentoring('m');
+    // improvement cycle 38: a recorded task review changes the task's review list and the scorecard's review rows
+    if (type === 'task.reviewed') { taskReviews('t'); scorecard('s'); }
     if (type === 'org.revisionApplied') agents('a');
     // improvement cycle 2: the company scorecard follows state changes (and what the viewer can see)
     if (type === 'mission.stateChanged' || type === 'task.stateChanged' || type === 'mission.shared' || type === 'mission.deleted') scorecard('s');
@@ -114,11 +118,11 @@ export function startSync(): () => void {
       set('live');
       // the snapshot is read after the stream's cursor exists, so nothing committed in between is missed
       void loadSnapshot().catch(() => undefined);
-      if (opened++) { agents('a'); instances('i'); proposals('o'); versions('v'); mentoring('m'); scorecard('s'); refreshLoadedMissionControl(); void refreshLoadedChannels(); departments('d'); } // a reconnect: re-read what this tab already shows
+      if (opened++) { agents('a'); instances('i'); proposals('o'); versions('v'); mentoring('m'); taskReviews('t'); scorecard('s'); refreshLoadedMissionControl(); void refreshLoadedChannels(); departments('d'); } // a reconnect: re-read what this tab already shows
       else if (useAgentsVersion.getState().failed) agents('a'); // the first catalog load failed: try again now the server answers
     });
     for (const t of ['mission.created', 'mission.revised', 'mission.stateChanged', 'mission.shared', 'mission.deleted', 'staffing.progressed', 'approval.requested', 'approval.decided', 'notification.created', 'user.requested', 'user.changed', 'auth.approved',
-      'agent.created', 'agent.updated', 'agent.versionCreated', 'agent.versionProposed', 'agent.versionPromoted', 'agent.rolledBack', 'agent.versionProposalDecided', 'mentoring.planned', 'mentoring.milestoneDone', 'mentoring.closed', 'org.proposalCreated', 'org.proposalDecided', 'org.revisionApplied', 'conversation.messageCreated', 'conversation.receipt', 'instance.created', 'instance.stateChanged', 'task.delegated', 'task.stateChanged'])
+      'agent.created', 'agent.updated', 'agent.versionCreated', 'agent.versionProposed', 'agent.versionPromoted', 'agent.rolledBack', 'agent.versionProposalDecided', 'mentoring.planned', 'mentoring.milestoneDone', 'mentoring.closed', 'org.proposalCreated', 'org.proposalDecided', 'org.revisionApplied', 'conversation.messageCreated', 'conversation.receipt', 'instance.created', 'instance.stateChanged', 'task.delegated', 'task.stateChanged', 'task.reviewed'])
       es.addEventListener(t, (ev) => { heard(); onEvent(t, ev as MessageEvent); });
     // the server ends the stream when this session was revoked: re-check, which returns to Connect with the reason
     es.addEventListener('auth', () => {
