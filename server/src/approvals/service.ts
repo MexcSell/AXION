@@ -1,10 +1,12 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { Tx } from '../db.ts';
 import { emit } from '../events/hooks.ts';
+import { ApiError } from '../errors.ts';
+import { evaluate } from '../policy/evaluate.ts';
+import type { RiskTier } from '../policy/types.ts';
 
-export type RiskTier = 'R0' | 'R1' | 'R2' | 'R3' | 'R4';
+export type { RiskTier };
 export const RISK_UI: Record<RiskTier, 'low' | 'medium' | 'high' | 'critical'> = { R0: 'low', R1: 'low', R2: 'medium', R3: 'high', R4: 'critical' };
-export const TIER_OF: Record<string, RiskTier> = { low: 'R1', medium: 'R2', high: 'R3', critical: 'R4' };
 
 /** Canonical JSON: keys sorted at every level, so the digest doesn't depend on key order. */
 export function canonical(v: unknown): string {
@@ -14,17 +16,23 @@ export function canonical(v: unknown): string {
 }
 export const digestOf = (missionId: string, kind: string, payload: unknown) => createHash('sha256').update(canonical({ missionId, kind, payload })).digest('hex');
 
-export interface ApprovalInput { tenantId: string; missionId: string; agentId: string; kind: string; title: string; detail: string; risk: RiskTier; payload: Record<string, unknown>; expiresInMin: number; id?: string; demo?: boolean; createdAgoMin?: number }
+export interface ApprovalInput { tenantId: string; missionId: string; agentId: string; kind: string; title: string; detail: string; payload: Record<string, unknown>; expiresInMin: number; id?: string; demo?: boolean; createdAgoMin?: number }
 
-/** Server-side producer (Stage 5: only the demo seed; real agents arrive in Stage 7). */
+/**
+ * Server-side producer (Stage 5: only the demo seed; real agents arrive in Stage 7).
+ * The risk tier is decided by the policy service from the request's kind; no caller supplies one (invariant 10).
+ */
 export async function requestApproval(c: Tx, a: ApprovalInput) {
+  const d = evaluate({ kind: a.kind, requester: { id: a.agentId, kind: 'agent', role: 'agent' }, effect: 'read', payload: a.payload, missionId: a.missionId }, [], {}, Date.now());
+  if (d.outcome === 'deny') throw new ApiError('POLICY_DENIED', 403, `Policy denies this action (${d.reasons.join(', ')}).`);
+  const risk = d.tier;
   const id = a.id ?? 'APR-' + randomBytes(5).toString('hex');
   const digest = digestOf(a.missionId, a.kind, a.payload);
   await c.query(
     `insert into approval_requests(id, tenant_id, mission_id, agent_id, kind, title, detail, risk, payload, action_digest, demo, created_at, expires_at)
      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now() - make_interval(mins => $12), now() + make_interval(mins => $13))`,
-    [id, a.tenantId, a.missionId, a.agentId, a.kind, a.title, a.detail, a.risk, JSON.stringify(a.payload), digest, a.demo ?? false, a.createdAgoMin ?? 0, a.expiresInMin]);
-  await emit(c, { tenantId: a.tenantId, type: 'approval.requested', subject: a.missionId, missionId: a.missionId, actor: a.agentId, actorKind: 'agent', payload: { approvalId: id, kind: a.kind, risk: a.risk } });
+    [id, a.tenantId, a.missionId, a.agentId, a.kind, a.title, a.detail, risk, JSON.stringify(a.payload), digest, a.demo ?? false, a.createdAgoMin ?? 0, a.expiresInMin]);
+  await emit(c, { tenantId: a.tenantId, type: 'approval.requested', subject: a.missionId, missionId: a.missionId, actor: a.agentId, actorKind: 'agent', payload: { approvalId: id, kind: a.kind, risk, policyVersion: d.policyVersion, reasons: d.reasons } });
   return { id, digest };
 }
 

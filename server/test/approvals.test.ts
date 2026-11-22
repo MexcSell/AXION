@@ -20,7 +20,7 @@ afterEach(async () => { await t.close(); });
 
 let n = 0;
 const create = (b: Browser, body: Record<string, unknown> = {}) => b.req('POST', '/missions', { text: 'Publish the homepage preview.', files: [], shared: false, ...body }, { 'idempotency-key': 'k' + Date.now() + n++ });
-const ask = (missionId: string, over: Record<string, unknown> = {}) => tx(t.app.db, (c) => requestApproval(c, { tenantId: 't-1', missionId, agentId: 'release-01', kind: 'release', title: 'Publish homepage v2.1', detail: 'Release-01 asks to publish.', risk: 'R3', payload: { version: 'v2.1' }, expiresInMin: 60, ...over }));
+const ask = (missionId: string, over: Record<string, unknown> = {}) => tx(t.app.db, (c) => requestApproval(c, { tenantId: 't-1', missionId, agentId: 'release-01', kind: 'release', title: 'Publish homepage v2.1', detail: 'Release-01 asks to publish.', payload: { version: 'v2.1' }, expiresInMin: 60, ...over }));
 
 describe('approvals', () => {
   it('lists approvals of visible missions only, with a digest', async () => {
@@ -37,7 +37,7 @@ describe('approvals', () => {
 
   it('decides once; a mismatched digest or an expired request is stale', async () => {
     const m = (await create(mina.b)).body.mission;
-    const a = await ask(m.id);
+    const a = await ask(m.id, { kind: 'submit_form' });
     const bad = await mina.b.req('POST', `/approvals/${a.id}/decision`, { decision: 'approved', digest: '0'.repeat(64) });
     expect(bad.status).toBe(409);
     expect(bad.body.code).toBe('APPROVAL_STALE');
@@ -47,7 +47,7 @@ describe('approvals', () => {
     const again = await A.admin.req('POST', `/approvals/${a.id}/decision`, { decision: 'denied', digest: a.digest });
     expect(again.status).toBe(409);
     expect(again.body.code).toBe('APPROVAL_ALREADY_DECIDED');
-    const old = await ask(m.id, { expiresInMin: -1 });
+    const old = await ask(m.id, { kind: 'submit_form', expiresInMin: -1 });
     const exp = await mina.b.req('POST', `/approvals/${old.id}/decision`, { decision: 'approved', digest: old.digest });
     expect(exp.status).toBe(409);
     expect(exp.body.code).toBe('APPROVAL_STALE');
@@ -59,7 +59,7 @@ describe('approvals', () => {
   it('the last pending approval moves a waiting mission back to running', async () => {
     const m = (await create(mina.b)).body.mission;
     await t.pool.query(`update missions set status='waiting_approval' where id=$1`, [m.id]);
-    const a = await ask(m.id);
+    const a = await ask(m.id, { kind: 'submit_form' });
     await mina.b.req('POST', `/approvals/${a.id}/decision`, { decision: 'approved', digest: a.digest });
     expect((await mina.b.req('GET', `/missions/${m.id}`)).body.mission.status).toBe('running');
   });

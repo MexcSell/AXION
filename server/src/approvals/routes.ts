@@ -7,6 +7,8 @@ import { requireUser } from '../auth/session.ts';
 import { parse } from '../auth/routes.ts';
 import { emit } from '../events/hooks.ts';
 import { VISIBLE_SQL } from '../missions/visibility.ts';
+import { approverFor } from '../policy/baseline.ts';
+import { isTier } from '../policy/types.ts';
 import { approvalDto, settleMission, sweepExpired } from './service.ts';
 import { tx as txRun } from '../db.ts';
 
@@ -36,6 +38,9 @@ export default async function approvalRoutes(app: FastifyInstance) {
           where a.id=$1 and a.tenant_id=$2 and m.deleted_at is null and ${VISIBLE_SQL('$3', '$4')} for update of a, m`,
         [id, ctx.tenantId, ctx.user.role === 'admin', ctx.user.id])).rows[0];
       if (!a) throw notFound('No such approval, or its mission is not shared with you.');
+      // the decider must match the policy's approver for the stored tier (R3/R4: admin; no owner role exists yet, so an admin acts as owner)
+      const need = isTier(a.risk) ? approverFor(a.risk) : 'owner'; // an unreadable tier fails closed
+      if ((need === 'admin' || need === 'owner') && ctx.user.role !== 'admin') throw new ApiError('POLICY_DENIED', 403, `Policy: a ${a.risk} request can only be decided by an administrator.`);
       if (a.state === 'approved' || a.state === 'denied') throw new ApiError('APPROVAL_ALREADY_DECIDED', 409, 'Someone already decided this request.');
       if (a.state !== 'pending' || new Date(a.expires_at).getTime() < Date.now()) {
         if (a.state === 'pending') { await c.query(`update approval_requests set state='expired' where id=$1`, [id]); await settleMission(c, ctx.tenantId, a.mission_id, ctx.correlationId); }

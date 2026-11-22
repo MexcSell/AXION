@@ -119,6 +119,14 @@ server (`myapp`, `agentapp`, `ajp`, `ajp_test`, `postgres`) are never read or ch
   `owner`, never admins).
 - Live: `GET /events/stream` (SSE; `Last-Event-ID` replay; `ping` every 15 s; per-user filtering).
 
+## Policy service (c30)
+`src/policy/` is a pure, deterministic `evaluate(action, grants, tenantPolicy, now)`: allow / needs_approval / deny, with a risk tier
+R0-R4 from the frozen `BASELINE_POLICY_V1` (spec 13.2). Deny overrides; a tenant policy can only tighten; an unknown kind or effect
+is reported, never trusted. `requestApproval` derives the tier from it; no caller supplies one. The decision route enforces the
+approver: R2 any signed-in human, R3 and R4 an administrator (`403 POLICY_DENIED` otherwise). There is no owner role yet, so for R4
+the baseline says `approver: 'owner'` with `heldBy: 'admin'` and a note. `GET /policy/baseline` (admin, read-only) lists the kinds;
+there is no write route.
+
 ## HTTP hardening (cycle 14)
 
 Today the API and the web app are reachable only on 127.0.0.1 through an SSH tunnel. These rules hold anyway, and they are

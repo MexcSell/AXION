@@ -344,7 +344,7 @@ export function buildMissionControl(m: Mission): MissionControlData {
     id: `APR-${m.id}-${i + 1}`, missionId: m.id, agentId: i === 0 ? (m.kind === 'automation' ? 'browser-01' : 'release-01') : 'security-01',
     title: m.kind === 'automation' ? (i === 0 ? 'Grant origin status.example.com' : 'Submit CSP header fix to staging') : m.kind === 'structure' ? 'Publish homepage preview v2.1 to production' : 'Approve release candidate v1.4 for staging',
     detail: m.kind === 'automation' ? 'Read-only navigation for 2 hours, mission M-132 only. No form submissions.' : 'Exact revision sha256:9f1c…a24e. Canary 10% for 30 min, automatic rollback on error-rate > 1%.',
-    risk: i === 0 ? 'high' : 'medium', kind: m.kind === 'automation' ? (i === 0 ? 'origin-grant' : 'browser-action') : 'release', expiresMin: 90 - i * 30, agoMin: m.lastEventAgoMin + i * 4, status: 'pending',
+    risk: m.kind === 'automation' && i > 0 ? 'medium' : 'high', /* same tiers as the server policy: release and origin-grant R3 (high), browser-action R2 (medium) */ kind: m.kind === 'automation' ? (i === 0 ? 'origin-grant' : 'browser-action') : 'release', expiresMin: 90 - i * 30, agoMin: m.lastEventAgoMin + i * 4, status: 'pending',
   }));
 
   const evTypes: TimelineEvent['type'][] = ['create', 'delegate', 'delegate', 'browser', 'model', 'message', 'artifact', 'verify', 'report', 'approval'];
