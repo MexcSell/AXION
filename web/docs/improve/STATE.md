@@ -64,7 +64,7 @@ Rewritten 2026-11-22T07:35Z by the controller and again at 17:50Z after the live
 | w63 | c65 review capacity (R3-10), from c58 tip 7f31c94, e2e10, no migration | CLEARED at fdcbaa0, batch 24 |
 | w64 | c66 metric-gaming guard (R3-4), from c54 tip 78e149f, e2e9, mig 0050 | CLEARED at 35bb4a9, batch 25 |
 | w65 | c67 Agent Profile api-mode fit (H17), from 8c2c02e, e2e8 | CLEARED at 111e6e5, batch 27 |
-| w66 | c68 operator attention queue (R3-9), from 24a8f05, e2e7, no migration | in review (tip 6a52faf) |
+| w66 | c68 operator attention queue (R3-9), from 24a8f05, e2e7, no migration | fix round (review CLEAR AFTER FIXES) |
 | w67 | c69 process metrics (R3-5), from c66 tip 35bb4a9, e2e6 | implementing (Wave 7) |
 | w68 | c70 hardening bundle (H11b, H14, E1d), from 812c185, e2e5, mig 0052 | CLEARED at bdfcbde, batch 26 |
 | w58 | c59 origin-bound memory and skill records (R2-5), e2e17, mig 0044 | CLEARED at 67b40ed, batch 18 |
