@@ -131,3 +131,23 @@ export async function reviewCapacity(db: Db | Tx, tenantId: string, windowDays: 
     littles: (() => { const t = total ? num(total) : empty; return littlesLaw({ arrivals: t.arrivals, sumTisMs: t.sum_tis, sumOverlapMs: t.sum_overlap, windowMs: windowDays * 86_400_000, missingClose: t.missing, openNow: t.open_now }); })(),
   };
 }
+
+export interface PersonRow { userId: string; name: string; decided: number; p50Ms: number | null; p95Ms: number | null; medianQueueSize: number | null }
+/**
+ * Per decider, FOR ADMINISTRATORS ONLY (a person is a monitored individual). Percentiles are null below MIN_PERCENTILE_N decided items.
+ * Listed alphabetically by name, never by load or speed. A decider who is not a user row (deleted) shows as "Unknown user".
+ */
+export async function reviewPeople(db: Db | Tx, tenantId: string, windowDays: number): Promise<PersonRow[]> {
+  const rows = (await db.query(
+    `with ${ITEMS_SQL}
+     select i.decided_by as user_id, coalesce(max(u.name), 'Unknown user') as name, count(*)::int as decided,
+            percentile_cont(0.5) within group (order by i.latency_ms) as p50, percentile_cont(0.95) within group (order by i.latency_ms) as p95,
+            percentile_cont(0.5) within group (order by i.queue_size) filter (where i.queue_size is not null) as medq
+       from items i cross join win w left join users u on u.id = i.decided_by and u.tenant_id = $1
+      where i.decided and i.decided_by is not null and i.closed >= w.s
+      group by i.decided_by order by 2, 1`, [tenantId, windowDays])).rows;
+  return rows.map((r) => {
+    const pct = Number(r.decided) >= MIN_PERCENTILE_N;
+    return { userId: r.user_id as string, name: r.name as string, decided: Number(r.decided), p50Ms: pct && r.p50 !== null ? Math.round(Number(r.p50)) : null, p95Ms: pct && r.p95 !== null ? Math.round(Number(r.p95)) : null, medianQueueSize: r.medq === null ? null : r1(Number(r.medq)) };
+  });
+}

@@ -12,6 +12,7 @@ import {
   type PolicyKindDto, type ProgressBody, type Provenance, type ReviewActor, type ReviewerAgreement, type RubricItem, type ScorecardRow, type SiteGrantDto, type SkillDto,
   type SkillStep, type SourceRef, type TaskBody, type TaskDto, type TaskReviewDto, type TaskReviewsDto, type ThreadDto, type ThreadPartnerDto, type ThroughputDto,
   type UploadDto, type VersionConfig, type VersionDiff, type VersionProposalDto, type AgentReliability, type QueueSummaryDto, type AnchorStatusDto, type AnchorTenantDto, ANCHOR_STATUS_NAMES, JOB_STATUS_NAMES,
+  type CapacityCellDto, type CapacityDeptDto, type CapacityPersonDto, type CapacityPeopleBody, type ReviewCapacityDto, type LittleLawDto, type SpanDto, type SpanRowDto,
   type ProposalEvaluationDto, type EvalRefusalDto, type CompanyDimensionsDto, type DimensionRowDto, type DimensionCell, DIMENSION_KEYS, DIMENSION_WINDOWS,
 } from '../../../shared/contracts/src/index.ts';
 
@@ -85,6 +86,21 @@ const qualityCell = { n: int, enough: bool, approvalRate: nullable(num), medianL
 export const approvalQuality: V<ApprovalQualityDto> = obj<ApprovalQualityDto>({ ...qualityCell, medianQueueSize: nullable(num), windowDays: int, windowStart: iso, minEvidence: int, approverCount: int, minApprovers: int });
 export const qualityBody = obj<{ quality: ApprovalQualityDto }>({ quality: approvalQuality });
 export const approversBody: V<ApproverQualityBody> = obj<ApproverQualityBody>({ windowDays: int, minEvidence: int, approvers: arr(obj<ApproverQualityDto>({ userId: str, name: str, ...qualityCell })) });
+// ---- c65 review capacity
+const capCell = { n: int, decided: int, people: int, shown: bool, arrivalPerDay: nullable(num), openBacklog: nullable(int), p50Ms: nullable(num), p95Ms: nullable(num), medianQueueSize: nullable(num) };
+const littleLaw: V<LittleLawDto> = obj<LittleLawDto>({
+  status: oneOf(['pass', 'fail', 'insufficient'] as const), reason: oneOf(['ok', 'missing_close', 'mismatch', 'no_arrivals'] as const),
+  avgOpen: nullable(num), lambdaTimesW: nullable(num), relError: nullable(num), relTol: num, absTol: num, missingClose: int, openNow: int,
+});
+const spanRow = obj<SpanRowDto>({ supervisorId: str, name: str, dept: str, agents: int, openItems: int });
+export const reviewCapacity: V<ReviewCapacityDto> = obj<ReviewCapacityDto>({
+  windowDays: int, windowStart: iso, minItems: int, minPeople: int, minPercentileN: int,
+  total: obj<CapacityCellDto>(capCell), departments: arr(obj<CapacityDeptDto>({ dept: str, ...capCell })),
+  littles: littleLaw, span: obj<SpanDto>({ rows: arr(spanRow), note: str }),
+  utilisation: obj<ReviewCapacityDto['utilisation']>({ value: nul, reason: lit('not_measured' as const), note: str }),
+});
+export const reviewCapacityBody = obj<{ review: ReviewCapacityDto }>({ review: reviewCapacity });
+export const capacityPeopleBody: V<CapacityPeopleBody> = obj<CapacityPeopleBody>({ windowDays: int, minPercentileN: int, people: arr(obj<CapacityPersonDto>({ userId: str, name: str, decided: int, p50Ms: nullable(num), p95Ms: nullable(num), medianQueueSize: nullable(num) })) });
 export const approval: V<ApprovalDto> = obj<ApprovalDto>({
   id: str, missionId: str, agentId: str, title: str, detail: str, kind: str, risk: str, riskTier: str, digest: str, digestVersion: int, demo: bool,
   taskId: nullable(str), origin: nullable(str), target: nullable(str), requestedBy: nullable(str), effect: nullable(str), effectWhy: nullable(str), approver: str,

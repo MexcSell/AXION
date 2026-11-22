@@ -110,6 +110,9 @@ export interface LittleLawDto {
   status: 'pass' | 'fail' | 'insufficient'; reason: 'ok' | 'missing_close' | 'mismatch' | 'no_arrivals';
   avgOpen: number | null; lambdaTimesW: number | null; relError: number | null; relTol: number; absTol: number; missingClose: number; openNow: number;
 }
+/** GET /review-capacity/people (administrators only): one row per person who decided in the window. Never offered to anyone else. */
+export interface CapacityPersonDto { userId: string; name: string; decided: number; p50Ms: number | null; p95Ms: number | null; medianQueueSize: number | null }
+export interface CapacityPeopleBody { windowDays: number; minPercentileN: number; people: CapacityPersonDto[] }
 /** Observed span: one row per supervisor agent in the latest org revision. A measure only; no number is recommended anywhere. */
 export interface SpanRowDto { supervisorId: string; name: string; dept: string; agents: number; openItems: number }
 export interface SpanDto { rows: SpanRowDto[]; note: string }

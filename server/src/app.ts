@@ -11,6 +11,7 @@ import uploadRoutes from './missions/uploads.ts';
 import multipart from '@fastify/multipart';
 import streamRoutes, { startListener } from './events/stream.ts';
 import approvalRoutes from './approvals/routes.ts';
+import capacityRoutes from './capacity/routes.ts';
 import notificationRoutes from './notifications/routes.ts';
 import { startStaffingSim } from './missions/staffing-sim.ts';
 import { seedDemo } from './seed/demo.ts';
@@ -97,6 +98,7 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   app.decorate('sse', { clients: 0 });
   await app.register(streamRoutes, { prefix: '/api/v1' });
   await app.register(approvalRoutes, { prefix: '/api/v1' });
+  await app.register(capacityRoutes, { prefix: '/api/v1' });
   await app.register(notificationRoutes, { prefix: '/api/v1' });
   await app.register(opsRoutes, { prefix: '/api/v1' });
   await app.register(auditRoutes, { prefix: '/api/v1' });
