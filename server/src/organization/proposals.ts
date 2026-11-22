@@ -13,6 +13,7 @@ import { validateOrg, type EdgeIn } from './validate.ts';
 import { dryRunCoverage, coverageAgents } from './coverageRoutes.ts';
 import { computeEvidence } from './evidence.ts';
 import { contractChecks } from './guardrails.ts';
+import { churnStatus, linesChanged, cooldownMessage, budgetMessage } from './churn.ts';
 import type { OrgGuardrailSettings } from '../config.ts';
 import { RESTRUCTURE_TRIGGERS, type OrgDryRun, type OrgProposalDto, type RestructureTrigger } from '../../../shared/contracts/src/index.ts';
 import { advisoryXactLock } from '../locks.ts';
@@ -52,7 +53,9 @@ export function payloadSha(p: { title: string; why: string; baseRevision: number
   return createHash('sha256').update(JSON.stringify([p.title, p.why, p.baseRevision, edges, ...extra])).digest('hex');
 }
 
-async function dryRun(c: Tx | Db, tenantId: string, edges: EdgeIn[], currentId: number | null, triggers: readonly RestructureTrigger[] = [], settings: OrgGuardrailSettings = {}): Promise<OrgDryRun> {
+interface DryOpts { triggers?: readonly RestructureTrigger[]; settings?: OrgGuardrailSettings; /** c64 item 3: the cooldown and the churn budget gate NEW proposals only (not a rollback, not the check at approval) */ gate?: boolean }
+async function dryRun(c: Tx | Db, tenantId: string, edges: EdgeIn[], currentId: number | null, o: DryOpts = {}): Promise<OrgDryRun> {
+  const triggers = o.triggers ?? []; const settings = o.settings ?? {};
   const agents = (await c.query('select d.id, d.status, d.dept, d.role, v.model from agent_definitions d left join agent_versions v on v.id = d.active_version_id where d.tenant_id=$1', [tenantId])).rows;
   const current = currentId === null ? [] : await edgesOf(c, currentId);
   // cycle 20: the coverage block is facts for the reader (its own key); it never adds an error or a warning, so `ok` is unchanged
@@ -61,8 +64,13 @@ async function dryRun(c: Tx | Db, tenantId: string, edges: EdgeIn[], currentId: 
   // c64: the new contract checks join the dry run's errors (a failed contract blocks approval like any dry-run error)
   const base = validateOrg(edges, agents, current);
   const cc = contractChecks(edges, agents, current, settings);
+  const churn = await churnStatus(c, tenantId, linesChanged(current, edges), settings);
   const errors = [...base.errors, ...cc.errors];
-  return { ...base, ok: errors.length === 0, errors, coverage: await dryRunCoverage(c, tenantId, edges, current), evidence, contracts: cc.checks };
+  if (o.gate) {
+    if (churn.cooldownEndsInMinutes !== null) errors.push({ code: 'COOLDOWN', message: cooldownMessage(churn) });
+    if (churn.overBudget) errors.push({ code: 'CHURN_BUDGET', message: budgetMessage(churn) });
+  }
+  return { ...base, ok: errors.length === 0, errors, churn, coverage: await dryRunCoverage(c, tenantId, edges, current), evidence, contracts: cc.checks };
 }
 
 const SELECT = `select p.*, cu.name as created_by_name, du.name as decided_by_name from org_proposals p
@@ -107,11 +115,14 @@ export async function createProposal(c: Tx, ctx: Ctx, b: { title: string; why: s
   const sha = payloadSha({ title: b.title, why: b.why, baseRevision: b.baseRevision, edges, triggers, baseline: b.baseline, expectedCost: b.expectedCost });
   if ((await c.query(`select 1 from org_proposals where tenant_id=$1 and payload_sha=$2 and status='pending'`, [ctx.tenantId, sha])).rowCount)
     throw new ApiError('DUPLICATE_PROPOSAL', 409, 'The same proposal is already waiting for a decision.');
-  const result = await dryRun(c, ctx.tenantId, b.edges, cur.id, triggers, opts.settings);
+  const gate = opts.rollbackTo === undefined; // a rollback (undoing a change) is never held back
+  const result = await dryRun(c, ctx.tenantId, b.edges, cur.id, { triggers, settings: opts.settings, gate });
+  if (gate && result.churn?.cooldownEndsInMinutes != null) throw new ApiError('ORG_COOLDOWN', 409, cooldownMessage(result.churn));
+  if (gate && result.churn?.overBudget) throw new ApiError('ORG_CHURN_BUDGET', 422, budgetMessage(result.churn));
   const id = 'OP-' + randomBytes(16).toString('hex').toUpperCase(); // 128-bit
   await c.query(
-    `insert into org_proposals(id, tenant_id, title, why, base_revision, edges, payload_sha, created_by, result, triggers, baseline, expected_cost) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-    [id, ctx.tenantId, b.title, b.why, b.baseRevision, JSON.stringify(edges), sha, ctx.user.id, JSON.stringify(result), JSON.stringify(triggers), b.baseline ?? '', b.expectedCost ?? '']);
+    `insert into org_proposals(id, tenant_id, title, why, base_revision, edges, payload_sha, created_by, result, triggers, baseline, expected_cost, lines_changed) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+    [id, ctx.tenantId, b.title, b.why, b.baseRevision, JSON.stringify(edges), sha, ctx.user.id, JSON.stringify(result), JSON.stringify(triggers), b.baseline ?? '', b.expectedCost ?? '', result.churn?.linesChanged ?? 0]);
   const rb = opts.rollbackTo !== undefined ? { rollbackTo: opts.rollbackTo } : {};
   const detail = { baseRevision: b.baseRevision, added: result.added.length, removed: result.removed.length, errors: result.errors.length, warnings: result.warnings.length, ...rb };
   await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'org.proposal.create', subject: id, result: 'ok', correlationId: ctx.correlationId, detail });
@@ -141,7 +152,7 @@ export default async function proposalRoutes(app: FastifyInstance) {
     if ((req.query as { dryRun?: string }).dryRun === '1') { // stores nothing, needs no Idempotency-Key
       const cur = await latest(app.db, ctx.tenantId);
       if (cur.seq !== b.baseRevision) throw staleBase(cur.seq, b.baseRevision);
-      return { result: await dryRun(app.db, ctx.tenantId, b.edges, cur.id, b.triggers, app.cfg.orgGuardrails), baseRevision: cur.seq };
+      return { result: await dryRun(app.db, ctx.tenantId, b.edges, cur.id, { triggers: b.triggers, settings: app.cfg.orgGuardrails, gate: true }), baseRevision: cur.seq };
     }
     const out = await idempotent(app.db, req, ctx, (c) => createProposal(c, ctx, b, { settings: app.cfg.orgGuardrails }));
     return reply.status(out.status).send(out.body);
@@ -180,7 +191,7 @@ export default async function proposalRoutes(app: FastifyInstance) {
       }
       const cur = await latest(c, ctx.tenantId);
       if (cur.seq !== p.base_revision) return refuse(c, ctx, A, id, new ApiError('ORG_CHANGED', 409, `The organisation changed since this proposal was made (revision ${cur.seq} is active, it was made on ${p.base_revision}). It can only be rejected or withdrawn.`));
-      const check = await dryRun(c, ctx.tenantId, fromStored(edges), cur.id, [], app.cfg.orgGuardrails);
+      const check = await dryRun(c, ctx.tenantId, fromStored(edges), cur.id, { settings: app.cfg.orgGuardrails });
       if (!check.ok) return refuse(c, ctx, A, id, new ApiError('ORG_INVALID', 422, `This proposal cannot be applied: ${check.errors[0].message}`));
       const rev = await createOrgRevision(c, { tenantId: ctx.tenantId, edges: fromStored(edges), expectSeq: p.base_revision, note: `Proposal ${id}: ${p.title}`, createdBy: ctx.user.id }); // validates the chart again
       const u = await c.query(

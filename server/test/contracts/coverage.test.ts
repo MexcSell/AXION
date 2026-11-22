@@ -257,7 +257,8 @@ describe('API coverage run', () => {
     await call(admin, 'GET', '/version-proposals', '/version-proposals');
     await call(admin, 'GET', '/agents/:id/version-proposals', '/agents/coder-01/version-proposals');
     await call(admin, 'POST', '/agents/:id/rollback', '/agents/coder-01/rollback', { headers: key(), body: { toVersionId: coder.versionId, why: 'The new skill confused reviews.' } });
-    // organisation
+    // organisation (c64: the churn budget is set for the whole section, and the cooldown from the rollback on, so every churn field is filled in some call)
+    (t.app.cfg as { orgGuardrails?: object }).orgGuardrails = { churnBudget: 100, churnWindowHours: 24 };
     const g = (await call(admin, 'GET', '/organization/graph', '/organization/graph')).body;
     await call(admin, 'GET', '/organization/revisions', '/organization/revisions');
     await call(admin, 'GET', '/organization/coverage', '/organization/coverage');
@@ -284,6 +285,7 @@ describe('API coverage run', () => {
     await call(admin, 'GET', '/organization/revisions/:seq', `/organization/revisions/${last}`);
     await call(admin, 'GET', '/organization/revisions/:seq/diff', `/organization/revisions/${last}/diff`, { query: `?against=${first}` });
     await call(admin, 'GET', '/organization/revisions/:seq/diff', `/organization/revisions/${first}/diff`, { query: `?against=${last}` });
+    (t.app.cfg as { orgGuardrails?: object }).orgGuardrails = { churnBudget: 100, churnWindowHours: 24, cooldownHours: 24 }; // p1 was approved above: a rollback is exempt but its churn status shows the running cooldown
     await call(admin, 'POST', '/organization/revisions/:seq/rollback-proposal', `/organization/revisions/${first}/rollback-proposal`, { status: 201, headers: key(), body: { why: 'Back to the start.', triggers: ['failure_concentration'] } });
 
     // ---- mentoring
