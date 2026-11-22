@@ -21,12 +21,14 @@ const until = async (f, ms = 10000, step = 100) => { const t0 = Date.now(); for 
 
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
 const ctx = await b.newContext({ viewport: { width: 1600, height: 940 } });
-await ctx.addInitScript((MINIMAP_OFF) => {
+await ctx.addInitScript(({ MINIMAP_OFF, DEBUG }) => {
   try { localStorage.setItem('axion.data-mode', 'api'); localStorage.setItem('axion.testhook', '1'); } catch { /* ignore */ }
   window.__lt = [];
+  window.__scrolls = []; const t00 = performance.now();
+  if (DEBUG) document.addEventListener('scroll', (e) => { const el = e.target; if (el?.classList?.contains('thread-body') && window.__scrolls.length < 60) window.__scrolls.push([Math.round(performance.now() - t00), Math.round(el.scrollTop), el.scrollHeight, el.clientHeight, el.querySelectorAll('[data-mid]').length]); }, true);
   if (MINIMAP_OFF) try { localStorage.setItem('axion.thread.minimap', '0'); } catch { /* ignore */ }
   try { new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__lt.push([e.startTime, e.duration]); }).observe({ type: 'longtask', buffered: true }); } catch { /* ignore */ }
-}, process.env.MINIMAP === '0'); // MINIMAP=0: diagnosis only (the minimap hidden)
+}, { MINIMAP_OFF: process.env.MINIMAP === '0', DEBUG: !!process.env.DEBUG_PIN }); // MINIMAP=0: diagnosis only (the minimap hidden); DEBUG_PIN=1: log the thread's scroll events
 // COMMITS=1 (diagnosis): count React commits and which components rendered in them, through the DevTools hook
 if (process.env.COMMITS === '1') await ctx.addInitScript(() => {
   window.__commits = { n: 0, by: {} };
@@ -98,6 +100,16 @@ const check = (name, ok, detail = '') => { checks.push({ name, ok: !!ok, detail 
 const storeIds = (mid, tid) => p.evaluate(async ({ mid, tid }) => (await import('/src/api/missionControl.ts')).useMC.getState().byMission[mid]?.threads?.[tid]?.messages.map((m) => m.id) ?? [], { mid, tid });
 async function behaviour(mid, tid) {
   const body = p.locator('.conv-main .thread-body');
+  // after a reload (newest page only) the thread is pinned to the bottom, and stays there once rows are measured
+  await p.reload({ waitUntil: 'domcontentloaded' });
+  await until(async () => (await held(mid, tid)) >= 50, 15000);
+  if (process.env.DEBUG_PIN) { await p.waitForTimeout(3000); console.log('DEBUG scroll log', JSON.stringify(await p.evaluate(() => window.__scrolls))); }
+  const trail = [];
+  for (let i = 0; i < 12; i++) { trail.push(await body.evaluate((el) => Math.round(el.scrollHeight - el.scrollTop - el.clientHeight)).catch(() => null)); await p.waitForTimeout(250); }
+  check('after a reload the thread is pinned to the bottom, and stays there for 3 s while rows are measured', trail.every((d) => d != null && d < 60), `distance from the bottom every 250 ms: ${trail.join(' ')}`);
+  await p.locator('.conv-main .composer').first().waitFor({ timeout: 10000 });
+  // load the whole thread back (the rest of the checks walk all of it): scroll to the top until nothing older is left
+  for (let i = 0; i < 60 && await body.evaluate((el) => el.dataset.hasOlder === '1'); i++) { await body.evaluate((el) => { el.scrollTop = 0; }); await p.waitForTimeout(250); await body.evaluate((el) => { el.scrollTop += 200; }); await p.waitForTimeout(100); }
   const ids = await storeIds(mid, tid);
   const rows = await p.locator('.conv-main .thread-body [data-mid]').count();
   check(`the rendered window stays small: DOM rows ${rows} for ${ids.length} messages (at most 80)`, ids.length >= FILL && rows <= 80, `${rows} rows`);

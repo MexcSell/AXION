@@ -400,6 +400,9 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
   }, [firstId]);
   useEffect(() => { if (!loadingOlder) anchor.current = null; }, [loadingOlder]); // a failed or empty load leaves nothing to restore
   useEffect(() => { if (typing && atBottom) window.setTimeout(() => scroller.current?.scrollTo({ top: 1e6, behavior: 'smooth' }), 30); }, [typing, atBottom]);
+  // a reader pinned to the bottom stays there when measured heights replace estimates above (the browser's scroll
+  // anchoring does not move a scroller that sits at its end)
+  useLayoutEffect(() => { const el = scroller.current; if (el && atBottom && geoV) el.scrollTop = el.scrollHeight; }, [geoV]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // keyboard: on a message, ↑ ↓ PgUp PgDn Home End move between messages; the target is scrolled in, mounted and focused
   const pendingFocus = useRef<string | null>(null);
