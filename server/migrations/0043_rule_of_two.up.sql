@@ -29,3 +29,12 @@ begin
   end if;
   return new;
 end $$;
+
+-- c58 item 4 (R2-9): how each decision was made. latency_ms is the database clock (now() against the request's created_at), queue_size is the
+-- number of requests pending at that moment (this one included), fast_bulk is the advisory flag for a quick run of R2+ decisions by one approver.
+-- Rows made before this migration keep nulls and are left out of the statistics. approval_decisions is already append-only (0004), so these cannot be edited.
+alter table approval_decisions
+  add column latency_ms bigint check (latency_ms is null or latency_ms >= 0),
+  add column queue_size int check (queue_size is null or queue_size >= 0),
+  add column fast_bulk boolean;
+create index approval_decisions_by_time on approval_decisions(decided_by, decided_at);

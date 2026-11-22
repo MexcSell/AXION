@@ -114,6 +114,9 @@ export function approvalDto(r: any, now: number, viewer: Decider) {
     expiresAt: new Date(r.expires_at).getTime(),
     canDecide: !refusal, decideBlockedReason: refusal?.reason ?? null,
     ruleOfTwo: (r.rule_of_two ?? null) as RuleOfTwoRecord | null,
+    // how it was decided: for administrators only (it describes a person's pace), and only once decided
+    decisionRecord: viewer.role === 'admin' && (state === 'approved' || state === 'denied') && r.dec_latency_ms != null
+      ? { latencyMs: Number(r.dec_latency_ms), queueSize: Number(r.dec_queue_size), fastBulk: !!r.dec_fast_bulk } : null,
     decidedByName: (state === 'approved' || state === 'denied') ? (r.decided_by_name ?? null) : null,
   };
 }

@@ -20,3 +20,5 @@ begin
   return new;
 end $$;
 alter table approval_requests drop column if exists rule_of_two;
+drop index if exists approval_decisions_by_time;
+alter table approval_decisions drop column if exists fast_bulk, drop column if exists queue_size, drop column if exists latency_ms;
