@@ -165,3 +165,21 @@ describe('knowledge and evolution rows for administrators', () => {
     expect(cell(a, 'evolutionary.org_revisions').n).toBe(0); // only the seeded starting chart exists
   });
 });
+
+describe('the read clock (pg gives timestamptz as a JS Date: milliseconds)', () => {
+  // A row written less than a millisecond before the read has created_at above the millisecond-truncated clock but below the
+  // database's own now(). Every time bound must therefore come from SQL (<= now()), never from a Date made of now().
+  it('a review written just before a read is counted by that read, every time', async () => {
+    const N = 150;
+    let prev = cell(await dims(A), 'cognitive.first_attempt_verified').n as number;
+    const missed: number[] = [];
+    for (let i = 0; i < N; i++) {
+      await task(`RC${i}`, 'S', 'coder-01', 'passed');
+      await review(`TR-RC${i}`, 'S', `RC${i}`, 'coder-01');
+      const n = cell(await dims(A), 'cognitive.first_attempt_verified').n as number;
+      if (n !== prev + 1) missed.push(i);
+      prev = Math.max(prev + 1, n);
+    }
+    expect(missed, `iterations whose newest review was not counted (${missed.length} of ${N})`).toEqual([]);
+  }, 90_000);
+});

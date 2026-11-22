@@ -35,6 +35,10 @@ export default async function dimensionRoutes(app: FastifyInstance) {
       const to = new Date((await c.query(`select now() as now`)).rows[0].now);
       const w = windowOf(qs.window as '7d' | '30d' | '90d', to);
       const prevFrom = new Date(w.from.getTime() - (w.to.getTime() - w.from.getTime()) - 1);
+      // SQL time bounds come from SQL: pg hands timestamptz back as a JS Date (milliseconds), so a row written in the same millisecond as
+      // this read's now() has created_at above the Date and would be dropped by `<= $to`. Upper bound: `<= now()` (the same transaction
+      // clock). Lower bound: `now() - interval`, 2 ms wider than the JS window start (the pure function filters rows by the JS dates; the SQL bound only has to load a superset).
+      const sinceMs = 2 * (w.to.getTime() - w.from.getTime()) + 2;
 
       const missions = (await c.query(
         `select m.id, m.demo from missions m where m.tenant_id=$1 and m.deleted_at is null and ${VISIBLE_SQL('$2', '$3')} and not m.demo`,
@@ -44,20 +48,20 @@ export default async function dimensionRoutes(app: FastifyInstance) {
       const has = ids.length > 0;
       const E = { rows: [] as Record<string, any>[] };
       const q = (sql: string, p: unknown[]) => (has ? c.query(sql, p) : Promise.resolve(E));
-      const since = prevFrom; // nothing older than the previous window is needed by a window cell; snapshots read in full below
+      // nothing older than the previous window is needed by a window cell; snapshots read in full below
       const queries: (() => Promise<{ rows: Record<string, any>[] }>)[] = [
         () => q(`select i.mission_id, i.agent_id, i.simulated, i.created_at from agent_instances i where i.tenant_id=$1 and i.mission_id = any($2::text[])`, [T, ids]),
         () => q(`select r.task_id, r.mission_id, r.reviewer_id, r.reviewer_kind, r.reviewer_model_family, r.producer_id, r.producer_kind, r.producer_model_family, r.principal_id,
                   r.verdict, jsonb_array_length(r.evidence) as ev, r.created_at, r.seq, (t.simulated or m.demo) as simulated
              from task_reviews r join tasks t on t.id=r.task_id join missions m on m.id=r.mission_id
-            where r.tenant_id=$1 and r.mission_id = any($2::text[]) and r.created_at <= $3`, [T, ids, to]),
-        () => q(`select l.mission_id, l.version, l.body, l.created_at, l.demo from mission_ledgers l where l.tenant_id=$1 and l.kind='progress' and l.mission_id = any($2::text[]) and l.created_at <= $3`, [T, ids, to]),
+            where r.tenant_id=$1 and r.mission_id = any($2::text[]) and r.created_at <= now()`, [T, ids]),
+        () => q(`select l.mission_id, l.version, l.body, l.created_at, l.demo from mission_ledgers l where l.tenant_id=$1 and l.kind='progress' and l.mission_id = any($2::text[]) and l.created_at <= now()`, [T, ids]),
         () => q(`select r.mission_id, r.created_at, (select min(d.decided_at) from approval_decisions d where d.approval_id=r.id) as decided_at, r.demo
              from approval_requests r where r.tenant_id=$1 and r.mission_id = any($2::text[])`, [T, ids]),
         () => q(`select d.mission_id, d.to_instance, i.agent_id, d.at, d.simulated from mission_delegations d join agent_instances i on i.id=d.to_instance
-            where i.tenant_id=$1 and d.mission_id = any($2::text[]) and d.edge_kind='delegated' and d.at >= $3`, [T, ids, since]),
+            where i.tenant_id=$1 and d.mission_id = any($2::text[]) and d.edge_kind='delegated' and d.at >= now() - ($3::double precision * interval '1 millisecond')`, [T, ids, sinceMs]),
         () => q(`select mission_id, to_instance, simulated, created_at from delegation_briefs where tenant_id=$1 and mission_id = any($2::text[])`, [T, ids]),
-        () => admin ? q(`select mission_id, issued_at, expires_at, revoked_at from site_grants where tenant_id=$1 and mission_id = any($2::text[]) and least(coalesce(revoked_at, expires_at), expires_at) >= $3`, [T, ids, since]) : Promise.resolve(E),
+        () => admin ? q(`select mission_id, issued_at, expires_at, revoked_at from site_grants where tenant_id=$1 and mission_id = any($2::text[]) and least(coalesce(revoked_at, expires_at), expires_at) >= now() - ($3::double precision * interval '1 millisecond')`, [T, ids, sinceMs]) : Promise.resolve(E),
         () => q(`select subject_id, mode_id, coalesce(decided_at, created_at) as at from failure_tags
             where tenant_id=$1 and mission_id = any($2::text[]) and subject_kind='task' and status='confirmed' and taxonomy_version=$3`, [T, ids, FAILURE_TAXONOMY_VERSION]),
         () => admin ? c.query(`select agent_id, status, created_at, decided_at, accepted_in_version, withdrawn_in_version from lesson_candidates where tenant_id=$1`, [T]) : Promise.resolve(E),
