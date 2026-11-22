@@ -28,7 +28,7 @@ export function HelpTrigger({ k, entry, label }: { k?: string; entry?: HelpEntry
             {k && <P.Close className="icon-btn xs" aria-label="Open help in side drawer" title="Open in drawer" onClick={() => openDialog('help-drawer', { k })}><PanelRightOpen size={13} /></P.Close>}
             <P.Close className="icon-btn xs" aria-label="Close help"><X size={13} /></P.Close>
           </div>
-          <HelpBody e={e} />
+          <div className="help-pop-body"><HelpBody e={e} /></div>
           <P.Arrow width={12} height={6} style={{ fill: 'var(--border-strong)' }} />
         </P.Content>
       </P.Portal>
