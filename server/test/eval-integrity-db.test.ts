@@ -171,3 +171,78 @@ describe('item 2: resumable runs (states: open, complete, finished)', () => {
     expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
   });
 });
+
+// ---- item 3 ---------------------------------------------------------------------------------------------------------------
+import { judgeFamily, JudgeLabelError, startRun } from '../src/evolution/eval-runs.ts';
+
+describe('item 3: judge labels are validated against the c38 vendor alias table', () => {
+  it.each([['claude-sonnet-4', 'anthropic'], ['  GPT-4o ', 'openai'], ['anthropic/claude-3.5', 'anthropic'], ['us.anthropic.claude-3-opus', 'anthropic'],
+    ['openrouter/openai/gpt-4o', 'openai'], ['qwen-max', 'alibaba'], ['o3-mini', 'openai'], ['meta-llama/llama-3-70b', 'meta']])('%s resolves to %s', (label, vendor) => {
+    expect(judgeFamily(label)).toBe(vendor);
+  });
+  it.each([['sonnet', 'judge_label_unknown'], ['my-claude-proxy', 'judge_label_unknown'], ['o10x', 'judge_label_unknown'], ['judge', 'judge_label_unknown'],
+    ['anthropic/gpt-4', 'judge_label_ambiguous'], ['openai/claude-3', 'judge_label_ambiguous'], ['', 'judge_label_missing'], ['   ', 'judge_label_missing']])('%j is refused as %s', (label, code) => {
+    expect(() => judgeFamily(label)).toThrow(JudgeLabelError);
+    try { judgeFamily(label); } catch (e) { expect((e as JudgeLabelError).code).toBe(code); }
+  });
+  it('null, undefined and non-strings are missing, never a default', () => {
+    for (const v of [null, undefined, 42, {}] as unknown[]) { try { judgeFamily(v as string); throw new Error('no throw'); } catch (e) { expect((e as JudgeLabelError).code).toBe('judge_label_missing'); } }
+  });
+  const base = { tenantId: 't-1', k: 1, evaluatorId: 'ev' };
+  const cx = async <T>(fn: (c: pg.PoolClient) => Promise<T>) => { const c = await s.pool.connect(); try { return await fn(c); } finally { c.release(); } };
+  it('startRun refuses an unknown or ambiguous judge and writes no row', async () => {
+    await makeDataset(s.pool, { id: 'H-J1', split: 'holdout', cases: 2 });
+    await cx(async (c) => {
+      await expect(startRun(c, { ...base, id: 'J-1', datasetId: 'H-J1', proposalId: 'P-3', judgeLabel: 'sonnet' })).rejects.toMatchObject({ code: 'judge_label_unknown' });
+      await expect(startRun(c, { ...base, id: 'J-2', datasetId: 'H-J1', proposalId: 'P-3', judgeLabel: 'anthropic/gpt-4' })).rejects.toMatchObject({ code: 'judge_label_ambiguous' });
+      await expect(startRun(c, { ...base, id: 'J-3', datasetId: 'H-J1', proposalId: 'P-3', judgeLabel: '' })).rejects.toMatchObject({ code: 'judge_label_missing' });
+    });
+    expect((await q(`select count(*)::int n from eval_runs where id in ('J-1','J-2','J-3')`)).rows[0].n).toBe(0);
+  });
+  it('startRun stores the trimmed label of a known judge, and a missing evaluator is refused', async () => {
+    await cx(async (c) => {
+      await expect(startRun(c, { ...base, id: 'J-4', datasetId: 'H-J1', proposalId: 'P-3', judgeLabel: 'claude-judge', evaluatorId: ' ' })).rejects.toThrow(/evaluator/);
+      await startRun(c, { ...base, id: 'J-5', datasetId: 'H-J1', proposalId: 'P-3', judgeLabel: '  claude-judge ' });
+    });
+    expect((await q(`select judge_model_family j, evaluator_id e from eval_runs where id='J-5'`)).rows[0]).toEqual({ j: 'claude-judge', e: 'ev' });
+  });
+  it('startRun passes the holdout_rerun refusal through', async () => {
+    await cx(async (c) => { await expect(startRun(c, { ...base, id: 'J-6', datasetId: 'H-J1', proposalId: 'P-3', judgeLabel: 'claude-judge' })).rejects.toThrow(/holdout_rerun/); });
+  });
+
+  // the read side fails closed on rows written by anyone else
+  const load = async (p: string, model: string) => cx(async (c) => (await loadEvaluations(c, 't-1', [{ id: p, created_by: 'u', base_version_id: v1, candidate: { model } }])).get(p)!);
+  const scores = (f: (i: number) => number) => Array.from({ length: 12 }, (_, i) => f(i));
+  it('a stored judge label the table cannot resolve is refused by the loader', async () => {
+    await makeDataset(s.pool, { id: 'H-J2', split: 'holdout', cases: 12 });
+    await prop('P-J2', 'a-1', v1, 'sha-J2');
+    await addRun(s.pool, { id: 'J2b', datasetId: 'H-J2', versionId: v1, scores: scores(() => 40), judge: 'qwen-max', evaluator: 'ev-b' });
+    await addRun(s.pool, { id: 'J2c', datasetId: 'H-J2', proposalId: 'P-J2', scores: scores((i) => 70 + (i % 3)), judge: 'sonnet', evaluator: 'ev-b' });
+    const e = await load('P-J2', 'qwen-72b');
+    expect(e.outcome).toBe('inconclusive'); expect(e.refusals.map((r) => r.code)).toContain('judge_label_unknown');
+  });
+  it('a candidate model the table cannot resolve is refused too', async () => {
+    await makeDataset(s.pool, { id: 'H-J3', split: 'holdout', cases: 12 });
+    await prop('P-J3', 'a-1', v1, 'sha-J3');
+    await addRun(s.pool, { id: 'J3b', datasetId: 'H-J3', versionId: v1, scores: scores(() => 40), judge: 'claude-judge', evaluator: 'ev-b' });
+    await addRun(s.pool, { id: 'J3c', datasetId: 'H-J3', proposalId: 'P-J3', scores: scores((i) => 70 + (i % 3)), judge: 'claude-judge', evaluator: 'ev-b' });
+    const e = await load('P-J3', 'my-private-model');
+    expect(e.outcome).toBe('inconclusive'); expect(e.refusals.map((r) => r.code)).toContain('candidate_family_unknown');
+  });
+  it('the same vendor under another spelling is self-judging (a router or region prefix does not hide it)', async () => {
+    await makeDataset(s.pool, { id: 'H-J4', split: 'holdout', cases: 12 });
+    await prop('P-J4', 'a-1', v1, 'sha-J4');
+    await addRun(s.pool, { id: 'J4b', datasetId: 'H-J4', versionId: v1, scores: scores(() => 40), judge: 'qwen-max', evaluator: 'ev-b' });
+    await addRun(s.pool, { id: 'J4c', datasetId: 'H-J4', proposalId: 'P-J4', scores: scores((i) => 70 + (i % 3)), judge: 'us.anthropic.claude-3-opus', evaluator: 'ev-b' });
+    const e = await load('P-J4', 'claude-sonnet-4');
+    expect(e.refusals.map((r) => r.code)).toContain('self_judging');
+  });
+  it('a judge of another vendor with a known candidate family stays verified better', async () => {
+    await makeDataset(s.pool, { id: 'H-J5', split: 'holdout', cases: 12 });
+    await prop('P-J5', 'a-1', v1, 'sha-J5');
+    await addRun(s.pool, { id: 'J5b', datasetId: 'H-J5', versionId: v1, scores: scores(() => 40), judge: 'qwen-max', evaluator: 'ev-b' });
+    await addRun(s.pool, { id: 'J5c', datasetId: 'H-J5', proposalId: 'P-J5', scores: scores((i) => 70 + (i % 3)), judge: 'openrouter/openai/gpt-4o', evaluator: 'ev-b' });
+    const e = await load('P-J5', 'claude-sonnet-4');
+    expect(e.refusals).toEqual([]); expect(e.outcome).toBe('verified_better');
+  });
+});

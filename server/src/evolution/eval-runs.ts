@@ -1,4 +1,24 @@
 import type { Tx } from '../db.ts';
+import { modelFamily as vendorOf } from '../tasks/review-rules.ts';
+
+/**
+ * Judge labels. A judge is named by a model label ('claude-sonnet-4', 'anthropic/claude-3.5', 'us.anthropic.claude-3'). Its family is
+ * the VENDOR from the c38 alias table (tasks/review-rules.ts, the trust boundary of the independence rule). A label the table cannot
+ * resolve is refused: `judge_label_missing` (empty), `judge_label_unknown` (no table entry matches) or `judge_label_ambiguous` (a
+ * vendor prefix contradicts the model, 'anthropic/gpt-4'). There is no default family.
+ */
+export type JudgeLabelCode = 'judge_label_missing' | 'judge_label_unknown' | 'judge_label_ambiguous';
+export class JudgeLabelError extends Error {
+  constructor(readonly code: JudgeLabelCode, message: string) { super(message); this.name = 'JudgeLabelError'; }
+}
+export function judgeFamily(label: unknown): string {
+  if (typeof label !== 'string' || !label.trim()) throw new JudgeLabelError('judge_label_missing', 'the judge model label is missing; name the judge model');
+  const vendor = vendorOf(label);
+  if (vendor) return vendor;
+  const tail = label.trim().toLowerCase().split('/').pop() ?? '';
+  if (vendorOf(tail) || vendorOf(tail.replace(/^(?:[a-z]{2,4}\.)?[a-z]+\./, ''))) throw new JudgeLabelError('judge_label_ambiguous', `the judge label "${label.trim()}" names one vendor in its prefix and another in its model name; use the plain model name`);
+  throw new JudgeLabelError('judge_label_unknown', `the judge label "${label.trim()}" matches no vendor in the model family table; it cannot be used to show independence`);
+}
 
 /**
  * c53 (E1c): the service layer any future eval-run writer must call. Records and validation only: nothing here starts a run,
@@ -34,4 +54,18 @@ export async function existingRun(c: Tx, o: { tenantId: string; datasetId: strin
       : `select r.id from eval_runs r where r.tenant_id=$1 and r.dataset_id=$2 and r.subject_version_id=$3 and r.holdout_key is not null limit 1`,
     [o.tenantId, o.datasetId, o.proposalId ?? o.versionId])).rows[0] as { id: string } | undefined;
   return r ? { id: r.id, state: (await runState(c, r.id))! } : null;
+}
+
+export interface StartRunInput { id: string; tenantId: string; datasetId: string; proposalId?: string; versionId?: string; k: number; judgeLabel: string; evaluatorId: string }
+/**
+ * The writer-side check for a new run record: the judge label must resolve (judgeFamily) and the evaluator must be named. The holdout
+ * rules (one run per subject, frozen dataset, tenant) are enforced by the database on the INSERT. Not a route: nothing calls this yet.
+ */
+export async function startRun(c: Tx, o: StartRunInput): Promise<void> {
+  if (!!o.proposalId === !!o.versionId) throw new Error('name exactly one subject: a proposal or a version');
+  judgeFamily(o.judgeLabel);
+  if (!o.evaluatorId?.trim()) throw new Error('the evaluator is missing; name who evaluates the run');
+  await c.query(
+    `insert into eval_runs(id, tenant_id, dataset_id, subject_version_id, subject_proposal_id, k, judge_model_family, evaluator_id) values ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [o.id, o.tenantId, o.datasetId, o.versionId ?? null, o.proposalId ?? null, o.k, o.judgeLabel.trim(), o.evaluatorId.trim()]);
 }

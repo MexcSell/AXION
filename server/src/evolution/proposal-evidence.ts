@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { Tx } from '../db.ts';
 import { hashDataset, verdictV2, type Attempt, type CaseRuns } from './verdict-v2.ts';
+import { modelFamily as vendorOf } from '../tasks/review-rules.ts';
 import type { EvalRefusalDto, ProposalEvaluationDto } from '../../../shared/contracts/src/index.ts';
 
 /**
@@ -75,14 +76,17 @@ export async function loadEvaluations(c: Tx, tenantId: string, proposals: Eviden
     const baseline = base ? await caseRuns(c, base.id) : [];
     const candidate = await caseRuns(c, cand.id);
     const model = typeof (p.candidate as { model?: unknown })?.model === 'string' ? (p.candidate as { model: string }).model : '';
-    const candFamily = modelFamily(model);
+    // c53: families are the c38 vendors; an unresolved label (judge or candidate model) is refused, never defaulted
+    const candVendor = vendorOf(model);
+    const judgeVendor = cand.judge_model_family ? vendorOf(cand.judge_model_family) : null;
+    const candFamily = candVendor ?? modelFamily(model);
 
     const v = verdictV2({
       baseline, candidate,
       holdout: { datasetId: cand.dataset_id, split: cand.split, frozenSha256: cand.content_sha256, observedSha256: hashDataset(cases) },
       tunedOnDatasetIds: tuned,
       authorId: p.created_by, evaluatorId: cand.evaluator_id ?? '',
-      candidateModelFamily: candFamily, judgeModelFamily: cand.judge_model_family ? modelFamily(cand.judge_model_family) : '',
+      candidateModelFamily: candFamily, judgeModelFamily: cand.judge_model_family ? (judgeVendor ?? modelFamily(cand.judge_model_family)) : '',
     });
 
     // checks that need the dataset itself: it has cases, and both runs cover all of them with every attempt
@@ -96,10 +100,12 @@ export async function loadEvaluations(c: Tx, tenantId: string, proposals: Eviden
       if (gb || gc) extra.push({ code: 'partial_coverage', detail: `a run does not cover every case of the dataset with all its attempts (base: ${gb} short, candidate: ${gc} short)` });
     }
 
+    if (cand.judge_model_family?.trim() && !judgeVendor) extra.push({ code: 'judge_label_unknown', detail: `the judge label "${cand.judge_model_family.trim()}" does not resolve to a vendor in the model family table, so independence cannot be shown` });
+    if (!candVendor) extra.push({ code: 'candidate_family_unknown', detail: `the candidate model "${model || 'none'}" does not resolve to a vendor in the model family table, so independence from the judge cannot be shown` });
     // the base run is held to the same rules as the candidate's: an independent evaluator and a judge of another family
     if (base) {
       if (!base.evaluator_id?.trim() || base.evaluator_id.trim().toLowerCase() === p.created_by.trim().toLowerCase()) extra.push({ code: 'base_evaluator_is_author', detail: 'the base version run was evaluated by the author of the candidate (or has no evaluator); someone else must evaluate it' });
-      if (!base.judge_model_family?.trim() || modelFamily(base.judge_model_family) === candFamily) extra.push({ code: 'base_self_judging', detail: `the base version run was judged by ${base.judge_model_family || 'no recorded judge'}, the candidate's own model family; a different family must judge it` });
+      if (!base.judge_model_family?.trim() || !vendorOf(base.judge_model_family) || vendorOf(base.judge_model_family) === candVendor) extra.push({ code: 'base_self_judging', detail: `the base version run was judged by ${base.judge_model_family || 'no recorded judge'}, the candidate's own model family; a different family must judge it` });
     }
     // a holdout is used once: more runs on it, or runs on several holdouts, let the best result be picked
     if (runCount > 1 || holdoutSets.size > 1) extra.push({ code: 'holdout_rerun', detail: runCount > 1 ? `this candidate has ${runCount} runs on holdout ${cand.dataset_id}; a holdout counts once, so freeze a fresh holdout dataset and evaluate once on it` : `this candidate was evaluated on ${holdoutSets.size} holdout datasets; evaluate once on one fresh holdout dataset` });
