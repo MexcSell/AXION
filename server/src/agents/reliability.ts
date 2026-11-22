@@ -3,6 +3,7 @@ import type { AgentDto } from '../../../shared/contracts/src/index.ts';
 import type { AgentBase } from './service.ts';
 import { MIN_EVIDENCE, type AgentReliability } from '../../../shared/contracts/src/index.ts';
 import { VISIBLE_SQL } from '../missions/visibility.ts';
+import { dbWindow } from '../company/clock.ts';
 
 /**
  * Improvement cycle 3: an agent's reliability, measured from recorded task history only (spec §11 invariant 9: every
@@ -49,7 +50,8 @@ export interface ReliabilityRow {
   handovers: Handover[];
 }
 
-export function reliabilityWindow(now = new Date()) {
+/** Pure: the window ending at `now`. Callers pass the DATABASE clock (c70 H11b: attachReliability uses dbWindow); there is no default so nobody reaches for the app clock. */
+export function reliabilityWindow(now: Date) {
   return { from: new Date(now.getTime() - WINDOW_DAYS * DAY), to: now };
 }
 
@@ -145,6 +147,9 @@ export async function loadReliabilityRows(c: Tx | Db, viewer: { tenantId: string
 
 /** Every agent gets its reliability from ONE classification of the viewer's rows, so the list and the detail can't diverge. */
 export async function attachReliability<T extends AgentBase>(c: Tx | Db, viewer: { tenantId: string; admin: boolean; userId: string }, agents: T[], includeSimulated = false): Promise<(T & Pick<AgentDto, 'reliability'>)[]> {
-  const of = reliabilityOf(await loadReliabilityRows(c, viewer, includeSimulated), { ...reliabilityWindow(), includeSimulated });
+  const rows = await loadReliabilityRows(c, viewer, includeSimulated);
+  // c70 (H11b): the window end is the database clock, read AFTER the rows so no row written before the read is later than the end
+  const w = await dbWindow(c, '90d');
+  const of = reliabilityOf(rows, { from: w.from, to: w.to, includeSimulated });
   return agents.map((a) => ({ ...a, reliability: of(a.id) }));
 }
