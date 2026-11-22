@@ -110,6 +110,13 @@ try {
   // fit one 1366x768 screen
   const fit = await p.evaluate(() => { const f = document.querySelector('.fit-scroll'); const rows = [...document.querySelectorAll('.dim-row')]; const last = rows[rows.length - 1].getBoundingClientRect(); const note = document.querySelector('.dim-note').getBoundingClientRect(); return { inner: f ? f.scrollHeight - f.clientHeight : -1, docScroll: document.documentElement.scrollHeight - innerHeight, sideScroll: document.documentElement.scrollWidth - innerWidth, lastBottom: Math.round(last.bottom), noteBottom: Math.round(note.bottom), vh: innerHeight }; });
   check('the tab fits 1366x768 without scrolling (no inner or page scroll, every row and the evidence line on screen)', fit.inner >= 0 && fit.inner <= 2 && fit.docScroll <= 0 && fit.sideScroll <= 0 && fit.noteBottom <= fit.vh, JSON.stringify(fit));
+  // c54 fix round: no cell clips its content, no label is cut, and a tab strip that overflows says so (an edge fade), whatever font loaded
+  const cells = await p.evaluate(() => [...document.querySelectorAll('.dim-cell')].map((c) => ({ over: c.scrollHeight - c.clientHeight, h: Math.round(c.getBoundingClientRect().height), label: (() => { const l = c.querySelector('.dim-cl'); return l ? l.scrollWidth - l.clientWidth : 0; })() })));
+  check('no dimension cell clips its content vertically (scrollHeight <= clientHeight)', cells.length > 0 && cells.every((c) => c.over <= 0), JSON.stringify(cells.filter((c) => c.over > 0)));
+  const cut = await p.evaluate(() => [...document.querySelectorAll('.dim-cl')].filter((l) => l.scrollWidth > l.clientWidth + 0.5).map((l) => l.textContent));
+  check('no cell label is cut off (no ellipsis) at 1366', cut.length === 0, JSON.stringify(cut));
+  const strip = await p.evaluate(() => [...document.querySelectorAll('.tabs')].map((t) => ({ aria: t.getAttribute('aria-label'), over: t.scrollWidth - t.clientWidth, fade: t.getAttribute('data-fade') })));
+  check('every tab strip that overflows carries an edge fade (data-fade), none that fits does', strip.every((t) => (t.over > 1) === !!t.fade), JSON.stringify(strip));
   await p.screenshot({ path: `${SHOTS}/c46-dark.png` });
   if (DOC) await p.screenshot({ path: `${DOC}-dark.png` });
   const vo = dom.find((c) => c.key === 'evolutionary.verdict_outcomes');

@@ -3,11 +3,11 @@
 .dim-bar .select { height: 32px; min-width: 170px; }
 .dim-bar .dim-ctl { display: inline-flex; align-items: center; gap: 4px; }
 .dim-rows { display: flex; flex-direction: column; gap: 2px; }
-.dim-row { display: grid; grid-template-columns: 148px minmax(0, 1fr); gap: 10px; align-items: stretch; padding: 2px 8px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); }
+.dim-row { display: grid; grid-template-columns: 148px minmax(0, 1fr); gap: 10px; align-items: stretch; padding: 1px 8px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); }
 .dim-name { display: flex; align-items: center; gap: 7px; font-weight: 700; font-size: 13.5px; }
 .dim-name .dim-ico { color: var(--accent-2); flex: none; }
 .dim-cells { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; min-width: 0; }
-.dim-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; height: 34px; padding: 2px 8px; justify-content: center; border-radius: 9px; background: var(--panel-3, var(--panel)); outline: none; overflow: hidden; }
+.dim-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; height: 37px; padding: 1px 8px; justify-content: center; border-radius: 9px; background: var(--panel-3, var(--panel)); outline: none; overflow: hidden; }
 .dim-cell:hover, .dim-cell:focus-visible { box-shadow: 0 0 0 1.5px var(--accent-2); }
 .dim-cl { font-size: 10.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dim-cv { display: flex; align-items: baseline; gap: 6px; flex-wrap: nowrap; white-space: nowrap; min-width: 0; font-size: 17px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
