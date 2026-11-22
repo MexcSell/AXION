@@ -18,7 +18,7 @@ Tasks are owned only by agents and people can only retry/reassign/cancel. So no 
 
 ## RED / GREEN
 - RED: `test/task-reviews.test.ts` failed at import (`Failed to resolve import ../src/tasks/reviews.ts`, "no tests") before the service existed; the migration and the pure rules/scorecard tests were written in the same step as their code. The refusal tests assert the error CODE (a bare 403 would already have passed through the old `/tasks/:id/:action` route as ACTION_NOT_ALLOWED).
-- GREEN: new tests 41 (`task-review-rules` 17, `task-reviews` 17, `scorecard-reviews` 7); full server suite **622/622** in 40 files, server `tsc` clean, web `tsc` clean.
+- GREEN: new tests 39 at the first tip (`task-review-rules` 17, `task-reviews` 17, `scorecard-reviews` 5; the earlier "41" was a miscount, as the review found); full server suite **622/622** in 40 files, server `tsc` clean, web `tsc` clean.
 
 ## Pass threshold (fixed)
 | Item | Result | Evidence |
@@ -58,3 +58,13 @@ NOT MET items: none.
 7. Model family = vendor lineage by the leading letters of the model name: `claude-haiku` vs `claude-opus` count as the same family. A model string with no leading letters is "unknown" and never independent.
 8. Agreement is computed per reviewer over reviews of missions the viewer can see; two viewers may see different n. The first api-stage6 run flaked under load (above).
 9. In the Overview aside the label "Approved by a non-owner" truncates with an ellipsis (full text in the tooltip and the accessible name).
+
+## Fix round (after c38-review.md: NOT CLEAR, I1 I2 M1-M5)
+- **I1 model family**: `modelFamily()` is now an explicit, frozen, versioned vendor alias table (`MODEL_FAMILY_TABLE`, version 1; the trust boundary, extended by code change only). Lower-case/trim, drop `xxx/` router prefixes and `[region.]provider.` prefixes, then the lineage must START the name; anything unmatched is null and fails closed. Families are now vendor names (anthropic, openai, google, meta, mistral, ...); `whisper` maps to openai. RED: the new rules test (51 cases) run against the old regex: 36 failed. GREEN: 52/52 (all review-table cases: o1/o3/gpt/chatgpt/openai/ -> openai, gemma/gemini/palm/bison -> google, mixtral/codestral -> mistral, `us.anthropic.claude` -> anthropic, `my-claude-proxy` and `translate-ja-en-v2` -> null, text-davinci vs text-bison differ).
+- **I2 reviewable statuses**: `passed` takes any verdict; `failed` only rejected/changes_requested; every other status is 409 `TASK_NOT_REVIEWABLE` for every verdict. GET returns `taskStatus`, `canAccept` and refuses `canReview` for non-reviewable statuses, so the Review button is disabled with its `?` (the `?` text now lists the status rule); the dialog refuses Accepted on a failed task. The scorecard counts only accepted reviews whose task is still `passed` (a later retry un-verifies it). Tests: a matrix of all 10 statuses x 3 verdicts over HTTP, GET matrix, and a scorecard fixture with a task in every status (value 1 of n 10).
+- **M1**: agents that received the task by delegation, or owned it before a reassign (audit `fromAgent`/`fromInstanceId`), cannot review it (403 `REVIEW_NOT_INDEPENDENT`), server-side; tested both paths with controls.
+- **M2**: the scorecard excludes the owner by the `principal_id` stored with the review (now selected by the loader); test with a changed owner.
+- **M3**: `POST /api/v1/tasks/:id/reviews` added to `SINCE_STAGE5_WRITES` (per-route CSRF/Origin cases now cover it).
+- **M4**: `passed` chip renamed "Passed" (`roles.ts`); grep of `web/scripts` found no check depending on the old task-chip text; api-flows and api-stage6 still pass.
+- **M5**: HTTP test seeds DEMO, reviews a demo task: numbers unchanged with includeDemo=0, +1 value and +1 n with includeDemo=1. Test count corrected above.
+- **Counts**: server tsc clean, web tsc clean; full vitest **667/667** in 40 files; api-c38 **23/23**; api-flows **23/23**; api-stage6 **94/94**; `grep -c FAIL` 0 on the api-c38 run. The demo suite, fit-check and a11y were not re-run (the change to the UI is one label, one disabled-state message and help text).
