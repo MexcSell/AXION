@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { ImagePlus, ShieldAlert, Bell, X, CheckCircle2, XCircle, Fingerprint, Clock } from 'lucide-react';
 import type { DialogComponentProps } from '@/dialogs/DialogHost';
-import { ApprovalFacts, GateNote, useGate } from '@/features/approvals/ApprovalBinding';
+import { ApprovalFacts, GateNote, RuleOfTwoNote, useGate } from '@/features/approvals/ApprovalBinding';
 import { Modal } from '@/components/ui/Modal';
 import { Field, Segmented } from '@/components/ui/Form';
 import { Chip } from '@/components/ui/Chips';
@@ -56,6 +56,7 @@ function ApprovalDecision({ close, props }: DialogComponentProps<{ approvalId?: 
           <h3 className="ug-bound-title">{a.title}</h3>
           <p className="muted" style={{ fontSize: 13 }}>{a.detail}</p>
           <ApprovalFacts a={a} />
+          <RuleOfTwoNote a={a} />
           <dl className="ug-kv">
             <div><dt>Requested by</dt><dd>{agent?.name ?? a.agentId}</dd></div>
             <div><dt>Mission</dt><dd className="mono">{a.missionId}</dd></div>

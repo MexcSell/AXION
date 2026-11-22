@@ -212,7 +212,17 @@ export interface Approval {
   /** api mode (server): may the signed-in user decide this request right now? Computed by the same policy path that refuses decisions; never derived on the client. */
   canDecide?: boolean;
   decideBlockedReason?: 'tier_requires_admin' | 'requester_cannot_decide' | 'already_decided' | 'expired' | null;
+  /** c58 (server): why approval was asked. Three flags the server derived from the agent's configuration, and whether the Rule of Two fired. */
+  ruleOfTwo?: RuleOfTwo | null;
+  /** c58 (server, administrators only, decided requests): how the decision was made. Advisory: it never changed the decision. */
+  decisionRecord?: DecisionRecord | null;
 }
+export interface RuleOfTwo {
+  flags: { untrustedInput: boolean; sensitiveAccess: boolean; canChangeState: boolean };
+  because: { untrustedInput: string[]; sensitiveAccess: string[]; canChangeState: string[] };
+  fired: boolean; rule: 'rule_of_two' | null; policyVersion: number;
+}
+export interface DecisionRecord { latencyMs: number; queueSize: number; fastBulk: boolean }
 
 export interface TimelineEvent {
   id: string;

@@ -232,6 +232,12 @@ export const threadKey = (a: string, b: string) => [a, b].sort().join('|');
 
 const STATE_CYCLE: MissionNode['state'][] = ['working', 'working', 'verifying', 'waiting', 'reporting', 'idle'];
 
+function demoRuleOfTwo(kind: string): NonNullable<Approval['ruleOfTwo']> {
+  const flags = kind === 'origin-grant' ? { untrustedInput: true, sensitiveAccess: true, canChangeState: true } : kind === 'browser-action' ? { untrustedInput: true, sensitiveAccess: false, canChangeState: true } : { untrustedInput: false, sensitiveAccess: true, canChangeState: true };
+  const because = { untrustedInput: flags.untrustedInput ? ['site grant for https://status.example.com'] : [], sensitiveAccess: flags.sensitiveAccess ? [`action ${kind} (infra)`] : [], canChangeState: [`action ${kind}`] };
+  return { flags, because, fired: flags.untrustedInput && flags.sensitiveAccess && flags.canChangeState, rule: flags.untrustedInput && flags.sensitiveAccess && flags.canChangeState ? 'rule_of_two' : null, policyVersion: 1 };
+}
+
 export function buildMissionControl(m: Mission): MissionControlData {
   const r = seeded(m.id);
   const lead = m.leadId;
@@ -347,6 +353,8 @@ export function buildMissionControl(m: Mission): MissionControlData {
     risk: m.kind === 'automation' && i > 0 ? 'medium' : 'high', /* same tiers as the server policy: release and origin-grant R3 (high), browser-action R2 (medium) */ kind: m.kind === 'automation' ? (i === 0 ? 'origin-grant' : 'browser-action') : 'release', expiresMin: 90 - i * 30, agoMin: m.lastEventAgoMin + i * 4, status: 'pending',
     /* DEMO fixture: the demo account is an administrator and no fixture request is its own, so every fixture is decidable. In api mode the server sets these two fields from its policy path. */
     canDecide: true, decideBlockedReason: null,
+    /* DEMO fixture of the server's Rule-of-Two record (origin grants read a site and widen access, so all three hold; a release is sensitive and changes things; a browser action reads a page and changes it) */
+    ruleOfTwo: demoRuleOfTwo(m.kind === 'automation' ? (i === 0 ? 'origin-grant' : 'browser-action') : 'release'),
   }));
 
   const evTypes: TimelineEvent['type'][] = ['create', 'delegate', 'delegate', 'browser', 'model', 'message', 'artifact', 'verify', 'report', 'approval'];

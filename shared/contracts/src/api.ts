@@ -73,6 +73,13 @@ export interface MissionDto {
 
 export interface UploadDto { id: string; name: string; kind: MissionFileDto['kind']; size: number; mime: string; excerpt?: string }
 
+/** c58: why an approval was asked. The three flags are derived by the server from the agent's configuration; the Rule of Two is a heuristic from a vendor blog. */
+export interface RuleOfTwoDto {
+  flags: { untrustedInput: boolean; sensitiveAccess: boolean; canChangeState: boolean };
+  because: { untrustedInput: string[]; sensitiveAccess: string[]; canChangeState: string[] };
+  fired: boolean; rule: 'rule_of_two' | null; policyVersion: number;
+}
+
 export interface ApprovalDto {
   id: string; missionId: string; agentId: string; title: string; detail: string; kind: string;
   risk: string; riskTier: string; digest: string; digestVersion: number; demo: boolean;
@@ -84,6 +91,8 @@ export interface ApprovalDto {
   /** c48: whether the signed-in viewer may decide this request now, and when not, why (the server's own check, the same one the decision route runs) */
   canDecide: boolean;
   decideBlockedReason: 'tier_requires_admin' | 'requester_cannot_decide' | 'already_decided' | 'expired' | null;
+  /** c58: the flags and the rule that fired when this was asked (null on requests made before they were recorded) */
+  ruleOfTwo: RuleOfTwoDto | null;
   status: 'pending' | 'approved' | 'denied'; state: 'pending' | 'approved' | 'denied' | 'expired' | 'revoked';
   expiresMin: number; agoMin: number; expiresAt: number;
 }

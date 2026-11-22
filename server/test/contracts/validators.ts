@@ -1,7 +1,7 @@
 import { nul, str, num, int, bool, iso, rec, lit, oneOf, nullable, opt, arr, either, obj, openObj, dict, type V } from './validate.ts';
 import {
   ERROR_CODES, MISSION_STATUSES, SCORECARD_WINDOWS, REVIEW_VERDICTS, RUBRIC_RESULTS, EVIDENCE_KINDS, FAILURE_SUBJECT_KINDS, STEP_STATUSES, STALL_POLICY,
-  type AccountDto, type PhaseDto, type StaffingDto, type AgentDto, type AgentVersionDto, type ApprovalDto, type AttachmentDto, type AuditVerifyDto, type AvatarDto, type BriefTier, type ChannelDto,
+  type AccountDto, type PhaseDto, type StaffingDto, type AgentDto, type AgentVersionDto, type ApprovalDto, type RuleOfTwoDto, type AttachmentDto, type AuditVerifyDto, type AvatarDto, type BriefTier, type ChannelDto,
   type CompanyScorecardDto, type ConnectResult, type DelegableKind, type DelegationBriefDto, type DelegationBriefList, type DepartmentFacts, type DepartmentsDto, type DeviceDto,
   type ErrorEnvelope, type EvidenceRef, type FailureCategoryCount, type FailureModeCount, type FailureModesDto, type FailureSubjectInfo, type FailureTagDto, type HealthDto,
   type HierarchyDto, type HierarchyEdgeDto, type HierarchyNodeDto, type InstanceDto, type InstancesPageDto, type LedgerDto, type LedgerVersionDto, type LedgerVersionPageDto,
@@ -77,11 +77,14 @@ export const missionsBody = obj<{ missions: MissionDto[] }>({ missions: arr(miss
 export const upload: V<UploadDto> = obj<UploadDto>({ id: str, name: str, kind: fileKind, size: int, mime: str, excerpt: opt(str) });
 
 // ---- approvals, notifications
+const ruleFlags = obj<RuleOfTwoDto['flags']>({ untrustedInput: bool, sensitiveAccess: bool, canChangeState: bool });
+const ruleBecause = obj<RuleOfTwoDto['because']>({ untrustedInput: arr(str), sensitiveAccess: arr(str), canChangeState: arr(str) });
+export const ruleOfTwo: V<RuleOfTwoDto> = obj<RuleOfTwoDto>({ flags: ruleFlags, because: ruleBecause, fired: bool, rule: nullable(oneOf(['rule_of_two'] as const)), policyVersion: int });
 export const approval: V<ApprovalDto> = obj<ApprovalDto>({
   id: str, missionId: str, agentId: str, title: str, detail: str, kind: str, risk: str, riskTier: str, digest: str, digestVersion: int, demo: bool,
   taskId: nullable(str), origin: nullable(str), target: nullable(str), requestedBy: nullable(str), effect: nullable(str), effectWhy: nullable(str), approver: str,
   consumed: bool, consumedAt: nullable(num), decidedByName: nullable(str),
-  canDecide: bool, decideBlockedReason: nullable(oneOf(['tier_requires_admin', 'requester_cannot_decide', 'already_decided', 'expired'] as const)),
+  canDecide: bool, decideBlockedReason: nullable(oneOf(['tier_requires_admin', 'requester_cannot_decide', 'already_decided', 'expired'] as const)), ruleOfTwo: nullable(ruleOfTwo),
   status: oneOf(['pending', 'approved', 'denied'] as const), state: oneOf(['pending', 'approved', 'denied', 'expired', 'revoked'] as const), expiresMin: num, agoMin: num, expiresAt: num,
 });
 export const approvalsBody = obj<{ approvals: ApprovalDto[] }>({ approvals: arr(approval) });
