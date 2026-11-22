@@ -549,3 +549,24 @@ FAIL 900 /operations?tab=logs tab=Logs: clipped control button.icon-btn.xs[Dismi
 - After batch 9: batch 9's api scripts plus one `FLOWS_CPU_THROTTLE=4` flows run (per the 8b row).
 
 **Follow-up commits:** `09dd6cb`. Controller files committed with this entry: BACKLOG.md, LANES.md, LOG.md, QUEUE.md, STATE.md, cycles/c44-review.md (modified); cycles/c47–c49 briefs (new).
+
+## Batch 9 (Phase 2 · Wave 3): c39, c38, [locks fix], c42, c41 (in progress)
+
+- Pre-batch commit `4e84729`.
+- **`b17bbe6` c39-mission-ledgers (0ef44e2).** Migration 0032, DL-91, own `ledgers` bucket.
+  - Conflicts, all list unions: ratelimit.ts; security.test.ts (`LIMITED_KIND` gains `\/ledgers\/`); contracts errors.ts and index.ts; web/src/api/events.ts.
+  - Server tsc OK; vitest 1463/1463; web tsc OK; **api-c39 32/32**.
+- **`8dcc65c` c38-task-reviews (e54baec).** Migration 0031, DL-80, review rows on the scorecard.
+  - Conflicts:
+    - List unions: ratelimit.ts; security.test.ts (`LIMITED_KIND` gains `\/reviews$`); errors.ts; events.ts. The event type list was checked to be exactly the union of both sides; one bad join from my token-union helper was caught by web tsc and fixed before the commit.
+    - `web/src/dialogs/defs/missions.tsx` task drawer: c33's failure-tags import and `tagInfo` hook beside c38's review imports and `rv` hook; one footer with c33's "Tag failure" first and c38's `ReviewAction` last.
+  - Note: c38 adds no `taskReviews.cancel()` on sign-out (its own choice; not added here).
+  - **Follow-up `2abfbed`:** c38's M1 test inserted a raw `task.reassign` audit row, which c31's NOT NULL chain columns now refuse ("null value in column "seq""). It goes through `audit()` instead; task-reviews 21/21.
+  - **api-c38 23/23, api-c39 32/32.**
+  - Full vitest after `2abfbed`: 2/2 runs red on `instances.test.ts` "a skills PATCH keeps the old instance on v(n)…" (500 instead of 200; passes alone 11/11). Cause below.
+- **`4eca9db` fix(locks): schema-scoped advisory keys via one helper (+ guard test)** (**APPROVED by the controller**):
+  - Cause: lockAgent's key `hashtext('agent-ver:t-1:coder-01')` was database-wide. `version-proposals.test.ts` deliberately holds it, so another test schema's PATCH of coder-01 hit its 5 s `lock_timeout`. Same class as batch 7's events lock and batch 5f's red.
+  - Change: `src/locks.ts` (`LOCK_KEY_SQL = hashtextextended(current_schema() || ':' || $1, 0)`, `advisoryXactLock`) is now used by every advisory lock: agent-ver, org-rev, org-prop, agent-create, agent-seed, instance-backfill, site-grant, the first-user registration lock (was the constant `1`), the events and audit-chain locks (same key values), the migration lock, and the tests that hold or look them up (pg_locks classid/objid from the same bigint key).
+  - Guard `test/advisory-locks.test.ts`: fails on any `pg_advisory_*` call in server/src or server/test that does not take `LOCK_KEY_SQL` (RED with the old `src/agents/org.ts` put back), and proves two schemas get different keys that do not block each other.
+  - Proof: full vitest **3/3 runs at 2 workers, 1549/1549**; api-stage6 94/94.
+- **Follow-up `4766aae` (c38):** c38 appends two scorecard rows, but api-improve's c02 check still counted 8 (106/107). It now expects 10 rows, each with its `scorecard.*` help: **api-improve 107/107.**

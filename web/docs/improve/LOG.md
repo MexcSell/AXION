@@ -352,3 +352,33 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
   - **c47 E1b** (w46, e2e2, migration 0037): eval evidence on version proposals. The verdict is computed only from stored rows, and promote needs `verified_better` or an audited override. `worse` is refused.
   - **c48 P3a** (w47, e2e3): the server-computed `canDecide` drives honest Approve/Deny with a `?`.
   - **c49 P5b** (w48, e2e4, migration 0038 if needed): HMAC-signed anchors outside the DB detect tail truncation and full rehash. It also measures the P5c events-lock hold.
+- 2026-11-22T10:37Z · Batch 9 progress: c39 (b17bbe6) and c38 (8dcc65c, test fix 2abfbed for c31's NOT NULL chain columns) are merged.
+  - Vitest is red 2/2: lockAgent's `hashtext('agent-ver:t-1:coder-01')` is database-wide, and version-proposals.test holds it on purpose, so other schemas' PATCHes time out at 5 s. This is the root cause of the batch 5f agents.test red as well.
+  - Controller **approved** schema-scoped advisory keys through one helper for every lock (agent, org, proposals, create, seed, backfill, auth, events, audit), plus a **guard test** banning raw `pg_advisory`. Proof: vitest 3× at 2 workers, plus stage6 and improve.
+  - c41 (playbook and skill locks) and c42 (brief lock) get converted during their merges. Lane c47 warned.
+  - Lesson: "global test-schema lock keys" now has two instances.
+- 2026-11-22T10:42Z · c40 review: **PASS-WITH-FIXES**.
+  - Gates all green on the tip (api-mode api-mobile 650 states, no FAIL).
+  - Harness skip is clean: one line, exact value, set only by ToastCard.
+  - Desktop unchanged: stable pages 0 px diff; 0/112 dialog rect differences.
+  - Findings:
+    - M1: the help-popover scroller isn't keyboard-reachable (62 px unreachable at 1280×520).
+    - M2: api-c40 measured 0 popovers at 390 and still passed.
+    - Activity KPI text overlaps at 390 (pre-existing); fix it in this cycle with a 2-column grid.
+    - L1: 2 px clamp at 1280×760.
+  - Fix round dispatched.
+- 2026-11-22T10:43Z · c48 P3a (w47) reported at 0a808da.
+  - Server: one `decideRefusal` drives both the route and the `canDecide` / `decideBlockedReason` DTO. The 26-case matrix went RED → GREEN.
+  - UI: 4 surfaces are gated with aria-disabled plus a reason and `?`. The Overview queue icons were ungated before.
+  - Checks: api-c48 26/26, no member 403s; stage6, improve and c35 pass; verify-all 10/10; a11y 0 violations.
+  - Vitest had 4 failures in agents/instances/version-proposals, consistent with the global lock-key issue now being fixed.
+  - Independent reviewer dispatched.
+- 2026-11-22T10:46Z · c49 P5b (w48) reported at 8e5589a, no migration.
+  - Anchor checks: 49 anchor tests; truncation, rehash, bad signature, missing anchor and rolled-back states all detected.
+  - Stated limit: dropping the last checkpoint of a single-tenant file is undetectable.
+  - Grep test: the key appears in no log, response or CLI output.
+  - Suites: api-c49 14/14, vitest 1485 green on the final run, verify-all 10/10.
+  - Red evidence was produced by mutation (2 and 6 tests fail), not by writing tests first.
+  - **P5c measured:** events-lock hold p50 2.1 ms, p99 4.7 ms, max 14.8 ms over 4,658 transactions at concurrency 12, so it is far from the 5 s audit lock_timeout in normal operation.
+  - Live update needs AUDIT_ANCHOR_KEY in the live .env, then `audit:anchor` and `audit:verify`.
+  - Security reviewer dispatched.
