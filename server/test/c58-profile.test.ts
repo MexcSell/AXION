@@ -66,4 +66,19 @@ describe('c58 item 1: loadConfigProfile derives from trusted tables', () => {
     await t.pool.query(`update agent_instances set ended_at=now() where id=$1`, [s.inst[0].id]);
     expect((await s.load(0)).capabilities).toEqual([]);
   });
+  // c58 fix F4: (a) is the union over every revision and over chat attachments, so a later revision cannot clear it
+  it('a later revision without files does not clear the upload origin', async () => {
+    const s = await setup();
+    await t.pool.query(`update mission_revisions set files = '[{"id":"F-1","name":"a.txt"}]'::jsonb where mission_id=$1`, [s.m]);
+    await t.pool.query(`insert into mission_revisions(mission_id, revision, title, kind, priority, text, files, criteria, created_by) values ($1, 2, 't', 'build', 'normal', 'no files now', '[]', '[]', $2)`, [s.m, s.A.adminId]);
+    expect((await s.load(0)).contentOrigins).toEqual(['upload']);
+  });
+  it('a chat attachment in a mission thread counts, even when no revision has files', async () => {
+    const s = await setup();
+    expect((await s.load(0)).contentOrigins).toEqual(['internal']);
+    const th = (await t.pool.query(`insert into conversation_threads(tenant_id, scope, mission_id, kind, a, b) values ('t-1','mission',$1,'human-agent','a-c58','b-c58') returning id`, [s.m])).rows[0].id;
+    const msg = (await t.pool.query(`insert into messages(thread_id, seq, author_kind, author_id, kind, body) values ($1, 1, 'human', 'u', 'command', 'see file') returning id`, [th])).rows[0].id;
+    await t.pool.query(`insert into message_attachments(message_id, name, kind, size) values ($1, 'x.png', 'image', '1 KB')`, [msg]);
+    expect((await s.load(0)).contentOrigins).toEqual(['upload']);
+  });
 });

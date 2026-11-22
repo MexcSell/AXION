@@ -28,7 +28,8 @@ export interface DerivedFlags extends RuleOfTwoFlags { because: { untrustedInput
 
 /**
  * THE MAPPING (one table; the report and the UI help repeat it).
- *  untrustedInput  (a): a capability or action with an origin (it reads a web page), a live site grant, or a mission with uploaded files.
+ *  untrustedInput  (a): a capability or action with an origin (it reads a web page), a live site grant, or a mission with uploaded files
+ *                       in any revision or any chat attachment.
  *  sensitiveAccess (b): a capability or action kind whose baseline effect is infra or critical (live systems, credentials, permissions,
  *                       releases, production), or a kind the baseline does not know (fails closed). Today NO kind reads another mission's or the
  *                       tenant's data or secrets except through those kinds, so (b) does not model "can read private company data" (review F1);
@@ -90,8 +91,11 @@ export async function loadConfigProfile(db: Db | Tx, a: { tenantId: string; miss
       where g.tenant_id=$1 and g.mission_id=$2 and g.revoked_at is null and g.expires_at > now()
         and exists (select 1 from agent_instances i where i.tenant_id=$1 and i.mission_id=$2 and i.agent_id=$3 and i.ended_at is null)`,
     [a.tenantId, a.missionId, a.agentId])).rows.map((r) => ({ origin: r.exact_origin as string, capabilities: [...r.capabilities] as string[] }));
-  const files = (await db.query(`select coalesce(jsonb_array_length(files), 0) as n from mission_revisions where mission_id=$1 order by revision desc limit 1`, [a.missionId])).rows[0];
-  const contentOrigins: ContentOrigin[] = Number(files?.n ?? 0) > 0 ? ['upload'] : ['internal'];
+  // every revision ever made and every chat attachment of the mission: a later revision without files cannot clear the flag
+  const up = (await db.query(
+    `select (exists (select 1 from mission_revisions r where r.mission_id=$1 and coalesce(jsonb_array_length(r.files), 0) > 0)
+          or exists (select 1 from message_attachments a join messages m on m.id=a.message_id join conversation_threads t on t.id=m.thread_id where t.mission_id=$1)) as has`, [a.missionId])).rows[0];
+  const contentOrigins: ContentOrigin[] = up?.has ? ['upload'] : ['internal'];
   return { capabilities: caps, siteGrants: grants, contentOrigins, ...(a.action ? { action: a.action } : {}) };
 }
 
