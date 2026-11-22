@@ -137,7 +137,7 @@ const SPECS: Spec[] = [
     return { value: med, p90, n: waits.length, open,
       evidence: `median ${round1(med)} h and 90th percentile ${round1(p90)} h from a delegation to the first started attempt of its task, over ${plural(waits.length, 'delegation')} made in the window (database time)${tail}` };
   } },
-  { key: 'approval_decision_h', label: 'Wait for an approval decision', unit: 'h', minN: MIN_N,
+  { key: 'approval_decision_h', label: 'Approval wait', unit: 'h', minN: MIN_N,
     measure: () => ({ value: null, n: null, state: 'unmeasured', evidence: 'not measured in this version: the stored approval decision time is not part of this build, and it is not recomputed from timestamps' }) },
   { key: 'cost', label: 'Cost', unit: 'count', minN: MIN_N,
     measure: () => ({ value: null, n: null, state: 'unmeasured', evidence: 'not measured until Stage 9 (the usage ledger): nothing records what work cost yet, so there is no number' }) },

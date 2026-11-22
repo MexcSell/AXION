@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { Layers, Brain, Wrench, Globe2, Users, BookOpen, Dna, ArrowUp, ArrowDown, ArrowRight, EyeOff, Hourglass, type LucideIcon } from 'lucide-react';
+import { Layers, Workflow, Brain, Wrench, Globe2, Users, BookOpen, Dna, ArrowUp, ArrowDown, ArrowRight, EyeOff, Hourglass, type LucideIcon } from 'lucide-react';
 import { DIMENSION_KEYS, type DimensionCell, type DimensionKey, type DimensionWindow } from '@contracts';
 import { Panel } from '@/components/ui/Panel';
 import { Segmented } from '@/components/ui/Form';
@@ -10,10 +10,13 @@ import { Tip } from '@/components/ui/Tip';
 import { LiveStatus } from '@/components/ui/LiveStatus';
 import { isApi } from '@/api/mode';
 import { useDimensions } from '@/api/dimensions';
+import { useProcess } from '@/api/process';
+import { ProcessView } from './ProcessView';
 import { useMetricGuard } from '@/api/metricGuard';
 import { GuardCue, GuardTrigger, guardWord } from '@/components/ui/MetricGuard';
 import type { MetricGuardRow } from '@contracts';
 import { demoDimensions } from '@/data/dimensionsDemo';
+import { demoProcess } from '@/data/processDemo';
 import { cx } from '@/lib/format';
 import '@/theme/pages/c46-dimensions.css';
 
@@ -64,14 +67,20 @@ export function Dimensions() {
   const [w, setW] = useState<DimensionWindow>('30d');
   const [dept, setDept] = useState<string | null>(null);
   const [sel, setSel] = useState<string | null>(null);
+  const [view, setView] = useState<'outcomes' | 'process'>('outcomes');
   const live = useDimensions(w, dept);
   const mg = useMetricGuard();
+  const procLive = useProcess(w, dept);
+  const procShown = api_ ? (procLive.data && procLive.data.window === w && procLive.data.department === dept ? procLive.data : null) : demoProcess(w, dept);
   const demoData = !api_ ? demoDimensions(w, dept) : null;
   const shown = api_ ? (live.data && live.data.window === w && live.data.department === dept ? live.data : null) : demoData;
   const departments = shown?.departments ?? [];
   return (
-    <Panel icon={Layers} tight title="Six dimensions" help="dimensions.panel" delay={.05}
+    <Panel icon={view === 'process' ? Workflow : Layers} tight title={view === 'process' ? 'Process' : 'Six dimensions'} help={view === 'process' ? 'process.row' : 'dimensions.panel'} delay={.05}
       actions={<div className="dim-bar">
+          <span className="dim-ctl" data-view={view}>
+            <Segmented size="sm" ariaLabel="View" value={view} onChange={setView} options={[{ key: 'outcomes', label: <><Layers size={12} aria-hidden /> Outcomes</>, title: 'The six dimensions of organisational intelligence' }, { key: 'process', label: <><Workflow size={12} aria-hidden /> Process</>, title: 'How the work moved: returns, first-pass acceptance, repeats, hand-offs' }]} />
+          </span>
           <span className="dim-ctl">
             <select className="select" aria-label="Department" value={dept ?? ''} onChange={(e) => setDept(e.target.value || null)}>
               <option value="">Whole company</option>
@@ -85,8 +94,9 @@ export function Dimensions() {
             <HelpTrigger k="dimensions.window" />
           </span>
           {!api_ && <DemoTag title="SAMPLE cells: invented numbers that only show the layout. Switch to the server version for measured ones." />}
-          <span className="dim-ctl dim" style={{ fontSize: 12 }} title="Reading a cell"><HelpTrigger k="dimensions.cell" /></span>
+          {view === 'outcomes' && <span className="dim-ctl dim" style={{ fontSize: 12 }} title="Reading a cell"><HelpTrigger k="dimensions.cell" /></span>}
       </div>}>
+      {view === 'process' ? <ProcessView data={procShown} error={procLive.error} w={w} byId={mg.byId} demo={!api_} /> : (
       <div className="dim-wrap" data-dimensions={shown ? 'ready' : live.error ? 'error' : 'loading'} data-window={w} data-department={dept ?? ''}>
         {!shown ? (live.error ? <LiveStatus kind="error" className="dim">{live.error}</LiveStatus> : <LiveStatus className="dim">Reading the six dimensions…</LiveStatus>) : (
           <div className="dim-rows" role="list" aria-label="Six dimensions">
@@ -106,7 +116,7 @@ export function Dimensions() {
           return <div className="dim dim-note" data-evidence={c ? c.key : ''} aria-live="polite">{c
             ? <><b>{c.label}</b><span className="dim-guard-note"><GuardTrigger g={mg.byId(`dimension.${c.key}`, c.label)} />{mg.byId(`dimension.${c.key}`, c.label)?.gameable && <i className="gm-word">gameable</i>}</span>: {c.evidence}. <span className="dim">{c.basis === 'none' ? 'No window' : `${WIN[w]}, ${new Date(c.from ?? shown!.from).toLocaleDateString()} to ${new Date(c.to ?? shown!.to).toLocaleDateString()}`} · {scopeText(c, !api_)}.</span></>
             : shown ? `Tap or press a cell to read how it was counted. ${shown.department ?? 'Whole company'} · ${new Date(shown.from).toLocaleDateString()} to ${new Date(shown.to).toLocaleDateString()}.` : ' '}</div>; })()}
-      </div>
+      </div>)}
     </Panel>
   );
 }
