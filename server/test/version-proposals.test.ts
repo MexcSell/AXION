@@ -3,6 +3,7 @@ import { makeTestApp, withAdmin, type TestApp, type Browser } from './helpers.ts
 import { migrate, listMigrations } from '../src/migrate.ts';
 import { seedDemo } from '../src/seed/demo.ts';
 import { configDiff, normalizeConfig } from '../src/agents/versions.ts';
+import { LOCK_KEY_SQL } from '../src/locks.ts';
 
 // Improvement cycle 5 (theme C): agent version proposals, promote and rollback under governance
 // (brief web/docs/improve/cycles/c05-brief.md, "Tests").
@@ -354,10 +355,10 @@ describe('one lock for every writer of the active version', () => {
     const p = (await propose(A, addSkill('Kotlin'))).body.proposal;
     const start = await agent();
     const lockKey = `agent-ver:t-1:${AG}`;
-    const waiting = async () => (await rows(`select count(*)::int n from pg_locks where locktype='advisory' and not granted and objsubid=1 and objid=((hashtext($1)::bigint) & 4294967295)::oid`, [lockKey]))[0].n as number;
+    const waiting = async () => (await rows(`select count(*)::int n from pg_locks where locktype='advisory' and not granted and objsubid=1 and (classid, objid) = (select ((k >> 32) & 4294967295)::oid, (k & 4294967295)::oid from (select ${LOCK_KEY_SQL} as k) z)`, [lockKey]))[0].n as number;
     const X = await t.pool.connect();
     await X.query('begin');
-    await X.query('select pg_advisory_xact_lock(hashtext($1))', [lockKey]);
+    await X.query(`select pg_advisory_xact_lock(${LOCK_KEY_SQL})`, [lockKey]);
     // 1) the promote queues on the lock, 2) the PATCH (made from the same, still current state) queues behind it
     const promoted = decide(B, p, 'promote');
     expect(await until(async () => (await waiting()) === 1)).toBe(true);
@@ -379,10 +380,10 @@ describe('one lock for every writer of the active version', () => {
   it('a rollback waiting on the lock while a PATCH commits builds on the PATCHed version (parent = it)', async () => {
     const start = await agent();
     const lockKey = `agent-ver:t-1:${AG}`;
-    const waiting = async () => (await rows(`select count(*)::int n from pg_locks where locktype='advisory' and not granted and objsubid=1 and objid=((hashtext($1)::bigint) & 4294967295)::oid`, [lockKey]))[0].n as number;
+    const waiting = async () => (await rows(`select count(*)::int n from pg_locks where locktype='advisory' and not granted and objsubid=1 and (classid, objid) = (select ((k >> 32) & 4294967295)::oid, (k & 4294967295)::oid from (select ${LOCK_KEY_SQL} as k) z)`, [lockKey]))[0].n as number;
     const X = await t.pool.connect();
     await X.query('begin');
-    await X.query('select pg_advisory_xact_lock(hashtext($1))', [lockKey]);
+    await X.query(`select pg_advisory_xact_lock(${LOCK_KEY_SQL})`, [lockKey]);
     const patched = A.req('PATCH', `/agents/${AG}`, { skills: [...start.skills, 'Lua'] }, { 'if-match': String(start.rowVersion) });
     expect(await until(async () => (await waiting()) === 1)).toBe(true);
     const rolled = A.req('POST', `/agents/${AG}/rollback`, { toVersionId: start.versions[0].id, why: 'race' }, key());

@@ -4,6 +4,7 @@ import { migrate, listMigrations } from '../src/migrate.ts';
 import { seedDemo } from '../src/seed/demo.ts';
 import { createOrgRevision } from '../src/agents/org.ts';
 import { tx } from '../src/db.ts';
+import { LOCK_KEY_SQL } from '../src/locks.ts';
 
 // Improvement cycle 1: organisation change proposals (brief web/docs/improve/cycles/c01-brief.md, "Tests").
 let t: TestApp;
@@ -250,10 +251,10 @@ describe('fix round: the chart stays one tree under the GM, on every writer', ()
   it('POST /agents waiting on the org lock builds on a revision committed meanwhile (no silent undo)', async () => {
     const X = await t.pool.connect();
     await X.query('begin');
-    await X.query(`select pg_advisory_xact_lock(hashtext('org-rev:t-1'))`);
+    await X.query(`select pg_advisory_xact_lock(${LOCK_KEY_SQL})`, ['org-rev:t-1']);
     const created = A.req('POST', '/agents', { id: 'race-01', name: 'Race-01', role: 'racer', dept: 'Operations', duty: 'Race regression check', model: 'claude-sonnet-5-5' }, key());
     // POST /agents is blocked on the org lock (old code: after it already read the org; new code: before)
-    const waiting = async () => (await rows(`select count(*)::int n from pg_locks where locktype='advisory' and not granted and objsubid=1 and objid=((hashtext('org-rev:t-1')::bigint) & 4294967295)::oid`))[0].n > 0;
+    const waiting = async () => (await rows(`select count(*)::int n from pg_locks where locktype='advisory' and not granted and objsubid=1 and (classid, objid) = (select ((k >> 32) & 4294967295)::oid, (k & 4294967295)::oid from (select ${LOCK_KEY_SQL} as k) z)`, ['org-rev:t-1']))[0].n > 0;
     expect(await until(waiting)).toBe(true);
     // a revision that moves writer-01 under ops-01 commits meanwhile, from a transaction that starts after POST's
     const Y = await t.pool.connect();

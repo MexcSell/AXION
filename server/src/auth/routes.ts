@@ -9,6 +9,7 @@ import { FailLimiter, addDevice, checkPassword, createUser, hashPassword, listAc
 import { NAME_MIN, NAME_MAX, PASSWORD_MIN, NEW_PASSWORD_MIN, PASSWORD_MAX } from '../../../shared/contracts/src/index.ts';
 import { emit } from '../events/hooks.ts';
 import { createNotification } from '../notifications/routes.ts';
+import { advisoryXactLock } from '../locks.ts';
 
 const DeviceIn = z.object({ name: z.string().max(80).default('Browser'), kind: z.enum(['desktop', 'laptop', 'phone', 'tablet']).default('desktop'), browser: z.string().max(40).default('Browser') });
 const ConnectIn = z.object({ name: z.string().max(200), password: z.string().max(PASSWORD_MAX), device: DeviceIn.default({ name: 'Browser', kind: 'desktop', browser: 'Browser' }) });
@@ -62,7 +63,7 @@ export default async function authRoutes(app: FastifyInstance) {
     if (!u) {
       const passHashNew = await hashPassword(b.password);
       const r = await tx(app.db, async (c) => {
-        await c.query('select pg_advisory_xact_lock(1)');
+        await advisoryXactLock(c, 'registration');
         const again = (await c.query('select * from users where tenant_id=$1 and name_key=$2', [tenantId, n.key])).rows[0];
         if (again) return { existing: again };
         const first = Number((await c.query('select count(*) from users where tenant_id=$1', [tenantId])).rows[0].count) === 0;
@@ -274,7 +275,7 @@ export default async function authRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const b = parse(z.object({ role: z.enum(['admin', 'member']).optional(), status: z.enum(['approved', 'disabled']).optional() }), req.body);
     await tx(app.db, async (t) => {
-      await t.query('select pg_advisory_xact_lock(1)');
+      await advisoryXactLock(t, 'registration');
       const u = await target(t, id);
       const losesAdmin = u.role === 'admin' && u.status === 'approved' && (b.role === 'member' || b.status === 'disabled');
       if (losesAdmin) {

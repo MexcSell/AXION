@@ -2,6 +2,7 @@ import type { Tx, Db } from '../db.ts';
 import { ApiError, badRequest } from '../errors.ts';
 import type { OrgEdgeDto, OrgRevisionDto } from '../../../shared/contracts/src/index.ts';
 import { validateOrg } from '../organization/validate.ts';
+import { advisoryXactLock } from '../locks.ts';
 
 export interface EdgeIn { supervisorId: string; subordinateId: string; edgeType?: string }
 const CHAIN_LIMIT = 64;
@@ -29,7 +30,7 @@ export function assertAcyclic(edges: EdgeIn[]) {
 }
 
 /** The org write lock. Every org-revision writer takes it BEFORE it reads the organisation (review I-1). */
-export const lockOrg = (c: Tx, tenantId: string) => c.query('select pg_advisory_xact_lock(hashtext($1))', ['org-rev:' + tenantId]);
+export const lockOrg = (c: Tx, tenantId: string) => advisoryXactLock(c, 'org-rev:' + tenantId);
 
 /**
  * The newest revision by seq. Writers use this, not activeRevision(): its `active_from <= now()` compares with the

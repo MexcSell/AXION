@@ -3,6 +3,7 @@ import { audit } from '../audit.ts';
 import { AGENTS } from '../../../web/src/data/agents.ts';
 import { addVersion } from './service.ts';
 import { createOrgRevision } from './org.ts';
+import { advisoryXactLock } from '../locks.ts';
 
 /**
  * Decision E1: the prototype's 18 agents are company data. Idempotent: inserts any fixture agent that is missing
@@ -10,7 +11,7 @@ import { createOrgRevision } from './org.ts';
  * Display-only fields go into profile (E2), tagged as demo-fixture.
  */
 export async function seedCompany(c: Tx, tenantId: string) {
-  await c.query('select pg_advisory_xact_lock(hashtext($1))', ['agent-seed:' + tenantId]);
+  await advisoryXactLock(c, 'agent-seed:' + tenantId);
   const have = new Set((await c.query('select id from agent_definitions where tenant_id=$1', [tenantId])).rows.map((r) => r.id));
   let added = 0;
   for (const a of AGENTS) {

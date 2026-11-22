@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Tx, Db } from '../db.ts';
 import type { AgentStoredDto, AgentVersionDto, Provenance } from '../../../shared/contracts/src/index.ts';
 import { activeRevision, edgesOf } from './org.ts';
+import { advisoryXactLock } from '../locks.ts';
 
 export const promptHash = (model: string, skills: unknown[], tools: unknown[]) =>
   createHash('sha256').update(JSON.stringify({ model, skills, tools })).digest('hex');
@@ -61,7 +62,7 @@ export async function getAgent(c: Tx | Db, tenantId: string, id: string, withVer
  * rollback; proposals take it to read the base). Take it FIRST, as its own statement, and read the agent after it:
  * a read made before (or in the statement that waits) can miss a version another writer committed meanwhile.
  */
-export const lockAgent = (c: Tx, tenantId: string, agentId: string) => c.query('select pg_advisory_xact_lock(hashtext($1))', [`agent-ver:${tenantId}:${agentId}`]);
+export const lockAgent = (c: Tx, tenantId: string, agentId: string) => advisoryXactLock(c, `agent-ver:${tenantId}:${agentId}`);
 
 /** Lock the agent, then read it (row-locked). The only way promote and rollback read the agent they change. */
 export async function lockAndReadAgent(c: Tx, tenantId: string, agentId: string) {

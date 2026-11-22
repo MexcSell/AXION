@@ -12,6 +12,7 @@ import { createOrgRevision, edgesOf, latestRevision as latest, lockOrg } from '.
 import { validateOrg, type EdgeIn } from './validate.ts';
 import { dryRunCoverage } from './coverageRoutes.ts';
 import type { OrgDryRun, OrgProposalDto } from '../../../shared/contracts/src/index.ts';
+import { advisoryXactLock } from '../locks.ts';
 
 /**
  * Improvement cycle 1: organisation change proposals. An administrator proposes the full set of reporting lines
@@ -69,7 +70,7 @@ export async function expireDue(c: Tx, tenantId: string) {
 
 const staleBase = (seq: number, base: number) => new ApiError('ORG_CHANGED', 409, `The organisation changed meanwhile (revision ${seq} is active, this was made on ${base}). Start again from the current chart.`);
 /** Serialises proposal creation per tenant (re-entrant within one transaction). */
-export const lockProposals = (c: Tx, tenantId: string) => c.query('select pg_advisory_xact_lock(hashtext($1))', ['org-prop:' + tenantId]);
+export const lockProposals = (c: Tx, tenantId: string) => advisoryXactLock(c, 'org-prop:' + tenantId);
 
 /**
  * The one way a proposal is stored (POST /organization/proposals and, cycle 4, the rollback proposal): lock, expire,

@@ -3,6 +3,7 @@ import pg from 'pg';
 import type { Tx, Db } from './db.ts';
 import { canonical } from './approvals/service.ts';
 import { EVENTS_LOCK } from './events/log.ts';
+import { advisoryXactLock } from './locks.ts';
 
 const SECRET_KEYS = /pass|password|token|secret|csrf|hash|cookie/i;
 /** Drop any field that could hold a secret (axor rule: secrets are never logged). */
@@ -44,8 +45,8 @@ export async function audit(c: Tx | Db, a: AuditInput) {
     return;
   }
   const detail = JSON.stringify(redact(a.detail ?? {})); // what is stored is what is hashed: redacted first
-  await c.query(`select pg_advisory_xact_lock(${EVENTS_LOCK})`);
-  await c.query('select pg_advisory_xact_lock(hashtextextended(current_schema() || $1, 0))', [':audit-chain:' + a.tenantId]);
+  await advisoryXactLock(c, EVENTS_LOCK);
+  await advisoryXactLock(c, 'audit-chain:' + a.tenantId); // same key as before: schema || ':audit-chain:' || tenant
   const head = (await c.query('select seq, row_hash from audit_events where tenant_id=$1 order by seq desc limit 1', [a.tenantId])).rows[0];
   const seq = head ? Number(head.seq) + 1 : 1;
   const prev: string = head ? head.row_hash : GENESIS;

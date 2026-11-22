@@ -3,6 +3,7 @@ import { makeTestApp, withAdmin, Browser, type TestApp } from './helpers.ts';
 import { transition } from '../src/missions/machine.ts';
 import { requestApproval } from '../src/approvals/service.ts';
 import { tx } from '../src/db.ts';
+import { LOCK_KEY_SQL } from '../src/locks.ts';
 
 let t: TestApp;
 beforeEach(async () => { t = await makeTestApp({ staffingStepMs: 60_000 }); });
@@ -37,7 +38,7 @@ describe('I2 password checks do not hold the global lock', () => {
     await withAdmin(t.app);
     const holder = await t.pool.connect();
     await holder.query('begin');
-    await holder.query('select pg_advisory_xact_lock(1)'); // e.g. a slow first-user registration
+    await holder.query(`select pg_advisory_xact_lock(${LOCK_KEY_SQL})`, ['registration']); // e.g. a slow first-user registration
     const t0 = Date.now();
     const r = await new Browser(t.app).connect('Luca', 'wrong-pass');
     const took = Date.now() - t0;

@@ -6,6 +6,7 @@ import { tx } from '../src/db.ts';
 import { audit, verifyChain } from '../src/audit.ts';
 import { seedDemo } from '../src/seed/demo.ts';
 import { EVENTS_LOCK } from '../src/events/log.ts';
+import { LOCK_KEY_SQL } from '../src/locks.ts';
 
 const T = 't-1';
 const put = (c: any, n: number, tenantId = T, detail: Record<string, unknown> = { n }) =>
@@ -196,7 +197,7 @@ describe('fix round c31', () => {
       const A = await withAdmin(t.app);
       const { Browser } = await import('./helpers.ts');
       const b = new Browser(t.app);
-      await hold.query(`select pg_advisory_lock(${EVENTS_LOCK})`); // a writer stuck holding the events lock
+      await hold.query(`select pg_advisory_lock(${LOCK_KEY_SQL})`, [EVENTS_LOCK]); // a writer stuck holding the events lock
       const t0 = Date.now();
       const r = await b.connect('Luca', 'wrong-password');
       const waited = Date.now() - t0;
@@ -204,7 +205,7 @@ describe('fix round c31', () => {
       // the held key really blocked the sign-in's audit (same schema-scoped key): it waited for the 5 s lock_timeout
       expect(waited).toBeGreaterThanOrEqual(4500);
       expect(r.body.code).toBe('WRONG_PASSWORD');
-      await hold.query(`select pg_advisory_unlock(${EVENTS_LOCK})`);
+      await hold.query(`select pg_advisory_unlock(${LOCK_KEY_SQL})`, [EVENTS_LOCK]);
       expect((await verifyChain(t.pool, 't-1')).ok).toBe(true);
       void A;
     } finally { hold.release(); await t.close(); }

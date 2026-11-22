@@ -2,6 +2,7 @@ import type { Tx } from '../db.ts';
 import { MISSIONS, getMissionControl } from '../../../web/src/data/missions.ts';
 import { ensureThread, addReceipt, appendMessage } from '../conversations/service.ts';
 import { instanceId, insertDelegation, insertInstance, UI_TO_TASK } from './service.ts';
+import { advisoryXactLock } from '../locks.ts';
 
 /**
  * Startup backfill (Stage 6 review focus 5): every mission without instances gets its team.
@@ -11,7 +12,7 @@ import { instanceId, insertDelegation, insertInstance, UI_TO_TASK } from './serv
  * (backfillThreads, gated on "no threads", so missions backfilled by an earlier version still get them).
  */
 export async function backfillMissionControl(c: Tx, tenantId: string, log?: { info: (o: object, m: string) => void; error: (o: object, m: string) => void }) {
-  await c.query('select pg_advisory_xact_lock(hashtext($1))', ['instance-backfill:' + tenantId]);
+  await advisoryXactLock(c, 'instance-backfill:' + tenantId);
   const rows = (await c.query(`select m.id, m.demo, m.presentation, (select id from mission_runs where mission_id=m.id order by id desc limit 1) as run_id
       from missions m where m.tenant_id=$1 and not exists (select 1 from agent_instances i where i.mission_id=m.id) order by m.created_at, m.id`, [tenantId])).rows;
   const done = { missions: 0, instances: 0, delegations: 0, tasks: 0, skipped: 0 };

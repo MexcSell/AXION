@@ -10,6 +10,7 @@ import { emit } from '../events/hooks.ts';
 import { normaliseOrigin, REFUSAL_TEXT } from './origin.ts';
 import { GRANTABLE, MAX_GRANT_MS, assertNormal, checkOrigin, decideGrant, newGrantId } from './service.ts';
 import type { SiteGrantDto, SiteGrantState } from '../../../shared/contracts/src/index.ts';
+import { advisoryXactLock } from '../locks.ts';
 
 /**
  * Site grants (c36, spec §11 site_grants, browser.originGrant). Administrators only. Issuing a grant is an R3 action: it goes
@@ -75,7 +76,7 @@ export default async function grantRoutes(app: FastifyInstance) {
     const out = await idempotent(app.db, req, ctx, async (c) => {
       const m = (await c.query('select 1 from missions where id=$1 and tenant_id=$2 and deleted_at is null', [b.missionId, ctx.tenantId])).rowCount;
       if (!m) throw new ApiError('VALIDATION', 422, 'Some fields are not valid.', { fieldErrors: { missionId: 'No such mission.' } });
-      await c.query('select pg_advisory_xact_lock(hashtext($1))', [`site-grant:${ctx.tenantId}:${b.missionId}:${n.origin}`]); // two concurrent issues of the same grant: one waits, then sees the other
+      await advisoryXactLock(c, `site-grant:${ctx.tenantId}:${b.missionId}:${n.origin}`); // two concurrent issues of the same grant: one waits, then sees the other
       const dup = (await c.query(`select expires_at from site_grants where tenant_id=$1 and mission_id=$2 and exact_origin=$3 and revoked_at is null and expires_at > now()`, [ctx.tenantId, b.missionId, n.origin])).rows[0];
       if (dup) throw new ApiError('CONFLICT', 409, `This mission already has a grant for ${n.origin} until ${new Date(dup.expires_at).toISOString()}. Revoke it first to change it.`);
       const id = newGrantId();

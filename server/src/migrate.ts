@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
 import type pg from 'pg';
+import { LOCK_KEY_SQL } from './locks.ts';
 
 const DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'migrations');
 
@@ -19,7 +20,7 @@ export async function migrate(pool: pg.Pool, direction: 'up' | 'down', target?: 
   const c = await pool.connect();
   try {
     await c.query('create table if not exists schema_migrations (version int primary key, name text not null, applied_at timestamptz not null default now())');
-    await c.query('select pg_advisory_lock(hashtext(current_schema()))');
+    await c.query(`select pg_advisory_lock(${LOCK_KEY_SQL})`, ['migrate']);
     const done = new Set((await c.query('select version from schema_migrations')).rows.map((r) => r.version as number));
     const all = listMigrations();
     const current = Math.max(0, ...done);
@@ -41,7 +42,7 @@ export async function migrate(pool: pg.Pool, direction: 'up' | 'down', target?: 
     }
     return Math.max(0, ...(await c.query('select version from schema_migrations')).rows.map((r) => r.version as number));
   } finally {
-    await c.query('select pg_advisory_unlock(hashtext(current_schema()))').catch(() => {});
+    await c.query(`select pg_advisory_unlock(${LOCK_KEY_SQL})`, ['migrate']).catch(() => {});
     c.release();
   }
 }

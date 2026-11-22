@@ -10,6 +10,7 @@ import { emit } from '../events/hooks.ts';
 import { addVersion, getAgent, listAgents, lockAgent, type AgentBase } from './service.ts';
 import { attachReliability } from './reliability.ts';
 import { activeRevision, createOrgRevision, edgesOf } from './org.ts';
+import { advisoryXactLock } from '../locks.ts';
 
 const Str = z.string().trim();
 const List = z.array(Str.min(1).max(80)).max(50);
@@ -54,7 +55,7 @@ export default async function agentRoutes(app: FastifyInstance) {
     const ctx = await requireAdmin(req);
     const b = parse(CreateIn, req.body);
     const out = await idempotent(app.db, req, ctx, async (c) => {
-      await c.query('select pg_advisory_xact_lock(hashtext($1))', ['agent-create:' + ctx.tenantId]);
+      await advisoryXactLock(c, 'agent-create:' + ctx.tenantId);
       const id = b.id ?? (slug(b.name) || 'agent');
       if ((await c.query('select 1 from agent_definitions where id=$1', [id])).rowCount) throw new ApiError('CONFLICT', 409, `An agent with the id ${id} already exists.`);
       // u1: one agent per role (among active agents) and one per duty (case-insensitive)
