@@ -407,6 +407,17 @@ async function mixed() {
     return { seen, blank, steps };
   });
   check('I2 mixed heights: a walk from the top renders every message in order with no blank viewport', w.seen.length === ids.length && w.seen.every((x, i) => x === ids[i]) && w.blank === 0, `${w.seen.length}/${ids.length} in ${w.steps} steps · blank ${w.blank}`);
+  // (3b) scrolling up 1,200 px and back puts the same message at the same place (±3 px) on wrong estimates
+  await body.evaluate((el) => { el.scrollTop = Math.round(el.scrollHeight * 0.6); });
+  await p.waitForTimeout(700);
+  const pickRow = () => body.evaluate((el) => { const box = el.getBoundingClientRect(); const r = [...el.querySelectorAll('[data-mid]')].find((x) => x.getBoundingClientRect().bottom > box.top + 1); return r ? { id: r.getAttribute('data-mid'), top: r.getBoundingClientRect().top - box.top } : null; });
+  const sb0 = await pickRow();
+  await body.evaluate((el) => { el.scrollTop -= 1200; });
+  await p.waitForTimeout(700);
+  await body.evaluate((el) => { el.scrollTop += 1200; });
+  await p.waitForTimeout(700);
+  const sb1 = sb0 ? await body.evaluate((el, id) => { const x = el.querySelector(`[data-mid="${id}"]`); return x ? x.getBoundingClientRect().top - el.getBoundingClientRect().top : null; }, sb0.id) : null;
+  check('I2 mixed heights: scrolling up 1,200 px and back puts the same message at the same place (±3 px)', sb0 && sb1 != null && Math.abs(sb1 - sb0.top) <= 3, `shift ${sb0 && sb1 != null ? Math.abs(sb1 - sb0.top).toFixed(1) : '-'} px`);
   // (4) keyboard: Home, End and a run of ↑ each land on a row that is inside the viewport and holds focus
   const landed = async () => p.evaluate(() => {
     const a = document.activeElement, el = document.querySelector('.conv-main .thread-body');
