@@ -224,6 +224,7 @@ describe('per-session write rate limits', () => {
       'POST /api/v1/organization/revisions/:seq/rollback-proposal',
       'POST /api/v1/agents/:id/version-proposals', 'POST /api/v1/version-proposals/:pid/decision', 'POST /api/v1/version-proposals/:pid/withdraw', 'POST /api/v1/agents/:id/rollback',
       'POST /api/v1/agents/:id/mentoring', 'POST /api/v1/mentoring/:pid/milestones/:mid/done', 'POST /api/v1/mentoring/:pid/close',
+      'POST /api/v1/failure-tags', 'POST /api/v1/failure-tags/:id/decision',
     ]));
     expect(must.filter((k) => !(k in LIMITED_ROUTES))).toEqual([]);
     expect(Object.keys(LIMITED_ROUTES).filter((k) => !writes.includes(k))).toEqual([]);

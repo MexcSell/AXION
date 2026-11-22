@@ -7,3 +7,4 @@ export * from './conversations.ts';
 export * from './tasks.ts';
 export * from './company.ts';
 export * from './departments.ts';
+export * from './failures.ts';
