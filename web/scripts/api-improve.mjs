@@ -109,7 +109,8 @@ try {
   check('c02 fix m1: every fixture-backed Overview panel carries a DEMO tag in api mode', untagged.length === 0, untagged.join(', '));
   await A.p.goto(base + '/overview', { waitUntil: 'domcontentloaded' });
   await A.p.locator('[data-scorecard="ready"]').waitFor({ timeout: 15000 });
-  check('c02 the scorecard panel lists all 8 rows with a ? each', (await A.p.locator('[data-scorecard="ready"] [data-row]').count()) === 8 && (await A.p.locator('[data-scorecard="ready"] [data-row] [data-help-key^="scorecard."]').count()) === 8);
+  // 8 rows of cycle 2, plus cycle 38's two at the end (approved_by_non_owner, tasks_verified_by_review)
+  check('c02 the scorecard panel lists all 10 rows with a ? each', (await A.p.locator('[data-scorecard="ready"] [data-row]').count()) === 10 && (await A.p.locator('[data-scorecard="ready"] [data-row] [data-help-key^="scorecard."]').count()) === 10);
   await A.p.goto(base + '/missions', { waitUntil: 'domcontentloaded' });
   await A.p.locator('.mw-list-head').waitFor({ timeout: 10000 });
   // ABSENCE WAIT (kept, 600 ms as before): asserting the list header never shows a success rate once the list has loaded; no condition can signal "never".
