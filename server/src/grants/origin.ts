@@ -18,6 +18,10 @@
 import { domainToASCII, domainToUnicode } from 'node:url';
 import { isPublicSuffix } from './psl.ts';
 
+/** Multi-tenant hosts refused in addition to the PSL. c36's removed partial list refused these two, and the PSL does not
+ *  list them (they are registrable names; only names under them are rules), so they stay refused to avoid loosening c36. */
+export const EXTRA_REFUSED_HOSTS: ReadonlySet<string> = new Set(['amazonaws.com', 'glitch.me']);
+
 export const REFUSAL_REASONS = [
   'not_string', 'empty', 'too_long', 'control_or_space', 'backslash', 'percent_encoding', 'wildcard', 'query_or_fragment', 'userinfo',
   'scheme_required', 'scheme_not_https', 'path', 'empty_host', 'ip_literal', 'bad_port', 'trailing_dot', 'empty_label', 'host_too_long',
@@ -201,7 +205,7 @@ function normalise(input: unknown, opts: OriginOptions): OriginResult {
   if (RESERVED_TLD.has(last)) return refuse('reserved_name');
   if (!/^[a-z]{2,}$/.test(last)) return refuse('bad_tld'); // a TLD is 2+ letters, no digits
   if (ascii.length < 2) return refuse('single_label');
-  if (isPublicSuffix(host)) return refuse('public_suffix');
+  if (isPublicSuffix(host) || EXTRA_REFUSED_HOSTS.has(host)) return refuse('public_suffix');
 
   const def = scheme === 'https' ? 443 : 80;
   const origin = `${scheme}://${host}${port !== null && port !== def ? ':' + port : ''}`;
