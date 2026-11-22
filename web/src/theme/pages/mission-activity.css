@@ -49,4 +49,4 @@
 .mc-file svg { color: hsl(var(--h) 80% 65%); flex: none; margin-left: 3px; }
 .mc-file img { width: 20px; height: 20px; border-radius: 5px; object-fit: cover; }
 /* c40: on phones the KPI strip is two columns (five tiles and the ? ), so values and labels never overlap */
-@media (max-width: 800px) { .act-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .act-kpis > .help-btn { justify-self: start; } }
+@media (max-width: 800px) { .act-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .act-kpis > .help-btn { justify-self: start; } .act-kpis > .act-kpi:nth-last-child(2):nth-child(odd) { grid-column: 1 / -1; } }
