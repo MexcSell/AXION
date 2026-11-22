@@ -74,7 +74,7 @@ describe('consume', () => {
     const a = await action(r.id);
     const tampered: [string, Partial<BoundAction>][] = [
       ['payload value', { payload: { x: 2, k: 'v' } }], ['payload key added', { payload: { x: 1, k: 'v', extra: true } }], ['payload key removed', { payload: { x: 1 } }],
-      ['origin', { origin: 'https://evil.example' }], ['origin removed', { origin: undefined }], ['target', { target: 'prod' }], ['kind', { kind: 'production_deploy' }],
+      ['origin', { origin: 'https://evil.example' }], ['origin removed', { origin: undefined }], ['target', { target: 'prod' }], ['target removed', { target: undefined }], ['kind', { kind: 'production_deploy' }],
       ['tier', { tier: 'R2' }], ['task', { taskId: 'T-2' }], ['task removed', { taskId: undefined }], ['mission', { missionId: 'M-999' }], ['requester', { requestedBy: 'mallory' }], ['expiry', { expiresAt: new Date(Date.now() + 9e9).toISOString() }],
     ];
     for (const [name, patch] of tampered) {
@@ -128,7 +128,7 @@ describe('consume', () => {
     const r = await ask(m);
     await decide(r.id);
     for (const [method, url] of [['POST', `/approvals/${r.id}/consume`], ['POST', `/approvals/${r.id}/execute`], ['PATCH', `/approvals/${r.id}`]] as const) {
-      expect((await A.admin.req(method, url, {})).status, url).toBeGreaterThanOrEqual(404);
+      expect((await A.admin.req(method, url, {})).status, url).toBe(404);
     }
     expect((await row(r.id)).consumed_at).toBeNull();
   });
@@ -172,7 +172,7 @@ describe('edit invalidates', () => {
   it('the database refuses to change the bound action of a pending or approved request', async () => {
     const m = await mission();
     const r = await ask(m);
-    for (const sql of [`payload='{"x":2}'::jsonb`, `kind='production_deploy'`, `risk='R0'`, `origin='https://evil'`, `target='prod'`, `task_id='T-2'`, `requested_by='me'`, `expires_at=expires_at + interval '1 day'`, `action_digest='abc'`, `digest_version=1`, `mission_id='M-1'`]) {
+    for (const sql of [`payload='{"x":2}'::jsonb`, `kind='production_deploy'`, `risk='R0'`, `origin='https://evil'`, `target='prod'`, `task_id='T-2'`, `requested_by='me'`, `expires_at=expires_at + interval '1 day'`, `action_digest='abc'`, `digest_version=1`, `mission_id='M-1'`, `agent_id='other'`, `tenant_id='t-2'`, `id='APR-x'`]) {
       await expect(t.pool.query(`update approval_requests set ${sql} where id=$1`, [r.id]), sql).rejects.toThrow(/immutable/);
     }
     await decide(r.id);
@@ -194,9 +194,12 @@ describe('edit invalidates', () => {
 
 describe('v1 rows', () => {
   const v1 = async (missionId: string, id: string, payload = { fixture: 'F' }) => {
+    // a legacy row, made the way it was before 0029: the insert guard is lifted for this one statement
+    await t.pool.query('alter table approval_requests disable trigger approval_requests_insert_guard');
     await t.pool.query(
       `insert into approval_requests(id, tenant_id, mission_id, agent_id, kind, title, detail, risk, payload, action_digest, expires_at) values ($1,'t-1',$2,'release-01','release','Old','d','R3',$3,$4, now() + interval '1 hour')`,
       [id, missionId, JSON.stringify(payload), digestOf(missionId, 'release', payload)]);
+    await t.pool.query('alter table approval_requests enable trigger approval_requests_insert_guard');
   };
   it('still display, decide with the v1 digest, and consume with the v1 digest', async () => {
     const m = await mission();
@@ -224,5 +227,67 @@ describe('the client digest is never trusted', () => {
     expect(bad.status).toBe(409);
     expect(bad.body.code).toBe('APPROVAL_STALE');
     expect((await row(r.id)).state).toBe('pending');
+  });
+});
+
+describe('payloads and fields that JSON cannot carry', () => {
+  it('undefined, Date and NaN values in a payload: the request can still be decided and consumed', async () => {
+    const m = await mission();
+    const r = await ask(m, 'release', { payload: { a: undefined, when: new Date('2026-01-01T00:00:00Z'), n: NaN, nested: { u: undefined, d: [1, undefined] } } });
+    expect((await decide(r.id)).status).toBe(200);
+    const a = await action(r.id);
+    expect(a.payload).toEqual({ when: '2026-01-01T00:00:00.000Z', n: null, nested: { d: [1, null] } });
+    await consume(r.id, a);
+  });
+  it("empty-string origin, target and task are the same as absent: still decidable and consumable", async () => {
+    const m = await mission();
+    const r = await ask(m, 'release', { origin: '', target: '', taskId: '' });
+    expect((await row(r.id))).toMatchObject({ origin: null, target: null, task_id: null });
+    expect((await decide(r.id)).status).toBe(200);
+    await consume(r.id, await action(r.id));
+  });
+});
+
+describe('expiry uses the database clock', () => {
+  it('an approved row whose expires_at is already past now() in the database is refused without any test clock', async () => {
+    const m = await mission();
+    const exp = new Date(Date.now() - 5000);
+    const a: BoundAction = { tenantId: 't-1', missionId: m, kind: 'release', payload: { x: 1 }, tier: 'R3', requestedBy: 'release-01', expiresAt: exp.toISOString() };
+    await t.pool.query(
+      `insert into approval_requests(id, tenant_id, mission_id, agent_id, kind, title, risk, payload, action_digest, digest_version, requested_by, state, expires_at) values ('APR-past','t-1',$1,'release-01','release','T','R3','{"x":1}',$2,2,'release-01','approved',$3)`, [m, digestV2(a), exp]);
+    await expect(consume('APR-past', a)).rejects.toMatchObject({ code: 'APPROVAL_EXPIRED' });
+  });
+});
+
+describe('0029 guards', () => {
+  it('an expired request is terminal', async () => {
+    const m = await mission();
+    const r = await ask(m, 'release', { expiresInMin: -1 });
+    await tx(t.app.db, (c) => c.query(`update approval_requests set state='expired' where id=$1`, [r.id]));
+    await expect(t.pool.query(`update approval_requests set state='pending' where id=$1`, [r.id])).rejects.toThrow(/cannot change state/);
+    await expect(t.pool.query(`update approval_requests set state='approved' where id=$1`, [r.id])).rejects.toThrow(/cannot change state/);
+  });
+  it('a new row must be v2', async () => {
+    const m = await mission();
+    await expect(t.pool.query(
+      `insert into approval_requests(id, tenant_id, mission_id, agent_id, kind, title, risk, payload, action_digest, digest_version, expires_at) values ('APR-v1new','t-1',$1,'a','release','T','R3','{}','x',1, now()+interval '1 hour')`, [m])).rejects.toThrow(/v2/);
+    await expect(t.pool.query(
+      `insert into approval_requests(id, tenant_id, mission_id, agent_id, kind, title, risk, payload, action_digest, expires_at) values ('APR-v1def','t-1',$1,'a','release','T','R3','{}','x', now()+interval '1 hour')`, [m])).rejects.toThrow(/v2/);
+  });
+  it('DELETE and TRUNCATE are refused, except inside the demo purge', async () => {
+    const m = await mission();
+    const r = await ask(m);
+    await expect(t.pool.query(`delete from approval_requests where id=$1`, [r.id])).rejects.toThrow(/append-only|cannot be deleted/);
+    await expect(t.pool.query(`truncate approval_requests cascade`)).rejects.toThrow(/append-only|cannot be deleted/);
+    expect((await row(r.id))).toBeTruthy();
+  });
+  it('the demo purge still removes demo missions with their approvals', async () => {
+    const m = await mission();
+    await t.pool.query(`update missions set demo=true where id=$1`, [m]);
+    const r = await ask(m, 'release', { demo: true });
+    await decide(r.id);
+    const { clearDemo } = await import('../src/seed/demo.ts');
+    await clearDemo(t.app.db, 't-1');
+    expect(await row(r.id)).toBeUndefined();
   });
 });

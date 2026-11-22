@@ -19,12 +19,12 @@ export const digestOf = (missionId: string, kind: string, payload: unknown) => c
 
 /**
  * The one action an approval authorises (binding v2, spec invariant 7). Every field is part of the digest, so changing any
- * of them is a different action. Optional fields are part of it too: absent and present digest differently.
+ * of them is a different action. Optional fields count as null when absent (an empty string is normalised to absent when the request is made).
  */
 export interface BoundAction { tenantId: string; missionId: string; taskId?: string; kind: string; origin?: string; target?: string; payload: Record<string, unknown>; tier: RiskTier; requestedBy: string; expiresAt: string }
 export const digestV2 = (a: BoundAction) => createHash('sha256').update(canonical({
   v: 2, tenantId: a.tenantId, missionId: a.missionId, taskId: a.taskId ?? null, kind: a.kind, origin: a.origin ?? null, target: a.target ?? null,
-  payload: a.payload, tier: a.tier, requestedBy: a.requestedBy, expiresAt: a.expiresAt,
+  payload: JSON.parse(JSON.stringify(a.payload)), tier: a.tier, requestedBy: a.requestedBy, expiresAt: a.expiresAt,
 })).digest('hex');
 
 /** The bound action as stored. Executors build theirs from what they are about to run; this is for tests and display. */
@@ -47,6 +47,10 @@ export interface ApprovalInput { tenantId: string; missionId: string; agentId: s
  */
 export async function requestApproval(c: Tx, a: ApprovalInput) {
   const requestedBy = a.requestedBy ?? a.agentId;
+  // what is hashed is exactly what is stored: the JSON round-trip of the payload; '' means absent
+  const payload = JSON.parse(JSON.stringify(a.payload)) as Record<string, unknown>;
+  const taskId = a.taskId || undefined, origin = a.origin || undefined, target = a.target || undefined;
+  a = { ...a, payload, taskId, origin, target };
   const d = evaluate({ kind: a.kind, requester: { id: requestedBy, kind: requestedBy === a.agentId ? 'agent' : 'user', role: requestedBy === a.agentId ? 'agent' : 'member' }, effect: 'read', payload: a.payload, missionId: a.missionId, target: a.target, origin: a.origin }, [], {}, Date.now());
   if (d.outcome === 'deny') throw new ApiError('POLICY_DENIED', 403, `Policy denies this action (${d.reasons.join(', ')}).`);
   const risk = d.tier;
@@ -116,7 +120,7 @@ export async function sweepExpired(c: Tx, tenantId?: string): Promise<string[]> 
 }
 
 
-export interface ConsumeInput { approvalId: string; action: BoundAction; /** who is executing (an agent or service id) */ by: string; /** test clock */ now?: number }
+export interface ConsumeInput { approvalId: string; action: BoundAction; /** who is executing (an agent or service id) */ by: string; /** test clock; without it expiry is judged by the database clock, the same as the sweep */ now?: number }
 
 /**
  * Spend an approval: it authorises exactly one execution of exactly this action. Nothing here executes anything; a future
@@ -124,11 +128,11 @@ export interface ConsumeInput { approvalId: string; action: BoundAction; /** who
  * the presented action (never taken from a caller), and consumed_at/consumed_by are written once (the trigger enforces it).
  */
 export async function consumeApproval(c: Tx, i: ConsumeInput): Promise<{ approvalId: string; consumedAt: number }> {
-  const r = (await c.query('select * from approval_requests where id=$1 and tenant_id=$2 for update', [i.approvalId, i.action.tenantId])).rows[0];
+  const r = (await c.query('select *, (expires_at <= now()) as db_expired from approval_requests where id=$1 and tenant_id=$2 for update', [i.approvalId, i.action.tenantId])).rows[0];
   if (!r) throw notFound('No such approval.');
   if (r.consumed_at) throw new ApiError('APPROVAL_ALREADY_CONSUMED', 409, 'This approval was already used. The agent must ask again.');
   if (r.state !== 'approved') throw new ApiError('APPROVAL_NOT_APPROVED', 409, 'This request is not approved.');
-  if (new Date(r.expires_at).getTime() <= (i.now ?? Date.now())) throw new ApiError('APPROVAL_EXPIRED', 409, 'This approval expired. The agent must ask again.');
+  if (i.now !== undefined ? new Date(r.expires_at).getTime() <= i.now : r.db_expired) throw new ApiError('APPROVAL_EXPIRED', 409, 'This approval expired. The agent must ask again.');
   const presented = (r.digest_version ?? 1) === 2 ? digestV2(i.action) : digestOf(i.action.missionId, i.action.kind, i.action.payload);
   if (presented !== rowDigest(r) || presented !== r.action_digest) throw new ApiError('APPROVAL_DIGEST_MISMATCH', 409, 'The action differs from the one that was approved.');
   const u = await c.query(`update approval_requests set consumed_at=now(), consumed_by=$2 where id=$1 and consumed_at is null and state='approved' returning consumed_at`, [i.approvalId, i.by]);

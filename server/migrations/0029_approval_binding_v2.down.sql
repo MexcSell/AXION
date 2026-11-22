@@ -1,3 +1,8 @@
+drop trigger if exists approval_requests_no_truncate on approval_requests;
+drop trigger if exists approval_requests_no_delete on approval_requests;
+drop function if exists approval_requests_no_delete();
+drop trigger if exists approval_requests_insert_guard on approval_requests;
+drop function if exists approval_requests_insert_guard();
 drop trigger if exists approval_requests_guard on approval_requests;
 drop function if exists approval_requests_guard();
 alter table approval_requests

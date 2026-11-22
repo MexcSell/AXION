@@ -22,8 +22,8 @@ begin
      or new.requested_by is distinct from old.requested_by or new.expires_at is distinct from old.expires_at then
     raise exception 'approval_requests: the bound action is immutable; ask again with a new request';
   end if;
-  -- a decided approval never goes back
-  if old.state in ('approved','denied') and new.state is distinct from old.state then
+  -- a decided or expired approval never goes back
+  if old.state in ('approved','denied','expired') and new.state is distinct from old.state then
     raise exception 'approval_requests: a decided request cannot change state';
   end if;
   -- consumed exactly once, and only while approved
@@ -36,3 +36,20 @@ begin
   return new;
 end $$;
 create trigger approval_requests_guard before update on approval_requests for each row execute function approval_requests_guard();
+
+-- new rows are v2 (v1 exists only for rows made before this migration)
+create function approval_requests_insert_guard() returns trigger language plpgsql as $$
+begin
+  if new.digest_version is distinct from 2 then raise exception 'approval_requests: new requests must use digest v2'; end if;
+  return new;
+end $$;
+create trigger approval_requests_insert_guard before insert on approval_requests for each row execute function approval_requests_insert_guard();
+
+-- append-only like the decisions: the only delete is the demo purge (transaction-local flag, as in 0007/0008)
+create function approval_requests_no_delete() returns trigger language plpgsql as $$
+begin
+  if coalesce(current_setting('axion.purge_demo', true), '') = 'on' then return old; end if;
+  raise exception 'approval_requests is append-only: it cannot be deleted';
+end $$;
+create trigger approval_requests_no_delete before delete on approval_requests for each row execute function approval_requests_no_delete();
+create trigger approval_requests_no_truncate before truncate on approval_requests for each statement execute function approval_requests_no_delete();

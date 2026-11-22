@@ -1,12 +1,13 @@
 import { Crosshair, Globe2, Lock, Zap } from 'lucide-react';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { useMe, isAdmin, type Account } from '@/store/auth';
+import { isApi } from '@/api/mode';
 import type { Approval } from '@/data/types';
 
 const EFFECT: Record<string, string> = { read: 'Reads only', prepare: 'Prepares a reversible change', external: 'Acts outside the company', infra: 'Changes live infrastructure', critical: 'Critical, hard to reverse' };
 
-/** R3 and R4 are decided by an administrator (policy approver; the server enforces it, this only explains it). */
-export const isGated = (a: Pick<Approval, 'risk'>, me: Account | undefined): boolean => (a.risk === 'high' || a.risk === 'critical') && !isAdmin(me);
+/** R3 and R4 are decided by an administrator (policy approver; the server enforces it, this only explains it). Only api mode with a signed-in non-administrator is gated: the demo mode has no policy server. */
+export const isGated = (a: Pick<Approval, 'risk'>, me: Account | undefined): boolean => isApi() && !!me && !isAdmin(me) && (a.risk === 'high' || a.risk === 'critical');
 export const useGated = (a: Pick<Approval, 'risk'>): boolean => isGated(a, useMe());
 
 /** Disabled-button explanation: a `?` next to the buttons a member cannot press. */
