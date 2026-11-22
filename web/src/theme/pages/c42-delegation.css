@@ -1,0 +1,25 @@
+/* c42: delegation brief card (task drawer) and the hand-off fields of the reassign dialog */
+.dbrief { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--r-md, 12px); border: 1px solid var(--line, rgba(255,255,255,.08)); background: color-mix(in oklab, var(--surface-2, #1b1f2a) 85%, transparent); }
+.dbrief-crumb { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; font-size: 11.5px; color: var(--text-dim); }
+.dbrief-step { display: inline-flex; align-items: center; gap: 3px; }
+.dbrief-depth { margin-left: auto; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; }
+.dbrief-goal { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.dbrief-sec { margin-top: 2px; }
+.dbrief-sec .section-label { display: inline-flex; align-items: center; gap: 4px; }
+.dbrief-accept { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; }
+.dbrief-accept li { display: flex; align-items: flex-start; gap: 6px; }
+.dbrief-accept li svg { margin-top: 2px; flex: none; color: var(--text-dim); }
+.dbrief-caps { display: flex; flex-wrap: wrap; gap: 5px; }
+.dbrief-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 12px; }
+.dbrief-meta span { display: inline-flex; align-items: center; gap: 4px; }
+.dbrief-help { margin-left: auto; }
+.dbrief-sha { font-size: 10.5px; }
+.dbrief-none { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+.dbrief-form { display: flex; flex-direction: column; gap: 8px; }
+.dbrief-form textarea.input { min-height: 54px; resize: vertical; }
+.dbrief-pick { display: flex; flex-wrap: wrap; gap: 5px; }
+.dbrief-pick button { cursor: pointer; border: 0; background: none; padding: 0; opacity: .5; transition: opacity .15s, transform .15s; }
+.dbrief-pick button[aria-pressed="true"] { opacity: 1; }
+.dbrief-pick button:hover:not(:disabled) { transform: translateY(-1px); }
+.dbrief-pick button:disabled { cursor: not-allowed; opacity: .25; }
+@media (prefers-reduced-motion: reduce) { .dbrief-pick button { transition: none; } }

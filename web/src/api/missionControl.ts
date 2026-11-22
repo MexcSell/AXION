@@ -350,7 +350,7 @@ export function flushMissionControlEvents() {
 /* ------------------------------------------------------------------ task actions */
 export type TaskActionResult = { ok: true; task: Task } | { ok: false; message: string };
 /** retry / reassign / cancel a task (api mode). The server's message is returned as it is for an illegal move; the Task flow refreshes at once. */
-export async function taskAction(mid: string, taskId: string, action: 'retry' | 'reassign' | 'cancel', body: { toInstanceId?: string; reason?: string } = {}): Promise<TaskActionResult> {
+export async function taskAction(mid: string, taskId: string, action: 'retry' | 'reassign' | 'cancel', body: { toInstanceId?: string; reason?: string; brief?: unknown } = {}): Promise<TaskActionResult> {
   try {
     const r = await api<{ task: Task }>('POST', `/tasks/${encodeURIComponent(taskId)}/${action}`, action === 'reassign' ? body : {}, { idempotencyKey: newKey() });
     patchEntry(mid, (e) => (e.tasks ? { ...e, tasks: e.tasks.map((t) => (t.id === r.task.id ? r.task : t)) } : e));
