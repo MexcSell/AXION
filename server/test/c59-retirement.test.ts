@@ -84,7 +84,8 @@ describe('proposals', () => {
     const first = (await proposals()).proposals.find((x) => x.skillId === s)!;
     const r = await A.req('POST', `/skills/${s}/retirement-dismiss`, { note: 'Fixture data is not real use.' });
     expect(r.status).toBe(200);
-    expect(r.body.skill).toMatchObject({ id: s, status: 'approved' });
+    expect(r.body).toEqual({ ok: true });
+    expect(await status(s)).toBe('approved'); // keeping changes nothing about the skill
     expect((await proposals()).proposals.map((x) => x.skillId)).not.toContain(s);
     const lines = (await A.req('GET', `/skills/${s}/contributions`)).body.contributions;
     expect(lines.at(-1)).toMatchObject({ action: 'retirement_kept', actor: aId, note: 'Fixture data is not real use.' });

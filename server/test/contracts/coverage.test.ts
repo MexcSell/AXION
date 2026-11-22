@@ -5,6 +5,8 @@ import { createNotification } from '../../src/notifications/routes.ts';
 import { eventDto } from '../../src/events/log.ts';
 import { setInstanceState } from '../../src/instances/service.ts';
 import { tx } from '../../src/db.ts';
+import { proposeLesson } from '../../src/agents/playbooks.ts';
+import { recordFixtureOutcome } from '../../src/agents/retirement.ts';
 import { enqueueJob } from '../../src/jobs/store.ts';
 import { makeDataset, addRun } from '../eval-fixtures.ts';
 import { check } from './validate.ts';
@@ -313,6 +315,23 @@ describe('API coverage run', () => {
     await call(admin, 'POST', '/skills/:sid/approve', `/skills/${s1.id}/approve`, { body: {} });
     await admin.req('POST', `/skills/${s2.id}/approve`, {});
     await call(admin, 'POST', '/skills/:sid/retire', `/skills/${s2.id}/retire`, { body: { note: 'Replaced.' } });
+    // c59: origin classes (a tool-channel item and a derived one), the contribution log, and a fixture-only retirement proposal
+    await call(admin, 'GET', '/skills/retirement-proposals', '/skills/retirement-proposals'); // nothing scored yet: dataState none
+    const toolLesson = await tx(t.app.db, (c) => proposeLesson(c, { tenantId: t.app.cfg.tenantId, agentId: 'coder-01', proposedBy: 'tester-01', kind: 'agent', submittedBy: A.adminId, channel: 'tool_output', text: 'The linter output says to pin versions', sources: src as any, correlationId: 'c59-flow' }));
+    const derived = (await call(admin, 'POST', '/agents/:id/lessons', '/agents/coder-01/lessons', { status: 201, headers: key(), body: { text: 'Pin versions, a summary of the linter output', sources: [{ kind: 'lesson', id: toolLesson }, ...src] } })).body.lesson;
+    expect(derived).toMatchObject({ originChannel: 'derived', originClass: 'tool' });
+    await call(admin, 'GET', '/lessons/:lid/contributions', `/lessons/${l1.id}/contributions`);
+    await call(admin, 'GET', '/lessons/:lid/contributions', `/lessons/${lc.id}/contributions`);
+    await call(admin, 'GET', '/lessons/:lid/contributions', `/lessons/${derived.id}/contributions`);
+    await call(mina, 'GET', '/lessons/:lid/contributions', `/lessons/${l2.id}/contributions`);
+    await call(admin, 'GET', '/skills/:sid/contributions', `/skills/${s2.id}/contributions`);
+    await call(admin, 'GET', '/skills/:sid/contributions', `/skills/${s1.id}/contributions`);
+    const scored = (await call(mina, 'POST', '/skills', '/skills', { status: 201, headers: key(), body: skillBody('Scored by a fixture') })).body.skill;
+    await admin.req('POST', `/skills/${scored.id}/approve`, {});
+    await tx(t.app.db, (c) => recordFixtureOutcome(c, { tenantId: t.app.cfg.tenantId, skillId: scored.id, score: 0.1, n: 8 }));
+    await call(admin, 'GET', '/skills/retirement-proposals', '/skills/retirement-proposals');
+    await call(admin, 'POST', '/skills/:sid/retirement-dismiss', `/skills/${scored.id}/retirement-dismiss`, { body: { note: 'Fixture only.' } });
+    await call(admin, 'GET', '/skills/:sid/contributions', `/skills/${scored.id}/contributions`);
 
     // ---- site grants, failure tags
     await call(admin, 'GET', '/site-grants', '/site-grants');

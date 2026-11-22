@@ -257,9 +257,6 @@ export async function proposeSkill(c: Tx, a: ProposeSkillArgs): Promise<string> 
   return id;
 }
 
-/** One skill as the viewer may see it (used by the retirement route, which answers with the skill). */
-export const loadSkillDto = async (c: Tx, ctx: Ctx, id: string): Promise<SkillDto> => skillDto((await c.query(`${SKILL_SELECT} where s.id=$1 and s.tenant_id=$2`, [id, ctx.tenantId])).rows[0], ctx);
-
 export default async function playbookRoutes(app: FastifyInstance) {
   /** A refusal on an existing record is audited and the transaction still commits; the error is thrown after commit. */
   const refuse = async (c: Tx, ctx: Ctx, action: string, id: string, err: ApiError) => {

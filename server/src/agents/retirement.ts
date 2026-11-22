@@ -6,7 +6,6 @@ import { ApiError, notFound } from '../errors.ts';
 import { requireAdmin } from '../auth/session.ts';
 import { parse } from '../auth/routes.ts';
 import { logContribution } from './contributions.ts';
-import { loadSkillDto } from './playbooks.ts';
 import { SKILL_OUTCOME_MIN_N, SKILL_SCORE_FLOOR, type RetirementProposalDto, type RetirementProposalsDto } from '../../../shared/contracts/src/index.ts';
 
 /**
@@ -48,14 +47,14 @@ export default async function retirementRoutes(app: FastifyInstance) {
     const { sid } = req.params as { sid: string };
     const b = parse(DismissIn, req.body);
     const A = 'skill.retirementDismiss';
-    const out = await tx(app.db, async (c): Promise<{ err: ApiError } | { skill: Awaited<ReturnType<typeof loadSkillDto>> }> => {
+    const out = await tx(app.db, async (c): Promise<{ err: ApiError } | { ok: true }> => {
       const refuse = async (err: ApiError) => { await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: A, subject: sid, result: 'denied', correlationId: ctx.correlationId, detail: { code: err.code } }); return { err }; };
       if (!(await c.query('select 1 from skills where id=$1 and tenant_id=$2', [sid, ctx.tenantId])).rowCount) return refuse(notFound('No such skill.'));
       const open = (await retirementProposals(c, ctx.tenantId)).proposals.find((p) => p.skillId === sid);
       if (!open) return refuse(new ApiError('PROPOSAL_NOT_PENDING', 409, 'There is no retirement proposal for this skill.'));
       await logContribution(c, { tenantId: ctx.tenantId, kind: 'skill', recordId: sid, action: 'retirement_kept', actor: ctx.user.id, actorKind: 'human', version: open.version, note: b.note || null, ref: String(open.outcomeId) });
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: A, subject: sid, result: 'ok', correlationId: ctx.correlationId, detail: { outcomeId: open.outcomeId, score: open.score, n: open.n, note: b.note || null } });
-      return { skill: await loadSkillDto(c, ctx, sid) };
+      return { ok: true };
     });
     if ('err' in out) throw out.err;
     return out;

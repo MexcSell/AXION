@@ -12,6 +12,7 @@ import {
   type PolicyKindDto, type ProgressBody, type Provenance, type ReviewActor, type ReviewerAgreement, type RubricItem, type ScorecardRow, type SiteGrantDto, type SkillDto,
   type SkillStep, type SourceRef, type TaskBody, type TaskDto, type TaskReviewDto, type TaskReviewsDto, type ThreadDto, type ThreadPartnerDto, type ThroughputDto,
   type UploadDto, type VersionConfig, type VersionDiff, type VersionProposalDto, type AgentReliability, type QueueSummaryDto, type AnchorStatusDto, type AnchorTenantDto, ANCHOR_STATUS_NAMES, JOB_STATUS_NAMES,
+  type ContributionDto, type RetirementProposalsDto, type RetirementProposalDto, CONTRIBUTION_ACTIONS,
   type ProposalEvaluationDto, type EvalRefusalDto, type CompanyDimensionsDto, type DimensionRowDto, type DimensionCell, DIMENSION_KEYS, DIMENSION_WINDOWS,
 } from '../../../shared/contracts/src/index.ts';
 
@@ -297,6 +298,14 @@ const skill: V<SkillDto> = obj<SkillDto>({
   proposedBy: str, proposedByName: str, createdAt: iso, approvedBy: nullable(str), approvedByName: nullable(str), approvedAt: nullable(iso), retiredBy: nullable(str), retiredAt: nullable(iso),
   retireNote: nullable(str), canDecide: bool, cannotDecideWhy: nullable(str), originChannel: oneOf(ORIGIN_CHANNELS), originClass: oneOf(ORIGIN_CLASSES),
 });
+const originPair = { originChannel: oneOf(ORIGIN_CHANNELS), originClass: oneOf(ORIGIN_CLASSES) };
+const contribution: V<ContributionDto> = obj<ContributionDto>({
+  seq: int, recordKind: oneOf(['lesson', 'skill'] as const), recordId: str, action: oneOf(CONTRIBUTION_ACTIONS), actor: str, actorName: str, actorKind: oneOf(['human', 'agent', 'system'] as const),
+  ...originPair, sources: arr(sourceRef), version: nullable(int), note: nullable(str), at: iso,
+});
+export const contributionsBody = obj<{ contributions: ContributionDto[] }>({ contributions: arr(contribution) });
+const retirementProposal: V<RetirementProposalDto> = obj<RetirementProposalDto>({ skillId: str, name: str, version: int, score: num, n: int, outcomeId: int, recordedAt: iso, source: lit('fixture' as const) });
+export const retirementProposalsBody: V<RetirementProposalsDto> = obj<RetirementProposalsDto>({ floor: num, minN: int, dataState: oneOf(['none', 'fixture'] as const), proposals: arr(retirementProposal) });
 export const skillBody = obj<{ skill: SkillDto }>({ skill });
 export const skillsBody = obj<{ skills: SkillDto[] }>({ skills: arr(skill) });
 
