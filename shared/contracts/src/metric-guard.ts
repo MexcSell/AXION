@@ -118,6 +118,8 @@ export const WRITE_SITES: Record<string, WriteSite> = {
     note: 'c65: harness only (api-c65.mjs), refuses a database that is not an e2e one; seeds approvals and decisions for the review-capacity screens' },
   e2eExtraApprovals: { file: 'cli/e2e-extra-approvals.ts', fn: 'handler', kinds: ['system'], writes: ['delegation_briefs.brief'], routes: [],
     note: 'c58: harness only (api-c58.mjs), refuses a database that is not an e2e one; gives one agent a real brief so the Rule-of-Two flags can derive. It asks its approvals through requestApproval (HELPER_CALLERS)' },
+  e2eAttention: { file: 'cli/e2e-attention.ts', fn: 'handler', kinds: ['system'], writes: ['tasks.status', 'task_attempts.times', 'task_reviews.review', 'failure_tags.mode', 'agent_version_proposals.status'], routes: [],
+    note: 'c68: harness only (api-c68.mjs), refuses a database that is not an e2e one; seeds one item of each attention kind (a failed task, a review, a tag, a proposal, an approval, a lesson). It also calls requestApproval and proposeLesson (HELPER_CALLERS)' },
   grantRoutes: { file: 'grants/routes.ts', fn: 'handler', kinds: ['human'], writes: ['site_grants.window'], routes: R('POST /site-grants', 'POST /site-grants/:id/revoke'), note: 'administrators issue and revoke website grants' },
 };
 
@@ -132,12 +134,12 @@ export const HELPER_CALLERS: Record<string, readonly string[]> = {
   setInstanceState: [],
   attachSimBrief: ['instances/service.ts'],
   // c63: the failure-pattern rule opens a lesson candidate with channel 'tool_output', proposed by the system from a person's confirmation; only an administrator can accept it
-  proposeLesson: ['failures/patterns.ts'],
+  proposeLesson: ['cli/e2e-attention.ts', 'failures/patterns.ts'],
   createTag: ['failures/routes.ts'],
   decideTag: ['failures/routes.ts'],
   recordReview: ['tasks/routes.ts'],
   createBrief: ['delegation/routes.ts', 'tasks/routes.ts'],
-  requestApproval: ['cli/e2e-extra-approvals.ts', 'seed/demo.ts'],
+  requestApproval: ['cli/e2e-attention.ts', 'cli/e2e-extra-approvals.ts', 'seed/demo.ts'],
   consumeApproval: [],
   settleMission: ['approvals/routes.ts'],
   createOrgRevision: ['agents/routes.ts', 'agents/seed.ts', 'organization/proposals.ts'],
