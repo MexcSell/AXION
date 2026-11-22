@@ -147,6 +147,13 @@ const targetText = (t: Target): string =>
   t.kind === 'axion' ? `\`${t.key}\` (AXION extension)` :
   t.kind === 'span' ? `span ${t.what.replace('_', ' ')}` : '**no equivalent**';
 
+/** AXION attributes the exporter writes that belong to no table column: they describe the export itself or a relation between spans. */
+export const STRUCTURAL_AXION_ATTRIBUTES = [
+  'axion.mission.id', 'axion.task.status', 'axion.attempt.result', 'axion.instance.manager_id', 'axion.export.unmapped_steps',
+  'axion.export.include_content', 'axion.export.semconv_repository', 'axion.export.semconv_tag', 'axion.export.semconv_commit', 'axion.export.semconv_status',
+  'axion.step.input', 'axion.step.output', // the inline text of a plan step (a tool step uses the spec's gen_ai.tool.call.* attributes), only with --include-content
+] as const;
+
 /** The text of web/docs/improve/phase2/otel-mapping.md. Run `npx tsx src/otel/write-mapping-doc.ts` after editing the table. */
 export function renderMappingMarkdown(): string {
   const spec = OTEL_GENAI_SPEC;
@@ -178,6 +185,7 @@ export function renderMappingMarkdown(): string {
     L.push('');
   }
   const n = Object.keys(FIELD_MAP).length, none_ = Object.values(FIELD_MAP).filter((f) => f.to.kind === 'none').length, g_ = Object.values(FIELD_MAP).filter((f) => f.to.kind === 'gen_ai').length;
+  L.push('## Attributes that belong to no column', '', 'These describe the export itself (resource attributes, with the pinned version) a relation between spans, or the inline text of a plan step (with --include-content): ' + STRUCTURAL_AXION_ATTRIBUTES.map((a) => `\`${a}\``).join(', ') + '.', '');
   L.push('## Counts', '', `${n} AXION fields listed; ${g_} map to a pinned GenAI attribute; ${none_} have no equivalent and are not exported; the rest map to a span property or an \`axion.*\` extension attribute.`, '');
   return L.join('\n');
 }

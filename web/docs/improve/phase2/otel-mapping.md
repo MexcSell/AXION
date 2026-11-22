@@ -173,6 +173,10 @@ Not used on purpose: `gen_ai.provider.name`, `gen_ai.request.*`, `gen_ai.usage.*
 | `eval_results.trace.steps[].startMs` | span start time |  | Milliseconds since the epoch; optional. |
 | `eval_results.trace.steps[].endMs` | span end time |  | Milliseconds since the epoch; optional. |
 
+## Attributes that belong to no column
+
+These describe the export itself (resource attributes, with the pinned version) a relation between spans, or the inline text of a plan step (with --include-content): `axion.mission.id`, `axion.task.status`, `axion.attempt.result`, `axion.instance.manager_id`, `axion.export.unmapped_steps`, `axion.export.include_content`, `axion.export.semconv_repository`, `axion.export.semconv_tag`, `axion.export.semconv_commit`, `axion.export.semconv_status`, `axion.step.input`, `axion.step.output`.
+
 ## Counts
 
 96 AXION fields listed; 7 map to a pinned GenAI attribute; 25 have no equivalent and are not exported; the rest map to a span property or an `axion.*` extension attribute.
