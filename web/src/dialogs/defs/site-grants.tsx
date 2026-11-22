@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { KeyRound, Loader2, ShieldAlert, Info, CircleCheck, CircleX } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Field } from '@/components/ui/Form';
+import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { Chip } from '@/components/ui/Chips';
 import { isApi } from '@/api/mode';
 import { checkOrigin, issueGrant, newKey } from '@/api/siteGrants';
@@ -33,7 +34,7 @@ function SiteGrant({ close, props }: DialogComponentProps<{ missionId?: string }
   useEffect(() => { if (!missionId && missions.length) setMissionId(missions[0].id); }, [missions, missionId]);
   const [caps, setCaps] = useState<string[]>(['read']);
   const [dur, setDur] = useState('2h');
-  const [check, setCheck] = useState<{ for: string; ok: boolean; origin?: string; message?: string; failed?: boolean } | null>(null);
+  const [check, setCheck] = useState<{ for: string; ok: boolean; origin?: string; message?: string; reason?: string; failed?: boolean } | null>(null);
   const [tries, setTries] = useState(0);
   const [busy, setBusy] = useState(false);
   const [srvErr, setSrvErr] = useState<string | null>(null);
@@ -43,7 +44,7 @@ function SiteGrant({ close, props }: DialogComponentProps<{ missionId?: string }
   useEffect(() => {
     if (!api_ || !origin.trim()) return;
     const ac = new AbortController();
-    const t = window.setTimeout(() => { void checkOrigin(origin, ac.signal).then((r) => { if (ac.signal.aborted) return; setCheck(r ? { for: origin, ok: r.ok, origin: r.origin, message: r.message } : { for: origin, ok: false, failed: true, message: 'The origin could not be checked (the server did not answer).' }); }); }, 220);
+    const t = window.setTimeout(() => { void checkOrigin(origin, ac.signal).then((r) => { if (ac.signal.aborted) return; setCheck(r ? { for: origin, ok: r.ok, origin: r.origin, message: r.message, reason: r.reason } : { for: origin, ok: false, failed: true, message: 'The origin could not be checked (the server did not answer).' }); }); }, 220);
     return () => { window.clearTimeout(t); ac.abort(); };
   }, [origin, api_, tries]);
   const verdict = check && check.for === origin ? check : null;
@@ -71,7 +72,7 @@ function SiteGrant({ close, props }: DialogComponentProps<{ missionId?: string }
             aria-invalid={verdict ? !verdict.ok : undefined} onChange={(e) => { touch(); setOrigin(e.target.value); }} placeholder="https://example.com" />
         </Field>
         <div className={cx('sg-check', verdict?.ok ? 'ok' : verdict ? 'no' : '')} role="status" aria-live="polite" data-origin-check={verdict ? (verdict.ok ? 'ok' : 'refused') : 'idle'}>
-          {verdict ? (verdict.ok ? <><CircleCheck size={14} />Exact origin accepted</> : <><CircleX size={14} />{verdict.message}{verdict.failed && <button type="button" className="btn sm ghost" onClick={() => { setCheck(null); setTries((x) => x + 1); }}>Retry</button>}</>) : origin.trim() ? <><Loader2 size={14} className="spin" />Checking…</> : null}
+          {verdict ? (verdict.ok ? <><CircleCheck size={14} />Exact origin accepted</> : <><CircleX size={14} />{verdict.message}{verdict.reason === 'public_suffix' && <HelpTrigger k="grants.publicSuffix" label="What is a public suffix?" />}{verdict.failed && <button type="button" className="btn sm ghost" onClick={() => { setCheck(null); setTries((x) => x + 1); }}>Retry</button>}</>) : origin.trim() ? <><Loader2 size={14} className="spin" />Checking…</> : null}
         </div>
         {shown && <div className="sg-preview" data-normal-form>Will be stored as <b className="mono">{shown}</b></div>}
         {shown && <div className="oa-banner" data-exact-warning><Info size={15} /><span>A grant covers exactly this origin: not subdomains, other ports or look-alike names. On shared hosting (for example a name under github.io) it covers that whole site.</span></div>}
