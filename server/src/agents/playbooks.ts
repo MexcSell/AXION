@@ -11,6 +11,8 @@ import { emit } from '../events/hooks.ts';
 import { getVisibleRow } from '../missions/service.ts';
 import type { LessonCandidateDto, LessonConflict, PlaybookDiff, PlaybookDto, PlaybookItem, PlaybookVersionRow, SkillDto, SourceRef } from '../../../shared/contracts/src/index.ts';
 import { advisoryXactLock, advisoryXactLockLower } from '../locks.ts';
+import { resolveOrigin, type OriginArgs } from './origin.ts';
+import type { OriginChannel } from '../../../shared/contracts/src/index.ts';
 
 /**
  * Improvement cycle 41: reviewed playbooks and a skill library (ExpeL, ACE, Voyager, Agent Workflow Memory; spec Stage 9 knowledge:
@@ -52,7 +54,7 @@ export function validOrigin(o: string): boolean {
   if (!m || o.length > 260 || m[1].split('.').some((l) => l.startsWith('xn--') || l.length > 63)) return false;
   return m[2] === undefined || Number(m[2]) <= 65535;
 }
-const Source = z.object({ kind: z.enum(['mission', 'failure_tag', 'review', 'task', 'note']), id: z.string().trim().regex(/^[A-Za-z0-9._:-]{1,80}$/, 'An id: letters, digits and . _ : -'), note: plain(1, 200).optional() }).strict();
+const Source = z.object({ kind: z.enum(['mission', 'failure_tag', 'review', 'task', 'note', 'lesson', 'skill']), id: z.string().trim().regex(/^[A-Za-z0-9._:-]{1,80}$/, 'An id: letters, digits and . _ : -'), note: plain(1, 200).optional() }).strict();
 const Sources = z.array(Source).min(1, 'At least one source is required').max(10);
 const ProposeIn = z.object({ text: plain(1, 600), sources: Sources, reviewBy: z.string().regex(DATE, 'Use a date like 2026-12-31').refine(realDate, 'Not a real date').optional() }).strict();
 const DecisionIn = z.object({ decision: z.enum(['accept', 'reject']), baseVersion: z.number().int().min(0).max(1_000_000).optional(), note: Str.max(1000).optional(), overrideNote: Str.min(1).max(1000).optional() }).strict();
@@ -102,12 +104,13 @@ export const looksLikeCode = (s: string) => CODE.test(s);
 
 /* ---------- reads ---------- */
 const PLAYBOOK_SELECT = `select p.*, a.name as agent_name, u.name as created_by_name,
-    (select coalesce(jsonb_agg(i.item || jsonb_build_object('needsReReview', coalesce((i.item->>'reviewBy')::date < current_date, false)) order by i.ord), '[]'::jsonb)
-       from jsonb_array_elements(p.items) with ordinality as i(item, ord)) as items_x
+    (select coalesce(jsonb_agg(i.item || jsonb_build_object('needsReReview', coalesce((i.item->>'reviewBy')::date < current_date, false),
+         'originChannel', coalesce(lc.origin_channel, 'derived'), 'originClass', coalesce(lc.origin_class, 'tool')) order by i.ord), '[]'::jsonb)   -- origin comes from the lesson's own row (fail closed: lowest class when the row is gone)
+       from jsonb_array_elements(p.items) with ordinality as i(item, ord) left join lesson_candidates lc on lc.id = i.item->>'lessonId') as items_x
   from playbooks p join agent_definitions a on a.id = p.agent_id left join users u on u.id = p.created_by`;
 /** Only mission and task sources are checked against the tree (at propose time); the other kinds are typed strings and are flagged unverified. */
 const shapeSource = (s: SourceRef, seeAll: boolean): SourceRef => {
-  const verified = s.kind === 'mission' || s.kind === 'task';
+  const verified = s.kind === 'mission' || s.kind === 'task' || s.kind === 'lesson' || s.kind === 'skill';
   return seeAll ? { ...s, verified } : { kind: s.kind, id: '', hidden: true, verified }; // members: the kind only, never an id or a note
 };
 /** What a person may read of an item: members get no override note and no source ids or notes. */
@@ -146,7 +149,7 @@ function candidateDto(r: any, ctx: Ctx, conflictsNow: LessonConflict[], inPlaybo
     status: r.status, sha256: r.sha256, reviewBy: r.review_text, createdAt: iso(r.created_at)!,
     decidedBy: r.decided_by, decidedByName: r.decided_by ? r.decided_name : null, decidedAt: iso(r.decided_at), decisionNote: admin ? r.decision_note : null, overrideNote: admin ? r.override_note : null,
     acceptedInVersion: r.accepted_in_version, withdrawnInVersion: r.withdrawn_in_version, inPlaybook, conflicts: proposed ? conflictsNow : [],
-    canDecide: proposed && admin && !self,
+    canDecide: proposed && admin && !self, originChannel: r.origin_channel, originClass: r.origin_class,
     cannotDecideWhy: !proposed ? null : !admin ? 'Only administrators decide.' : self ? 'You proposed this lesson. Another administrator must decide it.' : null,
   };
 }
@@ -162,7 +165,7 @@ async function candidates(c: Tx, ctx: Ctx, where: string, params: unknown[]): Pr
 }
 
 /* ---------- writes shared by the route and by an agent's proposal ---------- */
-export interface ProposeArgs { tenantId: string; agentId: string; proposedBy: string; kind: 'human' | 'agent'; submittedBy?: string; text: string; sources: SourceRef[]; reviewBy?: string; correlationId: string }
+export interface ProposeArgs { tenantId: string; agentId: string; proposedBy: string; kind: 'human' | 'agent'; submittedBy?: string; text: string; sources: SourceRef[]; reviewBy?: string; correlationId: string; /** c59: agent-side callers only; the person route never sets it */ channel?: OriginChannel }
 /** Records a candidate. For kind 'agent', proposedBy is the agent and submittedBy the person who filed it: neither can decide it. */
 export async function proposeLesson(c: Tx, a: ProposeArgs): Promise<string> {
   const agent = await agentOf(c, a.tenantId, a.agentId);
@@ -172,12 +175,13 @@ export async function proposeLesson(c: Tx, a: ProposeArgs): Promise<string> {
   if (a.reviewBy && (await c.query('select $1::date < current_date as past', [a.reviewBy])).rows[0].past)
     throw new ApiError('VALIDATION', 422, 'Some fields are not valid.', { fieldErrors: { reviewBy: 'The review date is already past.' } });
   const text = txt.data, sources = srcs.data;
+  const origin = await resolveOrigin(c, { tenantId: a.tenantId, kind: a.kind, submittedBy: a.submittedBy, channel: a.channel, sources });
   const id = 'LC-' + randomBytes(16).toString('hex').toUpperCase(); // 128-bit
   await c.query(
-    `insert into lesson_candidates(id, tenant_id, agent_id, role, text, sources, proposed_by, proposed_by_kind, submitted_by, sha256, review_by) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-    [id, a.tenantId, a.agentId, agent.role, text, JSON.stringify(sources), a.proposedBy, a.kind, a.submittedBy ?? null, sha([a.agentId, text, sources, a.reviewBy ?? null]), a.reviewBy ?? null]);
+    `insert into lesson_candidates(id, tenant_id, agent_id, role, text, sources, proposed_by, proposed_by_kind, submitted_by, sha256, review_by, origin_channel, origin_class) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+    [id, a.tenantId, a.agentId, agent.role, text, JSON.stringify(sources), a.proposedBy, a.kind, a.submittedBy ?? null, sha([a.agentId, text, sources, a.reviewBy ?? null]), a.reviewBy ?? null, origin.channel, origin.cls]);
   const actor = a.submittedBy ?? a.proposedBy;
-  await audit(c, { tenantId: a.tenantId, actor, action: 'playbook.propose', subject: id, result: 'ok', correlationId: a.correlationId, detail: { agentId: a.agentId, kind: a.kind, proposedBy: a.proposedBy, sources: sources.length, text } });
+  await audit(c, { tenantId: a.tenantId, actor, action: 'playbook.propose', subject: id, result: 'ok', correlationId: a.correlationId, detail: { agentId: a.agentId, kind: a.kind, proposedBy: a.proposedBy, sources: sources.length, text, originChannel: origin.channel, originClass: origin.cls } });
   // audience 'user' = administrators plus that one person (the proposer, or whoever filed an agent's proposal)
   await emit(c, { tenantId: a.tenantId, actor: a.proposedBy, actorKind: a.kind, correlationId: a.correlationId, type: 'playbook.lessonProposed', subject: a.agentId, subjectKind: 'agent', audience: 'user', audienceUser: a.submittedBy ?? a.proposedBy, payload: { lessonId: id } });
   return id;
@@ -192,6 +196,11 @@ async function checkSources(c: Tx, ctx: Ctx, sources: SourceRef[]) {
       const t = (await c.query('select mission_id from tasks where id=$1 and tenant_id=$2', [s.id, ctx.tenantId])).rows[0];
       if (!t) throw same();
       try { await getVisibleRow(c, ctx, t.mission_id); } catch { throw same(); }
+    }
+    if (s.kind === 'lesson' || s.kind === 'skill') { // a record the person cannot open is not a source they can derive from (404, the same as no such record)
+      const same = () => notFound('No such record to derive from, or it is not visible to you.');
+      const row = (await c.query(s.kind === 'lesson' ? 'select proposed_by, submitted_by, status from lesson_candidates where id=$1 and tenant_id=$2' : 'select proposed_by, submitted_by, status from skills where id=$1 and tenant_id=$2', [s.id, ctx.tenantId])).rows[0];
+      if (!row || !(s.kind === 'lesson' ? visible(ctx, row) : skillVisible(ctx, row))) throw same();
     }
   }
 }
@@ -214,12 +223,33 @@ function skillDto(r: any, ctx: Ctx): SkillDto { // eslint-disable-line @typescri
     id: r.id, name: r.name, version: r.version, description: r.description, steps: r.steps, preconditions: r.preconditions, sources: (r.sources as SourceRef[]).map((x) => shapeSource(x, admin || self)), status: r.status,
     proposedBy: r.proposed_by, proposedByName: r.proposed_name, createdAt: iso(r.created_at)!,
     approvedBy: r.approved_by, approvedByName: r.approved_by ? (r.approved_name ?? r.approved_by) : null, approvedAt: iso(r.approved_at), retiredBy: r.retired_by, retiredAt: iso(r.retired_at), retireNote: admin ? r.retire_note : null,
+    originChannel: r.origin_channel, originClass: r.origin_class,
     canDecide: draft && admin && !self, cannotDecideWhy: !draft ? null : !admin ? 'Only administrators approve.' : self ? 'You proposed this skill. Another administrator must approve it.' : null,
   };
 }
 const skillVisible = (ctx: Ctx, r: { proposed_by: string; submitted_by: string | null; status: string }) => ctx.user.role === 'admin' || r.status !== 'draft' || mine(r, ctx.user.id);
 /** The lock key folds case in SQL, the same way the unique index does (lower()), so JS and SQL can never disagree on a name. */
 const skillLock = (c: Tx, tenantId: string, name: string) => advisoryXactLockLower(c, `skill:${tenantId}:`, name); // schema-scoped (src/locks.ts); the key is built from SQL lower(name)
+
+export interface ProposeSkillArgs { tenantId: string; proposedBy: string; kind: 'human' | 'agent'; submittedBy?: string; name: string; description: string; steps: z.infer<typeof Step>[]; preconditions?: string[]; sources: SourceRef[]; correlationId: string; /** c59: agent-side callers only */ channel?: OriginChannel }
+/** Records a draft skill. The route and any future agent runtime share it, so the same text rules and the same origin rules apply to both. */
+export async function proposeSkill(c: Tx, a: ProposeSkillArgs): Promise<string> {
+  const parsed = SkillIn.safeParse({ name: a.name, description: a.description, steps: a.steps, preconditions: a.preconditions ?? [], sources: a.sources });
+  if (!parsed.success) throw badRequest('Some fields are not valid.', { skill: parsed.error.issues[0].message });
+  const b = parsed.data;
+  const bad = codeFields(b);
+  if (Object.keys(bad).length) throw badRequest('Skills hold plain steps, never code.', bad);
+  const origin = await resolveOrigin(c, { tenantId: a.tenantId, kind: a.kind, submittedBy: a.submittedBy, channel: a.channel, sources: b.sources });
+  await skillLock(c, a.tenantId, b.name); // b.name is already squashed and NFC (the schema), the same value that is stored
+  const version = ((await c.query('select coalesce(max(version), 0)::int as v from skills where tenant_id=$1 and lower(name)=lower($2)', [a.tenantId, b.name])).rows[0].v as number) + 1;
+  const id = 'SK-' + randomBytes(16).toString('hex').toUpperCase();
+  await c.query(`insert into skills(id, tenant_id, name, version, description, steps, preconditions, sources, proposed_by, proposed_by_kind, submitted_by, origin_channel, origin_class) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+    [id, a.tenantId, b.name, version, b.description, JSON.stringify(b.steps), JSON.stringify(b.preconditions), JSON.stringify(b.sources), a.proposedBy, a.kind, a.submittedBy ?? null, origin.channel, origin.cls]);
+  const actor = a.submittedBy ?? a.proposedBy;
+  await audit(c, { tenantId: a.tenantId, actor, action: 'skill.propose', subject: id, result: 'ok', correlationId: a.correlationId, detail: { name: b.name, version, steps: b.steps.length, sources: b.sources.length, kind: a.kind, originChannel: origin.channel, originClass: origin.cls } });
+  await emit(c, { tenantId: a.tenantId, actor: a.proposedBy, actorKind: a.kind, correlationId: a.correlationId, type: 'skill.proposed', subject: id, subjectKind: 'skill', audience: 'user', audienceUser: actor, payload: { skillId: id, version } });
+  return id;
+}
 
 export default async function playbookRoutes(app: FastifyInstance) {
   /** A refusal on an existing record is audited and the transaction still commits; the error is thrown after commit. */
@@ -340,14 +370,16 @@ export default async function playbookRoutes(app: FastifyInstance) {
       const item: PlaybookItem = {
         lessonId: lid, text: l.text, trust: 'reviewed', addedInVersion: version, sources: l.sources, sha256: l.sha256, reviewBy: l.review_text,
         contradiction: clash.length > 0, contradicts: clash.map((x) => x.lessonId), overrideNote: clash.length ? b.overrideNote! : null, needsReReview: false,
+        originChannel: l.origin_channel, originClass: l.origin_class, // review never changes the origin; both are re-read from the lesson row on every read
       };
       const stored = { ...item } as Partial<PlaybookItem>;
       delete stored.needsReReview; // computed on read, on the database clock
+      delete stored.originChannel; delete stored.originClass; // read from the lesson row, so a stored copy can never drift
       const pid = 'PB-' + randomBytes(16).toString('hex').toUpperCase();
       await c.query('savepoint pb_insert'); // a unique violation aborts the transaction; the savepoint lets the refusal still be audited
       try {
         await c.query(`insert into playbooks(id, tenant_id, agent_id, role, version, base_version, items, kind, lesson_id, created_by) values ($1,$2,$3,$4,$5,$6,$7,'accept',$8,$9)`,
-          [pid, ctx.tenantId, l.agent_id, agent.role, version, curVersion, JSON.stringify([...items.map((i) => { const x = { ...i } as Partial<PlaybookItem>; delete x.needsReReview; return x; }), stored]), lid, ctx.user.id]);
+          [pid, ctx.tenantId, l.agent_id, agent.role, version, curVersion, JSON.stringify([...items.map((i) => { const x = { ...i } as Partial<PlaybookItem>; delete x.needsReReview; delete x.originChannel; delete x.originClass; return x; }), stored]), lid, ctx.user.id]);
       } catch (e) {
         if ((e as { code?: string }).code === '23505') {
           await c.query('rollback to savepoint pb_insert');
@@ -441,13 +473,7 @@ export default async function playbookRoutes(app: FastifyInstance) {
     if (Object.keys(bad).length) throw badRequest('Skills hold plain steps, never code.', bad);
     const out = await idempotent(app.db, req, ctx, async (c) => {
       await checkSources(c, ctx, b.sources);
-      await skillLock(c, ctx.tenantId, b.name); // b.name is already squashed and NFC (the schema), the same value that is stored
-      const version = ((await c.query('select coalesce(max(version), 0)::int as v from skills where tenant_id=$1 and lower(name)=lower($2)', [ctx.tenantId, b.name])).rows[0].v as number) + 1;
-      const id = 'SK-' + randomBytes(16).toString('hex').toUpperCase();
-      await c.query(`insert into skills(id, tenant_id, name, version, description, steps, preconditions, sources, proposed_by) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [id, ctx.tenantId, b.name, version, b.description, JSON.stringify(b.steps), JSON.stringify(b.preconditions), JSON.stringify(b.sources), ctx.user.id]);
-      await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'skill.propose', subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { name: b.name, version, steps: b.steps.length, sources: b.sources.length } });
-      await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'skill.proposed', subject: id, subjectKind: 'skill', audience: 'user', audienceUser: ctx.user.id, payload: { skillId: id, version } });
+      const id = await proposeSkill(c, { tenantId: ctx.tenantId, proposedBy: ctx.user.id, kind: 'human', ...b, correlationId: ctx.correlationId });
       return { status: 201, body: { skill: skillDto((await c.query(`${SKILL_SELECT} where s.id=$1`, [id])).rows[0], ctx) } };
     });
     return reply.status(out.status).send(out.body);
