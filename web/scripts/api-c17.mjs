@@ -35,7 +35,7 @@ for (const it of items) {
     return (await p.locator(`[role="tabpanel"][aria-label="${it.lands}"]`).count()) > 0;
   }, 15000);
   if (it.after) { // runs after merge of cycles 4 to 6: skip (not fail) while the feature's screen is not in this build
-    if (it.key === 'history') await p.getByRole('button', { name: 'History' }).first().click({ timeout: 2000 }).catch(() => {});
+    if (it.key === 'history') await p.getByRole('radio', { name: 'History', exact: true }).first().click({ timeout: 5000 }).catch(() => {}); // c04's view switch is a radio group
     const there = await until(async () => (await p.locator(it.after).count()) > 0, 5000);
     if (!there) { console.log(`SKIP ${it.key}: runs after merge (${it.after} not in this build)`); continue; }
     check(`${it.key}: the merged screen is there (${it.after})`, true);

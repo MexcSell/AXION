@@ -126,7 +126,7 @@ export const WHATS_NEW: WhatsNewItem[] = [
     demo: 'In the offline demo (?data=demo) there is no history; the screen shows sample data.',
     limits: 'There is no one-click undo: a rollback is a proposal that two administrators must handle. A rollback to a version from before an agent was added cannot be approved, because that old chart has no place for the newer agent.',
     route: '/operations?tab=agents&sub=proposals', lands: 'Proposals', linkLabel: 'Open Proposals (then History)',
-    afterMerge: '[data-org-history]',
+    afterMerge: '[role="list"][aria-label="Org revisions"]', // c04's revision timeline (OrgHistory.tsx)
   },
   {
     key: 'scorecard', group: 'Improvement loop', title: 'Company scorecard', status: 'real',
