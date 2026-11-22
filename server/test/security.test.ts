@@ -213,7 +213,7 @@ describe('per-session write rate limits', () => {
   // Merge follow-up (c14 review I1): the map is hand-kept, so the route table guards it. Every write route of a limited
   // kind (messages, uploads, and governance writes: proposals of any kind, rollbacks, mentoring plans) must be in
   // LIMITED_ROUTES, and every key of LIMITED_ROUTES must be a real route.
-  const LIMITED_KIND = /\/messages$|proposal|rollback|mentoring|\/uploads$/;
+  const LIMITED_KIND = /\/messages$|proposal|rollback|mentoring|failure-tags|\/uploads$/;
   it('route table: every message, upload and governance write route is in LIMITED_ROUTES; every limited route exists', () => {
     const writes = t.app.routeTable.filter((r) => ['POST', 'PUT', 'PATCH', 'DELETE'].includes(r.method) && r.url.startsWith('/api/v1/')).map((r) => `${r.method} ${r.url}`);
     const must = writes.filter((k) => LIMITED_KIND.test(k.split(' ')[1]));
