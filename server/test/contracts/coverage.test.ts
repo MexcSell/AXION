@@ -213,6 +213,14 @@ describe('API coverage run', () => {
     expect((apl.body.approvals as { id: string }[]).some((a) => a.id === ap.id)).toBe(true);
     await call(admin, 'POST', '/approvals/:id/decision', `/approvals/${ap.id}/decision`, { body: { decision: 'approved', digest: ap.digest, reason: 'ok' } });
     // approval.consumed has no producer but the (future) executor: drive the service directly, as the approval tests do
+    // c58: five more decisions (the statistics show numbers from five), then the aggregate for everyone and the per-approver table for administrators
+    for (let i = 0; i < 5; i++) {
+      const q = await tx(t.app.db, (c) => requestApproval(c, { tenantId: 't-1', missionId: m1, agentId: 'release-01', kind: 'submit_form', title: `Quality ${i}`, detail: 'For the statistics', payload: { q: i }, expiresInMin: 30 }));
+      await call(admin, 'POST', '/approvals/:id/decision', `/approvals/${q.id}/decision`, { body: { decision: i === 4 ? 'denied' : 'approved', digest: q.digest, reason: 'ok' } });
+    }
+    await call(admin, 'GET', '/approvals/quality', '/approvals/quality');
+    await call(mina, 'GET', '/approvals/quality', '/approvals/quality');
+    await call(admin, 'GET', '/approvals/quality/approvers', '/approvals/quality/approvers'); // c58: per approver, administrators only
     await tx(t.app.db, async (c) => consumeApproval(c, { approvalId: ap.id, action: await loadBoundAction(c, 't-1', ap.id), by: 'release-01' }));
     const nid = await tx(t.app.db, (c) => createNotification(c, { tenantId: 't-1', severity: 'info', category: 'system', title: 'Hello', body: 'World', missionId: m2 }));
     const nl = await call(admin, 'GET', '/notifications', '/notifications');

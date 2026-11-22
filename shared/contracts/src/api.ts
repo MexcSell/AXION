@@ -73,6 +73,24 @@ export interface MissionDto {
 
 export interface UploadDto { id: string; name: string; kind: MissionFileDto['kind']; size: number; mime: string; excerpt?: string }
 
+/** c58: why an approval was asked. The three flags are derived by the server from the agent's configuration; the Rule of Two is a heuristic from a vendor blog. */
+export interface RuleOfTwoDto {
+  flags: { untrustedInput: boolean; sensitiveAccess: boolean; canChangeState: boolean };
+  because: { untrustedInput: string[]; sensitiveAccess: string[]; canChangeState: string[] };
+  fired: boolean; rule: 'rule_of_two' | null; policyVersion: number;
+}
+
+/** c58 (R2-9): how a decision was made. Administrators only, decided requests only. Advisory: it never changed a decision. */
+export interface DecisionRecordDto { latencyMs: number; queueSize: number; fastBulk: boolean }
+/** One cell of the approval-quality statistics. Below `minEvidence` decisions the numbers are null and the cell reads "not enough evidence". */
+export interface QualityCellDto { n: number; enough: boolean; approvalRate: number | null; medianLatencyMs: number | null; fastBulk: number | null }
+/** GET /approvals/quality (everyone): the aggregate over the tenant, no names. */
+/** `approverCount` is how many different people decided in the window; everyone but an administrator needs `minApprovers` of them before any number shows. Windows are 7, 30 or 90 days only. */
+export interface ApprovalQualityDto extends QualityCellDto { medianQueueSize: number | null; windowDays: number; windowStart: string; minEvidence: number; approverCount: number; minApprovers: number }
+/** GET /approvals/quality/approvers (administrators only): one row per approver. */
+export interface ApproverQualityDto extends QualityCellDto { userId: string; name: string }
+export interface ApproverQualityBody { windowDays: number; minEvidence: number; approvers: ApproverQualityDto[] }
+
 export interface ApprovalDto {
   id: string; missionId: string; agentId: string; title: string; detail: string; kind: string;
   risk: string; riskTier: string; digest: string; digestVersion: number; demo: boolean;
@@ -84,6 +102,10 @@ export interface ApprovalDto {
   /** c48: whether the signed-in viewer may decide this request now, and when not, why (the server's own check, the same one the decision route runs) */
   canDecide: boolean;
   decideBlockedReason: 'tier_requires_admin' | 'requester_cannot_decide' | 'already_decided' | 'expired' | null;
+  /** c58: the flags and the rule that fired when this was asked (null on requests made before they were recorded) */
+  ruleOfTwo: RuleOfTwoDto | null;
+  /** c58: latency, queue size and the advisory fast-bulk flag of the decision; null for everyone but administrators, and until decided */
+  decisionRecord: DecisionRecordDto | null;
   status: 'pending' | 'approved' | 'denied'; state: 'pending' | 'approved' | 'denied' | 'expired' | 'revoked';
   expiresMin: number; agoMin: number; expiresAt: number;
 }

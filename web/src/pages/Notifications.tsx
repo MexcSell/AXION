@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Bell, AlertTriangle, Radio, Bot, Target, CheckCheck, Activity, Info, CheckCircle2, ArrowRight, Database, Workflow, GitMerge, BookOpen, ShieldCheck, Settings2, RefreshCw, Clock, XCircle,
-  Plus, Inbox, Hourglass, Archive, SlidersHorizontal, Newspaper, Play, Pause, Layers, Cpu, Trash2,
+  Plus, Inbox, Hourglass, Archive, SlidersHorizontal, Newspaper, Play, Pause, Layers, Cpu, Trash2, Gauge, Zap, Timer,
 } from 'lucide-react';
 import { TopBoard, FrameBody, BottomBoard } from '@/components/layout/PageFrame';
 import { ApprovalFacts, GateNote, useGate } from '@/features/approvals/ApprovalBinding';
@@ -22,6 +22,8 @@ import { Donut } from '@/components/viz/Charts';
 import { CoreCube } from '@/components/art/CoreArt';
 import { useTab } from '@/hooks/useTab';
 import { useData, allApprovals, useVisibleMissions } from '@/store/data';
+import { fmtDuration } from '@/features/approvals/quality';
+import '@/theme/pages/c58-approval-quality.css';
 import type { Notice } from '@/data/notifications';
 import type { Approval } from '@/data/types';
 import { ACTIVITY, LIVE_POOL, type ActivityEvent } from '@/data/notifications-extra';
@@ -283,7 +285,8 @@ function PendingTab() {
           {notices.length === 0 && <EmptyState icon={CheckCircle2} title="All caught up" body="No unhandled alerts or mentions." />}
         </div>
       </Panel>
-      <Panel icon={ShieldCheck} title={<>Approvals waiting <span className="dim" style={{ fontSize: 13, fontWeight: 500 }}>({appr.length})</span></>} help="nt.pendingApprovals" delay={.1}>
+      <Panel icon={ShieldCheck} title={<>Approvals waiting <span className="dim" style={{ fontSize: 13, fontWeight: 500 }}>({appr.length})</span></>} help="nt.pendingApprovals" delay={.1}
+        actions={<button type="button" className="btn sm aq-open" data-open-approval-quality onClick={() => openDialog('approval-quality', {})}><Gauge size={14} />Approval quality</button>}>
         <div className="col" style={{ gap: 8 }}>
           <AnimatePresence mode="popLayout">
             {appr.map((a) => (
@@ -323,6 +326,7 @@ function ResolvedTab() {
             <motion.div key={a.id} className="nt-appr" style={{ ['--h' as string]: a.status === 'approved' ? 150 : 0 }} initial={{ opacity: 0, x: -40 }} animate={{ opacity: 1, x: 0 }}>
               <div className="row" style={{ gap: 6 }}>{a.status === 'approved' ? <CheckCircle2 size={16} className="good" /> : <XCircle size={16} className="bad" />}<b className="ellipsis" style={{ fontSize: 13 }}>{a.title}</b></div>
               <div className="dim" style={{ fontSize: 12, marginTop: 3 }}>{a.status} by {isApi() ? a.decidedByName ?? 'someone' : 'Luca (Owner)'}{isApi() ? '' : ' just now'} · {a.missionId} · {RISK_TIER[a.risk].tier}</div>
+              {a.decisionRecord && <div className={cx('appr-rec', a.decisionRecord.fastBulk && 'is-fast')} data-decision-record={a.decisionRecord.fastBulk ? 'fast' : 'normal'}><Timer size={11} aria-hidden />decided {fmtDuration(a.decisionRecord.latencyMs)} after it was asked · {a.decisionRecord.queueSize} waiting{a.decisionRecord.fastBulk && <> · <Zap size={11} aria-hidden />quick run (advisory only)</>}</div>}
             </motion.div>))}</AnimatePresence>
           {done.length === 0 && <div className="dim" style={{ fontSize: 12.5 }}>Decisions made in Pending appear here, with comment and hash.</div>}
         </div>

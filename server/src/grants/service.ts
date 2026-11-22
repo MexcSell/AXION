@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import type { Db, Tx } from '../db.ts';
 import { ApiError } from '../errors.ts';
 import { evaluate, CURRENT_BASELINE, tierRank, type Action, type Decision, type Grant } from '../policy/index.ts';
+import { deriveFlags, loadConfigProfile } from '../policy/rule-of-two.ts';
 import { normaliseOrigin, REFUSAL_TEXT, type OriginResult } from './origin.ts';
 
 export const MAX_GRANT_MS = 30 * 24 * 3600 * 1000;
@@ -60,6 +61,8 @@ export async function decideOnOrigin(db: Db | Tx, a: { tenantId: string; mission
   const n = normaliseOrigin(a.rawOrigin);
   if (!n.ok) return { decision: { outcome: 'deny', tier: 'R4', approver: null, reasons: ['no_grant'], policyVersion: CURRENT_BASELINE.version }, refusal: n.reason };
   const grants = await loadGrants(db, a.tenantId, a.missionId, now, a.requester.id);
-  const decision = evaluate({ kind: a.kind, origin: n.origin, missionId: a.missionId, requester: a.requester, effect: a.effect, payload: a.payload ?? {} }, grants, {}, now);
+  // Rule of Two (c58): an agent's configuration is profiled from the database; a person is not an agent configuration
+  const flags = a.requester.kind === 'agent' ? deriveFlags(await loadConfigProfile(db, { tenantId: a.tenantId, missionId: a.missionId, agentId: a.requester.id, action: { kind: a.kind, origin: n.origin } })) : undefined;
+  const decision = evaluate({ kind: a.kind, origin: n.origin, missionId: a.missionId, requester: a.requester, effect: a.effect, payload: a.payload ?? {} }, grants, {}, now, flags);
   return { decision };
 }

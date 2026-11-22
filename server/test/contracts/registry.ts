@@ -19,6 +19,8 @@ export const ROUTES: Record<string, RouteEntry> = {
   'GET /agents/:id/playbook/versions/:v': { v: C.playbookVersionBody },
   'GET /agents/:id/version-proposals': { v: C.versionProposalsBody },
   'GET /approvals': { v: C.approvalsBody },
+  'GET /approvals/quality': { v: C.qualityBody },
+  'GET /approvals/quality/approvers': { v: C.approversBody, admin: true },
   'GET /audit/verify': { v: C.auditVerify, admin: true },
   'GET /auth/hello': { v: C.helloBody },
   'GET /auth/wait': { v: C.connectResult },

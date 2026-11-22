@@ -5,6 +5,7 @@ import { ApiError, notFound } from '../errors.ts';
 import { evaluate } from '../policy/evaluate.ts';
 import { CURRENT_BASELINE, approverFor } from '../policy/baseline.ts';
 import { isTier, tierRank, type RiskTier } from '../policy/types.ts';
+import { allThree, deriveFlags, loadConfigProfile, type DerivedFlags } from '../policy/rule-of-two.ts';
 
 export type { RiskTier };
 export const RISK_UI: Record<RiskTier, 'low' | 'medium' | 'high' | 'critical'> = { R0: 'low', R1: 'low', R2: 'medium', R3: 'high', R4: 'critical' };
@@ -51,7 +52,10 @@ export async function requestApproval(c: Tx, a: ApprovalInput) {
   const payload = JSON.parse(JSON.stringify(a.payload)) as Record<string, unknown>;
   const taskId = a.taskId || undefined, origin = a.origin || undefined, target = a.target || undefined;
   a = { ...a, payload, taskId, origin, target };
-  const d = evaluate({ kind: a.kind, requester: { id: requestedBy, kind: requestedBy === a.agentId ? 'agent' : 'user', role: requestedBy === a.agentId ? 'agent' : 'member' }, effect: 'read', payload: a.payload, missionId: a.missionId, target: a.target, origin: a.origin }, [], {}, Date.now());
+  // Rule of Two (c58): the flags are derived here from the agent's configuration (briefs, grants, content origins) and this action's kind.
+  // Nothing in `a.payload`, `a.title` or `a.detail` is read for them, so the requester cannot set or clear one.
+  const flags = deriveFlags(await loadConfigProfile(c, { tenantId: a.tenantId, missionId: a.missionId, agentId: a.agentId, action: { kind: a.kind, origin: a.origin } }));
+  const d = evaluate({ kind: a.kind, requester: { id: requestedBy, kind: requestedBy === a.agentId ? 'agent' : 'user', role: requestedBy === a.agentId ? 'agent' : 'member' }, effect: 'read', payload: a.payload, missionId: a.missionId, target: a.target, origin: a.origin }, [], {}, Date.now(), flags);
   if (d.outcome === 'deny') throw new ApiError('POLICY_DENIED', 403, `Policy denies this action (${d.reasons.join(', ')}).`);
   const risk = d.tier;
   const id = a.id ?? 'APR-' + randomBytes(5).toString('hex');
@@ -60,12 +64,19 @@ export async function requestApproval(c: Tx, a: ApprovalInput) {
   const expiresAt = new Date(Date.now() + a.expiresInMin * 60_000);
   const digest = digestV2({ tenantId: a.tenantId, missionId: a.missionId, taskId: a.taskId, kind: a.kind, origin: a.origin, target: a.target, payload: a.payload, tier: risk, requestedBy, expiresAt: expiresAt.toISOString() });
   await c.query(
-    `insert into approval_requests(id, tenant_id, mission_id, agent_id, kind, title, detail, risk, payload, action_digest, digest_version, task_id, origin, target, requested_by, demo, created_at, expires_at)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,2,$11,$12,$13,$14,$15,$16,$17)`,
-    [id, a.tenantId, a.missionId, a.agentId, a.kind, a.title, a.detail, risk, JSON.stringify(a.payload), digest, a.taskId ?? null, a.origin ?? null, a.target ?? null, requestedBy, a.demo ?? false, createdAt, expiresAt]);
+    `insert into approval_requests(id, tenant_id, mission_id, agent_id, kind, title, detail, risk, payload, action_digest, digest_version, task_id, origin, target, requested_by, demo, created_at, expires_at, rule_of_two)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,2,$11,$12,$13,$14,$15,$16,$17,$18)`,
+    [id, a.tenantId, a.missionId, a.agentId, a.kind, a.title, a.detail, risk, JSON.stringify(a.payload), digest, a.taskId ?? null, a.origin ?? null, a.target ?? null, requestedBy, a.demo ?? false, createdAt, expiresAt, JSON.stringify(ruleRecord(flags, d.policyVersion))]);
   await emit(c, { tenantId: a.tenantId, type: 'approval.requested', subject: a.missionId, missionId: a.missionId, actor: a.agentId, actorKind: 'agent', payload: { approvalId: id, kind: a.kind, risk, policyVersion: d.policyVersion, reasons: d.reasons } });
   return { id, digest };
 }
+
+/** What is stored with a request and shown to the reviewer: the three flags, why each holds, and whether the rule fired. */
+export interface RuleOfTwoRecord { flags: { untrustedInput: boolean; sensitiveAccess: boolean; canChangeState: boolean }; because: DerivedFlags['because']; fired: boolean; rule: 'rule_of_two' | null; policyVersion: number }
+export const ruleRecord = (f: DerivedFlags, policyVersion: number): RuleOfTwoRecord => ({
+  flags: { untrustedInput: f.untrustedInput, sensitiveAccess: f.sensitiveAccess, canChangeState: f.canChangeState }, because: f.because,
+  fired: allThree(f), rule: allThree(f) ? 'rule_of_two' : null, policyVersion,
+});
 
 const kindRule = (k: string) => (CURRENT_BASELINE.kinds as Record<string, { effect: string; why: string }>)[k];
 
@@ -102,6 +113,10 @@ export function approvalDto(r: any, now: number, viewer: Decider) {
     agoMin: Math.max(0, Math.round((now - new Date(r.created_at).getTime()) / 60000)),
     expiresAt: new Date(r.expires_at).getTime(),
     canDecide: !refusal, decideBlockedReason: refusal?.reason ?? null,
+    ruleOfTwo: (r.rule_of_two ?? null) as RuleOfTwoRecord | null,
+    // how it was decided: for administrators only (it describes a person's pace), and only once decided
+    decisionRecord: viewer.role === 'admin' && (state === 'approved' || state === 'denied') && r.dec_latency_ms != null
+      ? { latencyMs: Number(r.dec_latency_ms), queueSize: Number(r.dec_queue_size), fastBulk: !!r.dec_fast_bulk } : null,
     decidedByName: (state === 'approved' || state === 'denied') ? (r.decided_by_name ?? null) : null,
   };
 }
