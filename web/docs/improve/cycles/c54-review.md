@@ -74,3 +74,31 @@ Confirmed: `git diff bfe891e..4f83abf --stat` shows no change under shared/contr
 2. Shorten or give room to the "Evaluation verdicts (win / inconclusive / loss)" label (cut at 1366).
 3. Tab strip: keep the 9th tab visible when fonts are wider (collapse unselected to icons or an edge fade), or state the accepted limit; and either align failure-modes' lower bound to the closed convention or document the exception in clock.ts; add grants issuance (grants/routes.ts:85) to H11b.
 Minor items above may go to the backlog.
+
+---
+
+## Re-review (fix round, 4f83abf..78e149f)
+
+Ran: server vitest (c54-fix-round, clock-bounds, dimensions*, approval-binding, approvals, failure, departments, scorecard) serial: 16 files, 230/230. Fit-check all routes at 1366x768 (real fonts, dev server 10390): ALL FIT, 0 BAD. a11y demo (A11Y_FAST=1): 51 views, 64 dialogs, 0 violations. Own Playwright probes for strips (real fonts, fonts blocked, 390 px), cells, help popover. Dev server killed by recorded PID, ports free, no job left.
+
+1. Tab-strip fade (9d4f50e): SAFE, with two minor notes.
+- Fade appears only while a strip overflows (`data-fade` from scroll/ResizeObserver/`document.fonts.ready`). Measured at 1366 real fonts: Operations, Agents, Models, Agent Profile, Missions, Overview, Job Search strips all `data-fade` null (profile 1096/1096, no overflow); Settings (11 tabs, 1331 in 1092) now shows an `r` fade where it was silently clipped before. At 390 px profile, Settings, Operations, Missions workspace strips fade `r`/`lr` as they scroll. Fonts blocked at 1366: Agents views clips (sw 1158) and shows `l` or `r`/`lr` fades in step with scrollLeft; the screenshot shows "Dim..." fading, not cut.
+- No scroll jump: selected tab scrolls into view only when outside it; on load scrollLeft 62 with Dimensions selected, fine. I scrolled the strip manually to 0 then resized, toggled theme and collapsed the rail: it did not snap back. Code note [minor]: the effect depends on `[value, tabs]` and `tabs` is usually a new array per render, so a parent re-render with a manually scrolled-away strip would re-run it and snap to the selected tab; I could not trigger this in the shipped pages. Use `tabs.length` or the selected key only if it ever shows.
+- Focus: Tab/ArrowLeft kept focus on the right tab and the ring on the selected Dimensions tab is intact (screenshot p3-focus). [minor, untested] A non-selected tab focused by the browser's scroll-into-view lands at the edge, inside the 28 px faded band, so its ring is partly faded. The strip already clipped rings to its 2 px padding before; not a regression for a11y (0 violations).
+- Mask is on the strip only, not on dialogs' content; dialogs with tabs use the same `Tabs`, no violations in the 64-dialog run.
+
+2. Cell height 37 px: PASS. At 1366 real fonts and fonts blocked `cutCells` is empty (no cell has scrollHeight above its box, no clipped label/value), `over` 0, fit-check Dimensions mainOver 0 (region 387/0). Row baselines now align.
+
+3. Failure-modes bound and snapshotTx: PASS.
+- `date_trunc('milliseconds', created_at) >= date_trunc('milliseconds', now()) - len ms and created_at <= now()` is exactly the closed [to-N, to] on the ms grid of clock.ts; I confirmed pg's Date parser truncates (0.9996 s -> .999). New test inserts a tag exactly at the edge (rolled back since failure_tags is append-only) and passes.
+- `snapshotTx` does `begin`, `set local lock_timeout`, then `set transaction isolation level repeatable read read only` before any data statement; scorecard, throughput and departments all use it, and the spy test asserts the statement on all three. Failure-modes still uses plain `tx` (a single statement plus `dbWindow`'s `now()`), acceptable.
+
+4. Approval order: `/approvals` is the only list query (routes.ts:24, now `created_at desc, a.id desc`); the pending and resolved tabs are views of that one list, `/approvals/:id` is a single row. No other list needs the tiebreaker. Test covers three approvals created in one transaction.
+
+5. Wording and label: accurate and renders. The help popover for Evolutionary shows the new text with apostrophes (page errors 0; the e89e65b parse fix works). It states newest-run placement, later run moves it, current not as of the window end. The evidence string says the same. Label is "Evaluation verdicts" in server spec and demo data and is no longer cut.
+
+6. Flake: not c54-caused. The test makes 20 concurrent `consume` transactions (20 connections at once); c54 did not touch consume (`approvals/service.ts` is unchanged in the fix round, and earlier only `requestApproval` changed, called once before the fan-out). It passed in my serial run. This is the shared 45-connection-cap family.
+
+Remaining (all minor, backlog): tab effect dependency on `tabs`; faded ring on a non-selected edge tab; full-suite not rerun by me.
+
+Verdict: CLEAR.
