@@ -1,19 +1,26 @@
 # Improvement loop state (resume from here)
 
-Rewritten 2026-11-22T07:35Z by the controller. The old w2–w18 lane list is history; see LOG.md.
+Rewritten 2026-11-22T07:35Z by the controller and again at 17:50Z after the live update. The old w2–w18 lane list is history; see LOG.md.
 
 ## Clocks
-- **30 h loop:** 2026-11-21T11:36:18Z → 2026-11-22T17:36:18Z.
-- **Phase 2 (owner 2026-11-22 ~00:50Z, 28 h, PHASE2.md):** the clock starts when the current integration queue (batches 7–9) is merged. Write the start and end times here at that moment. Phase 2 lanes were started early by controller decision, because integration is serial.
+- **30 h loop:** 2026-11-21T11:36:18Z → 2026-11-22T17:36:18Z. The last batch (13) was still being verified at 17:36Z; its log commit ed3ed73 landed at 17:43Z.
+- **Phase 2 (owner 2026-11-22 ~00:50Z, 28 h, PHASE2.md): 2026-11-22T17:45Z → 2026-11-23T21:45Z.** Started when the integration queue (batches 7–13) was merged and the live update was done. Waves 1–4 (ungated) were built early, in lanes, during the 30 h loop. Phase 2 proper starts with Wave 5.
 
 ## Branch and live
 - Integration tree `/home/luca/AXION`, branch `improve-30h`, local only. Never push or move the tag without the owner.
-- Live: web dev 5190 serves the working tree. API 5191 runs the real `axion` DB, last restarted on a67d2dd with migrations 1–13 and 15. A live update is due after batches 7–9:
-  1. stop 5191;
-  2. back up and run the restore check;
-  3. migrate (0026 backfill takes ACCESS EXCLUSIVE);
-  4. `npm run audit:verify`;
-  5. restart only from a clean tree.
+- **Web dev 5190** serves the working tree. Restarted 2026-11-22 at about 16:08Z after a stale watcher; PID in /tmp/axion-5190.pid.
+- **API 5191** runs the real `axion` DB. **Restarted 2026-11-22T17:44Z on ed3ed73** from a clean tree; PID in /tmp/axion-5191.pid.
+  - Schema version 39 (all 28 migration files applied).
+  - Backup `backups/axion-20261122T174415Z.dump`; restore check PASS.
+  - The live DB holds 1 tenant and 1 audit row.
+- **Audit anchor (c49):** settings are in the live server/.env (mode 600; the key is never printed). The first anchor is written: t-1 through seq 1, in `server/data/audit-anchors.jsonl` (git-ignored). `audit:verify`: chain OK, anchor OK. **The owner should copy the anchor file off-host.**
+- **Every later live update follows these steps:**
+  1. Stop 5191 by port.
+  2. `npm run db:backup`, then `npm run db:restore-check`.
+  3. `npm run migrate`.
+  4. Restart from a clean tree: `node --env-file=.env --import tsx src/main.ts >> data/api.log`.
+  5. `npm run audit:anchor`.
+  6. `npm run audit:verify`.
 
 ## Process
 - PROCESS.md, LANES.md and QUEUE.md. Every lane goes brief → implementer → independent reviewer → fix round → re-review → QUEUE batch → integrator (`--no-ff`).
@@ -21,38 +28,33 @@ Rewritten 2026-11-22T07:35Z by the controller. The old w2–w18 lane list is his
 - `heavy.sh` has 6 slots plus slot 0, reserved for the integrator (`HEAVY_PRIORITY=1`).
 - Ports 8790 and 9090 belong to other apps.
 
-## Integration queue (integrator #3 working through it)
-- Merged up to c17 (batch 6, c068a6d).
-- Next:
-  - batches 7, 8 and 8b (c43) MERGED (tip 09dd6cb; events lock schema-scoped 9e958f3; live 5190 Vite restarted ~09:16Z after a stale watcher);
-  - batch 9: c39, c38, locks fix 4eca9db, c42, c41 MERGED (7a139d8); c40 after its fix round;
-  - batch 11: c48 → c47 → c49 (all CLEARED);
-  - batch 12: c50 (CLEARED; registry follow-up for batch 10–11 routes);
-  - batch 10: c44 → c45.
+## Integration queue
+- Everything is merged through batch 13 (HEAD ed3ed73):
+  - c44, c45, c48, c47, c49, c40, c46, c50, c52, c51;
+  - the c46 clock fix f5e2d01.
+- Integrator #4 is finished. Full server suite 2114/2114, 3 of 3 runs. Merge details are in MERGES.md.
 
-## Lanes in flight
+## Lanes (all merged; the table is history from here)
 | Lane | Cycle | Status |
 |---|---|---|
 | w38 | c40 mobile debt | MERGED (6c5a922) |
 | w42 | c43 flows hardening (H7) | MERGED (2aba0a0, 09dd6cb) |
-| w43 | c44 page/store perf | MERGED (batch 10, partial) |
-| w44 | c45 job leases J1 | MERGED (batch 10) |
-| w45 | c46 six-dimension scorecard M1 | MERGED (feb5f96) |
-| w46 | c47 E1b eval evidence | MERGED (batch 11, ec6d8b3) |
-| w47 | c48 P3a approvals UI | MERGED (batch 11) |
-| w48 | c49 P5b audit anchor | MERGED (batch 11) |
-| w49 | c50 H9 contract coverage | CLEARED at 539eda5, batch 12 (merging) |
-| w50 | c51 O3a+O2a review hardening (migration 0039) | CLEARED at a9a41a6, batch 13 (after c52) |
-| w51 | c52 H10 merge minors | CLEARED at 078b41c, batch 13 |
+| w43 | c44 page/store perf | MERGED (b80c2d1, partial) |
+| w44 | c45 job leases J1 | MERGED (8798e82) |
+| w45 | c46 six-dimension scorecard M1 | MERGED (feb5f96, clock fix f5e2d01) |
+| w46 | c47 E1b eval evidence | MERGED (94806cf) |
+| w47 | c48 P3a approvals UI | MERGED (8274a8d) |
+| w48 | c49 P5b audit anchor | MERGED (af6bed5) |
+| w49 | c50 H9 contract coverage | MERGED (5002d01, registry 1abeca3) |
+| w50 | c51 O3a+O2a review hardening (migration 0039) | MERGED (86a634b) |
+| w51 | c52 H10 merge minors | MERGED (a33ae82) |
 
-## Next after that
-- H9 contract-test refresh, after batch 8.
-- Backlog follow-ups: E1b, P3a, P5b running (c47–c49). Still open: P2b, P3b (needs Q9), P4a, P4b, P5c, O2a, O3a (after c38).
-- Gated Wave 4 items (R1, A1, M2, G1) run last as their own droppable batch (Q11).
+## Next: Wave 5 (Phase 2 proper)
+Being planned; see PHASE2.md, Wave 5. The gated Wave 4 items (R1, A1, M2, G1) still run last, as their own droppable batch (Q11).
 
 ## Owner questions
 Q1–Q11 are queued for the final report (PHASE2.md, LOG.md).
 
 ## Ids already taken
-- **Dialog ids:** up to DL-95. DL-96–97 are reserved for c45 and DL-98–99 for c46.
-- **Migrations:** up to 0034, with 0035 reserved for c45 and 0036 for c46.
+- **Dialog ids:** up to DL-98 in use. DL-96, DL-97 and DL-99 were reserved but are unused.
+- **Migrations:** files up to 0039. 0036 and 0038 are unused.

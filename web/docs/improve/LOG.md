@@ -584,3 +584,14 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
   - Queued in batch 13 after c52, with the BRIEF_REQUIRED follow-up for c50's flow.
 - 2026-11-22T16:08Z controller: restarted live 5190 Vite (stale watcher again after the c46 merge; contracts/index.ts lacked the dimensions export, so 5/10 verify-all steps failed with a DIMENSION_KEYS import error). PID recorded in /tmp/axion-5190.pid. Integrator #4: c40 merged (6c5a922, api-mobile 691 states 0 FAIL), c46 merged (api-c46 30/30, vitest 2016/2016); c50 merge in progress.
 - 2026-11-22T16:54Z controller: ruling on the c46 flake (dimensions-route.test.ts, ~1 in 3 full runs, last review missing from the first read). Cause: JS Date ms-truncation of the RR-transaction now() used as a SQL <= bound against µs created_at. Approved product fix in fix(c46 merge): all bounds from SQL now(), windows contiguous, RED-first regression test, grep for the same pattern elsewhere (to backlog). c52 merged (a33ae82, allowlist line removed); c51 merged cleanly (stale/verified validators, brief added on the coverage-flow reassign).
+- 2026-11-22T17:45Z Integrator #4 finished: batches 10, 11, 11b, 11c, 12 and 13 merged, HEAD ed3ed73. Full server suite 2114/2114, 3 of 3 runs. Details in MERGES.md.
+- 2026-11-22T17:44Z controller live update:
+  - stopped 5191 (was a67d2dd);
+  - backup axion-20261122T174415Z.dump, restore check PASS;
+  - migrate → version 39 (0026–0039);
+  - added AUDIT_ANCHOR_KEY/DOMAIN/FILE to the live .env (mode 600, key not printed, checked absent from logs);
+  - audit:verify chain OK, ANCHOR_MISSING as expected;
+  - restarted from a clean tree on ed3ed73;
+  - audit:anchor wrote t-1@1, audit:verify chain OK + anchor OK;
+  - health 200 direct and through the 5190 proxy.
+- 2026-11-22T17:45Z **Phase 2 clock starts; ends 2026-11-23T21:45Z.** (30 h loop ended 17:36Z.)
