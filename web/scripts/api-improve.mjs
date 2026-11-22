@@ -159,6 +159,10 @@ try {
   await dlg.getByRole('button', { name: 'Remove change 2' }).click();
   await until(async () => (await dlg.locator('[data-dialog-dry-run="done"] [data-dry-run="ok"]').count()) === 1, 8000);
   await dlg.getByLabel('Why', { exact: true }).fill('Ops reviews every release: Coder-01 reports there.');
+  // c64: a baseline and an expected cost are required before it can be submitted
+  check('c64 Submit is disabled until the baseline and the expected cost are written', await dlg.getByRole('button', { name: 'Submit proposal' }).isDisabled());
+  await dlg.getByLabel('Baseline', { exact: true }).fill('No change: keep Coder-01 under the GM.');
+  await dlg.getByLabel('Expected added cost', { exact: true }).fill('One more hop for escalations from Coder-01.');
   await dlg.getByRole('button', { name: 'Submit proposal' }).click();
   check('the dialog closes after submit', await until(async () => (await dlg.count()) === 0, 8000));
   const list1 = (await apiA('GET', '/organization/proposals')).body.proposals;
@@ -172,7 +176,7 @@ try {
     await until(async () => (await card(C.p, P1.id).count()) === 1, 10000) && (await card(C.p, P1.id).getByRole('button', { name: DECISION_BUTTON }).count()) === 0 && (await card(C.p, P1.id).getByLabel(/Decision note/).count()) === 0);
 
   // ------------------------------------------------------------ a second proposal on the same base (made through the API)
-  const P2r = await apiA('POST', '/organization/proposals', { title: 'Writer-01 under Ops-01', why: '', baseRevision: 1, edges: g0.edges.map((e) => (e.subordinateId === 'writer-01' ? { ...e, supervisorId: 'ops-01' } : e)) }, { 'idempotency-key': `c01-${Date.now()}` });
+  const P2r = await apiA('POST', '/organization/proposals', { title: 'Writer-01 under Ops-01', why: '', baseline: 'No change: keep the current chart.', expectedCost: 'No added cost is expected here.', baseRevision: 1, edges: g0.edges.map((e) => (e.subordinateId === 'writer-01' ? { ...e, supervisorId: 'ops-01' } : e)) }, { 'idempotency-key': `c01-${Date.now()}` });
   const P2 = P2r.body.proposal;
   check('a second proposal on the same base is stored', P2r.status === 201 && P2?.baseRevision === 1);
 

@@ -66,7 +66,7 @@ try {
   const g0 = (await apiA('GET', '/organization/graph')).body;
   const moves = { 'writer-01': 'analyst-01', 'coder-01': 'designer-01' };
   const edges = g0.edges.map((e) => (moves[e.subordinateId] ? { ...e, supervisorId: moves[e.subordinateId] } : e));
-  const P = (await apiA('POST', '/organization/proposals', { title: 'Writers under Analyst, Coder under Designer', why: 'c11 browser check.', baseRevision: g0.revision.seq, edges }, { 'idempotency-key': 'c11-prop' })).body.proposal;
+  const P = (await apiA('POST', '/organization/proposals', { title: 'Writers under Analyst, Coder under Designer', why: 'c11 browser check.', baseline: 'No change: keep the current chart.', expectedCost: 'No added cost is expected here.', baseRevision: g0.revision.seq, edges }, { 'idempotency-key': 'c11-prop' })).body.proposal;
   check('A proposed the change (pending)', P?.status === 'pending', P?.id);
   await B.p.goto(base + '/operations?tab=agents&sub=proposals', { waitUntil: 'domcontentloaded' });
   const card = B.p.locator(`[data-proposal="${P.id}"]`);
