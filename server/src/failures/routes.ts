@@ -4,7 +4,7 @@ import { tx } from '../db.ts';
 import { requireUser } from '../auth/session.ts';
 import { parse } from '../auth/routes.ts';
 import { idempotent } from '../idempotency.ts';
-import { SCORECARD_WINDOWS } from '../../../shared/contracts/src/index.ts';
+import { SCORECARD_WINDOWS, DETECTION_CHANNELS, FAILURE_MECHANISMS, FAILURE_CONTROLS, DETECTION_NOTE_MAX } from '../../../shared/contracts/src/index.ts';
 import { windowOf } from '../company/scorecard.ts';
 import { FAILURE_SUBJECT_KINDS } from './taxonomy.ts';
 import { createTag, createAttribution, decideTag, tagsOfSubject, failureModeCounts } from './service.ts';
@@ -18,7 +18,15 @@ import { createTag, createAttribution, decideTag, tagsOfSubject, failureModeCoun
 const Str = z.string().trim();
 const AttributionIn = z.object({ agentId: Str.min(1).max(120).optional(), stepRef: Str.min(1).max(120).optional(), fullTraceAvailable: z.boolean().optional() }).strict()
   .refine((a) => a.agentId !== undefined || a.stepRef !== undefined, { message: 'Name an agent, a step, or both.' });
-const CreateIn = z.object({ subjectKind: z.enum(FAILURE_SUBJECT_KINDS), subjectId: Str.min(1).max(120), modeId: Str.min(1).max(16), note: Str.max(1000).optional(), attribution: AttributionIn.optional() }).strict();
+const ids = <T extends readonly { id: string }[]>(l: T) => l.map((x) => x.id) as [T[number]['id'], ...T[number]['id'][]];
+const DetectionIn = {
+  detectionChannel: z.enum(ids(DETECTION_CHANNELS)).optional(), mechanism: z.enum(ids(FAILURE_MECHANISMS)).optional(),
+  controlExpected: z.enum(ids(FAILURE_CONTROLS)).optional(), controlCaught: z.enum(ids(FAILURE_CONTROLS)).optional(), detectionNote: Str.max(DETECTION_NOTE_MAX).optional(),
+};
+const CreateIn = z.object({ subjectKind: z.enum(FAILURE_SUBJECT_KINDS), subjectId: Str.min(1).max(120), modeId: Str.min(1).max(16), note: Str.max(1000).optional(), attribution: AttributionIn.optional(), ...DetectionIn }).strict()
+  .superRefine((b, ctx) => {
+    if (!b.detectionNote && [b.mechanism, b.controlExpected, b.controlCaught].includes('other')) ctx.addIssue({ code: 'custom', path: ['detectionNote'], message: 'Say what "something else" was: a note is required.' });
+  });
 const DecisionIn = z.object({ decision: z.enum(['confirm', 'reject']) }).strict();
 const SubjectIn = z.object({ subjectKind: z.enum(FAILURE_SUBJECT_KINDS), subjectId: Str.min(1).max(120) });
 const CountsIn = z.object({ window: z.enum(SCORECARD_WINDOWS).default('30d'), includeDemo: z.enum(['0', '1']).default('0') });
@@ -34,7 +42,8 @@ export default async function failureRoutes(app: FastifyInstance) {
     const ctx = await requireUser(req);
     const b = parse(CreateIn, req.body);
     const out = await idempotent(app.db, req, ctx, async (c) => {
-      const tag = await createTag(c, { tenantId: ctx.tenantId, viewer: ctx, taggedBy: ctx.user.id, taggedByKind: 'user', correlationId: ctx.correlationId }, { kind: b.subjectKind, subjectId: b.subjectId, modeId: b.modeId, note: b.note, attribution: b.attribution });
+      const tag = await createTag(c, { tenantId: ctx.tenantId, viewer: ctx, taggedBy: ctx.user.id, taggedByKind: 'user', correlationId: ctx.correlationId }, { kind: b.subjectKind, subjectId: b.subjectId, modeId: b.modeId, note: b.note, attribution: b.attribution,
+        detectionChannel: b.detectionChannel, mechanism: b.mechanism, controlExpected: b.controlExpected, controlCaught: b.controlCaught, detectionNote: b.detectionNote });
       return { status: 201, body: { tag } };
     });
     return reply.status(out.status).send(out.body);

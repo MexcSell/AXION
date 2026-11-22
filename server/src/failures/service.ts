@@ -4,6 +4,7 @@ import { audit } from '../audit.ts';
 import { ApiError, notFound } from '../errors.ts';
 import { emit } from '../events/hooks.ts';
 import { VISIBLE_SQL } from '../missions/visibility.ts';
+import { DETECTION_CHANNELS, DETECTION_FIELD_KEYS, FAILURE_MECHANISMS, FAILURE_CONTROLS, HUMAN_ONLY_MIN_N, type DetectionChannel, type DetectionFieldKey, type FailureDetectionDto, type DetectionFieldCount } from '../../../shared/contracts/src/failures.ts';
 import { failureModeOf, FAILURE_TAXONOMY, FAILURE_TAXONOMY_VERSION, FAILURE_TAXONOMY_SOURCE, type FailureSubjectKind, type FailureSubjectInfo, type FailureTagDto, type FailureAttributionDto, type FailureModesDto } from './taxonomy.ts';
 
 /**
@@ -55,6 +56,8 @@ export function tagDto(r: any): FailureTagDto {
     taggedBy: r.tagged_by, taggedByName: r.tagged_name ?? r.agent_name ?? r.tagged_by, taggedByKind: r.tagged_by_kind, status: r.status, selfConfirmed: !!r.self_confirmed, createdAt: iso(r.created_at)!,
     decidedBy: r.decided_by, decidedByName: r.decided_by ? (r.decided_name ?? r.decided_by) : null, decidedAt: iso(r.decided_at),
     attributions: [], attributionDisagreements: 0,
+    detectionChannel: r.detection_channel ?? null, detectedAfterSeconds: r.detected_after_seconds === null || r.detected_after_seconds === undefined ? null : Number(r.detected_after_seconds),
+    mechanism: r.mechanism ?? null, controlExpected: r.control_expected ?? null, controlCaught: r.control_caught ?? null, detectionNote: r.detection_note ?? null,
   };
 }
 
@@ -90,7 +93,40 @@ export async function tagsOfSubject(c: Q, viewer: Viewer, kind: FailureSubjectKi
 }
 
 export interface NewAttribution { agentId?: string | null; stepRef?: string | null; fullTraceAvailable?: boolean }
-export interface NewTag { kind: FailureSubjectKind; subjectId: string; modeId: string; note?: string | null; attribution?: NewAttribution }
+export interface NewDetection { detectionChannel?: string | null; mechanism?: string | null; controlExpected?: string | null; controlCaught?: string | null; detectionNote?: string | null }
+export interface NewTag extends NewDetection { kind: FailureSubjectKind; subjectId: string; modeId: string; note?: string | null; attribution?: NewAttribution }
+
+const oneOf = (list: readonly { id: string }[], v: string | null | undefined) => v === null || v === undefined || list.some((x) => x.id === v);
+/** Checks the optional detection fields (the route checks the same; a direct caller, such as an agent, gets the same rules). Returns the cleaned values. */
+export function cleanDetection(d: NewDetection) {
+  const bad: Record<string, string> = {};
+  const channel = d.detectionChannel ?? null, mechanism = d.mechanism ?? null, controlExpected = d.controlExpected ?? null, controlCaught = d.controlCaught ?? null;
+  const note = d.detectionNote?.trim() || null;
+  if (!oneOf(DETECTION_CHANNELS, channel)) bad.detectionChannel = 'Not one of the detection channels.';
+  if (!oneOf(FAILURE_MECHANISMS, mechanism)) bad.mechanism = 'Not one of the mechanisms.';
+  if (!oneOf(FAILURE_CONTROLS, controlExpected)) bad.controlExpected = 'Not one of the controls.';
+  if (!oneOf(FAILURE_CONTROLS, controlCaught)) bad.controlCaught = 'Not one of the controls.';
+  if (note && note.length > 300) bad.detectionNote = 'Keep the note to 300 characters.';
+  if (!note && [mechanism, controlExpected, controlCaught].includes('other')) bad.detectionNote = 'Say what "something else" was: a note is required.';
+  if (Object.keys(bad).length) throw new ApiError('VALIDATION', 400, 'Some fields are not valid.', { fieldErrors: bad });
+  return { channel, mechanism, controlExpected, controlCaught, note };
+}
+
+/**
+ * Seconds from the stored failure time of a subject to the database's now(), or null when no failure time is stored. Computed in SQL (never the app clock) and never negative.
+ * The failure time of a task or a task attempt is the finish time of its latest failed attempt (the start time when no finish is recorded). A task that failed with no attempt row,
+ * a message and a mission have no stored failure time, so the value stays null (and is counted as missing). It runs in the tag's transaction, so now() is the tag's own created_at.
+ */
+export async function secondsSinceFailure(c: Q, tenantId: string, kind: FailureSubjectKind, id: string): Promise<number | null> {
+  const sql = kind === 'task'
+    ? `select case when max(coalesce(a.finished_at, a.started_at)) is null then null else greatest(0, floor(extract(epoch from now() - max(coalesce(a.finished_at, a.started_at)))))::bigint end as s from task_attempts a join tasks t on t.id=a.task_id where t.id=$1 and t.tenant_id=$2 and a.result='failed'`
+    : kind === 'task_attempt' && NUM.test(id)
+      ? `select greatest(0, floor(extract(epoch from now() - coalesce(a.finished_at, a.started_at))))::bigint as s from task_attempts a join tasks t on t.id=a.task_id where a.id=$1::bigint and t.tenant_id=$2 and a.result='failed'`
+      : null;
+  if (!sql) return null;
+  const v = (await c.query(sql, [id, tenantId])).rows[0]?.s;
+  return v === null || v === undefined ? null : Number(v);
+}
 
 /** True when the subject is a task or task attempt with a recorded failure (a failed task, a task with a failed attempt, a failed attempt). Same rule as the table's own trigger. */
 export async function hasRecordedFailure(c: Q, tenantId: string, kind: FailureSubjectKind, id: string): Promise<boolean> {
@@ -138,10 +174,14 @@ export async function createTag(c: Tx, a: { tenantId: string; viewer: Viewer | n
   const s = await resolveSubject(c, a.tenantId, a.viewer, t.kind, t.subjectId);
   const attribution = t.attribution ? cleanAttribution(t.attribution) : null;
   if (attribution && !(await hasRecordedFailure(c, a.tenantId, t.kind, t.subjectId))) throw noFailure(); // refused before anything is stored
+  const det = cleanDetection(t);
+  const detectedAfter = det.channel ? await secondsSinceFailure(c, a.tenantId, t.kind, t.subjectId) : null;
   const id = 'FT-' + randomBytes(16).toString('hex').toUpperCase(); // 128-bit
   try {
-    await c.query(`insert into failure_tags(id, tenant_id, mission_id, subject_kind, subject_id, taxonomy_version, mode_id, note, tagged_by, tagged_by_kind)
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [id, a.tenantId, s.missionId, t.kind, t.subjectId, FAILURE_TAXONOMY_VERSION, t.modeId, t.note?.trim() || null, a.taggedBy, a.taggedByKind]);
+    await c.query(`insert into failure_tags(id, tenant_id, mission_id, subject_kind, subject_id, taxonomy_version, mode_id, note, tagged_by, tagged_by_kind,
+        detection_channel, detected_after_seconds, mechanism, control_expected, control_caught, detection_note)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`, [id, a.tenantId, s.missionId, t.kind, t.subjectId, FAILURE_TAXONOMY_VERSION, t.modeId, t.note?.trim() || null, a.taggedBy, a.taggedByKind,
+      det.channel, detectedAfter, det.mechanism, det.controlExpected, det.controlCaught, det.note]);
   } catch (e) {
     if ((e as { code?: string }).code === '23505') throw new ApiError('FAILURE_TAG_DUPLICATE', 409, 'This failure mode is already tagged on this subject (proposed or confirmed).');
     throw e;
@@ -170,18 +210,37 @@ export async function decideTag(c: Tx, ctx: Viewer & { correlationId?: string },
   return { tag: (await tagById(c, ctx.tenantId, id))! };
 }
 
-/** Confirmed tags per mode and category over a window, visible missions only (DEMO with includeDemo). The window is placed by the tag's creation time. n = confirmed tags in the window; below 1 every count is null (never 0). */
+const WINDOW_DAYS = { '7d': 7, '30d': 30, '90d': 90 } as const;
+/**
+ * Confirmed tags per mode and category over a window, visible missions only (DEMO with includeDemo). The window is placed by the tag's creation time and bounded in SQL with the
+ * database's now() (the `from` and `to` in the answer are for display only). n = confirmed tags in the window; below 1 every count is null (never 0).
+ * c63: `detection` reports, for the same confirmed tags, how many carry each optional detection field and how many lack it, and the "found only by a person" share.
+ */
 export async function failureModeCounts(c: Q, ctx: Viewer, w: { window: '7d' | '30d' | '90d'; from: Date; to: Date }, includeDemo: boolean): Promise<FailureModesDto> {
-  const rows = (await c.query(`select f.mode_id, f.status, m.demo, f.self_confirmed, count(*)::int as n from failure_tags f join missions m on m.id=f.mission_id
+  const rows = (await c.query(`select f.mode_id, f.status, m.demo, f.self_confirmed, f.detection_channel,
+        (f.detected_after_seconds is not null) as has_after, (f.mechanism is not null) as has_mech, (f.control_expected is not null) as has_ce, (f.control_caught is not null) as has_cc, count(*)::int as n
+      from failure_tags f join missions m on m.id=f.mission_id
       where f.tenant_id=$1 and m.tenant_id=$1 and m.deleted_at is null and ${VISIBLE_SQL('$2', '$3')} and ($4::boolean or not m.demo)
-        and f.taxonomy_version=$5 and f.status in ('confirmed','proposed') and f.created_at > $6 and f.created_at <= $7 group by 1, 2, 3, 4`,
-    [ctx.tenantId, ctx.user.role === 'admin', ctx.user.id, includeDemo, FAILURE_TAXONOMY_VERSION, w.from, w.to])).rows;
+        and f.taxonomy_version=$5 and f.status in ('confirmed','proposed') and f.created_at > now() - make_interval(days => $6::int) and f.created_at <= now() group by 1, 2, 3, 4, 5, 6, 7, 8, 9`,
+    [ctx.tenantId, ctx.user.role === 'admin', ctx.user.id, includeDemo, FAILURE_TAXONOMY_VERSION, WINDOW_DAYS[w.window]])).rows;
   const by = new Map<string, number>();
   let n = 0, proposed = 0, demo = 0, selfConfirmed = 0;
-  for (const r of rows) { if (r.status === 'confirmed') { by.set(r.mode_id, (by.get(r.mode_id) ?? 0) + r.n); n += r.n; if (r.demo) demo += r.n; if (r.self_confirmed) selfConfirmed += r.n; } else proposed += r.n; }
+  const have: Record<DetectionFieldKey, number> = { channel: 0, detectedAfter: 0, mechanism: 0, controlExpected: 0, controlCaught: 0 };
+  const channels = Object.fromEntries(DETECTION_CHANNELS.map((x) => [x.id, 0])) as Record<DetectionChannel, number>;
+  for (const r of rows) {
+    if (r.status !== 'confirmed') { proposed += r.n; continue; }
+    by.set(r.mode_id, (by.get(r.mode_id) ?? 0) + r.n); n += r.n; if (r.demo) demo += r.n; if (r.self_confirmed) selfConfirmed += r.n;
+    if (r.detection_channel) { have.channel += r.n; channels[r.detection_channel as DetectionChannel] += r.n; }
+    if (r.has_after) have.detectedAfter += r.n; if (r.has_mech) have.mechanism += r.n; if (r.has_ce) have.controlExpected += r.n; if (r.has_cc) have.controlCaught += r.n;
+  }
   const some = n > 0;
+  const fields = Object.fromEntries(DETECTION_FIELD_KEYS.map((k) => [k, { have: have[k], missing: n - have[k], missingShare: some ? (n - have[k]) / n : null } satisfies DetectionFieldCount])) as Record<DetectionFieldKey, DetectionFieldCount>;
+  const detection: FailureDetectionDto = {
+    n, fields, channels,
+    humanOnly: { humanReview: channels.human_review, withChannel: have.channel, missing: n - have.channel, share: have.channel >= HUMAN_ONLY_MIN_N ? channels.human_review / have.channel : null, minN: HUMAN_ONLY_MIN_N, window: w.window },
+  };
   return {
-    window: w.window, from: w.from.toISOString(), to: w.to.toISOString(), includeDemo, taxonomyVersion: FAILURE_TAXONOMY_VERSION, source: FAILURE_TAXONOMY_SOURCE, n, demo, selfConfirmed, proposed,
+    window: w.window, from: w.from.toISOString(), to: w.to.toISOString(), includeDemo, taxonomyVersion: FAILURE_TAXONOMY_VERSION, source: FAILURE_TAXONOMY_SOURCE, n, demo, selfConfirmed, proposed, detection,
     categories: FAILURE_TAXONOMY.map((cat) => {
       const modes = cat.modes.map((m) => ({ id: m.id, name: m.name, count: some ? (by.get(m.id) ?? 0) : null }));
       return { id: cat.id, name: cat.name, count: some ? modes.reduce((s, m) => s + (m.count ?? 0), 0) : null, modes };

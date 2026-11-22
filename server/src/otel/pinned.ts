@@ -79,7 +79,7 @@ export const ALL_PINNED_ATTRIBUTES: ReadonlySet<string> = new Set(Object.values(
  */
 export const CONTENT_ATTRIBUTES: ReadonlySet<string> = new Set([
   ...Object.values(PINNED_SPANS).flatMap((s) => Object.entries(s.attributes).filter(([, l]) => l === 'Opt-In').map(([k]) => k)),
-  'axion.task.title', 'axion.task.criteria', 'axion.instance.task_label', 'axion.failure.note', 'axion.step.input', 'axion.step.output', 'axion.step.error',
+  'axion.task.title', 'axion.task.criteria', 'axion.instance.task_label', 'axion.failure.note', 'axion.failure.detection_note', 'axion.step.input', 'axion.step.output', 'axion.step.error',
   // c60 fix round: every other free-text or caller-supplied field, and the raw (unsanitised) names
   'axion.task.owner_agent', 'axion.attempt.evidence_ref', 'axion.failure.attributed_agent_id', 'axion.failure.attributed_step_ref', 'axion.step.tool_name', 'axion.agent.name_raw',
 ]);

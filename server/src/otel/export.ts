@@ -196,6 +196,9 @@ export function buildOtlp(rec: MissionRecords, opts: ExportOptions = {}): OtlpDo
     const at = ms(g.created_at) ?? n.start;
     const a: Attrs = new Map<string, string | number | boolean>([['axion.failure.tag_id', g.id], ['axion.failure.subject_kind', g.subject_kind], ['axion.failure.taxonomy_version', g.taxonomy_version], ['axion.failure.mode_id', g.mode_id], ['axion.failure.tagged_by_kind', g.tagged_by_kind], ['axion.failure.status', g.status], ['axion.failure.self_confirmed', !!g.self_confirmed]]);
     content(a, 'failure_tags.note', `axion://failure_tags/${g.id}#note`, g.note);
+    for (const [k, v] of [['detection_channel', g.detection_channel], ['mechanism', g.mechanism], ['control_expected', g.control_expected], ['control_caught', g.control_caught]] as const) if (v) a.set(`axion.failure.${k}`, v);
+    if (g.detected_after_seconds !== null && g.detected_after_seconds !== undefined) a.set('axion.failure.detected_after_seconds', Number(g.detected_after_seconds));
+    content(a, 'failure_tags.detection_note', `axion://failure_tags/${g.id}#detection_note`, g.detection_note);
     n.events.push({ at, name: 'axion.failure_tag', attrs: a });
     for (const x of rec.attributions.filter((y) => y.tag_id === g.id)) {
       const b: Attrs = new Map<string, string | number | boolean>([['axion.failure.attribution_id', x.id], ['axion.failure.tag_id', g.id], ['axion.failure.full_trace_available', !!x.full_trace_available], ['axion.failure.attributed_by_kind', x.attributed_by_kind]]);
