@@ -13,29 +13,13 @@ Every tag, human or agent, starts `proposed`. A person confirms or rejects it on
 The window places a tag by its creation time (not decision time).
 
 ## Taxonomy source (fetched, not from memory)
-Source: Cemri, Pan, Yang, Agrawal et al., "Why Do Multi-Agent LLM Systems Fail?", **arXiv:2503.13657v3** (26 Oct 2025), fetched from https://arxiv.org/html/2503.13657. Category names: Section 4 ("FC1. System Design Issues", "FC2. Inter-Agent Misalignment", "FC3. Task Verification"). Mode names and definitions: **Appendix A.1-A.3 "MAST Failure Categories: Deep Dive"**, copied verbatim from the HTML text (the paper's own wording kept, e.g. the curly apostrophe in FM-2.5, "(partial) omission" in FM-3.2, "an agent possess" in FM-2.4). The page says 14 modes; the counts 5 / 6 / 3 match "We identify five/six/three failure modes under this category".
+Source: Cemri, Pan, Yang, Agrawal et al., "Why Do Multi-Agent LLM Systems Fail?", **arXiv:2503.13657v3** (26 Oct 2025), https://arxiv.org/abs/2503.13657 (fetched from the HTML version). Licence CC BY-NC-ND 4.0. Category names: Section 4. Mode ids and names: Appendix A.1-A.3 "MAST Failure Categories: Deep Dive" (copied unchanged, including the curly apostrophe in FM-2.5). The Appendix says "five / six / three failure modes" per category (14 in all). Since the fix round (below) only the names and ids are the paper's; the descriptions are AXION's own.
 
-| ID | Name (Appendix A) | Quoted definition start |
-|---|---|---|
-| FC1 | System Design Issues (A.1) | "This category includes failures that arise from deficiencies in the design of the system architecture, ..." |
-| FM-1.1 | Disobey task specification | "Failure to adhere to the specified constraints or requirements of a given task, ..." |
-| FM-1.2 | Disobey role specification | "Failure to adhere to the defined responsibilities and constraints of an assigned role, ..." |
-| FM-1.3 | Step repetition | "Unnecessary reiteration of previously completed steps in a process, ..." |
-| FM-1.4 | Loss of conversation history | "Unexpected context truncation, disregarding recent interaction history ..." |
-| FM-1.5 | Unaware of termination conditions | "Lack of recognition or understanding of the criteria that should trigger the termination ..." |
-| FC2 | Inter-Agent Misalignment (A.2) | "This category includes failures arising from ineffective communication, poor collaboration, ..." |
-| FM-2.1 | Conversation reset | "Unexpected or unwarranted restarting of a dialogue, ..." |
-| FM-2.2 | Fail to ask for clarification | "Inability to request additional information when faced with unclear or incomplete data, ..." |
-| FM-2.3 | Task derailment | "Deviation from the intended objective or focus of a given task, ..." |
-| FM-2.4 | Information withholding | "Failure to share or communicate important data or insights that an agent possess ..." |
-| FM-2.5 | Ignored other agent’s input | "Disregarding or failing to adequately consider input or recommendations provided by other agents ..." |
-| FM-2.6 | Reasoning-action mismatch | "Discrepancy between the logical reasoning process and the actual actions taken by the agent, ..." |
-| FC3 | Task Verification (A.3) | "This category includes failures resulting from premature execution termination, ..." |
-| FM-3.1 | Premature termination | "Ending a dialogue, interaction or task before all necessary information has been exchanged ..." |
-| FM-3.2 | No or incomplete verification | "(partial) omission of proper checking or confirmation of task outcomes or system outputs, ..." |
-| FM-3.3 | Incorrect verification | "Failure to adequately validate or cross-check crucial information or decisions during the iterations, ..." |
-
-The full definitions are in the code (`shared/contracts/src/failures.ts`) and pinned by `server/test/failures.test.ts` (names, ids, 5/6/3, frozen). Definitions are quoted in the `?` help and the attribution line; the paper is CC BY-NC-ND 4.0 (see concerns).
+| Category | Modes (id and name, as in Appendix A) |
+|---|---|
+| FC1 System Design Issues | FM-1.1 Disobey task specification; FM-1.2 Disobey role specification; FM-1.3 Step repetition; FM-1.4 Loss of conversation history; FM-1.5 Unaware of termination conditions |
+| FC2 Inter-Agent Misalignment | FM-2.1 Conversation reset; FM-2.2 Fail to ask for clarification; FM-2.3 Task derailment; FM-2.4 Information withholding; FM-2.5 Ignored other agent’s input; FM-2.6 Reasoning-action mismatch |
+| FC3 Task Verification | FM-3.1 Premature termination; FM-3.2 No or incomplete verification; FM-3.3 Incorrect verification |
 
 ## RED / GREEN
 - Baseline on the untouched branch: server vitest 37 files, **583 passed**.
@@ -76,3 +60,11 @@ server: `migrations/0028_failure_tags.{up,down}.sql`, `src/failures/{taxonomy,se
 5. **Self-confirmation** is allowed (see lifecycle). If the owner wants a different person to confirm, it is one condition in `decideTag`.
 6. **Commit trailer.** The task and LANES.md say "Claude Opus 5.5"; the session's system reminder said "Claude Sonnet 5.5". I followed LANES.md.
 7. The e2e a11y api probe lines ("Could not load the tasks") are the check's own failure probes, not violations.
+
+## Fix round (controller review c33-review.md: CLEAR, four minors, plus the licence ruling)
+1. **Licence.** `shared/contracts/src/failures.ts` keeps the 3 category names, 14 ids and short names exactly, with attribution (authors, title, arXiv id and version, CC BY-NC-ND 4.0, link) in the file header and in `FAILURE_TAXONOMY_SOURCE`. All 17 verbatim definition sentences are replaced by AXION's own one-sentence descriptions (no copied phrasing). The help entries and the dialog footer carry the attribution and link and say the descriptions are AXION's. The taxonomy test now pins names/ids/5-6-3/frozen, that each description is one short sentence, that none contains paper phrases, and that the source string has arXiv id, version, licence and link. The earlier verbatim table is removed from this report; the "Quoted definition" column and the concern 1 text above are superseded.
+2. **Radio groups.** New `RadioList` in the dialog: roving tabindex (one tab stop per group: the selected item, else the first), ArrowUp/Down/Left/Right (wrapping), Home and End move selection and focus. `api-c33` checks: one tab stop per group, ArrowDown moves mode selection and focus, wrap-around, Home, category ArrowDown/ArrowUp (modes list follows; a mode of another category is dropped).
+3. **DEMO split.** `GET /company/failure-modes` returns `demo` (how many of n are on DEMO missions; 0 unless includeDemo=1); the dialog shows "1 DEMO" next to n.
+4. **Self-confirmation.** Still allowed. Migration 0028 (unmerged, edited in place) adds `self_confirmed boolean`; the trigger requires it to equal "confirmed by the user who tagged it", so the database refuses a wrong value (also on insert). The decision stores it, audit and `failure.decided` payload carry it, the tag DTO returns `selfConfirmed`, the counts return `selfConfirmed` (of n) and the dialog shows a "self-confirmed" chip and "1 self-confirmed" next to n. New test covers self, other person, reject, agent path and the DB refusals.
+
+Counts after the fix round: server `tsc` clean; vitest **38 files, 601 passed** (600 + 1 new test; failures.test.ts 18); web `tsc` clean; `api-flows` 23/23; `api-stage6` 94/94; `api-c33` **41/41** (34 + 7 new: attribution in help, one tab stop per group, 3 arrow-key checks, 2 category-arrow checks merged into 2, DEMO and self-confirmed split); 0 FAIL, no page errors. a11y (api mode) re-run: 40 views, 57 dialogs, 0 violations. Screenshots regenerated.

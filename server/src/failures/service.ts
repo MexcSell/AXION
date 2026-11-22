@@ -52,7 +52,7 @@ export function tagDto(r: any): FailureTagDto {
   return {
     id: r.id, subjectKind: r.subject_kind, subjectId: r.subject_id, missionId: r.mission_id, taxonomyVersion: r.taxonomy_version, modeId: r.mode_id,
     modeName: m?.mode.name ?? r.mode_id, categoryId: m?.category.id ?? '', categoryName: m?.category.name ?? '', note: r.note,
-    taggedBy: r.tagged_by, taggedByName: r.tagged_name ?? r.agent_name ?? r.tagged_by, taggedByKind: r.tagged_by_kind, status: r.status, createdAt: iso(r.created_at)!,
+    taggedBy: r.tagged_by, taggedByName: r.tagged_name ?? r.agent_name ?? r.tagged_by, taggedByKind: r.tagged_by_kind, status: r.status, selfConfirmed: !!r.self_confirmed, createdAt: iso(r.created_at)!,
     decidedBy: r.decided_by, decidedByName: r.decided_by ? (r.decided_name ?? r.decided_by) : null, decidedAt: iso(r.decided_at),
   };
 }
@@ -92,25 +92,26 @@ export async function decideTag(c: Tx, ctx: Viewer & { correlationId?: string },
   if (!f) return refuse(notFound('No such failure tag, or its mission is not shared with you.'));
   if (f.status !== 'proposed') return refuse(new ApiError('FAILURE_TAG_DECIDED', 409, `This tag was already ${f.status}. A decision is final; tag again to record another view.`));
   const status = decision === 'confirm' ? 'confirmed' : 'rejected';
-  await c.query(`update failure_tags set status=$2, decided_by=$3, decided_at=now() where id=$1`, [id, status, ctx.user.id]);
-  await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: A, subject: id, result: 'ok', correlationId: ctx.correlationId ?? '', detail: { decision: status, modeId: f.mode_id, subjectKind: f.subject_kind, subjectId: f.subject_id } });
+  const self = status === 'confirmed' && f.tagged_by_kind === 'user' && f.tagged_by === ctx.user.id;
+  await c.query(`update failure_tags set status=$2, decided_by=$3, decided_at=now(), self_confirmed=$4 where id=$1`, [id, status, ctx.user.id, self]);
+  await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: A, subject: id, result: 'ok', correlationId: ctx.correlationId ?? '', detail: { decision: status, selfConfirmed: self, modeId: f.mode_id, subjectKind: f.subject_kind, subjectId: f.subject_id } });
   await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'failure.decided', subject: id, subjectKind: 'failure_tag', missionId: f.mission_id,
-    payload: { tagId: id, subjectKind: f.subject_kind, subjectId: f.subject_id, modeId: f.mode_id, status } });
+    payload: { tagId: id, subjectKind: f.subject_kind, subjectId: f.subject_id, modeId: f.mode_id, status, selfConfirmed: self } });
   return { tag: (await tagById(c, ctx.tenantId, id))! };
 }
 
 /** Confirmed tags per mode and category over a window, visible missions only (DEMO with includeDemo). The window is placed by the tag's creation time. n = confirmed tags in the window; below 1 every count is null (never 0). */
 export async function failureModeCounts(c: Q, ctx: Viewer, w: { window: '7d' | '30d' | '90d'; from: Date; to: Date }, includeDemo: boolean): Promise<FailureModesDto> {
-  const rows = (await c.query(`select f.mode_id, f.status, count(*)::int as n from failure_tags f join missions m on m.id=f.mission_id
+  const rows = (await c.query(`select f.mode_id, f.status, m.demo, f.self_confirmed, count(*)::int as n from failure_tags f join missions m on m.id=f.mission_id
       where f.tenant_id=$1 and m.tenant_id=$1 and m.deleted_at is null and ${VISIBLE_SQL('$2', '$3')} and ($4::boolean or not m.demo)
-        and f.taxonomy_version=$5 and f.status in ('confirmed','proposed') and f.created_at > $6 and f.created_at <= $7 group by 1, 2`,
+        and f.taxonomy_version=$5 and f.status in ('confirmed','proposed') and f.created_at > $6 and f.created_at <= $7 group by 1, 2, 3, 4`,
     [ctx.tenantId, ctx.user.role === 'admin', ctx.user.id, includeDemo, FAILURE_TAXONOMY_VERSION, w.from, w.to])).rows;
   const by = new Map<string, number>();
-  let n = 0, proposed = 0;
-  for (const r of rows) { if (r.status === 'confirmed') { by.set(r.mode_id, r.n); n += r.n; } else proposed += r.n; }
+  let n = 0, proposed = 0, demo = 0, selfConfirmed = 0;
+  for (const r of rows) { if (r.status === 'confirmed') { by.set(r.mode_id, (by.get(r.mode_id) ?? 0) + r.n); n += r.n; if (r.demo) demo += r.n; if (r.self_confirmed) selfConfirmed += r.n; } else proposed += r.n; }
   const some = n > 0;
   return {
-    window: w.window, from: w.from.toISOString(), to: w.to.toISOString(), includeDemo, taxonomyVersion: FAILURE_TAXONOMY_VERSION, source: FAILURE_TAXONOMY_SOURCE, n, proposed,
+    window: w.window, from: w.from.toISOString(), to: w.to.toISOString(), includeDemo, taxonomyVersion: FAILURE_TAXONOMY_VERSION, source: FAILURE_TAXONOMY_SOURCE, n, demo, selfConfirmed, proposed,
     categories: FAILURE_TAXONOMY.map((cat) => {
       const modes = cat.modes.map((m) => ({ id: m.id, name: m.name, count: some ? (by.get(m.id) ?? 0) : null }));
       return { id: cat.id, name: cat.name, count: some ? modes.reduce((s, m) => s + (m.count ?? 0), 0) : null, modes };

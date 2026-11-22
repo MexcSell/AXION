@@ -19,7 +19,9 @@ create table failure_tags (
   created_at timestamptz not null default now(),
   decided_by text,
   decided_at timestamptz,
+  self_confirmed boolean not null default false,          -- confirmed by the person who tagged it (a one-person tenant can do this; it stays visible)
   check ((status = 'proposed') = (decided_at is null)),
+  check (not self_confirmed or status = 'confirmed'),
   check ((status = 'proposed') = (decided_by is null))
 );
 -- the same mode is not proposed or confirmed twice on one subject (a rejected tag may be made again)
@@ -45,6 +47,8 @@ begin
      or new.note is distinct from old.note or new.tagged_by is distinct from old.tagged_by
      or new.tagged_by_kind is distinct from old.tagged_by_kind or new.created_at is distinct from old.created_at
   then raise exception 'a failure tag can only be decided'; end if;
+  if new.self_confirmed is distinct from (new.status = 'confirmed' and old.tagged_by_kind = 'user' and new.decided_by = old.tagged_by)
+  then raise exception 'self_confirmed must record whether the tagger confirmed their own tag'; end if;
   return new;
 end $$;
 create trigger failure_tags_no_edit before update or delete on failure_tags for each row execute function failure_tags_guard();

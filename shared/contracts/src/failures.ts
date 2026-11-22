@@ -1,56 +1,57 @@
 /**
- * Improvement cycle 33: the MAST failure taxonomy, copied from the paper and versioned.
- * Source: Cemri, Pan, Yang, Agrawal et al., "Why Do Multi-Agent LLM Systems Fail?", arXiv:2503.13657v3 (26 Oct 2025),
- * Section 4 (category names) and Appendix A.1-A.3 "MAST Failure Categories: Deep Dive" (mode names and definitions, verbatim,
- * including the paper's own wording and curly apostrophes). The paper is licensed CC BY-NC-ND 4.0: the text is quoted, not changed.
+ * Improvement cycle 33: the MAST failure taxonomy, versioned.
+ * Attribution: the three category names, the 14 failure-mode ids and their short names are taken unchanged from
+ * Cemri, Pan, Yang, Agrawal et al., "Why Do Multi-Agent LLM Systems Fail?", arXiv:2503.13657v3 (26 Oct 2025),
+ * https://arxiv.org/abs/2503.13657 , Section 4 and Appendix A.1-A.3. The paper is licensed CC BY-NC-ND 4.0.
+ * The one-sentence descriptions below are AXION's own plain-words summaries (not the paper's text); read the paper for its definitions.
  * The list is frozen data: a change is a new taxonomy version, never an edit of this one (tags keep the version they were made under).
  */
 export const FAILURE_TAXONOMY_VERSION = 'mast-arxiv-2503.13657v3' as const;
-export const FAILURE_TAXONOMY_SOURCE = 'Cemri et al., "Why Do Multi-Agent LLM Systems Fail?", arXiv:2503.13657v3, Appendix A (CC BY-NC-ND 4.0)' as const;
+export const FAILURE_TAXONOMY_SOURCE = 'Cemri, Pan, Yang, Agrawal et al., "Why Do Multi-Agent LLM Systems Fail?", arXiv:2503.13657v3 (CC BY-NC-ND 4.0), https://arxiv.org/abs/2503.13657' as const;
 
 export interface FailureModeDef { id: string; name: string; definition: string }
 export interface FailureCategoryDef { id: string; name: string; definition: string; appendix: string; modes: readonly FailureModeDef[] }
 
 export const FAILURE_TAXONOMY: readonly FailureCategoryDef[] = Object.freeze([
   Object.freeze({ id: "FC1", name: "System Design Issues", appendix: "A.1",
-    definition: "This category includes failures that arise from deficiencies in the design of the system architecture, poor conversation management, unclear task specifications or violation of constraints, and inadequate definition or adherence to the roles and responsibilities of the agents.",
+    definition: "Problems that start in how the system, its prompts and its roles were set up, rather than in what happened during a run.",
     modes: Object.freeze([
       Object.freeze({ id: "FM-1.1", name: "Disobey task specification",
-        definition: "Failure to adhere to the specified constraints or requirements of a given task, leading to suboptimal or incorrect outcomes." }),
+        definition: "The agent did not follow the requirements or limits that the task set." }),
       Object.freeze({ id: "FM-1.2", name: "Disobey role specification",
-        definition: "Failure to adhere to the defined responsibilities and constraints of an assigned role, potentially leading to an agent behaving like another." }),
+        definition: "The agent stepped outside the duties of its own role, for example doing another agent's job." }),
       Object.freeze({ id: "FM-1.3", name: "Step repetition",
-        definition: "Unnecessary reiteration of previously completed steps in a process, potentially causing delays or errors in task completion." }),
+        definition: "The agent went through steps again that were already done." }),
       Object.freeze({ id: "FM-1.4", name: "Loss of conversation history",
-        definition: "Unexpected context truncation, disregarding recent interaction history and reverting to an antecedent conversational state." }),
+        definition: "The agent lost track of what was said earlier and carried on as if it had not happened." }),
       Object.freeze({ id: "FM-1.5", name: "Unaware of termination conditions",
-        definition: "Lack of recognition or understanding of the criteria that should trigger the termination of the agents’ interaction, potentially leading to unnecessary continuation." }),
+        definition: "The agent did not recognise that the work was finished and kept going." }),
     ]) }),
   Object.freeze({ id: "FC2", name: "Inter-Agent Misalignment", appendix: "A.2",
-    definition: "This category includes failures arising from ineffective communication, poor collaboration, conflicting behaviors among agents, and gradual derailment from the initial task.",
+    definition: "Problems in how agents talk and work together while a task is running, so that needed information or direction is lost.",
     modes: Object.freeze([
       Object.freeze({ id: "FM-2.1", name: "Conversation reset",
-        definition: "Unexpected or unwarranted restarting of a dialogue, potentially losing context and progress made in the interaction." }),
+        definition: "The conversation started over for no good reason, and earlier progress was lost." }),
       Object.freeze({ id: "FM-2.2", name: "Fail to ask for clarification",
-        definition: "Inability to request additional information when faced with unclear or incomplete data, potentially resulting in incorrect actions." }),
+        definition: "The agent guessed instead of asking, although the input was unclear or incomplete." }),
       Object.freeze({ id: "FM-2.3", name: "Task derailment",
-        definition: "Deviation from the intended objective or focus of a given task, potentially resulting in irrelevant or unproductive actions." }),
+        definition: "The work drifted away from the goal of the task into something unrelated." }),
       Object.freeze({ id: "FM-2.4", name: "Information withholding",
-        definition: "Failure to share or communicate important data or insights that an agent possess and could impact decision-making of other agents if shared." }),
+        definition: "An agent kept back information that another agent needed to decide well." }),
       Object.freeze({ id: "FM-2.5", name: "Ignored other agent’s input",
-        definition: "Disregarding or failing to adequately consider input or recommendations provided by other agents in the system, potentially leading to suboptimal decisions or missed opportunities for collaboration." }),
+        definition: "An agent overlooked or brushed aside what another agent had contributed." }),
       Object.freeze({ id: "FM-2.6", name: "Reasoning-action mismatch",
-        definition: "Discrepancy between the logical reasoning process and the actual actions taken by the agent, potentially resulting in unexpected or undesired behaviors." }),
+        definition: "What the agent said it would do and what it actually did did not match." }),
     ]) }),
   Object.freeze({ id: "FC3", name: "Task Verification", appendix: "A.3",
-    definition: "This category includes failures resulting from premature execution termination, as well as insufficient mechanisms to guarantee the accuracy, completeness, and reliability of interactions, decisions, and outcomes.",
+    definition: "Problems in checking the result: work that stops too early, is not checked, or is checked badly.",
     modes: Object.freeze([
       Object.freeze({ id: "FM-3.1", name: "Premature termination",
-        definition: "Ending a dialogue, interaction or task before all necessary information has been exchanged or objectives have been met, potentially resulting in incomplete or incorrect outcomes." }),
+        definition: "The task was ended before the needed information was exchanged or the goal was reached." }),
       Object.freeze({ id: "FM-3.2", name: "No or incomplete verification",
-        definition: "(partial) omission of proper checking or confirmation of task outcomes or system outputs, potentially allowing errors or inconsistencies to propagate undetected." }),
+        definition: "The result was not checked, or only partly checked, before it was accepted." }),
       Object.freeze({ id: "FM-3.3", name: "Incorrect verification",
-        definition: "Failure to adequately validate or cross-check crucial information or decisions during the iterations, potentially leading to errors or vulnerabilities in the system." }),
+        definition: "A check was done, but it was too weak or wrong to catch the problem." }),
     ]) }),
 ]);
 
@@ -67,7 +68,7 @@ export type FailureTagStatus = 'proposed' | 'confirmed' | 'rejected';
 export interface FailureTagDto {
   id: string; subjectKind: FailureSubjectKind; subjectId: string; missionId: string; taxonomyVersion: string;
   modeId: string; modeName: string; categoryId: string; categoryName: string; note: string | null;
-  taggedBy: string; taggedByName: string; taggedByKind: 'user' | 'agent'; status: FailureTagStatus; createdAt: string;
+  taggedBy: string; taggedByName: string; taggedByKind: 'user' | 'agent'; status: FailureTagStatus; selfConfirmed: boolean; createdAt: string;
   decidedBy: string | null; decidedByName: string | null; decidedAt: string | null;
 }
 export interface FailureSubjectInfo { kind: FailureSubjectKind; id: string; missionId: string; demo: boolean; failed: boolean; retried: boolean }
@@ -76,5 +77,5 @@ export interface FailureModeCount { id: string; name: string; count: number | nu
 export interface FailureCategoryCount { id: string; name: string; count: number | null; modes: FailureModeCount[] }
 export interface FailureModesDto {
   window: '7d' | '30d' | '90d'; from: string; to: string; includeDemo: boolean; taxonomyVersion: string; source: string;
-  n: number; proposed: number; categories: FailureCategoryCount[];
+  n: number; /** of n: tags on DEMO missions (0 unless includeDemo) */ demo: number; /** of n: confirmed by the person who tagged them */ selfConfirmed: number; proposed: number; categories: FailureCategoryCount[];
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { makeTestApp, withAdmin, type TestApp, type Browser } from './helpers.ts';
-import { FAILURE_TAXONOMY, FAILURE_TAXONOMY_VERSION, FAILURE_MODE_IDS } from '../src/failures/taxonomy.ts';
+import { FAILURE_TAXONOMY, FAILURE_TAXONOMY_VERSION, FAILURE_TAXONOMY_SOURCE, FAILURE_MODE_IDS } from '../src/failures/taxonomy.ts';
 import { createTag } from '../src/failures/service.ts';
 import { clearDemo } from '../src/seed/demo.ts';
 import { tx } from '../src/db.ts';
@@ -64,7 +64,12 @@ describe('the taxonomy is the paper\'s (arXiv 2503.13657v3, Appendix A)', () => 
       'FM-3.1 Premature termination', 'FM-3.2 No or incomplete verification', 'FM-3.3 Incorrect verification',
     ]);
     expect(FAILURE_MODE_IDS).toHaveLength(14);
-    expect(FAILURE_TAXONOMY.flatMap((c) => c.modes).every((m) => m.definition.length > 40 && m.definition.endsWith('.'))).toBe(true);
+    // licence (CC BY-NC-ND): names and ids are the paper's, the descriptions are AXION's own one-sentence summaries, not its text
+    const defs = [...FAILURE_TAXONOMY.map((c) => c.definition), ...FAILURE_TAXONOMY.flatMap((c) => c.modes.map((m) => m.definition))];
+    expect(defs).toHaveLength(17);
+    expect(defs.every((d) => d.length > 30 && d.length < 140 && d.endsWith('.') && d.split('. ').length === 1)).toBe(true);
+    expect(defs.filter((d) => /potentially|This category includes|leading to suboptimal|Failure to adhere/i.test(d))).toEqual([]);
+    expect(FAILURE_TAXONOMY_SOURCE).toMatch(/arXiv:2503\.13657v3.*CC BY-NC-ND 4\.0.*https:\/\/arxiv\.org\/abs\/2503\.13657/);
   });
   it('is frozen (a change is a new version, never an edit)', () => {
     expect(Object.isFrozen(FAILURE_TAXONOMY)).toBe(true);
@@ -164,6 +169,22 @@ describe('decisions', () => {
     expect((await A.req('POST', '/failure-tags/FT-NOPE/decision', { decision: 'confirm' })).status).toBe(404);
   });
 
+  it('self-confirmation is allowed but recorded: decider = tagger sets self_confirmed; another person, a rejection and an agent tag do not', async () => {
+    const own = (await tag(M, 'task', 'T-D1', 'FM-1.2')).body.tag.id as string;
+    const r = await M.req('POST', `/failure-tags/${own}/decision`, { decision: 'confirm' });
+    expect(r.body.tag).toMatchObject({ status: 'confirmed', selfConfirmed: true, decidedBy: minaId });
+    const other = (await tag(M, 'task', 'T-D1', 'FM-1.5')).body.tag.id as string;
+    expect((await A.req('POST', `/failure-tags/${other}/decision`, { decision: 'confirm' })).body.tag).toMatchObject({ status: 'confirmed', selfConfirmed: false });
+    const rej = (await tag(M, 'task', 'T-D1', 'FM-2.1')).body.tag.id as string;
+    expect((await M.req('POST', `/failure-tags/${rej}/decision`, { decision: 'reject' })).body.tag).toMatchObject({ status: 'rejected', selfConfirmed: false });
+    expect((await rows('select self_confirmed from failure_tags where id=$1', [own]))[0].self_confirmed).toBe(true);
+    // the database refuses a lie about it
+    const p2 = (await tag(M, 'task', 'T-D1', 'FM-2.2')).body.tag.id as string;
+    await expect(q(`update failure_tags set status='confirmed', decided_by=$2, decided_at=now(), self_confirmed=true where id=$1`, [p2, adminId])).rejects.toThrow(/self_confirmed/);
+    await expect(q(`update failure_tags set status='confirmed', decided_by=$2, decided_at=now(), self_confirmed=false where id=$1`, [p2, minaId])).rejects.toThrow(/self_confirmed/);
+    await expect(q(`insert into failure_tags(id, tenant_id, mission_id, subject_kind, subject_id, taxonomy_version, mode_id, tagged_by, tagged_by_kind, self_confirmed) values ('FT-X','t-1','M-C1','task','T-F1','v','FM-1.1','u','user',true)`)).rejects.toThrow();
+  });
+
   it('a rejected tag is final but the same mode can be proposed again', async () => {
     const id = (await tag(A, 'task', 'T-S1', 'FM-2.2')).body.tag.id as string;
     expect((await A.req('POST', `/failure-tags/${id}/decision`, { decision: 'reject' })).body.tag.status).toBe('rejected');
@@ -188,7 +209,7 @@ describe('decisions', () => {
     await expect(q(`update failure_tags set status='confirmed' where id=$1`, [id])).rejects.toThrow(); // no decider recorded
     await expect(q(`delete from failure_tags where id=$1`, [id])).rejects.toThrow(/append-only/);
     await expect(q(`truncate failure_tags`)).rejects.toThrow(/append-only/);
-    await q(`update failure_tags set status='confirmed', decided_by=$2, decided_at=now() where id=$1`, [id, adminId]);
+    await q(`update failure_tags set status='confirmed', decided_by=$2, decided_at=now(), self_confirmed=true where id=$1`, [id, adminId]);
     await expect(q(`update failure_tags set status='rejected', decided_by='x', decided_at=now() where id=$1`, [id])).rejects.toThrow(/never changes/);
   });
 });
@@ -239,6 +260,8 @@ describe('counts on a fixture with known tags', () => {
     await mk(Y, 'T-3', 'FM-3.1');                     // proposed: not counted, reported apart
     const r = (await X.req('GET', '/company/failure-modes?window=30d')).body;
     expect(r.n).toBe(4); expect(r.proposed).toBe(1);
+    // who confirmed: Yan confirmed his own (T-1 FM-1.3), the administrator confirmed three tags made by herself: 4 self-confirmed
+    expect(r.selfConfirmed).toBe(4); expect(r.demo).toBe(0);
     expect(flat(r)).toMatchObject({ 'FM-1.3': 2, 'FM-3.2': 1, 'FM-2.6': 1, 'FM-1.1': 0, 'FM-2.5': 0, 'FM-3.1': 0 });
     expect(r.categories.map((c: any) => [c.id, c.count])).toEqual([['FC1', 2], ['FC2', 1], ['FC3', 1]]);
     expect(r.categories.reduce((s: number, c: any) => s + c.count, 0)).toBe(r.n);
@@ -261,7 +284,7 @@ describe('counts on a fixture with known tags', () => {
     const demo = await mk(X, 'T-4', 'FM-2.1', 'confirm');
     expect(demo).toMatch(/^FT-/);
     const a0 = (await X.req('GET', '/company/failure-modes')).body, a1 = (await X.req('GET', '/company/failure-modes?includeDemo=1')).body;
-    expect(a1.n).toBe(a0.n + 1); expect(a1.includeDemo).toBe(true); expect(flat(a1)['FM-2.1']).toBe(1); expect(flat(a0)['FM-2.1']).toBe(0);
+    expect(a0.demo).toBe(0); expect(a1.demo).toBe(1); expect(a1.n).toBe(a0.n + 1); expect(a1.includeDemo).toBe(true); expect(flat(a1)['FM-2.1']).toBe(1); expect(flat(a0)['FM-2.1']).toBe(0);
     // Yan owns M-P (private) and sees the shared M-Q and M-DM; the administrator's tags on M-P are visible to Yan too (his own mission)
     const y = (await Y.req('GET', '/company/failure-modes?includeDemo=1')).body;
     expect(y.n).toBe(a1.n);

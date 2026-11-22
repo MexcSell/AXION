@@ -26,8 +26,22 @@ const SAMPLES = [
   { modeId: 'FM-3.2', status: 'proposed' as const, by: 'Tester-01 (sample agent)', note: '' },
 ];
 
+/** WAI-ARIA radio group: one tab stop (the selected item, else the first), arrow keys move the selection and focus. */
+function RadioList<T extends string>({ label, value, items, onSelect, children }: { label: string; value: T | ''; items: T[]; onSelect: (k: T) => void; children: (k: T, p: { tabIndex: number; selected: boolean; ref: (e: HTMLElement | null) => void; onKeyDown: (e: React.KeyboardEvent) => void }, i: number) => React.ReactNode }) {
+  const refs = useRef<Record<string, HTMLElement | null>>({});
+  const stop = items.includes(value as T) ? value : items[0];
+  const onKey = (i: number) => (e: React.KeyboardEvent) => {
+    const d = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : e.key === 'Home' ? 'home' : e.key === 'End' ? 'end' : 0;
+    if (!d) return;
+    e.preventDefault(); e.stopPropagation();
+    const n = d === 'home' ? 0 : d === 'end' ? items.length - 1 : (i + d + items.length) % items.length;
+    onSelect(items[n]); refs.current[items[n]]?.focus();
+  };
+  return <div className="col" style={{ gap: 4 }} role="radiogroup" aria-label={label}>{items.map((k, i) => children(k, { tabIndex: k === stop ? 0 : -1, selected: k === value, ref: (e) => { refs.current[k] = e; }, onKeyDown: onKey(i) }, i))}</div>;
+}
+
 /* DL-78: Tag a failure (improvement cycle 33). MAST taxonomy (arXiv 2503.13657v3): pick a category, then a mode; the ? beside each
-   mode quotes the paper's definition. Every tag starts proposed; a person confirms or rejects it once; only confirmed tags are counted. */
+   mode gives AXION's one-sentence description and the source (the paper is CC BY-NC-ND: names and ids only are the paper's). Every tag starts proposed; a person confirms or rejects it once; only confirmed tags are counted. */
 function TagFailure({ close, props }: DialogComponentProps<{ missionId?: string; taskId?: string; subjectKind?: FailureSubjectKind; subjectId?: string; label?: string }>) {
   const api_ = isApi();
   const kind: FailureSubjectKind = props.subjectKind ?? 'task';
@@ -69,7 +83,7 @@ function TagFailure({ close, props }: DialogComponentProps<{ missionId?: string;
   const header = useMemo(() => (props.label ? `${subjectId} · ${props.label}` : `${KIND_LABEL[kind]} ${subjectId}`.trim()), [props.label, kind, subjectId]);
   return (
     <Modal title="Tag a failure" icon={Tags} help="failure.tag" dialogId="DL-78" size="lg" onClose={close}
-      sub={`Why did ${subjectId ? header : 'this task'} fail? Names and definitions are the MAST taxonomy; a person confirms each tag.`}
+      sub={`Why did ${subjectId ? header : 'this task'} fail? Names are the MAST taxonomy; a person confirms each tag.`}
       footer={<><button className="btn" onClick={close}>Close</button>
         <button className="btn primary" disabled={!!err || !!busy} title={err || undefined} onClick={submit} data-tag-submit>{busy === 'tag' ? <Loader2 size={14} className="spin" /> : <Tags size={14} />}Tag failure</button></>}>
       <div className="col" style={{ gap: 12 }}>
@@ -79,26 +93,24 @@ function TagFailure({ close, props }: DialogComponentProps<{ missionId?: string;
         <div className="oa-diff-cols">
           <div className="col" style={{ gap: 10 }} data-mode-picker>
             <div className="row" style={{ gap: 6 }}><div className="section-label" style={{ margin: 0 }}>Category</div><HelpTrigger k="failure.category" /></div>
-            <div className="col" style={{ gap: 4 }} role="radiogroup" aria-label="Failure category">
-              {FAILURE_TAXONOMY.map((x) => (
-                <button key={x.id} type="button" role="radio" aria-checked={cat === x.id} title={x.definition} className={cx('oa-mem', cat === x.id && 'on')} style={{ justifyContent: 'flex-start', padding: '5px 10px', borderRadius: 10 }}
-                  onClick={() => { setCat(x.id); setModeId((m) => (failureModeOf(m)?.category.id === x.id ? m : '')); touch(); }}>
+            <RadioList label="Failure category" value={cat} items={FAILURE_TAXONOMY.map((x) => x.id)} onSelect={(id) => { setCat(id); setModeId((m) => (failureModeOf(m)?.category.id === id ? m : '')); touch(); }}>
+              {(id, rp) => { const x = FAILURE_TAXONOMY.find((y) => y.id === id)!; return (
+                <button key={id} type="button" role="radio" aria-checked={rp.selected} tabIndex={rp.tabIndex} ref={rp.ref} onKeyDown={rp.onKeyDown} title={x.definition} className={cx('oa-mem', rp.selected && 'on')} style={{ justifyContent: 'flex-start', padding: '5px 10px', borderRadius: 10 }}
+                  onClick={() => { setCat(id); setModeId((m) => (failureModeOf(m)?.category.id === id ? m : '')); touch(); }}>
                   <b className="mono" style={{ fontSize: 11 }}>{x.id}</b><span>{x.name}</span><span className="dim tnum" style={{ marginLeft: 'auto', fontSize: 11 }}>{x.modes.length} modes</span>
-                </button>
-              ))}
-            </div>
+                </button>); }}
+            </RadioList>
             <div className="row" style={{ gap: 6 }}><div className="section-label" style={{ margin: 0 }}>Failure mode ({category.modes.length})</div><HelpTrigger k={`failure.cat.${cat}`} /></div>
-            <div className="col" style={{ gap: 4 }} role="radiogroup" aria-label={`Failure modes in ${category.name}`}>
-              {category.modes.map((m, i) => (
-                <motion.div key={m.id} className="row" style={{ gap: 4 }} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * .03 }}>
-                  <button type="button" role="radio" aria-checked={modeId === m.id} data-mode={m.id} className={cx('oa-mem', modeId === m.id && 'on')} style={{ flex: 1, justifyContent: 'flex-start', padding: '6px 10px', borderRadius: 10 }}
-                    onClick={() => { setModeId(m.id); touch(); }}>
-                    <span className="mono dim" style={{ fontSize: 11 }}>{m.id}</span><span>{m.name}</span>
+            <RadioList label={`Failure modes in ${category.name}`} value={modeId} items={category.modes.map((m) => m.id)} onSelect={(id) => { setModeId(id); touch(); }}>
+              {(id, rp, i) => { const m = category.modes.find((y) => y.id === id)!; return (
+                <motion.div key={id} className="row" style={{ gap: 4 }} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * .03 }}>
+                  <button type="button" role="radio" aria-checked={rp.selected} tabIndex={rp.tabIndex} ref={rp.ref} onKeyDown={rp.onKeyDown} data-mode={id} className={cx('oa-mem', rp.selected && 'on')} style={{ flex: 1, justifyContent: 'flex-start', padding: '6px 10px', borderRadius: 10 }}
+                    onClick={() => { setModeId(id); touch(); }}>
+                    <span className="mono dim" style={{ fontSize: 11 }}>{id}</span><span>{m.name}</span>
                   </button>
-                  <HelpTrigger k={`failure.mode.${m.id}`} />
-                </motion.div>
-              ))}
-            </div>
+                  <HelpTrigger k={`failure.mode.${id}`} />
+                </motion.div>); }}
+            </RadioList>
           </div>
           <div className="col" style={{ gap: 10 }}>
             <Field label="Note (optional)" htmlFor="ft-note" hint={chosen ? <><b>{chosen.mode.id}</b> {chosen.mode.name}: {chosen.mode.definition}</> : 'Say what you saw, in your own words. The definition of the chosen mode appears here.'}>
@@ -111,7 +123,7 @@ function TagFailure({ close, props }: DialogComponentProps<{ missionId?: string;
                 : tags.length === 0 ? <span className="dim" style={{ fontSize: 12 }}>No tags yet.</span>
                 : tags.map((t) => (
                   <motion.div key={t.id} className="oa-move" layout initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} data-tag={t.id} data-status={t.status} data-mode-id={t.modeId}>
-                    <Chip hue={STATUS[t.status].hue} size="sm">{STATUS[t.status].label}</Chip>
+                    <Chip hue={STATUS[t.status].hue} size="sm">{STATUS[t.status].label}</Chip>{t.selfConfirmed && <Chip hue={45} size="sm" title="Confirmed by the person who made the tag">self-confirmed</Chip>}
                     <span className="mono dim" style={{ fontSize: 11 }}>{t.modeId}</span><b style={{ fontSize: 12.5 }}>{t.modeName}</b>
                     <span className="dim row" style={{ gap: 3, fontSize: 11.5 }}>{t.taggedByKind === 'agent' ? <Bot size={12} /> : <UserRound size={12} />}{t.taggedByName} · {since(t.createdAt)}</span>
                     {t.note && <span className="dim" style={{ fontSize: 11.5, flexBasis: '100%' }}>“{t.note}”</span>}
@@ -136,6 +148,8 @@ function TagFailure({ close, props }: DialogComponentProps<{ missionId?: string;
                 : c ? <>
                   <b>Confirmed, last 30 days</b>
                   <span className="tnum" data-n>n={c.n}</span>
+                  <span className="dim tnum" data-n-demo={c.demo} title="Of n, tags on DEMO sample missions">{c.demo} DEMO</span>
+                  <span className="dim tnum" data-n-self={c.selfConfirmed} title="Of n, confirmed by the person who made the tag">{c.selfConfirmed} self-confirmed</span>
                   {c.categories.map((x) => <span key={x.id} className="dim tnum" title={x.name}>{x.id} {x.count ?? '—'}</span>)}
                   {modeId && <span className="tnum"><span className="dim">{modeId}</span> <b data-mode-total>{modeCount ?? '—'}</b></span>}
                   {c.proposed > 0 && <span className="dim">· {c.proposed} proposed, not counted</span>}
@@ -145,7 +159,7 @@ function TagFailure({ close, props }: DialogComponentProps<{ missionId?: string;
             </div>
           </div>
         </div>
-        <span className="dim" style={{ fontSize: 11 }}>Taxonomy {FAILURE_TAXONOMY_VERSION}: Cemri et al., “Why Do Multi-Agent LLM Systems Fail?” (arXiv 2503.13657).</span>
+        <span className="dim" style={{ fontSize: 11 }}>Taxonomy {FAILURE_TAXONOMY_VERSION}: names and ids from Cemri, Pan, Yang, Agrawal et al., “Why Do Multi-Agent LLM Systems Fail?”, arXiv:2503.13657v3, CC BY-NC-ND 4.0, arxiv.org/abs/2503.13657. Descriptions are AXION’s own.</span>
       </div>
     </Modal>
   );

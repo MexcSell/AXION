@@ -65,7 +65,7 @@ try {
   const dlg = p.locator('[data-dialog="DL-78"]');
   await dlg.waitFor({ timeout: 8000 });
   check('the Tag a failure dialog (DL-78) opens with its taxonomy picker', await until(async () => (await dlg.locator('[data-mode-picker]').count()) === 1 && (await dlg.locator('[data-failure-counts="ready"]').count()) === 1, 10000));
-  check('the dialog states the source and the version', /arXiv 2503\.13657/.test(await dlg.innerText()) && /mast-arxiv-2503\.13657v3/.test(await dlg.innerText()));
+  check('the dialog states the source and the version', /arXiv:2503\.13657v3/.test(await dlg.innerText()) && /CC BY-NC-ND 4\.0/.test(await dlg.innerText()) && /mast-arxiv-2503\.13657v3/.test(await dlg.innerText()));
   check('Tag failure stays off until a mode is chosen', await dlg.locator('[data-tag-submit]').isDisabled());
   // every category: its modes, each with a ? help carrying the paper's definition
   let modesOk = true; const seen = [];
@@ -78,13 +78,30 @@ try {
   check('the three categories list 5, 6 and 3 modes, each mode with its own ? help', modesOk, seen.join(' '));
   await dlg.getByRole('radio', { name: /^FC1 / }).click();
   await dlg.locator('[data-help-key="failure.mode.FM-1.3"]').click();
-  check('the ? of FM-1.3 quotes the paper (Step repetition: "Unnecessary reiteration of previously completed steps")',
-    await until(async () => /Unnecessary reiteration of previously completed steps/.test(await p.locator('.help-pop').first().innerText()) && /FM-1\.3: Step repetition/.test(await p.locator('.help-pop').first().innerText()), 6000));
+  check('the ? of FM-1.3 gives AXION\'s own description and the attribution (authors, arXiv id, licence, link)',
+    await until(async () => { const t = await p.locator('.help-pop').first().innerText(); return /FM-1\.3: Step repetition/.test(t) && /went through steps again/.test(t) && /Cemri/.test(t) && /arXiv:2503\.13657v3/.test(t) && /CC BY-NC-ND 4\.0/.test(t) && /arxiv\.org\/abs\/2503\.13657/.test(t) && !/Unnecessary reiteration/.test(t); }, 6000));
   await p.keyboard.press('Escape');
   check('Escape closes the ? popover and keeps the dialog', await until(async () => (await p.locator('.help-pop').count()) === 0 && (await dlg.count()) === 1, 4000));
   await dlg.locator('[data-mode="FM-1.3"]').click();
   await dlg.locator('#ft-note').fill('The header was rebuilt three times');
-  check('the chosen mode\'s definition is shown with the note field', /Unnecessary reiteration/.test(await dlg.innerText()));
+  check('the chosen mode\'s description is shown with the note field', /went through steps again/.test(await dlg.innerText()) && !/Unnecessary reiteration/.test(await dlg.innerText()));
+  // WAI-ARIA radio groups: one tab stop per group, arrow keys move the selection and the focus
+  const stops = (label) => dlg.locator(`[role="radiogroup"][aria-label="${label}"] [role="radio"][tabindex="0"]`).count();
+  check('each radio group has exactly one tab stop (roving tabindex)', (await stops('Failure category')) === 1 && (await stops('Failure modes in System Design Issues')) === 1);
+  await dlg.locator('[data-mode="FM-1.3"]').focus();
+  await p.keyboard.press('ArrowDown');
+  check('mode group: ArrowDown moves the selection and focus to FM-1.4', (await dlg.locator('[data-mode="FM-1.4"]').getAttribute('aria-checked')) === 'true' && await dlg.locator('[data-mode="FM-1.4"]').evaluate((e) => e === document.activeElement) && (await dlg.locator('[data-mode="FM-1.3"]').getAttribute('aria-checked')) === 'false');
+  for (let i = 0; i < 4; i++) await p.keyboard.press('ArrowUp');
+  check('mode group: ArrowUp x4 from FM-1.4 wraps round to FM-1.5', (await dlg.locator('[data-mode="FM-1.5"]').getAttribute('aria-checked')) === 'true');
+  await p.keyboard.press('Home');
+  check('mode group: Home selects FM-1.1', (await dlg.locator('[data-mode="FM-1.1"]').getAttribute('aria-checked')) === 'true');
+  await dlg.locator('[data-mode="FM-1.3"]').click();
+  await dlg.getByRole('radio', { name: /^FC1 / }).focus();
+  await p.keyboard.press('ArrowDown');
+  check('category group: ArrowDown selects FC2 (its 6 modes appear) and moves focus', (await dlg.getByRole('radio', { name: /^FC2 / }).getAttribute('aria-checked')) === 'true' && (await dlg.locator('[data-mode]').count()) === 6 && await dlg.getByRole('radio', { name: /^FC2 / }).evaluate((e) => e === document.activeElement));
+  await p.keyboard.press('ArrowUp');
+  check('category group: ArrowUp returns to FC1; the chosen mode is dropped on a change of category', (await dlg.getByRole('radio', { name: /^FC1 / }).getAttribute('aria-checked')) === 'true' && (await dlg.locator('[data-mode]').count()) === 5);
+  await dlg.locator('[data-mode="FM-1.3"]').click();
   await settled();
   if (DOC_SHOT) await p.screenshot({ path: DOC_SHOT });
   await p.screenshot({ path: `${SHOTS}/improve-c33-dialog-dark.png` });
@@ -101,12 +118,15 @@ try {
   check('the count goes to 1 with n shown: n=1 and FC1 = 1', await until(async () => (await dlg.locator('[data-failure-n]').getAttribute('data-failure-n')) === '1' && /n=1/.test(await dlg.locator('[data-failure-counts]').innerText()) && /FC1 1/.test(await dlg.locator('[data-failure-counts]').innerText()), 8000));
   await dlg.locator('[data-mode="FM-1.3"]').click();
   check('choosing FM-1.3 shows its own count: 1', await until(async () => (await dlg.locator('[data-mode-total]').count()) === 1 && (await dlg.locator('[data-mode-total]').innerText()) === '1', 6000));
+  check('n is split: 1 of n is DEMO and 1 of n is self-confirmed (Luca tagged and confirmed it), shown next to n',
+    await until(async () => (await dlg.locator('[data-n-demo]').getAttribute('data-n-demo')) === '1' && (await dlg.locator('[data-n-self]').getAttribute('data-n-self')) === '1' && /1 DEMO/.test(await dlg.innerText()) && /1 self-confirmed/.test(await dlg.innerText()), 6000)
+      && (await dlg.locator('[data-tag][data-status="confirmed"]').innerText()).includes('self-confirmed'));
   check('the counts row is tagged DEMO (the seeded mission is a DEMO sample)', (await dlg.locator('[data-failure-counts] .demo-tag').count()) >= 1);
   const c1 = await counts();
-  check('the server agrees: n=1, FM-1.3 = 1, FC1 = 1, FC2 = 0, FC3 = 0, window 30d', c1.n === 1 && c1.window === '30d' && c1.categories.find((c) => c.id === 'FC1').count === 1 && c1.categories.find((c) => c.id === 'FC2').count === 0 && c1.categories.find((c) => c.id === 'FC3').count === 0
+  check('the server agrees: n=1, FM-1.3 = 1, FC1 = 1, FC2 = 0, FC3 = 0, window 30d', c1.n === 1 && c1.demo === 1 && c1.selfConfirmed === 1 && c1.window === '30d' && c1.categories.find((c) => c.id === 'FC1').count === 1 && c1.categories.find((c) => c.id === 'FC2').count === 0 && c1.categories.find((c) => c.id === 'FC3').count === 0
     && c1.categories[0].modes.find((m) => m.id === 'FM-1.3').count === 1);
   const c1nodemo = await counts('window=30d&includeDemo=0');
-  check('without DEMO the same count is null (DEMO tags never leak into real numbers)', c1nodemo.n === 0 && c1nodemo.categories.every((c) => c.count === null));
+  check('without DEMO the same count is null (DEMO tags never leak into real numbers)', c1nodemo.n === 0 && c1nodemo.demo === 0 && c1nodemo.categories.every((c) => c.count === null));
   await settled();
   if (DOC_SHOT2) await p.screenshot({ path: DOC_SHOT2 });
   await p.screenshot({ path: `${SHOTS}/improve-c33-counts-dark.png` });
