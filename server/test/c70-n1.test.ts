@@ -42,7 +42,6 @@ describe('loadEvaluations query count', () => {
   it('does not grow with the number of proposals (6 proposals cost the same as 1)', async () => {
     const one = await counted(1), six = await counted(6);
     console.log(`loadEvaluations queries: 1 proposal = ${one.q}, 6 proposals = ${six.q}`);
-    if (process.env.C70_DUMP) (await import('node:fs')).writeFileSync(process.env.C70_DUMP, JSON.stringify([...six.out].map(([k, v]) => [k.replace(/[^]*/, 'p'), v]).sort((a: any, b: any) => (a[1].datasetId < b[1].datasetId ? -1 : 1))));
     expect(six.n).toBe(6);
     expect(six.out.size).toBe(6);
     expect(six.q).toBe(one.q);
