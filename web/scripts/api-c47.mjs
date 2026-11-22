@@ -55,7 +55,7 @@ async function dataset(id, split, tenant, n = 12) {
   await db.query(`select eval_freeze_dataset($1)`, [id]);
 }
 async function run(id, tenant, ds, subject, scores, judge, evaluator) {
-  await db.query(`insert into eval_runs(id, tenant_id, dataset_id, subject_version_id, subject_proposal_id, k, judge_model_family, evaluator_id) values ($1,$2,$3,$4,$5,1,$6,$7)`, [id, tenant, ds, subject.version ?? null, subject.proposal ?? null, judge, evaluator]);
+  await db.query(`insert into eval_runs(id, tenant_id, dataset_id, subject_version_id, subject_proposal_id, k, judge_model_family, evaluator_id, grader_name, grader_version) values ($1,$2,$3,$4,$5,1,$6,$7,'rubric','1')`, [id, tenant, ds, subject.version ?? null, subject.proposal ?? null, judge, evaluator]);
   for (const [i, s] of scores.entries()) await db.query(`insert into eval_results(run_id, case_id, attempt, score, cost_units, trace) values ($1,$2,1,$3,1,'{"steps":[]}')`, [id, 'c' + String(i + 1).padStart(2, '0'), s]);
   await db.query(`update eval_runs set finished_at = now() where id=$1`, [id]);
 }

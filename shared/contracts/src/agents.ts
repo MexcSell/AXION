@@ -102,6 +102,11 @@ export interface VersionProposalDto {
 }
 /** `inconclusive` is not a loss: it says the evidence cannot establish a difference (or the evaluation was not honest, see refusals). */
 export type EvalOutcome = 'verified_better' | 'inconclusive' | 'worse';
+/** attempts of a run, how many carry a grade, and the grader (name and version) that graded them; null = not recorded (runs before c61) */
+export interface GradingDto { attempted: number; graded: number; graderName: string | null; graderVersion: string | null }
+export interface DatasetValidityDto { unvalidated: boolean; status: 'attested' | 'failing' | 'unattested'; version: number | null; failedItems: string[];
+  /** false for a dataset created before its author was recorded: the "not the author" rule cannot be checked, so it can never be attested */
+  canBeAttested: boolean }
 export interface EvalRefusalDto { code: string; detail: string }
 export interface ProposalEvaluationDto {
   outcome: EvalOutcome;
@@ -119,6 +124,23 @@ export interface ProposalEvaluationDto {
   /** the verdict's reasons in words, and facts such as cost */
   reasons: string[]; notes: string[];
   datasetId: string; datasetSha: string | null; baseRunId: string | null; candidateRunId: string;
+  /**
+   * c61 (R2-2): who graded each run and how much of it was graded. Shown beside every pass rate. An ungraded attempt is no grade, not a
+   * failure: with too few graded (`sufficient` false) the outcome is `inconclusive`, never `worse`. `regrade` is the re-grade diff
+   * that links two runs graded by different grader versions (its NEW grades are the ones compared); null when none was needed.
+   */
+  grading: { baseline: GradingDto | null; candidate: GradingDto; excludedCases: number; sufficient: boolean; minFraction: number;
+    /** the re-grade diff this verdict rests on (the NEW grades of one run were compared) and the person who recorded it; null when none was needed. Show it: the grades are not the original ones. */
+    regrade: { id: string; by: string; byName: string } | null;
+    /** cases each run kept (every attempt graded), of the cases both ran; below `minFraction` of either the verdict is inconclusive */
+    retained: { baseline: number; candidate: number; shared: number };
+    /** false when the verdict was withdrawn because it did not survive the worst case for the cases left out (ungraded) */
+    robust: boolean };
+  /**
+   * c61 (R2-3): was the dataset attested (ABC-style checklist, by an administrator who is not its author) before it was frozen? An
+   * unattested dataset can still be used, but the verdict is flagged `unvalidated`. `failing`: attested, with at least one "no" answer.
+   */
+  validity: DatasetValidityDto;
   /** runs recorded for this candidate on that dataset (finished or not): more than one is refused as re-run shopping */
   runCount: number;
 }

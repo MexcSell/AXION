@@ -14,6 +14,7 @@ import { proposeLesson, proposeSkill } from '../../src/agents/playbooks.ts';
 import { recordFixtureOutcome } from '../../src/agents/retirement.ts';
 import { enqueueJob } from '../../src/jobs/store.ts';
 import { makeDataset, addRun } from '../eval-fixtures.ts';
+import { recordRegrade } from '../../src/evolution/eval-runs.ts';
 import { check } from './validate.ts';
 import { errorEnvelope } from './validators.ts';
 import { checkEvent, eventValidator, EVENT_VALIDATORS } from './events.ts';
@@ -247,9 +248,13 @@ describe('API coverage run', () => {
     const vp1 = (await call(bb, 'POST', '/agents/:id/version-proposals', '/agents/coder-01/version-proposals', { status: 201, headers: key(), body: { title: 'Add Svelte', hypothesis: 'Fewer review rounds.', candidate: cand('Svelte'), baseVersionId: coder.versionId } })).body.proposal;
     // c47: stored evaluation records (a frozen holdout dataset and a finished run each for the base and the candidate, by a third person), so the
     // evaluation object is filled in the lists and the promote carries the evaluationSha the reviewer saw. Records only: nothing is executed.
-    await makeDataset(t.pool, { id: 'HO-c50', split: 'holdout', cases: 12 });
-    await addRun(t.pool, { id: 'c50-base', datasetId: 'HO-c50', versionId: coder.versionId, scores: Array.from({ length: 12 }, () => 40), evaluator: minaId, judge: 'gpt-judge' });
-    await addRun(t.pool, { id: 'c50-cand', datasetId: 'HO-c50', proposalId: vp1.id, scores: Array.from({ length: 12 }, (_, i) => 70 + (i % 3)), evaluator: minaId, judge: 'gpt-judge' });
+    // c61: attested before the freeze by an administrator who is not the author, so the evaluation carries a non-null attested version
+    const adminId = (await t.pool.query(`select id from users where role='admin' and status='approved' order by created_at limit 1`)).rows[0].id;
+    await makeDataset(t.pool, { id: 'HO-c50', split: 'holdout', cases: 12, createdBy: minaId, attestBy: adminId });
+    await addRun(t.pool, { id: 'c50-base', datasetId: 'HO-c50', versionId: coder.versionId, scores: Array.from({ length: 12 }, () => 40), evaluator: minaId, judge: 'gpt-judge', grader: { name: 'rubric', version: '1' } });
+    await addRun(t.pool, { id: 'c50-cand', datasetId: 'HO-c50', proposalId: vp1.id, scores: Array.from({ length: 12 }, (_, i) => 70 + (i % 3)), evaluator: minaId, judge: 'gpt-judge', grader: { name: 'rubric', version: '2' } });
+    // c61: the base run was graded by version 1 and the candidate by version 2; a re-grade diff links them (so the DTO carries the re-grade and both graders)
+    { const gc = await t.pool.connect(); try { await recordRegrade(gc, { id: 'c61-rg', tenantId: 't-1', runId: 'c50-base', to: { name: 'rubric', version: '2' }, by: adminId, cases: Array.from({ length: 12 }, (_, i) => ({ caseId: 'c' + String(i + 1).padStart(2, '0'), attempt: 1, newScore: 40 })) }); } finally { gc.release(); } }
     const evaluated = ((await call(admin, 'GET', '/agents/:id/version-proposals', '/agents/coder-01/version-proposals')).body.proposals as any[]).find((x) => x.id === vp1.id);
     expect(evaluated.evaluation?.outcome, 'the stored runs give a verified evaluation: ' + JSON.stringify(evaluated.evaluation?.refusals)).toBe('verified_better');
     await call(admin, 'GET', '/version-proposals', '/version-proposals');

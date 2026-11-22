@@ -17,6 +17,8 @@ export interface EvaluationPolicyV2 {
   readonly tieBand: number;
   /** an attempt passes when its score is at least this */
   readonly passScore: number;
+  /** c61: each run must have at least this fraction of its attempts GRADED, or the verdict is inconclusive (never "worse") */
+  readonly minGradedFraction: number;
   readonly source: string;
 }
 
@@ -27,10 +29,13 @@ export const EVALUATION_POLICY_V2: EvaluationPolicyV2 = Object.freeze({
   margin: 5,
   tieBand: 0.5,
   passScore: 70,
+  minGradedFraction: 0.8,
   source: 'built-in',
 });
 
-export interface Attempt { score: number | null; costUnits: number }
+/** `ungraded` (c61): a reason code means the grader produced NO grade for this attempt. That is not a failure: it is left out of every
+    number. A null score without a reason stays what it was in c47/c53: an attempt that failed, graded as 0 and not passing. */
+export interface Attempt { score: number | null; costUnits: number; ungraded?: string | null }
 export interface CaseRuns { caseId: string; attempts: Attempt[] }
 
 export interface HoldoutRef {
@@ -52,13 +57,17 @@ export interface VerdictV2Input {
   evaluatorId: string;
   candidateModelFamily: string;
   judgeModelFamily: string;
+  /** c61: who graded each run. Omitted = not checked (the pure callers of c47). `linked`: a valid re-grade diff joins the two versions. */
+  graders?: { baseline: GraderRef | null; candidate: GraderRef | null; linked: boolean };
 }
+export interface GraderRef { name: string; version: string }
 
 export type Outcome = 'verified_better' | 'not_better' | 'inconclusive';
 export type RefusalCode =
   | 'holdout_missing' | 'not_holdout' | 'not_frozen' | 'hash_mismatch' | 'dev_holdout_reuse' | 'self_judging'
-  | 'evaluator_is_author' | 'unequal_attempts' | 'unpaired_cases' | 'bad_scores';
+  | 'evaluator_is_author' | 'unequal_attempts' | 'unpaired_cases' | 'bad_scores' | 'grader_mismatch' | 'grader_unknown';
 
+export interface GradingCount { attempted: number; graded: number }
 export interface VerdictV2 {
   outcome: Outcome;
   reasons: string[];
@@ -67,6 +76,10 @@ export interface VerdictV2 {
   refusals: Array<{ code: RefusalCode; detail: string }>;
   cases: number;
   k: number;
+  /** c61: the graded fraction of each run, stated beside every pass rate. Ungraded attempts are left out of the numbers below. */
+  grading: { baseline: GradingCount; candidate: GradingCount; excludedCases: number; sufficient: boolean; minFraction: number; retained: { baseline: number; candidate: number; shared: number }; robust: boolean };
+  /** the candidate is worse by the evaluation's definition, and that survives the worst case for ungraded cases */
+  worse: boolean;
   baselineMean: number | null;
   candidateMean: number | null;
   delta: number | null;
@@ -76,7 +89,7 @@ export interface VerdictV2 {
   /** index i is pass^(i+1) for i < k */
   passHatK: { baseline: Array<number | null>; candidate: Array<number | null> };
   cost: { baselinePerCase: number | null; candidatePerCase: number | null; deltaPct: number | null };
-  policy: { version: 2; alpha: number; minCases: number; margin: number; tieBand: number; passScore: number; source: string };
+  policy: { version: 2; alpha: number; minCases: number; margin: number; tieBand: number; passScore: number; minGradedFraction: number; source: string };
 }
 
 const r1 = (x: number) => Math.round(x * 10) / 10;
@@ -124,6 +137,20 @@ export function verdictV2(input: VerdictV2Input): VerdictV2 {
     refuse('evaluator_is_author', 'the evaluator is missing or is the author of the candidate; someone else must evaluate it');
   }
 
+  // c61: two runs are comparable only when the same grader (name and version) scored both, or a re-grade diff links them.
+  // Not recorded on either = unknown (refused); recorded on one only = different.
+  if (input.graders) {
+    const { baseline: gb, candidate: gc, linked } = input.graders;
+    const show = (g: GraderRef | null) => (g ? `${g.name} ${g.version}` : 'not recorded');
+    if (gb === null && gc === null) {
+      // not recorded on both is UNKNOWN, not "the same grader": a writer that omits the grader must not get past the rule by omission
+      refuse('grader_unknown', 'neither run records its grader, so it cannot be shown that one grader scored both; record the grader (name and version) on each run');
+    } else {
+      const same = gb !== null && gc !== null && gb.name === gc.name && gb.version === gc.version;
+      if (!same && !linked) refuse('grader_mismatch', `the two runs were graded by different graders (base: ${show(gb)}, candidate: ${show(gc)}) and no re-grade diff links them; re-grade one run with the other's grader and record the diff`);
+    }
+  }
+
   // index per case
   const idx = (rows: CaseRuns[]) => new Map(rows.map((r) => [r.caseId, r.attempts] as const));
   const B = idx(input.baseline);
@@ -149,23 +176,62 @@ export function verdictV2(input: VerdictV2Input): VerdictV2 {
   if (unequal) refuse('unequal_attempts', 'a case has a different number of attempts on the two versions (or none)');
   if (bad) refuse('bad_scores', `${plural(bad, 'attempt')} with a score outside 0..100 or a bad cost`);
 
+  // c61: ungraded attempts are no grade, not a failure. Count them per run, then leave out every case that has one on either side.
+  const count = (rows: CaseRuns[]): GradingCount => {
+    const all = rows.flatMap((r) => r.attempts);
+    return { attempted: all.length, graded: all.filter((a) => !a.ungraded).length };
+  };
+  const gB = count(input.baseline), gC = count(input.candidate);
+  const frac = (g: GradingCount) => (g.attempted ? g.graded / g.attempted : 1);
+  const gradable = shared.filter((id) => [...B.get(id)!, ...C.get(id)!].every((a) => !a.ungraded));
+  const excludedCases = shared.length - gradable.length;
+  // c61 fix round: each side must also keep most of its CASES (a few ungraded attempts per case can drop most cases when k > 1)
+  const keptOn = (m: Map<string, Attempt[]>) => shared.filter((id) => m.get(id)!.every((a) => !a.ungraded)).length;
+  const retained = { baseline: keptOn(B), candidate: keptOn(C), shared: shared.length };
+  const retFrac = (x: number) => (shared.length ? x / shared.length : 1);
+  const sufficient = frac(gB) >= P.minGradedFraction && frac(gC) >= P.minGradedFraction && retFrac(retained.baseline) >= P.minGradedFraction && retFrac(retained.candidate) >= P.minGradedFraction;
+
   // numbers (a failed attempt, score null, counts as 0 and as not passing)
   const sc = (x: Attempt) => x.score ?? 0;
   const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
   const caseMean = (a: Attempt[]) => mean(a.map(sc));
-  const pairs = shared.map((id) => [caseMean(B.get(id)!), caseMean(C.get(id)!)] as const);
-  const n = pairs.length;
-  const diffs = pairs.map(([x, y]) => y - x);
-  const wins = diffs.filter((d) => d > P.tieBand).length;
-  const losses = diffs.filter((d) => d < -P.tieBand).length;
-  const ties = n - wins - losses;
-  const sign = signTestTwoSided(wins, losses);
-  const ci = pairedMeanCI(diffs);
-  const bm = n ? mean(pairs.map((p) => p[0])) : null;
-  const cm = n ? mean(pairs.map((p) => p[1])) : null;
-  const delta = bm !== null && cm !== null ? cm - bm : null;
+  const pairs = gradable.map((id) => [caseMean(B.get(id)!), caseMean(C.get(id)!)] as const);
+  const decide = (ps: ReadonlyArray<readonly [number, number]>) => {
+    const n = ps.length;
+    const diffs = ps.map(([x, y]) => y - x);
+    const wins = diffs.filter((d) => d > P.tieBand).length;
+    const losses = diffs.filter((d) => d < -P.tieBand).length;
+    const ties = n - wins - losses;
+    const sign = signTestTwoSided(wins, losses);
+    const ci = pairedMeanCI(diffs);
+    const bm = n ? mean(ps.map((p) => p[0])) : null;
+    const cm = n ? mean(ps.map((p) => p[1])) : null;
+    const delta = bm !== null && cm !== null ? cm - bm : null;
+    let outcome: Outcome = 'inconclusive';
+    let reason = '';
+    if (n < P.minCases) {
+      reason = `${plural(n, 'case')} scored on both versions; the policy needs ${P.minCases}`;
+    } else if (sign.p >= P.alpha) {
+      reason = `not significant: sign test p = ${r4(sign.p)} on ${wins} wins and ${losses} losses (${plural(ties, 'tie')} excluded); the policy needs p < ${P.alpha}`;
+    } else if (losses > wins) {
+      outcome = 'not_better';
+      reason = `significantly worse: it lost ${plural(losses, 'case')} and won ${wins} (p = ${r4(sign.p)})`;
+    } else if (delta !== null && delta < P.margin) {
+      outcome = 'not_better';
+      reason = `significant, but the mean gain is ${delta >= 0 ? '+' : ''}${r1(delta)} points; the margin needs +${P.margin}`;
+    } else if (ci.low !== null && ci.low <= 0) {
+      reason = `the 95% interval of the mean difference (${r1(ci.low)} to ${r1(ci.high ?? 0)}) includes 0, so the gain is not established`;
+    } else {
+      outcome = 'verified_better';
+    }
+    // "worse" as the evaluation reports it: significantly worse, or a lower mean, or the whole interval below 0
+    const isWorse = n >= P.minCases && ((outcome === 'not_better' && (losses > wins || (delta !== null && r1(delta) < 0))) || (ci.high !== null && ci.high < 0));
+    return { n, diffs, wins, losses, ties, sign, ci, bm, cm, delta, outcome, reason, isWorse };
+  };
+  const d0 = decide(pairs);
+  const { n, wins, losses, ties, sign, ci, bm, cm, delta } = d0;
 
-  const passes = (m: Map<string, Attempt[]>) => shared.map((id) => m.get(id)!.map((a) => a.score !== null && a.score >= P.passScore));
+  const passes = (m: Map<string, Attempt[]>) => gradable.map((id) => m.get(id)!.map((a) => a.score !== null && a.score >= P.passScore));
   const hat = (m: Map<string, Attempt[]>) => {
     const rows = passes(m);
     return Array.from({ length: k }, (_, i) => { const v = passHatK(rows, i + 1); return v === null ? null : r4(v); });
@@ -180,25 +246,33 @@ export function verdictV2(input: VerdictV2Input): VerdictV2 {
 
   // outcome
   let outcome: Outcome = 'inconclusive';
+  let robust = true;
+  let worse = false;
   if (refusals.length === 0) {
-    if (n < P.minCases) {
-      reasons.push(`${plural(n, 'case')} scored on both versions; the policy needs ${P.minCases}`);
-    } else if (sign.p >= P.alpha) {
-      reasons.push(
-        `not significant: sign test p = ${r4(sign.p)} on ${wins} wins and ${losses} losses (${plural(ties, 'tie')} excluded); the policy needs p < ${P.alpha}`,
-      );
-    } else if (losses > wins) {
-      outcome = 'not_better';
-      reasons.push(`significantly worse: it lost ${plural(losses, 'case')} and won ${wins} (p = ${r4(sign.p)})`);
-    } else if (delta !== null && delta < P.margin) {
-      outcome = 'not_better';
-      reasons.push(`significant, but the mean gain is ${delta >= 0 ? '+' : ''}${r1(delta)} points; the margin needs +${P.margin}`);
-    } else if (ci.low !== null && ci.low <= 0) {
-      reasons.push(`the 95% interval of the mean difference (${r1(ci.low)} to ${r1(ci.high ?? 0)}) includes 0, so the gain is not established`);
+    if (!sufficient) {
+      const f = (g: GradingCount) => `${g.graded} of ${g.attempted}`;
+      reasons.push(`too few attempts or cases were graded (attempts: base ${f(gB)}, candidate ${f(gC)}; cases kept: base ${retained.baseline}, candidate ${retained.candidate} of ${retained.shared}; the policy needs ${Math.round(P.minGradedFraction * 100)}% of each); an ungraded attempt is not a failure, so no verdict is drawn`);
     } else {
-      outcome = 'verified_better';
+      outcome = d0.outcome;
+      if (d0.reason) reasons.push(d0.reason);
+      worse = d0.isWorse;
+      // c61 fix round: leaving cases out can manufacture a verdict (ungraded attempts are often the hard or failed ones). A verdict that
+      // rests on the cases that remained must also survive the worst case for it: every excluded case imputed against the verdict.
+      if (excludedCases > 0) {
+        const impute = (baseVal: number, candVal: number) => shared.map((id) => [B.get(id)!.some((a) => a.ungraded) ? baseVal : caseMean(B.get(id)!), C.get(id)!.some((a) => a.ungraded) ? candVal : caseMean(C.get(id)!)] as const);
+        if (outcome === 'verified_better' && decide(impute(100, 0)).outcome !== 'verified_better') {
+          outcome = 'inconclusive'; robust = false;
+          reasons.push(`not established: ${plural(excludedCases, 'case')} had an ungraded attempt and were left out, and if the candidate had lost every one of them (and the base had won) the gain would not hold (worst case)`);
+        }
+        if (d0.isWorse && !decide(impute(0, 100)).isWorse) {
+          if (outcome === 'not_better') outcome = 'inconclusive';
+          worse = false; robust = false;
+          reasons.push(`not established: ${plural(excludedCases, 'case')} had an ungraded attempt and were left out, and if the candidate had won every one of them the loss would not hold (worst case)`);
+        }
+      }
     }
   }
+  if (excludedCases > 0) notes.push(`${plural(excludedCases, 'case')} left out because an attempt was ungraded (not counted as a failure)`);
   if (outcome === 'verified_better' && costPct !== null && costPct > 0) {
     notes.push(`better but costlier by ${r1(costPct)}%`.replace(/\.0%/, '%'));
   } else if (costPct !== null && costPct > 0) {
@@ -212,6 +286,8 @@ export function verdictV2(input: VerdictV2Input): VerdictV2 {
     refusals,
     cases: n,
     k,
+    grading: { baseline: gB, candidate: gC, excludedCases, sufficient, minFraction: P.minGradedFraction, retained, robust },
+    worse,
     baselineMean: bm === null ? null : r1(bm),
     candidateMean: cm === null ? null : r1(cm),
     delta: delta === null ? null : r1(delta),
@@ -220,6 +296,6 @@ export function verdictV2(input: VerdictV2Input): VerdictV2 {
     passAt1: { baseline: bh[0] ?? null, candidate: ch[0] ?? null },
     passHatK: { baseline: bh, candidate: ch },
     cost: { baselinePerCase: bc, candidatePerCase: cc, deltaPct: costPct === null ? null : r1(costPct) },
-    policy: { version: 2, alpha: P.alpha, minCases: P.minCases, margin: P.margin, tieBand: P.tieBand, passScore: P.passScore, source: P.source },
+    policy: { version: 2, alpha: P.alpha, minCases: P.minCases, margin: P.margin, tieBand: P.tieBand, passScore: P.passScore, minGradedFraction: P.minGradedFraction, source: P.source },
   };
 }
