@@ -84,7 +84,7 @@ export function NeedsYou() {
                   return (
                     <motion.li key={r.id} layout="position" className={cx('ny-li', on && 'on')} style={{ ['--h' as string]: KIND_HUE[r.kind] }}
                       initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 24 }} transition={{ duration: .25, delay: Math.min(i, 14) * .025 }}>
-                      <button ref={(el) => { if (el) refs.current.set(r.id, el); else refs.current.delete(r.id); }} type="button" className="ny-row" aria-current={on ? 'true' : undefined} tabIndex={on || (!cur && i === 0) ? 0 : -1}
+                      <button ref={(el) => { if (el) refs.current.set(r.id, el); else refs.current.delete(r.id); }} type="button" className="ny-row" aria-current={on ? 'true' : undefined}
                         onClick={() => pick(r.id)} onKeyDown={(e) => onKey(e, i)} data-reason={r.reason}>
                         <span className="ny-n tnum" aria-hidden>{i + 1}</span>
                         <span className="ny-ico"><Icon size={14} aria-hidden /></span>
