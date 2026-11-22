@@ -111,6 +111,8 @@ Not used on purpose: `gen_ai.provider.name`, `gen_ai.request.*`, `gen_ai.usage.*
 | `eval_runs.judge_model_family` | `axion.eval.judge_model_family` (AXION extension) |  | A family label of the judge (plain identifier only, otherwise "_OTHER"), not a model name; gen_ai.request.model is not used because no model call is recorded. |
 | `eval_runs.evaluator_id` | **no equivalent** |  | A person's or agent's identity is not exported. |
 | `eval_runs.k` | `axion.eval.k` (AXION extension) |  | No equivalent. |
+| `eval_runs.grader_name` | **no equivalent** |  | Who graded a run (c61, an instrument record). The spec has no attribute for a grader and it is not part of the agent's behaviour, so it is not exported. |
+| `eval_runs.grader_version` | **no equivalent** |  | The version of the grader that graded a run (c61); not exported, see eval_runs.grader_name. |
 | `eval_runs.holdout_key` | **no equivalent** |  | An internal uniqueness key (c53) that makes a holdout count once. It names no behaviour of the agent and is not exported. |
 | `eval_runs.started_at` | **no equivalent** |  | A run has no span of its own; the span of a result starts at the result's recorded time. |
 | `eval_runs.finished_at` | **no equivalent** |  | A run has no span of its own. |
@@ -123,6 +125,7 @@ Not used on purpose: `gen_ai.provider.name`, `gen_ai.request.*`, `gen_ai.usage.*
 | `eval_results.case_id` | `axion.eval.case_id` (AXION extension) |  | No equivalent. Written by a dataset author, so only a plain identifier is exported (otherwise "_OTHER"). |
 | `eval_results.attempt` | `axion.eval.attempt` (AXION extension) |  | No equivalent. |
 | `eval_results.score` | `axion.eval.score` (AXION extension) |  | The spec has no score for an agent result. |
+| `eval_results.ungraded_reason` | **no equivalent** |  | Why a result has no score (c61: grader timeout, error, unparseable output and so on). An instrument record, not an agent attribute, so it is not exported. |
 | `eval_results.cost_units` | `axion.eval.cost_units` (AXION extension) |  | AXION cost units are not tokens; gen_ai.usage.* attributes are not used so that nothing implies a token count. |
 | `eval_results.trace` | span event |  | Each step of trace.steps[] becomes a child span; see the step rows below. Steps with an unknown kind are counted in axion.export.unmapped_steps on the result span, never dropped silently. |
 | `eval_results.recorded_at` | span start time |  | Start time of the result span when a step has no time of its own. |
@@ -180,4 +183,4 @@ These describe the export itself (resource attributes, with the pinned version) 
 
 ## Counts
 
-97 AXION fields listed; 7 map to a pinned GenAI attribute; 26 have no equivalent and are not exported; the rest map to a span property or an `axion.*` extension attribute.
+100 AXION fields listed; 7 map to a pinned GenAI attribute; 29 have no equivalent and are not exported; the rest map to a span property or an `axion.*` extension attribute.
