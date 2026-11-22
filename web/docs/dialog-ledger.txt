@@ -50,6 +50,8 @@ PASS  download-bundle            no-props DL-28
 PASS  download-bundle            props    DL-28   
 PASS  error-inspector            no-props DL-65   
 PASS  error-inspector            props    DL-65   
+PASS  failure-tag                no-props DL-78   
+PASS  failure-tag                props    DL-78   
 PASS  help-drawer                no-props DL-62   
 PASS  help-drawer                props    DL-62   
 PASS  mentoring-plan             no-props DL-77   
