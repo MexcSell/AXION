@@ -65,3 +65,16 @@ Not done: P3 (cache by mtime / global limiter) and P4 (genericise reasons) were 
 
 Re-run after the fixes: server tsc and web tsc clean; full vitest 50 files, 1502 tests pass; `audit-anchor.test.ts` 66/66; `api-c49` via `api-e2e.sh` 14/14 with no page errors; verify-all result below.
 verify-all after the fixes: ALL 10 STEPS PASSED.
+
+### Re-review follow-ups (last round)
+Test-first. RED: with the previous source restored, 10 of the new tests failed (required domain, every rotate rule, the CLI rotate, the guard's query-string rule); GREEN: `audit-anchor.test.ts` 76/76 (two more route tests added after the RED run), full vitest 50 files / 1514 tests expected from the final run below.
+
+| item | change |
+|---|---|
+| R1 | `lane-db-guard` refuses any target URL with a query string or fragment (`?host=` is honoured by pg). Tested for `?host=`, `?sslmode=` and `#frag`, even when the same string is in the lane `.env`. |
+| P2 | `AUDIT_ANCHOR_DOMAIN` is required, no default. Without it `verifyAnchors` returns `anchor_missing` with the reason "AUDIT_ANCHOR_DOMAIN is not set", `writeAnchor` and rotate refuse, the CLIs exit 1, and the ops route says not verifiable. Documented in `server/docs/audit-anchor.md` and `server/.env.example`. The lane `.env` has `AUDIT_ANCHOR_DOMAIN=axion-lane-w48`. Restore check: a test copies the audit rows into a second scratch schema (the test server cannot create a second database, so another schema stands in for another database name) and verifies `ok` there with the same domain, and `bad_signature` with a different one. |
+| R3 | `--rotate` needs the key and domain, needs `--confirm <old last line n>` (the CLI first prints the old file's last line, signature prefix and per-tenant state), and refuses a file that still verifies ok unless `--force`. |
+| R4 | Order: one transaction writes the `audit.anchor.rotated` events for all tenants, then the rename to `<file>.<timestamp>.bad`, then the new file whose line 1 signs `rotatedFrom = {sha256 of the archive bytes, archive name, time}`. A failure at the events step leaves the old file and no events (tested by injecting a failure); a failure after the rename puts the old file back and says to run it again (tested, and the retry works); if it cannot be put back the message gives the exact `mv`. `audit:verify` prints "audit anchor file restarted on <date> (previous file archived ...)", and the route returns `restartedAt` (no archive name or hash), which the Operations tile shows as "restarted on <date> (previous file archived)". The mark is signed: editing or removing it is `bad_signature`, and deleting the database events does not hide it (tested). |
+| actor | The event's actor is `os.userInfo().username`, never the literal `operator`; an optional `--actor "<note>"` is stored as `detail.note`, with `osUser`, `archiveSha256`, `oldLastLine`, `stateBefore` and `forced`. |
+
+Limits kept honest: a key holder can still re-anchor a tampered chain after a rotation; the signed restart mark and the off-host copy of the last line are what make that visible. The optional R2 (read through one `O_NOFOLLOW` fd) and P3/P4 are not done.
