@@ -115,6 +115,8 @@ export interface ReviewCapacityDto {
   minItems: number; minPeople: number; minPercentileN: number;
   total: CapacityCellDto; departments: CapacityDeptDto[];
   littles: LittleLawDto;
+  /** v1 does not measure utilisation: no handling time is recorded and there is no hours-per-week setting. Always null, with the reason. */
+  utilisation: { value: null; reason: 'not_measured'; note: string };
 }
 
 export interface ApprovalDto {

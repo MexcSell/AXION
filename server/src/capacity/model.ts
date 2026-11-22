@@ -23,6 +23,12 @@ export const UNASSIGNED = 'Unassigned';
  * a mission has no department of its own, and an agent's catalogue department is what c6's department facts already use.
  */
 export const DEPARTMENT_RULE = 'The department of the agent that raised the item (an approval) or owns the task (a task waiting for a person), from the agent catalogue; no catalogue entry means Unassigned.';
+/**
+ * Utilisation (arrivals x mean handling time against the hours an operator gives) is NOT in v1. Two inputs do not exist: AXION records
+ * the time from request to decision (which is mostly waiting, so using it would overstate the load) but no handling time, and there is
+ * no operator setting for review hours per week. Showing a number built on guesses would be worse than showing none.
+ */
+export const UTILISATION_NOTE = 'Not measured in this version: AXION records how long a request waits for a decision, not how long a person spends handling it (no handling time), and there is no review hours per week setting yet.';
 export const departmentOfAgent = (dept: string | null | undefined): string => (dept && dept.trim() ? dept : UNASSIGNED);
 
 /**
@@ -105,6 +111,7 @@ export async function reviewCapacity(db: Db | Tx, tenantId: string, windowDays: 
   return {
     windowDays, windowStart: new Date(start).toISOString(), minItems: MIN_ITEMS, minPeople: MIN_PEOPLE, minPercentileN: MIN_PERCENTILE_N,
     total: toCell(total ? num(total) : empty, windowDays, viewerIsAdmin), departments,
+    utilisation: { value: null, reason: 'not_measured', note: UTILISATION_NOTE },
     littles: (() => { const t = total ? num(total) : empty; return littlesLaw({ arrivals: t.arrivals, sumTisMs: t.sum_tis, sumOverlapMs: t.sum_overlap, windowMs: windowDays * 86_400_000, missingClose: t.missing, openNow: t.open_now }); })(),
   };
 }
