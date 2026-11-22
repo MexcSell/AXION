@@ -10,6 +10,9 @@ import { Tip } from '@/components/ui/Tip';
 import { LiveStatus } from '@/components/ui/LiveStatus';
 import { isApi } from '@/api/mode';
 import { useDimensions } from '@/api/dimensions';
+import { useMetricGuard } from '@/api/metricGuard';
+import { GuardCue, GuardTrigger, guardWord } from '@/components/ui/MetricGuard';
+import type { MetricGuardRow } from '@contracts';
 import { demoDimensions } from '@/data/dimensionsDemo';
 import { cx } from '@/lib/format';
 import '@/theme/pages/c46-dimensions.css';
@@ -34,19 +37,19 @@ export const scopeText = (c: Pick<DimensionCell, 'scope'>, demo: boolean) => dem
     : 'recorded company-wide, not limited to missions · these records carry no simulated or DEMO flag';
 const faceText = (c: DimensionCell) => c.state === 'none' ? `not enough evidence (n = ${c.n})` : c.state === 'hidden' ? 'hidden for your role' : c.evidence;
 
-function Cell({ c, w, i, selected, onSelect }: { c: DimensionCell; w: DimensionWindow; i: number; selected: boolean; onSelect: () => void }) {
+function Cell({ c, w, i, selected, onSelect, g }: { c: DimensionCell; w: DimensionWindow; i: number; selected: boolean; onSelect: () => void; g?: MetricGuardRow }) {
   const T = c.trend ? TREND[c.trend] : null;
   const prev = c.previous.value !== null ? fmtCell({ value: c.previous.value, unit: c.unit }) : '';
   const face = c.state === 'ok' ? null : faceText(c);
   const aria = c.state === 'ok' ? `${c.label}: ${fmtCell(c)}, n = ${c.n}, ${windowText(c, w)}` : `${c.label}: ${face}`;
   const Mark = c.state === 'hidden' ? EyeOff : c.state === 'unmeasured' ? Hourglass : null;
   return (
-    <Tip label={c.evidence}>
+    <Tip label={g ? <span>{c.evidence}<br /><span className="dim">Guard: {guardWord(g)} · counter-metric: {g.counter.kind === 'metric' ? g.counter.refLabel : 'none known'} · select the cell for the rest</span></span> : c.evidence}>
       <motion.div className={cx('dim-cell', c.state !== 'ok' && 'none', `st-${c.state}`, selected && 'sel', c.state === 'ok' && (c.n ?? 0) < LOW_N && 'low')} tabIndex={0} role="button" aria-pressed={selected} aria-label={aria}
         onClick={onSelect} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); } }}
         data-cell={c.key} data-state={c.state} data-value={c.value ?? ''} data-n={c.n ?? ''} data-trend={c.trend ?? ''} data-scope={c.scope}
         initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .05 + i * .03 }}>
-        <span className="dim-ct"><span className="dim-cl">{c.label}</span>
+        <span className="dim-ct"><span className="dim-cl">{c.label}</span><GuardCue g={g} />
           <span className="dim-cm tnum">{c.state === 'ok' || c.state === 'none' ? windowText(c, w) : c.state === 'hidden' ? 'admins only' : 'no source'}</span></span>
         {c.state === 'ok'
           ? <span className="dim-cv"><b className="tnum">{fmtCell(c)}</b><span className="dim-nn tnum">n = {c.n}</span>{T && <small className="dim-tr" title={`previous window: ${prev} (n = ${c.previous.n})`}><T size={12} aria-hidden />{prev}</small>}</span>
@@ -62,6 +65,7 @@ export function Dimensions() {
   const [dept, setDept] = useState<string | null>(null);
   const [sel, setSel] = useState<string | null>(null);
   const live = useDimensions(w, dept);
+  const mg = useMetricGuard();
   const demoData = !api_ ? demoDimensions(w, dept) : null;
   const shown = api_ ? (live.data && live.data.window === w && live.data.department === dept ? live.data : null) : demoData;
   const departments = shown?.departments ?? [];
@@ -92,7 +96,7 @@ export function Dimensions() {
               return (
                 <motion.section key={k} className="dim-row" role="listitem" data-dimension={k} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: ri * .05 }}>
                   <div className="dim-name"><Icon size={17} className="dim-ico" aria-hidden />{row?.label ?? k}<HelpTrigger k={`dimensions.${k}`} /></div>
-                  <div className="dim-cells">{(row?.cells ?? []).map((c, i) => <Cell key={c.key} c={c} w={w} i={i} selected={sel === c.key} onSelect={() => setSel((k) => (k === c.key ? null : c.key))} />)}</div>
+                  <div className="dim-cells">{(row?.cells ?? []).map((c, i) => <Cell key={c.key} c={c} w={w} i={i} g={mg.byId(`dimension.${c.key}`, c.label)} selected={sel === c.key} onSelect={() => setSel((k) => (k === c.key ? null : c.key))} />)}</div>
                 </motion.section>
               );
             })}
@@ -100,7 +104,7 @@ export function Dimensions() {
         )}
         {(() => { const c = shown?.dimensions.flatMap((d) => d.cells).find((x) => x.key === sel);
           return <div className="dim dim-note" data-evidence={c ? c.key : ''} aria-live="polite">{c
-            ? <><b>{c.label}</b>: {c.evidence}. <span className="dim">{c.basis === 'none' ? 'No window' : `${WIN[w]}, ${new Date(c.from ?? shown!.from).toLocaleDateString()} to ${new Date(c.to ?? shown!.to).toLocaleDateString()}`} · {scopeText(c, !api_)}.</span></>
+            ? <><b>{c.label}</b><span className="dim-guard-note"><GuardTrigger g={mg.byId(`dimension.${c.key}`, c.label)} />{mg.byId(`dimension.${c.key}`, c.label)?.gameable && <i className="gm-word">gameable</i>}</span>: {c.evidence}. <span className="dim">{c.basis === 'none' ? 'No window' : `${WIN[w]}, ${new Date(c.from ?? shown!.from).toLocaleDateString()} to ${new Date(c.to ?? shown!.to).toLocaleDateString()}`} · {scopeText(c, !api_)}.</span></>
             : shown ? `Tap or press a cell to read how it was counted. ${shown.department ?? 'Whole company'} · ${new Date(shown.from).toLocaleDateString()} to ${new Date(shown.to).toLocaleDateString()}.` : ' '}</div>; })()}
       </div>
     </Panel>

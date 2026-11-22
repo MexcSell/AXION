@@ -1,0 +1,17 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`the row registry covers every live row > writability is derived: no row declares it, and guardOf equals writabilityOf over the declared inputs 1`] = `
+[
+  "dimension.cognitive.context_loss",
+  "dimension.cognitive.first_attempt_verified",
+  "dimension.collective.approval_decision_h",
+  "dimension.collective.briefed_delegations",
+  "dimension.collective.cross_family_reviews",
+  "dimension.knowledge.lessons_accepted",
+  "dimension.knowledge.lessons_proposed",
+  "dimension.knowledge.lessons_rolled_back",
+  "kpi.approvals",
+  "kpi.staffedAgents",
+  "scorecard.tasks_verified_by_review",
+]
+`;

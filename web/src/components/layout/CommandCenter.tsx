@@ -20,6 +20,11 @@ import { useScorecard, rowOf, fmtRow, trendOf } from '@/api/scorecard';
 import { useThroughput } from '@/api/throughput';
 import { ThroughputChart } from '@/components/viz/ThroughputChart';
 import { IconButton } from '@/components/ui/IconButton';
+import { GuardTrigger } from '@/components/ui/MetricGuard';
+import { useMetricGuard } from '@/api/metricGuard';
+
+/** c66: which registry row each measured tile is (the DEMO-only tiles show invented numbers and have none). */
+const KPI_GUARD: Record<string, string> = { missions: 'kpi.activeMissions', agents: 'kpi.staffedAgents', approvals: 'kpi.approvals', success: 'kpi.success.api' };
 
 /** Company-wide KPI tiles (40-4 command center) — rendered through the shared TopBoard. */
 export function useCompanyKpis(): KpiItem[] {
@@ -32,6 +37,8 @@ export function useCompanyKpis(): KpiItem[] {
   const activeAgents = AGENTS.filter((a) => a.status === 'active' || a.status === 'in-mission').length;
   const score = useScorecard('30d', false); // api mode only (no request in demo mode)
   const instances = useAgentInstances(); // api mode only (no request in demo mode); re-read on instance/task/mission events
+  const mg = useMetricGuard(); // c66: the Goodhart guard of each measured tile (api mode)
+  const guard = (id: string) => <GuardTrigger g={mg.byId(id)} />;
   if (isApi()) {
     // improvement cycle 2: no invented company numbers in api mode. Success comes from the server scorecard (30 days, DEMO
     // missions excluded) with its sample size; no trend delta; no token tile (tokens are recorded from Stage 9).
@@ -54,7 +61,7 @@ export function useCompanyKpis(): KpiItem[] {
       agentsTile,
       { key: 'approvals', icon: ClipboardList, value: pending, label: 'Pending Approvals', color: '#fbbf24', help: 'kpi.approvals', onClick: () => nav('/notifications?tab=pending') },
       success,
-    ];
+    ].map((k) => ({ ...k, guard: guard(KPI_GUARD[k.key])  }));
   }
   return [
     { key: 'missions', icon: Target, value: active, label: 'Active Missions', delta: '+2', color: '#22d3ee', help: 'kpi.activeMissions', onClick: () => nav('/missions?filter=active') },
@@ -82,6 +89,7 @@ export function CompanyScorecard() {
   const [demo, setDemo] = useState(false);
   const { data, error } = useScorecard(win, demo);
   const tput = useThroughput(8, demo).data;
+  const mg = useMetricGuard();
   const shown = data && data.window === win && data.includeDemo === demo ? data : null;
   return (
     <motion.section className="panel cc-health cc-score" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .4, delay: .08 }}
@@ -104,7 +112,7 @@ export function CompanyScorecard() {
               <motion.div className={cx('sc-row', r.state === 'none' && 'none')} role="row" tabIndex={0} data-row={r.key} data-state={r.state} data-value={r.value ?? ''} data-n={r.n}
                 initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: .15 + i * .04 }}>
                 <Icon size={14} className="sc-ico" aria-hidden />
-                <span role="cell" className="sc-label ellipsis">{r.label}</span>
+                <span role="cell" className="sc-lw"><span className="sc-label ellipsis">{r.label}</span><GuardTrigger compact g={mg.byId(`scorecard.${r.key}`)} /></span>
                 <motion.b role="cell" key={`${r.value}`} className="sc-val tnum" initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}>{fmtRow(r)}</motion.b>
                 {(() => { const t = trendOf(r); return (
                   <span role="cell" className={cx('sc-prev tnum', t && 'on', t && `tr-${r.trend}`)} data-trend={r.trend ?? ''} title={t ? `${t.word} ${t.prev} in the previous ${WINDOW_LABEL[win].replace('last ', '')} (n=${r.previous.n})` : undefined}>
@@ -119,7 +127,7 @@ export function CompanyScorecard() {
           <div className="sc-tput" data-tput-ready="1" aria-label="Weekly throughput">
             <span className="dim sc-tput-l"><span>weekly</span><span>8 wk</span></span>
             <ThroughputChart weeks={tput.weeks} />
-            <span onClick={(e) => e.stopPropagation()}><HelpTrigger k="scorecard.throughput" /></span>
+            <span className="row" style={{ gap: 2 }} onClick={(e) => e.stopPropagation()}><GuardTrigger compact g={mg.byId('scorecard.throughput')} /><HelpTrigger k="scorecard.throughput" /></span>
           </div>
         )}
         {!shown && (error ? <LiveStatus key="err" kind="error" className="dim sc-empty">{error}</LiveStatus> : <LiveStatus key="load" className="dim sc-empty">Reading the scorecard…</LiveStatus>)}
