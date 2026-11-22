@@ -40,7 +40,7 @@ BAD /agents/coder-01?tab=audit          mainOver 48 regions [[300,252]]
 - demo, dev server on 11590: fit-check 1366x768 ALL FIT; 1280x760 ALL FIT.
 - verify-all (OUT=/tmp/axion-verify-w65): ALL 10 STEPS PASSED.
 - a11y demo: 51 views, 66 dialogs, 0 violations. a11y api: 41 views, 66 dialogs, 0 violations.
-- api-mobile: MOBILE_RESULT_PLACEHOLDER
+- api-mobile: 674 states, 383 dialogs, NO FAILURES (0 FAIL lines).
 
 ## Threshold table
 | Item | Result |
@@ -51,7 +51,7 @@ BAD /agents/coder-01?tab=audit          mainOver 48 regions [[300,252]]
 | 3b demo fit-check ALL FIT | PASS (both sizes) |
 | 3c verify-all 10/10 | PASS |
 | 3d a11y clean in both modes | PASS |
-| 3e api-mobile no new FAIL | MOBILE_ITEM_PLACEHOLDER |
+| 3e api-mobile no new FAIL | PASS (0 FAIL) |
 | 4 api fit-check documented for the standard checks | PASS (below) |
 
 ## Screenshots (1366x768, Agent Profile, profile tab, api mode)
