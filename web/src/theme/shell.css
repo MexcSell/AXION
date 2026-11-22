@@ -149,7 +149,7 @@ button.kpi:hover { transform: translateY(calc(-2px * var(--motion-scale))); box-
 /* ------------------------------------------------------------------ */
 /* Modal / drawer                                                      */
 /* ------------------------------------------------------------------ */
-.modal-layer { position: fixed; inset: 0; z-index: 800; display: grid; place-items: center; padding: 24px; }
+.modal-layer { position: fixed; inset: 0; z-index: 800; display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; padding: 24px; }
 .modal-backdrop { position: absolute; inset: 0; background: rgba(2, 4, 16, .62); backdrop-filter: blur(5px); }
 [data-theme='light'] .modal-backdrop { background: rgba(30, 40, 80, .28); }
 .modal {
