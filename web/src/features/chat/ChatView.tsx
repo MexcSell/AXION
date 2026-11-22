@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import { Send, Paperclip, Image as ImageIcon, AtSign, X, CheckCheck, Check, Clock, ArrowDown, Info, FileText, ShieldAlert, Map as MapIcon, Rows3, Rows2, Music, Film, Loader2 } from 'lucide-react';
 import { RobotAvatar } from '@/components/art/RobotAvatar';
 import { UserAvatar } from '@/components/ui/UserAvatar';
@@ -477,8 +478,12 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
             if (t === r && id !== tabId) setTabId(id);
           }}
           onScroll={(ev) => {
-            const el = ev.currentTarget; const b = el.scrollHeight - el.scrollTop - el.clientHeight < 40; setAtBottom(b); if (b) setNewCount(0); if (el.scrollTop < 80) requestOlder(el);
-            if (Math.abs(el.scrollTop - vpRef.current.top) > DRIFT || el.clientHeight !== vpRef.current.h) moveVp(el);
+            const el = ev.currentTarget; const b = el.scrollHeight - el.scrollTop - el.clientHeight < 40; setAtBottom(b); if (b) setNewCount(0);
+            const far = Math.abs(el.scrollTop - vpRef.current.top) > DRIFT || el.clientHeight !== vpRef.current.h;
+            // at the top: the rows there are rendered first (a jump to the top leaves only a spacer in view until then), so
+            // the older-page anchor is a row the reader can see
+            if (el.scrollTop < 80) { if (far) flushSync(() => moveVp(el)); requestOlder(el); }
+            else if (far) moveVp(el);
           }}
           {...(emptyState ? {} : { role: 'log', 'aria-label': 'Conversation', 'aria-live': 'off' })} data-has-older={hasOlder ? '1' : undefined}>
           {shown.length === 0 && <div className="empty" style={{ padding: 30 }} {...(emptyState ? { role: emptyState === 'error' ? 'alert' : 'status' } : {})}><div className="empty-icon"><Send size={22} /></div><h4>{emptyTitle ?? 'No messages yet'}</h4>{emptyText && typeof emptyText === 'object' ? <div className="thread-empty-body">{emptyText}</div> : <p>{emptyText ?? 'Write the first message.'}</p>}</div>}
