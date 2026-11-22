@@ -42,8 +42,10 @@ export default async function processRoutes(app: FastifyInstance) {
           from task_reviews r join tasks t on t.id = r.task_id where r.tenant_id=$1 and r.mission_id = any($2::text[]) and r.created_at <= now()`, [T, ids]);
       const tags = await q(`select subject_id, mode_id, coalesce(decided_at, created_at) as at from failure_tags
           where tenant_id=$1 and mission_id = any($2::text[]) and subject_kind='task' and status='confirmed' and taxonomy_version=$3`, [T, ids, FAILURE_TAXONOMY_VERSION]);
+      // the staffing simulator writes a brief for every agent it places (created_by 'system', simulated false on a real mission); those are not a delegation decision, and several share a fallback goal
       const briefs = await q(`select b.id::text as id, b.mission_id, b.to_agent, b.brief->>'goal' as goal, b.created_at, b.supersedes_id::text as supersedes_id, b.simulated from delegation_briefs b
-          where b.tenant_id=$1 and b.mission_id = any($2::text[]) and b.created_at <= now()`, [T, ids]);
+          where b.tenant_id=$1 and b.mission_id = any($2::text[]) and b.created_at <= now()
+           and b.created_by <> 'system'`, [T, ids]);
       const history = await q(`select h.task_id, h.agent_id, h.at, h.seq from task_owner_history h join tasks t on t.id = h.task_id
           where h.tenant_id=$1 and t.mission_id = any($2::text[]) and h.at <= now()`, [T, ids]);
       const handoffs = await q(`select d.mission_id, d.task_id, i.agent_id as to_agent, d.at, d.simulated,

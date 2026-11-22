@@ -45,7 +45,7 @@ function Card({ c, w, i, g, demo }: { c: ProcessCell; w: ProcessWindow; i: numbe
         <HelpTrigger k={c.key} />
       </header>
       {c.state === 'ok'
-        ? <Tip label={c.evidence}><div className="proc-cv" tabIndex={0} aria-label={c.evidence}><b className="tnum">{fmtProc(c)}</b><span className="proc-n tnum">n = {c.n}</span>{p90 && <span className="proc-p90 tnum" title="90th percentile, nearest rank">{p90}</span>}
+        ? <Tip label={c.evidence}><div className="proc-cv" tabIndex={0} role="group" aria-label={`${c.label}: ${c.evidence}`}><b className="tnum">{fmtProc(c)}</b><span className="proc-n tnum">n = {c.n}</span>{p90 && <span className="proc-p90 tnum" title="90th percentile, nearest rank">{p90}</span>}
             {T && <small className="proc-tr" title={`previous window: ${prev} (n = ${c.previous.n})`}><T size={12} aria-hidden />{prev}</small>}</div></Tip>
         : <div className="proc-cv proc-none">{c.state === 'unmeasured' && <Hourglass size={12} aria-hidden />}{c.state === 'none' ? `not enough evidence (n = ${c.n})` : c.evidence}</div>}
       <div className="proc-meta tnum">{demo ? 'SAMPLE · ' : ''}{c.state === 'unmeasured' ? 'no source' : WIN[w]}{c.state === 'none' && c.minN ? ` · needs ${c.minN}` : ''}</div>
@@ -63,7 +63,7 @@ export function ProcessView({ data, error, w, byId, demo }: { data: ProcessDto |
     <div className="proc-wrap" data-process="ready" data-window={w} data-department={data.department ?? ''}>
       <div className="proc-grid" role="list" aria-label="Process figures">{measured.map((c, i) => <div role="listitem" key={c.key} className="proc-li"><Card c={c} w={w} i={i} g={byId(c.key, c.label)} demo={demo} /></div>)}</div>
       {blank.length > 0 && <div className="proc-blank" data-unmeasured={blank.map((c) => c.key).join(',')}>
-        {blank.map((c) => <div key={c.key} className="proc-bl" data-pcell={c.key} data-state="unmeasured"><Hourglass size={13} aria-hidden /><b>{c.label}</b><Tip label={c.evidence}><span tabIndex={0}>{c.evidence.split(':')[0]}</span></Tip><GuardTrigger g={byId(c.key, c.label)} compact /><HelpTrigger k={c.key} /></div>)}
+        {blank.map((c) => <div key={c.key} className="proc-bl" data-pcell={c.key} data-state="unmeasured"><Hourglass size={13} aria-hidden /><b>{c.label}</b><Tip label={c.evidence}><span tabIndex={0} role="note" aria-label={c.evidence}>{c.evidence.split(':')[0]}</span></Tip><GuardTrigger g={byId(c.key, c.label)} compact /><HelpTrigger k={c.key} /></div>)}
       </div>}
       <p className="dim dim-note proc-note">{data.department ?? 'Whole company'} · {new Date(data.from).toLocaleDateString()} to {new Date(data.to).toLocaleDateString()} · missions you can see; no simulated or DEMO rows · open items sit beside a figure, never inside it · no total, no "good" level</p>
     </div>

@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { scanWrites } from './contracts/writability.ts';
 import { METRICS, METRIC_BY_ID, INPUT_FIELD_IDS, WRITE_SITES, guardRows, writabilityOf, registryProblems, PROCESS_KEYS } from '../../shared/contracts/src/index.ts';
 
 /**
@@ -30,11 +29,8 @@ describe('c69 process rows in the c66 registry', () => {
       'process.handoff_wait_h': true, 'process.approval_decision_h': false, 'process.cost': false,
     });
   });
-  it('task_owner_history is written only by a database trigger: no source file in server/src inserts into it', () => {
-    const SRC = join(__dirname, '../src');
-    const walk = (d: string): string[] => readdirSync(d).flatMap((f) => (statSync(join(d, f)).isDirectory() ? walk(join(d, f)) : f.endsWith('.ts') ? [join(d, f)] : []));
-    const writers = walk(SRC).filter((f) => /\b(insert\s+into|update|delete\s+from|truncate)\s+(?:only\s+)?(?:"?public"?\.)?"?task_owner_history\b/i.test(readFileSync(f, 'utf8')));
-    expect(writers).toEqual([]);
+  it('task_owner_history is written only by a database trigger: the c66 source scan (insert, update, delete, merge, truncate, copy, quoted, schema-qualified, templated) finds no writer in server/src', () => {
+    expect([...scanWrites({ 'task_owner_history.owner': { what: 'the owner history', tables: ['task_owner_history'] } })]).toEqual([]);
     // the history changes exactly where tasks.owner does: the sites that write tasks.owner also list the history field
     for (const [id, s] of Object.entries(WRITE_SITES)) expect(s.writes.includes('tasks.owner'), id).toBe(s.writes.includes('task_owner_history.owner'));
   });

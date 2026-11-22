@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { vi } from 'vitest';
 import { makeTestApp, withAdmin, Browser, type TestApp } from './helpers.ts';
 import { PROCESS_KEYS } from '../../shared/contracts/src/index.ts';
 
@@ -130,5 +131,23 @@ describe('hand-off wait and duplicate delegation from real rows (DB time)', () =
   });
   it('2 of 3 delegations share a normalised goal: 66.7', async () => {
     expect(cell(await proc(A), 'duplicate_delegation')).toMatchObject({ value: 66.7, n: 3 });
+  });
+  it('briefs written by the staffing simulator (created_by system) are not a delegation decision: three identical ones change nothing', async () => {
+    for (let i = 0; i < 3; i++) await q(`insert into delegation_briefs(tenant_id, mission_id, from_id, from_kind, to_instance, to_agent, brief, sha256, depth, created_by) values ('t-1','H','system','user','H:coder-01','coder-01',$1::jsonb,$2,1,'system')`, [JSON.stringify({ goal: 'Contribute to this mission within your role' }), String(200 + i).padEnd(64, '0')]);
+    expect(cell(await proc(A), 'duplicate_delegation')).toMatchObject({ value: 66.7, n: 3 });
+  });
+});
+
+describe('the window end is the database clock (c54 rule)', () => {
+  it('with the application clock an hour behind, the window still ends at the database now(), and a review written a moment ago is inside it', async () => {
+    await mission('CK', adminId, { shared: true });
+    await instance('CK', 'coder-01');
+    for (let i = 1; i <= 3; i++) { await task(`CK${i}`, 'CK', 'coder-01', 'passed'); await review(`TR-CK${i}`, 'CK', `CK${i}`, 'coder-01', 'rejected', 0); }
+    vi.useFakeTimers({ toFake: ['Date'], now: Date.now() - 3_600_000 });
+    let r: any;
+    try { r = await A.req('GET', '/company/process?window=7d'); } finally { vi.useRealTimers(); }
+    expect(r.status).toBe(200);
+    expect(Math.abs(new Date(r.body.to).getTime() - Date.now())).toBeLessThan(60_000);
+    expect(r.body.cells.find((c: any) => c.key === 'process.rework_rate').n, 'the three reviews written with now() are inside the window').toBeGreaterThanOrEqual(3);
   });
 });

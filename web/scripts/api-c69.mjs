@@ -172,7 +172,13 @@ try {
   await calm(p);
   const mob = await p.evaluate(() => ({ over: document.documentElement.scrollWidth - innerWidth, cells: [...document.querySelectorAll('.proc-card')].map((c) => Math.round(c.getBoundingClientRect().width)), clip: [...document.querySelectorAll('.proc-card')].filter((c) => c.getBoundingClientRect().right > innerWidth + 1).length }));
   check('390 px: no horizontal scroll and every process card is on screen', mob.over <= 0 && mob.cells.length === 5 && mob.clip === 0, JSON.stringify(mob));
+  await p.locator('.proc-grid').scrollIntoViewIfNeeded();
   await p.screenshot({ path: `${SHOTS}/c69-mobile.png` });
+  // ---- 6. a keyboard/name check of the card controls (a role-less element must not carry a name). Demo mode is NOT rendered by this script (it needs a local demo sign-in).
+  const names = await p.evaluate(() => [...document.querySelectorAll('[data-pcell] [aria-label]')].filter((e) => !e.getAttribute('role') && !['BUTTON', 'A', 'INPUT', 'SELECT', 'TEXTAREA', 'ARTICLE', 'SECTION', 'NAV', 'UL', 'LI'].includes(e.tagName)).map((e) => e.tagName + '.' + e.className));
+  check('no element with an aria-label lacks a role (cards use group/note/article/button)', names.length === 0, JSON.stringify(names));
+  const tabbable = await p.evaluate(() => [...document.querySelectorAll('.proc-card [tabindex="0"], .proc-card button, .proc-bl [tabindex="0"], .proc-bl button')].length);
+  check('every card has focusable controls (the value, the guard and the ?)', tabbable >= 5 * 3);
   check('no page error or console error', errors.length === 0, errors.slice(0, 3).join(' | '));
 } catch (e) {
   check('script ran to the end', false, String(e?.stack || e).slice(0, 600));
