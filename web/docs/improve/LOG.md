@@ -203,3 +203,7 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
 - Integrator #2 stopped after a long run; integrator #3 took over from QUEUE.md and MERGES.md.
 - New lane w26 (c28): root cause of the flows palette/theme flake, plus 2 small gaps found during integration.
 - Batch 4 verify-all (predecessor run): NEW flows FAIL "Modal focus trap + Escape returns focus: dialog not closed" (plus the known Hierarchy flake). Integrator #3 is classifying it (3 solo runs, then bisect 0ce1391 / 1358f91; suspects c16 Modal.tsx, c23).
+
+### Cycle 28: command palette race (lane w26)
+- A REAL user bug: the lazily mounted palette opened already visible, and its on-open reset wiped a fast first keystroke, so Enter ran "Add mission" (whose dialog then blocked the theme toggle). Fix: reset the query only after close; Enter waits for the help registry. Repro 5/5 → 0/5; flows 0/21 under load. Also fixed: sign-out cancels the version-proposals refresh; "Loading history…" and "Loading plans…" wrapped in LiveStatus. verify-all 10/10; stage6 94/94. Review running.
+- New lane w27 (c29): the "Delete (archive)" flows failure (5/21 under load): root cause, possible demo-store race.

@@ -266,3 +266,11 @@ Integrator log: one entry per merge request. Times are UTC.
   - c04: `GET /organization/revisions`, `/revisions/:seq`, `/revisions/:seq/diff`, `POST /revisions/:seq/rollback-proposal`.
 - Going green means validators and flow steps for all of these, or `NOT_REACHABLE` entries, which would weaken the test. That is lane-sized new test surface needing its own review, so I did not write it. The queue's "tighten the `// remove after c09 merge` tolerances" follow-up moves with c15.
 - **Controller decision:** refresh c15 against improve-30h in a lane (best after c27, which changes the `agent.rolledBack` payload), then merge it with the tightening.
+
+**Batch checks on `b18c5a2` (c20 + c09):**
+- **web:** `tsc --noEmit` OK.
+- **api-e2e (exit 0):** api-auth-flow 15/15; api-flows 23/23; api-stage6 94/94; api-improve 107/107; api-c20 ALL PASS (14 checks); api-c09 6/6.
+- **verify-all:** exit 0, "ALL 10 STEPS PASSED", no FAIL lines. flows 21/21 (Hierarchy, Modal and archive steps all passed this run), dialog smoke 112 checks 0 failures. Load peaked at ~35 during the run.
+- **fit-check:** 77/77 ALL FIT. **ov-fit:** 32/32, NO SCROLL ANYWHERE.
+
+**Follow-up commits:** none (the c15 tightening moves with c15). Controller files committed with this entry: LOG.md (modified), cycles/c28-review.md, c29-brief.md (new).
