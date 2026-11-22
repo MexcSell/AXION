@@ -44,12 +44,62 @@ export function canonicalJson(v: unknown): string {
 export const briefSha = (b: unknown): string => createHash('sha256').update(canonicalJson(b)).digest('hex');
 
 const label = (c: Capability) => (c.origin ? `${c.kind} @ ${c.origin}` : c.kind);
-/** A capability is covered when the parent holds the kind without an origin limit, or at the same origin. */
-export const covers = (parent: readonly Capability[], c: Capability) => parent.some((p) => p.kind === c.kind && (p.origin === undefined || p.origin === c.origin));
+/**
+ * A capability is covered only by the same kind at the same origin. A kind without an origin is not a wildcard for every origin
+ * (c42 fix round, M2): standing access to a site is its own, explicit capability, and a person needs the origin-grant gate to give it.
+ */
+export const covers = (parent: readonly Capability[], c: Capability) => parent.some((p) => p.kind === c.kind && p.origin === c.origin);
 
 /** The items of `child` that the parent's scope does not cover (empty = a legal subset). */
 export function scopeViolations(parent: readonly Capability[], child: readonly Capability[]): string[] {
   const out: string[] = [];
   for (const c of child) { const l = label(c); if (!covers(parent, c) && !out.includes(l)) out.push(l); }
   return out;
+}
+
+export const intersectCaps = (a: readonly Capability[], b: readonly Capability[]): Capability[] => a.filter((c) => covers(b, c));
+
+/** The minimal row the chain walk needs (a delegation_briefs row). `seq` orders briefs of one agent: the newest is its scope. */
+export interface ChainRow { id: string; seq: number | string; to_instance: string; to_agent: string; parent_brief_id: string | null; brief: DelegationBriefData }
+export interface EffectiveScope {
+  capabilities: Capability[]; deadline?: string; budget?: number;
+  /** ancestors whose latest brief removed something from this brief's own capabilities */
+  narrowedBy: { briefId: string; toAgentId: string; dropped: string[] }[];
+  chain: string[];
+}
+const latestByInstance = (rows: readonly ChainRow[]) => {
+  const m = new Map<string, ChainRow>();
+  for (const r of rows) { const o = m.get(r.to_instance); if (!o || Number(r.seq) > Number(o.seq)) m.set(r.to_instance, r); }
+  return m;
+};
+/** The newest brief addressed to an instance (its current scope), or undefined. */
+export const latestOf = (rows: readonly ChainRow[], toInstance: string) => latestByInstance(rows).get(toInstance);
+
+/**
+ * The effective scope of `start`: its own capabilities intersected with the LATEST brief of every ancestor up to the current root
+ * (c42 fix round, I1). Deadline and budget are the minimum along the chain (I3). Recomputed at every use, never stored, so narrowing
+ * an ancestor narrows every descendant at once without rewriting a row. Ancestors are resolved through `parent_brief_id` to the agent
+ * that held that brief, then to that agent's newest brief.
+ */
+export function effectiveFrom(rows: readonly ChainRow[], start: ChainRow): EffectiveScope {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const latest = latestByInstance(rows);
+  let caps = start.brief.capabilities;
+  let deadline = start.brief.deadline, budget = start.brief.budget;
+  const narrowedBy: EffectiveScope['narrowedBy'] = [];
+  const chain = [start.id];
+  const seen = new Set([start.id]);
+  for (let p = start.parent_brief_id ? byId.get(start.parent_brief_id) : undefined; p && chain.length <= MAX_CHAIN_DEPTH + 1; ) {
+    const cur = latest.get(p.to_instance) ?? p;
+    if (seen.has(cur.id)) break;
+    seen.add(cur.id); chain.push(cur.id);
+    const next = intersectCaps(caps, cur.brief.capabilities);
+    const dropped = scopeViolations(cur.brief.capabilities, caps);
+    if (dropped.length) narrowedBy.push({ briefId: cur.id, toAgentId: cur.to_agent, dropped });
+    caps = next;
+    if (cur.brief.deadline && (!deadline || cur.brief.deadline < deadline)) deadline = cur.brief.deadline; // normalised UTC ISO strings sort as times
+    if (cur.brief.budget !== undefined && (budget === undefined || cur.brief.budget < budget)) budget = cur.brief.budget;
+    p = cur.parent_brief_id ? byId.get(cur.parent_brief_id) : undefined;
+  }
+  return { capabilities: caps, ...(deadline ? { deadline } : {}), ...(budget !== undefined ? { budget } : {}), narrowedBy, chain };
 }

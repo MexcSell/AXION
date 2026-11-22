@@ -8,6 +8,8 @@ export interface DelegationBriefDto {
   id: string; missionId: string; taskId: string | null; fromId: string; fromKind: 'user' | 'agent'; toInstanceId: string; toAgentId: string;
   brief: DelegationBriefData; sha256: string; parentBriefId: string | null; supersedesId: string | null; depth: number; simulated: boolean; createdAt: string;
   tiers: Record<string, BriefTier | null>;
+  /** recomputed on every read: own capabilities intersected with the latest brief of each ancestor; minimal deadline and budget */
+  effective?: { capabilities: BriefCapability[]; deadline: string | null; budget: number | null; narrowedBy: { briefId: string; toAgentId: string; dropped: string[] }[] };
 }
 export interface DelegableKind { kind: string; tier: BriefTier; effect: string; approver: string | null; allowed: boolean; why: string }
 export interface DelegationBriefList { briefs: DelegationBriefDto[]; maxDepth: number; kinds: DelegableKind[] }

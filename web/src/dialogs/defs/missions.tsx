@@ -317,6 +317,7 @@ function TaskReassign({ close, props }: DialogComponentProps<{ missionId: string
   const [caps, setCaps] = useState<string[]>(['read']);
   const [deadline, setDeadline] = useState('');
   const [esc, setEsc] = useState('Ask the mission owner when scope is unclear');
+  const [fe, setFe] = useState<Record<string, string>>({});
   const kinds = useDelegationBriefs(props.missionId).data?.kinds;
   if (!m) return <Missing close={close} />;
   const tasks = getMissionControl(m).tasks;
@@ -332,9 +333,10 @@ function TaskReassign({ close, props }: DialogComponentProps<{ missionId: string
     if (!task || busy) return;
     setBusy(true);
     const node = getMissionControl(m).nodes.find((n) => n.agentId === to);
-    const brief = criteria.length ? { goal: goal.trim() || task.title, acceptance: criteria, capabilities: caps.map((kind) => ({ kind })), escalation: esc.trim() || 'Ask the mission owner when scope is unclear', ...(deadline ? { deadline: new Date(deadline).toISOString() } : {}) } : undefined;
+    const brief = criteria.length ? { goal: goal.trim() || task.title, acceptance: criteria, capabilities: (kinds ?? []).filter((k) => k.allowed && caps.includes(k.kind)).map((k) => ({ kind: k.kind })), escalation: esc.trim() || 'Ask the mission owner when scope is unclear', ...(deadline ? { deadline: new Date(deadline).toISOString() } : {}) } : undefined;
     const r = node ? await taskAction(m.id, task.id, 'reassign', { toInstanceId: node.instanceId, reason: why.trim(), brief }) : { ok: false as const, message: 'This agent has not joined the mission.' };
     setBusy(false);
+    setFe(!r.ok && r.fieldErrors ? r.fieldErrors : {});
     if (r.ok) { toast({ tone: 'success', title: 'Task reassigned', body: `${AGENT_BY_ID[to]?.name} owns ${task.id} now. Audited.` }); close(); }
     else toast({ tone: 'error', title: 'Not reassigned', body: r.message });
   };
@@ -354,8 +356,10 @@ function TaskReassign({ close, props }: DialogComponentProps<{ missionId: string
       {isApi() && (
         <div className="dbrief-form" data-testid="brief-form">
           <div className="row" style={{ gap: 6 }}><span className="section-label">Hand-off brief</span><HelpTrigger k="delegation.brief" /></div>
-          <input className="input" aria-label="Goal" value={goal} onChange={(e) => setGoal(e.target.value)} placeholder={task ? `Goal (default: ${task.title})` : 'Goal'} maxLength={500} />
-          <textarea className="input" aria-label="Acceptance criteria" value={accept} onChange={(e) => setAccept(e.target.value)} placeholder="Acceptance criteria, one per line. Leave empty to delegate without a brief (legacy)." />
+          <input className="input" aria-label="Goal" aria-invalid={!!fe.goal} maxLength={500} value={goal} onChange={(e) => setGoal(e.target.value)} placeholder={task ? `Goal (default: ${task.title})` : 'Goal'} />
+          <textarea className="input" aria-label="Acceptance criteria" aria-invalid={!!(fe.acceptance || Object.keys(fe).some((k) => k.startsWith('acceptance.')))} maxLength={3000} value={accept} onChange={(e) => setAccept(e.target.value)} placeholder="Acceptance criteria, one per line. Leave empty to delegate without a brief (legacy)." />
+          <div className="dbrief-hint">Each line 3 to 300 characters, at most 20 lines.</div>
+          {Object.entries(fe).filter(([k]) => k === 'goal' || k.startsWith('acceptance') || k === 'escalation' || k === 'deadline' || k === 'capabilities' || k === 'budget' || k === 'depth').map(([k, v]) => <div key={k} className="dbrief-err" role="alert">{k.replace(/\.\d+$/, '')}: {v}</div>)}
           <div className="dbrief-pick" role="group" aria-label="Allowed capabilities">
             {(kinds ?? []).filter((k) => k.tier === 'R0' || k.tier === 'R1' || k.tier === 'R2').map((k) => (
               <button key={k.kind} type="button" disabled={!k.allowed} aria-pressed={caps.includes(k.kind)} title={`${k.why} (${k.tier})`} onClick={() => setCaps((c) => (c.includes(k.kind) ? c.filter((x) => x !== k.kind) : [...c, k.kind]))}>
@@ -365,7 +369,7 @@ function TaskReassign({ close, props }: DialogComponentProps<{ missionId: string
           </div>
           <div className="row" style={{ gap: 8 }}>
             <input className="input" type="datetime-local" aria-label="Deadline" value={deadline} onChange={(e) => setDeadline(e.target.value)} style={{ maxWidth: 210 }} />
-            <input className="input" aria-label="Escalation" value={esc} onChange={(e) => setEsc(e.target.value)} />
+            <input className="input" aria-label="Escalation" maxLength={300} aria-invalid={!!fe.escalation} value={esc} onChange={(e) => setEsc(e.target.value)} />
           </div>
         </div>
       )}

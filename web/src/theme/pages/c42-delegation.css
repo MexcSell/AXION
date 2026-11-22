@@ -23,3 +23,7 @@
 .dbrief-pick button:hover:not(:disabled) { transform: translateY(-1px); }
 .dbrief-pick button:disabled { cursor: not-allowed; opacity: .25; }
 @media (prefers-reduced-motion: reduce) { .dbrief-pick button { transition: none; } }
+.dbrief-eff { font-size: 12px; }
+.dbrief-narrow { color: var(--warn, #e6a23c); }
+.dbrief-err { color: var(--danger, #ff6b6b); font-size: 11.5px; }
+.dbrief-hint { font-size: 11px; color: var(--text-dim); }

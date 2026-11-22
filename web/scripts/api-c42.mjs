@@ -80,6 +80,7 @@ try {
   const txt = await card.innerText();
   check('the card shows goal, acceptance checklist, capability chips with tiers, deadline and chain', /Rework the hero section/.test(txt) && /Hero fits on one screen/.test(txt) && /Contrast passes AA/.test(txt) && /read · R0/.test(txt) && /send_message · R2/.test(txt) && /depth 1/i.test(txt) && !/no deadline/.test(txt), txt.replace(/\s+/g, ' ').slice(0, 160));
   check('the acceptance list has 2 items and the card has a ? help', (await card.locator('.dbrief-accept li').count()) === 2 && (await card.locator('button[aria-label*="elp"], [data-help]').count()) >= 1);
+  check('the card shows the effective scope', /effective now/i.test(await card.locator('[data-testid="brief-effective"]').innerText()) && /read/.test(await card.locator('[data-testid="brief-effective"]').innerText()));
   await p.screenshot({ path: `${SHOTS}/c42-brief.png` });
 
   // 4. the server's rules

@@ -1,4 +1,4 @@
-import { CalendarClock, ChevronRight, Globe, HandHelping, ListChecks, ShieldCheck, Square, Wallet } from 'lucide-react';
+import { CalendarClock, ChevronRight, Dot, Globe, HandHelping, ListChecks, ShieldCheck, Wallet } from 'lucide-react';
 import type { DelegationBriefDto, BriefTier } from '@contracts';
 import { Chip, DemoTag } from '@/components/ui/Chips';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
@@ -30,7 +30,7 @@ export function DelegationBriefCard({ brief, all }: { brief: DelegationBriefDto;
       </nav>
       <div className="dbrief-goal"><HandHelping size={15} aria-hidden /><b>{b.goal}</b>{brief.simulated && <DemoTag />}</div>
       <div className="dbrief-sec"><span className="section-label"><ListChecks size={12} aria-hidden /> Acceptance</span></div>
-      <ul className="dbrief-accept">{b.acceptance.map((a, i) => <li key={i}><Square size={13} aria-hidden /><span>{a}</span></li>)}</ul>
+      <ul className="dbrief-accept">{b.acceptance.map((a, i) => <li key={i}><Dot size={16} aria-hidden /><span>{a}</span></li>)}</ul>
       <div className="dbrief-sec"><span className="section-label"><ShieldCheck size={12} aria-hidden /> Allowed capabilities</span></div>
       <div className="dbrief-caps">
         {b.capabilities.length ? b.capabilities.map((c) => {
@@ -38,6 +38,15 @@ export function DelegationBriefCard({ brief, all }: { brief: DelegationBriefDto;
           return <Chip key={c.kind + (c.origin ?? '')} hue={tier ? TIER_HUE[tier] : 260} size="sm" icon={c.origin ? Globe : undefined} title={tier ? `${c.kind}: tier ${tier}` : c.kind}>{c.kind}{c.origin ? ` @ ${c.origin.replace(/^https?:\/\//, '')}` : ''}{tier ? ` · ${tier}` : ''}</Chip>;
         }) : <span className="dim">none</span>}
       </div>
+      {brief.effective && (
+        <div className="dbrief-eff" data-testid="brief-effective">
+          <span className="section-label">Effective now</span>{' '}
+          <span>{brief.effective.capabilities.length ? brief.effective.capabilities.map((c) => (c.origin ? `${c.kind} @ ${c.origin.replace(/^https?:\/\//, '')}` : c.kind)).join(', ') : 'none'}</span>
+          {brief.effective.narrowedBy.map((n) => <span key={n.briefId} className="dbrief-narrow"> · narrowed by {agentName(n.toAgentId)} (not {n.dropped.join(', ')})</span>)}
+          {brief.effective.deadline && brief.effective.deadline !== b.deadline && <span className="dbrief-narrow"> · deadline {when(brief.effective.deadline)}</span>}
+          {brief.effective.budget !== null && brief.effective.budget !== (b.budget ?? null) && <span className="dbrief-narrow"> · budget {brief.effective.budget}</span>}
+        </div>
+      )}
       <div className="dbrief-meta">
         <span title="Deadline"><CalendarClock size={13} aria-hidden />{b.deadline ? when(b.deadline) : 'no deadline'}</span>
         {b.budget !== undefined && <span title="Budget"><Wallet size={13} aria-hidden />{b.budget} units</span>}

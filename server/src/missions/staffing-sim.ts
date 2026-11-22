@@ -13,6 +13,7 @@ import { advance } from '../../../web/src/features/mission/staffing-plan.ts';
 export function startStaffingSim(app: FastifyInstance, stepMs = 1500) {
   const timers = new Map<string, NodeJS.Timeout>();
   let closed = false;
+  const fails = new Map<string, number>(); // consecutive failed steps per mission: back off, then stop (c42 fix round, I2)
 
   const schedule = (id: string, delay = stepMs) => {
     if (closed || timers.has(id)) return;
@@ -67,9 +68,14 @@ export function startStaffingSim(app: FastifyInstance, stepMs = 1500) {
         return st.stage !== 'working';
       });
     } catch (e) {
-      app.log.warn({ err: e, mission: id }, 'staffing step failed; retrying');
-      more = true;
+      const n = (fails.get(id) ?? 0) + 1;
+      fails.set(id, n);
+      if (n > 12) { app.log.error({ err: e, mission: id }, 'staffing step failed 12 times in a row; giving up'); fails.delete(id); return; }
+      app.log.warn({ err: e, mission: id, attempt: n }, 'staffing step failed; retrying with backoff');
+      schedule(id, Math.min(stepMs * 2 ** n, 30_000));
+      return;
     }
+    fails.delete(id);
     if (more) schedule(id);
   }
 

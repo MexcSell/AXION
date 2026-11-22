@@ -348,7 +348,7 @@ export function flushMissionControlEvents() {
 }
 
 /* ------------------------------------------------------------------ task actions */
-export type TaskActionResult = { ok: true; task: Task } | { ok: false; message: string };
+export type TaskActionResult = { ok: true; task: Task } | { ok: false; message: string; fieldErrors?: Record<string, string> };
 /** retry / reassign / cancel a task (api mode). The server's message is returned as it is for an illegal move; the Task flow refreshes at once. */
 export async function taskAction(mid: string, taskId: string, action: 'retry' | 'reassign' | 'cancel', body: { toInstanceId?: string; reason?: string; brief?: unknown } = {}): Promise<TaskActionResult> {
   try {
@@ -359,7 +359,7 @@ export async function taskAction(mid: string, taskId: string, action: 'retry' | 
   } catch (e) {
     if (e instanceof ApiFailure && e.status === 404 && await confirmMissionGone(mid)) forget(mid);
     refreshSoon(mid, ['tasks']);
-    return { ok: false, message: msgOf(e) };
+    return { ok: false, message: msgOf(e), fieldErrors: e instanceof ApiFailure ? e.fieldErrors : undefined };
   }
 }
 
