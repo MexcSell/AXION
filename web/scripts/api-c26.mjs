@@ -287,6 +287,163 @@ for (let rep = 1; rep <= REPS; rep++) {
   } else console.log(`  trace: ${trace.skipped}`);
   console.log(`  PerformanceObserver longtask: ${po.count}, total ${po.totalMs} ms, worst ${po.worstMs} ms`);
 }
+/**
+ * Fix round I1: minimap blocks of rows that were never rendered are drawn at an estimated size. Their widths must sit
+ * within ±25 % of the measured mean of their kind (blocks of the rows on screen), so the minimap is not a staircase that
+ * depends on how far the reader scrolled. Run with the reader at the bottom of a long thread.
+ */
+async function widths(mid, tid, label) {
+  const body = p.locator('.conv-main .thread-body');
+  await body.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  await p.waitForTimeout(900); // measurements land within 400 ms (debounced), then the minimap renders
+  const kinds = Object.fromEntries(await p.evaluate(async ({ mid, tid }) => ((await import('/src/api/missionControl.ts')).useMC.getState().byMission[mid]?.threads?.[tid]?.messages ?? []).map((m) => [m.id, m.kind]), { mid, tid }));
+  const r = await p.evaluate((kinds) => {
+    const shown = new Set([...document.querySelectorAll('.conv-main .thread-body [data-mid]')].map((e) => e.getAttribute('data-mid')));
+    const per = {};
+    for (const b of document.querySelectorAll('.conv-main .minimap .mm-block')) {
+      const id = b.getAttribute('data-mm'), k = kinds[id] ?? '?', w = b.getBoundingClientRect().width;
+      const x = (per[k] ??= { on: [], off: [] });
+      (shown.has(id) ? x.on : x.off).push(w);
+    }
+    const out = [];
+    for (const [k, { on, off }] of Object.entries(per)) {
+      if (!on.length || !off.length) continue;
+      const m = on.reduce((q, v) => q + v, 0) / on.length;
+      const bad = off.filter((w) => Math.abs(w - m) > m * 0.25);
+      out.push({ k, mean: +m.toFixed(1), off: off.length, bad: bad.length, min: +Math.min(...off).toFixed(1), max: +Math.max(...off).toFixed(1) });
+    }
+    return out;
+  }, kinds);
+  const off = r.reduce((q, x) => q + x.off, 0), bad = r.reduce((q, x) => q + x.bad, 0);
+  check(`I1 ${label}: minimap blocks of rows not on screen are within ±25 % of the measured mean width of their kind`, off > 0 && bad === 0,
+    r.map((x) => `${x.k}: mean ${x.mean} px, ${x.off} off-screen ${x.min}–${x.max} px, ${x.bad} outside`).join(' · '));
+}
+
+/**
+ * Fix round I2: a thread with mixed heights (1 to 20 lines, long single paragraphs, image attachments), so the estimates
+ * are wrong and the code that absorbs wrong estimates runs: older pages keep the visible message in place (±8 px), the
+ * bottom pin survives late measurements, keyboard focus lands on the focused row, the minimap stays aligned, and a walk
+ * renders every message with no blank viewport.
+ */
+async function mixed() {
+  const { mid, tid } = await freshThread();
+  const png = async (w, h, hue) => Buffer.from((await p.evaluate(({ w, h, hue }) => { const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d'); g.fillStyle = `hsl(${hue} 70% 50%)`; g.fillRect(0, 0, w, h); g.fillStyle = '#fff'; g.fillRect(w / 4, h / 4, w / 2, h / 2); return c.toDataURL('image/png'); }, { w, h, hue })).split(',')[1], 'base64');
+  const upload = async (i) => {
+    if (!csrf) csrf = (await (await p.request.get(base + '/api/v1/me')).json()).me.csrf;
+    const r = await p.request.fetch(base + '/api/v1/uploads', { method: 'POST', headers: { 'x-csrf': csrf }, multipart: { file: { name: `mixed-${i}.png`, mimeType: 'image/png', buffer: await png(120 + (i % 5) * 60, 80 + (i % 3) * 90, (i * 37) % 360) } } });
+    return (await r.json()).id;
+  };
+  const word = (i) => ['alpha', 'migration', 'checkout', 'evidence', 'tokens', 'staging', 'contrast', 'verify'][i % 8];
+  const textOf = (i) => {
+    const kind = i % 7;
+    if (kind === 0) return `mixed ${String(i).padStart(4, '0')} short`;
+    if (kind === 1) return `mixed ${String(i).padStart(4, '0')} ` + Array.from({ length: 90 }, (_, j) => word(i + j)).join(' '); // one long paragraph
+    if (kind === 2) return `mixed ${String(i).padStart(4, '0')}\n` + Array.from({ length: 19 }, (_, j) => `line ${j + 1}: ${word(j)}`).join('\n'); // 20 lines
+    if (kind === 3) return `mixed ${String(i).padStart(4, '0')} three\nlines\nhere`;
+    if (kind === 4) return `mixed ${String(i).padStart(4, '0')} ` + Array.from({ length: 30 }, (_, j) => word(j * 3)).join(' ');
+    if (kind === 5) return `mixed ${String(i).padStart(4, '0')} ok`;
+    return `mixed ${String(i).padStart(4, '0')}\n` + Array.from({ length: 8 }, (_, j) => `- ${word(i * j)} ${word(j)}`).join('\n');
+  };
+  const N = Number(process.env.MIXED_N || 240);
+  for (let i = 1; i <= N; i += 10) {
+    await Promise.all(Array.from({ length: Math.min(10, N - i + 1) }, async (_, j) => {
+      const n = i + j;
+      const uploadIds = n % 6 === 0 ? [await upload(n)] : [];
+      return api('POST', `/threads/${tid}/messages`, { kind: 'command', text: textOf(n), to: 'gm', uploadIds }, { 'idempotency-key': key() });
+    }));
+  }
+  const body = p.locator('.conv-main .thread-body');
+  await until(async () => (await held(mid, tid)) >= N + 1, 60000, 250);
+  // (1) a reload: the newest page, pinned, and it stays pinned while rows and images are measured
+  await p.reload({ waitUntil: 'domcontentloaded' });
+  await until(async () => (await held(mid, tid)) >= 50, 15000);
+  const trail = [];
+  for (let i = 0; i < 12; i++) { trail.push(await body.evaluate((el) => Math.round(el.scrollHeight - el.scrollTop - el.clientHeight)).catch(() => null)); await p.waitForTimeout(250); }
+  check('I2 mixed heights: after a reload the thread is pinned to the bottom and stays there for 3 s', trail.every((d) => d != null && d < 60), `distance from the bottom: ${trail.join(' ')}`);
+  // (2) older pages: hold the page request until the visible message has been recorded, then check it stays put (±8 px)
+  const shifts = [];
+  for (let round = 0; round < 6 && await body.evaluate((el) => el.dataset.hasOlder === '1'); round++) {
+    const before = await held(mid, tid);
+    const heldRoutes = [];
+    const olderRe = new RegExp(`/api/v1/threads/${tid}/messages\\?.*before=`);
+    await p.route(olderRe, (route) => { heldRoutes.push(route); });
+    const a = await body.evaluate(async (el) => {
+      el.scrollTop = 0;
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const box = el.getBoundingClientRect();
+      const first = [...el.querySelectorAll('[data-mid]')].find((n) => n.getBoundingClientRect().bottom > box.top + 1);
+      return first ? { id: first.getAttribute('data-mid'), top: first.getBoundingClientRect().top - box.top } : null;
+    });
+    await until(async () => heldRoutes.length > 0, 5000, 50);
+    await p.unroute(olderRe);
+    for (const r of heldRoutes) await r.continue();
+    await until(async () => (await held(mid, tid)) > before, 8000);
+    await p.waitForTimeout(700); // measurements of the new rows land (≤ 400 ms) and are absorbed
+    const after = a ? await body.evaluate((el, id) => { const x = el.querySelector(`[data-mid="${id}"]`); return x ? x.getBoundingClientRect().top - el.getBoundingClientRect().top : null; }, a.id) : null;
+    shifts.push(after == null || !a ? 999 : Math.abs(after - a.top));
+    await body.evaluate((el) => { el.scrollTop += 400; });
+    await p.waitForTimeout(250);
+  }
+  check('I2 mixed heights: each older page keeps the visible message in place (±8 px), the request held until it was recorded', shifts.length >= 3 && shifts.every((x) => x <= 8), `${shifts.length} pages · shifts ${shifts.map((x) => x.toFixed(1)).join(' ')} px`);
+  // load the rest
+  for (let i = 0; i < 20 && await body.evaluate((el) => el.dataset.hasOlder === '1'); i++) { await body.evaluate((el) => { el.scrollTop = 0; }); await p.waitForTimeout(300); await body.evaluate((el) => { el.scrollTop += 300; }); await p.waitForTimeout(100); }
+  const ids = await storeIds(mid, tid);
+  // (3) every message reachable, no blank viewport, on wrong estimates
+  const w = await body.evaluate(async (el) => {
+    const raf = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    el.scrollTop = 0; await raf(); await raf();
+    const seen = [], set = new Set(); let blank = 0, steps = 0;
+    for (;;) {
+      await raf();
+      const box = el.getBoundingClientRect();
+      const rs = [...el.querySelectorAll('[data-mid]')];
+      if (!rs.some((r) => { const b = r.getBoundingClientRect(); return b.bottom > box.top + 1 && b.top < box.bottom - 1; })) blank++;
+      for (const r of rs) { const id = r.getAttribute('data-mid'); if (!set.has(id)) { set.add(id); seen.push(id); } }
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 2 || ++steps > 3000) break;
+      el.scrollTop += Math.round(el.clientHeight * 0.8);
+    }
+    return { seen, blank, steps };
+  });
+  check('I2 mixed heights: a walk from the top renders every message in order with no blank viewport', w.seen.length === ids.length && w.seen.every((x, i) => x === ids[i]) && w.blank === 0, `${w.seen.length}/${ids.length} in ${w.steps} steps · blank ${w.blank}`);
+  // (4) keyboard: Home, End and a run of ↑ each land on a row that is inside the viewport and holds focus
+  const landed = async () => p.evaluate(() => {
+    const a = document.activeElement, el = document.querySelector('.conv-main .thread-body');
+    if (!a?.getAttribute('data-mid') || !el) return null;
+    const b = a.getBoundingClientRect(), box = el.getBoundingClientRect();
+    return { id: a.getAttribute('data-mid'), visible: b.top >= box.top - 1 && Math.min(b.bottom, b.top + box.height) <= box.bottom + 1 };
+  });
+  await body.evaluate((el) => el.querySelector('[data-mid][tabindex="0"]')?.focus());
+  const keys = [];
+  for (const [k, want] of [['Home', ids[0]], ['End', ids[ids.length - 1]], ['Home', ids[0]]]) {
+    await p.keyboard.press(k);
+    await until(async () => (await landed())?.id === want, 3000);
+    await p.waitForTimeout(150);
+    const l = await landed(); keys.push(`${k} ${l?.id === want && l.visible ? 'ok' : JSON.stringify(l)}`);
+  }
+  for (let i = 0; i < 25; i++) await p.keyboard.press('ArrowDown');
+  await p.waitForTimeout(300);
+  const l25 = await landed(); keys.push(`↓×25 ${l25?.id === ids[25] && l25.visible ? 'ok' : JSON.stringify(l25)}`);
+  check('I2 mixed heights: keyboard focus scrolls the focused message into view (Home, End, Home, ↓×25)', keys.every((x) => x.endsWith(' ok')), keys.join(' · '));
+  // (5) the minimap stays aligned with the rendered rows (blocks matched by id, as drawn), at the top and the middle
+  const aligned = async () => { await p.waitForTimeout(700); return p.evaluate(() => {
+    const layer = document.querySelector('.conv-main .minimap .mm-blocks'), el = document.querySelector('.conv-main .thread-body');
+    if (!layer || !el) return { bad: -1 };
+    const y0 = layer.getBoundingClientRect().top;
+    const at = new Map([...document.querySelectorAll('.conv-main .minimap .mm-block')].map((b) => [b.getAttribute('data-mm'), b.getBoundingClientRect().top - y0]));
+    const rows = [...el.querySelectorAll('[data-mid]')].map((w) => [w.getAttribute('data-mid'), (w.querySelector('.bubble-row') ?? w).offsetTop]);
+    const [lid, ltop] = rows[rows.length - 1] ?? [];
+    const s = lid && at.has(lid) ? at.get(lid) / Math.max(ltop, 1) : 0;
+    const bad = rows.filter(([id, top]) => !at.has(id) || Math.abs(at.get(id) - top * s) > 1.5);
+    return { bad: bad.length, n: rows.length, s: +s.toFixed(4) };
+  }); };
+  await body.evaluate((el) => { el.scrollTop = Math.round(el.scrollHeight * 0.45); });
+  const mid1 = await aligned();
+  await body.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  const bot1 = await aligned();
+  check('I2 mixed heights: minimap blocks sit where their rendered rows are (±1.5 px), middle and bottom', mid1.bad === 0 && bot1.bad === 0 && mid1.n > 0, `middle ${mid1.bad}/${mid1.n} off · bottom ${bot1.bad}/${bot1.n} off · scale ${bot1.s}`);
+  return { mid, tid };
+}
+
 let last = runs[runs.length - 1];
 if (process.env.CHECKS !== '0') {
   try {
@@ -301,7 +458,13 @@ if (process.env.CHECKS !== '0') {
       await p.waitForTimeout(1500);
       await pane.screenshot({ path: process.env.SHOT.replace(/\.png$/, '-mid.png') });
     }
+    await widths(last.mid, last.tid, 'reader at the bottom');
+    // the same after the thread's width changes (cached heights and estimates are learned again)
+    await p.setViewportSize({ width: 1360, height: 940 });
+    await widths(last.mid, last.tid, 'after the thread got narrower');
+    await p.setViewportSize({ width: 1600, height: 940 });
     await behaviour(last.mid, last.tid);
+    if (process.env.MIXED !== '0') await mixed();
   } catch (e) { check('behaviour checks ran', false, e.message.split('\n')[0]); }
   console.log(`behaviour checks: ${checks.filter((c) => c.ok).length}/${checks.length} passed`);
 }

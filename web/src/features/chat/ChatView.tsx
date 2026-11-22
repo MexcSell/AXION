@@ -14,7 +14,7 @@ import type { Attachment, Message, MessageKind } from '@/data/types';
 import { useAuth, useMe } from '@/store/auth';
 import { openDialog } from '@/store/ui';
 import { clock, cx } from '@/lib/format';
-import { layoutRows, mapRows, rangeFor, type RowGeo } from './threadWindow';
+import { layoutRows, learn, mapRows, newEstimate, rangeFor, relearn, type RowGeo } from './threadWindow';
 import { fileKind } from '@/features/mission/staffing';
 import { EvidenceThumb } from '@/features/mission/EvidenceThumb';
 import { ThreadMinimap } from '@/features/mission/ThreadMinimap';
@@ -200,7 +200,6 @@ export function ChatComposer({ modes, initialMode, toName, draftKey, disabled, d
  */
 const OVERSCAN = 900;   // px rendered above and below the viewport
 const DRIFT = 300;      // the window follows the scroll position in steps of this many px
-const EST_SAMPLES = 30; // estimates: the mean of the first N measured rows, then fixed (so the spacers do not churn)
 const GEO_WAIT = 100, GEO_MAX_WAIT = 400; // ms: see meter.bump
 
 const ThreadRow = memo(function ThreadRow({ m, sep, gk, right, compact, missionId, label, pos, size, tab, known, live, observe }: {
@@ -211,7 +210,7 @@ const ThreadRow = memo(function ThreadRow({ m, sep, gk, right, compact, missionI
   // rows of the first render and not for a row that mounts because the reader scrolled to it
   const [enter] = useState(() => live.current && !known.has(m.id));
   return (
-    <div data-mid={m.id} data-gk={gk} ref={observe} className="thread-row" role="article" aria-posinset={pos} aria-setsize={size} tabIndex={tab ? 0 : -1}>
+    <div data-mid={m.id} data-gk={gk} data-kind={m.kind} ref={observe} className="thread-row" role="article" aria-posinset={pos} aria-setsize={size} tabIndex={tab ? 0 : -1}>
       {sep && <div className="day-sep"><span>{sep}</span></div>}
       <ChatBubble m={m} right={right} compact={compact} missionId={missionId} label={label} enter={enter} />
     </div>
@@ -243,7 +242,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
 
   // ------------------------------------------------------------ geometry model and rendered window (cycle 26)
   const geo = useRef(new Map<string, RowGeo>());
-  const est = useRef({ row: 74, sep: 27, nRow: 0, sumRow: 0, nSep: 0, sumSep: 0 });
+  const est = useRef(newEstimate());
   const box = useRef({ gap: 10, pad: 12, width: 0 });
   const [geoV, setGeoV] = useState(0);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -302,9 +301,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
         const old = geo.current.get(gk);
         if (old && Math.abs(old.h - g.h) < .5 && Math.abs(old.off - g.off) < .5 && Math.abs(old.bh - g.bh) < .5 && Math.abs(old.w - g.w) < .005) return false;
         geo.current.set(gk, g);
-        const x = est.current;
-        if (!old && x.nRow < EST_SAMPLES) { x.nRow++; x.sumRow += g.bh; x.row = x.sumRow / x.nRow; }
-        if (!old && g.off > 0 && x.nSep < EST_SAMPLES) { x.nSep++; x.sumSep += g.off; x.sep = x.sumSep / x.nSep; }
+        if (!old) learn(est.current, el.dataset.kind ?? '', g);
         return true;
       },
       get(): ResizeObserver {
@@ -317,6 +314,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
               const w = sc.clientWidth;
               if (box.current.width && Math.abs(w - box.current.width) > 1) { // text re-wraps: every cached height is stale
                 geo.current.clear();
+                if (sc.querySelector('[data-gk]')) relearn(est.current); // estimates are learned again from the rows on screen
                 sc.querySelectorAll<HTMLElement>('[data-gk]').forEach((r) => me.row(r));
                 changed = wide = true;
               }
