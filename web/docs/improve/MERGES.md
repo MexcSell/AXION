@@ -407,3 +407,38 @@ FAIL 900 /operations?tab=logs tab=Logs: clipped control button.icon-btn.xs[Dismi
 - **fit-check:** 77/77 ALL FIT. **ov-fit:** 32/32, NO SCROLL ANYWHERE.
 
 **Follow-up commits:** none. Controller files committed with this entry: BACKLOG.md, LOG.md (modified), cycles/c42-review.md (new).
+
+## Batch 5g: c26 (virtualised threads, hand-merge)
+
+- **Merged:** 2026-11-22 ~05:05 UTC. Pre-batch commit `9ebf234`.
+- **Merge commit:** `38a8c67` c26-thread-virtualise (14616db), `--no-ff`.
+- **Conflicts** (exactly the two the re-review predicted; resolved per c26's report I3):
+  - `web/src/features/chat/ChatView.tsx` `onScroll`: c26's handler (`moving`/`own` stamps, `record()`, `far`/`moveVp`) plus c25's stale-anchor re-capture *after* the window has followed the scroll. At the top, or while an older page loads, the rows are rendered first (`flushSync(moveVp)`) so the anchor is a row the reader can see. c26's `aria-live="off"` and status line are kept (its reviewed departure from c23). c09's Reply `replyTo: m.id` and ChannelChat `flushChannelMark` auto-merged.
+  - `web/scripts/api-stage6.mjs` paging loop: c26's `loaded()` count, with c25's `calm()` in place of the fixed 400 ms. The other two waits auto-merged to `calm()`.
+- **Server:** tsc OK; vitest 37 files 586/586. **web:** tsc OK.
+
+**First run on `38a8c67`:**
+- api-auth-flow 15/15; api-flows 23/23; api-stage6 94/94; api-improve 107/107; api-c09 6/6; a11y-check (api) 40 views, 56 dialogs, 0 violations.
+- **api-c22:** behaviour 14/14 (N=130 1.35–1.6 s), but **N=1000 "not interactive within the cap" 3/3** (THRESHOLD MISS).
+- **api-c26** (REPS=3 FILL=1000): every rep "burst 200 posted in 150–186 ms, store has it NO"; behaviour 21/22. FAIL: `I2 mixed heights: each older page keeps the visible message in place (±8 px) … shifts 778.4 0.3 0.1 0.1 px`. The mixed walk saw 232 of 241 messages.
+- Cause: c14's throw-away e2e server lifts messages to only 1,000 a minute per session. api-c22 N=1000 and api-c26 post more than that within a minute, so their last posts got 429 and the newest message never arrived. api-c22 N=1000 had not run since batch 2d, before c14.
+- Proof, on `38a8c67` with the lift raised (uncommitted): api-c22 N=1000 interactive 1,334 ms; api-c26 behaviour (REPS=0) 22/22, including I2 older pages. The merged onScroll is not the cause.
+- **Follow-up `ac1a48c`** (e2e-serve only): messages lifted to 5,000 a minute. Real limits are unchanged; security.test.ts covers them. **CONFIRMED by the controller.**
+
+**c25's stale-anchor check:** none existed (the c25 review: "no automated test for a slow page"). New `web/scripts/api-c25-anchor.mjs`, committed with this entry at the controller's request:
+- the older-page request is held while the reader keeps scrolling down (6×60 px), then the row in view must stay put (±8 px);
+- **RED with c25's re-capture line removed (pre-c26 tree): 334.5 / 334 / 334 px; GREEN on the pre-c26 tree 0.5 / 0 / 0; on the merged tree 0.1 / 0.1 / 0.1 and 0.7 / 0.2 / 0.3 px.**
+
+**Final checks on `ac1a48c`:**
+- **api-c22** (SIZES 130,1000, REPS 3): exit 0, behaviour 14/14. Reload → interactive: N=130 1,351–1,574 ms after the burst, 1,299–1,615 idle; N=1000 1,366–1,525 after the burst, 1,460–1,512 idle.
+- **api-c26** (REPS=3 FILL=1000): **exit 0, behaviour 22/22**, including the wheel, pill and minimap N1 checks. Burst arrives in 1,194–1,263 ms; page errors 0.
+  - Timing (informational; c26's own verdict is NOT MET on timing): whole trace long-task total 1,420 / 1,333 / 1,605 ms (mean 1,453; c26 lane after: 1,385), worst task 1,014 / 1,018 / 1,132 ms (c26 lane after: 464–518).
+  - "still pinned false" after each burst is the pre-existing early unpin the c26 report describes (§ line 213); it is not a check.
+- **verify-all:** exit 0, "ALL 10 STEPS PASSED", no FAIL lines; flows 21/21.
+- **fit-check:** 77/77 ALL FIT. **ov-fit:** 32/32, NO SCROLL ANYWHERE. **a11y-check (demo):** 50 views, 56 dialogs, 0 violations (151.4 s).
+- **api-mobile:** exit 1, 658 states and 359 dialogs measured, **34 FAIL lines, all in the four known debt families** (QUEUE known failures). Against batch 5c's 32 lines:
+  - +2 Activity act-card lines (`[Analyst-01AnalyticsRunni]`, `[Writer-01WriterCalling a]`): the same clipped cards, whose labels carry the live activity text.
+  - The toast "Dismiss notification" mid-exit line moved from `/operations?tab=logs` (900) to `/operations tab=Recovery` (900): whichever route a toast was leaving.
+  - No new family.
+
+**Follow-up commits:** `ac1a48c` (e2e message lift). Controller files committed with this entry: BACKLOG.md (H7 gets the 4× throttle result from batch 5f, at the controller's request), LANES.md, LOG.md, QUEUE.md (modified); cycles/c41-review, c41-rereview, c42-rereview, c43-brief (new).

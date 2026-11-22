@@ -69,7 +69,7 @@ A1 → B1 → C1 → A3 → B3 → C2 → A2 → B2 → C3 → A5 → B4 → C4 
 
 | P2 | Virtualise long conversation threads (c22: a live 1,000-message burst still keeps the page busy; api-stage6 counts one DOM row per message, so coordinate the check). | 3 | 2 | 4 | 9 |
 
-| H7 | flows.mjs steps flake under load (Hierarchy even at 1x; Conversations, palette, theme, help popover, u1 News / Chat dock under load), found in c29. Make every step condition-based and check it under FLOWS_CPU_THROTTLE=4. After c28 and c29 merge. | 4 | 3 | 5 | 12 |
+| H7 | flows.mjs steps flake under load (Hierarchy even at 1x; Conversations, palette, theme, help popover, u1 News / Chat dock under load), found in c29. Make every step condition-based and check it under FLOWS_CPU_THROTTLE=4. After c28 and c29 merge. **Measured on the merged tree (batch 5f, f85f310, 4× throttle): 19/21, the archive step PASS, `Command palette navigates (Ctrl+K)` and `Theme toggle` FAIL (waitForURL / click timeouts), so the palette still fails under throttle after c28.** | 4 | 3 | 5 | 12 |
 
 | H8 | useStaffingDriver (web/src/features/mission/staffing.ts:12-21) ticks over a `missions` array captured at render time, so between a store update and the React commit a tick can advance a just-archived mission (staffing-plan.ts:97 checks the stale copy). Read fresh state from the store inside the tick, and prove c29-archive-race.mjs fails on a known-bad mutation. From the c29 review. | 3 | 5 | 5 | 13 |
 
