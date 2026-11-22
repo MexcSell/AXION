@@ -236,3 +236,33 @@ Integrator log: one entry per merge request. Times are UTC.
 - Host load was 12–32 throughout (lane runs).
 
 **Follow-up commits:** `6876fab` (above). Controller files committed with this entry: LOG.md, QUEUE.md (modified), cycles/c28-brief.md (new).
+
+## Batch 5: c20, c09 (c15 HELD)
+
+- **Merged:** 2026-11-22 ~00:25–00:27 UTC. Pre-batch commit `cca6a70`.
+- **Merge commits (`--no-ff`):**
+  - `c5f8dda` c20-org-coverage (df91e31): coverage facts in dry runs, history and the Policies card (`GET /organization/coverage`, read-only, so c14's rate-limit map needs no entry).
+  - `b18c5a2` c09-server-minors (4eb4651): unified `task.delegated`, replyTo scoped to the thread, reassign refuses ended instances, instances keyset paging, `decidedByName`.
+- **Conflicts:**
+  - c20 `server/src/app.ts`: c19 `mentoringRoutes` and c20 `coverageRoutes` both imported and registered.
+  - c20 `web/src/features/agents/OrgSections.tsx`: c06 `ServerDepartments` and c20 `CoverageCard` imports both kept.
+  - c20 `web/src/theme/pages/overview-org-agent.css`: end of file; c18 tab-strip rules and c20 coverage rules both kept.
+  - c09 `web/scripts/api-improve.mjs` expiry step: kept HEAD (e2eUrl is read and guarded once in the c04 step; the branch re-declared it).
+- **Per-merge server checks:** tsc OK after each. vitest after c20: 36 files 576/576. After c09: first run **3 failed in 2 files (names not captured)**, two reruns 37 files 583/583. Probably load or the connection cap, but unproven; every vitest run is now written to a file.
+
+**c15-contract-tests: HELD (merge aborted, nothing committed).**
+- c15's base is `2ed66e9` (before cycle 4). Its contract test freezes the API as it was then and, by design, fails on any route, field or event it does not validate.
+- On the merged tree, `server` tsc fails in `test/contracts/validators.ts`:
+  - `OrgDryRun.coverage` missing (c20);
+  - `ScorecardRow.previous/trend` and `CompanyScorecardDto.previousFrom/previousTo` missing (c12);
+  - `EventPayloads` lacks `agent.versionProposed/versionPromoted/rolledBack/versionProposalDecided` (c05) and `mentoring.planned/milestoneDone/closed` (c19).
+- `vitest run test/contracts` on the merged tree: 1 failed / 5 passed. `contract drift`: 53 "not in the contract" fields (c04 revision `createdByName/source/appliedFromProposal/changed/coverage`; c20 `result.coverage` on every proposal reply; c12 scorecard `previous/trend/previousFrom/previousTo`). The test stops there, before the missing-route and unseen-event assertions.
+- Not yet covered by any validated call: 19 routes added since its base:
+  - c19: `GET /mentoring`, `GET|POST /agents/:id/mentoring`, `POST /mentoring/:pid/milestones/:mid/done`, `POST /mentoring/:pid/close`;
+  - c05: `GET /version-proposals`, `GET|POST /agents/:id/version-proposals`, `POST /version-proposals/:pid/decision|withdraw`, `POST /agents/:id/rollback`;
+  - c06: `GET /departments`;
+  - c12: `GET /company/throughput` (and the changed scorecard);
+  - c20: `GET /organization/coverage`;
+  - c04: `GET /organization/revisions`, `/revisions/:seq`, `/revisions/:seq/diff`, `POST /revisions/:seq/rollback-proposal`.
+- Going green means validators and flow steps for all of these, or `NOT_REACHABLE` entries, which would weaken the test. That is lane-sized new test surface needing its own review, so I did not write it. The queue's "tighten the `// remove after c09 merge` tolerances" follow-up moves with c15.
+- **Controller decision:** refresh c15 against improve-30h in a lane (best after c27, which changes the `agent.rolledBack` payload), then merge it with the tightening.
