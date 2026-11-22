@@ -27,6 +27,7 @@ Lane L lives in `/home/luca/AXION-wL` on its own branch. Port base B is 5000 + L
   - Stop the dev server by port when done.
 
 ## Never
+- Never copy `AUDIT_ANCHOR_*` settings from the live `.env` (new-lane.sh strips them; set hermetic test values in tests).
 - Never touch `/home/luca/AXION` (the integration tree), another lane's worktree, or ports 5190 (live web) and 5191
   (live API). Never use another lane's ports.
 - Never use the real `axion` database (your `.env` points it at `axion_lane_disabled`). Never run `npm run dev`,
@@ -66,6 +67,9 @@ Migrations 0001–0013 are on `improve-30h`. Reserved numbers, so lanes never co
 | w46 (c47 eval evidence) | 0037 |
 | w48 (c49 audit anchor, only if needed; unused) | 0038 |
 | w50 (c51 review hardening) | 0039 |
+| w52 (c53 eval integrity, only if needed) | 0040 |
+| w53 (c54 clock and dimensions, only if needed) | 0041 |
+| w55 (c56 public suffix, only if needed) | 0042 |
 
 Use your number only if you really need a migration.
 
@@ -80,4 +84,4 @@ Use your number only if you really need a migration.
   condition waits.
 
 ## Test databases for lanes 28 and up
-The `axion` role can't create databases, and nobody uses sudo for that. New lanes reuse a retired lane's e2e DB, which the harness empties and re-migrates on every start: w28 → axion_e2e2, w29 → axion_e2e3, w30 → axion_e2e4. w31 → axion_e2e5, w32 → axion_e2e6, w33 → axion_e2e7, w34 → axion_e2e8, w35 → axion_e2e9, w36 → axion_e2e10, w37 → axion_e2e11, w38 → axion_e2e12, w39 → axion_e2e13, w41 → axion_e2e14, w42 → axion_e2e15, w43 → axion_e2e16, w44 → axion_e2e17, w46 → axion_e2e2 (reused again; c30 merged), w47 → axion_e2e3 (c31 merged), w48 → axion_e2e4 (c32 merged), w45 → axion_e2e18, w49 → axion_e2e15 (c43 merged), w50 → axion_e2e16 (c44 merged), w51 → axion_e2e17 (c45 merged). Next free: axion_e2e18 (reserved for the M1 lane), then the DBs of lanes whose branches have merged (check with the controller). Edit the new lane's `server/.env` after `new-lane.sh`.
+The `axion` role can't create databases, and nobody uses sudo for that. New lanes reuse a retired lane's e2e DB, which the harness empties and re-migrates on every start: w28 → axion_e2e2, w29 → axion_e2e3, w30 → axion_e2e4. w31 → axion_e2e5, w32 → axion_e2e6, w33 → axion_e2e7, w34 → axion_e2e8, w35 → axion_e2e9, w36 → axion_e2e10, w37 → axion_e2e11, w38 → axion_e2e12, w39 → axion_e2e13, w41 → axion_e2e14, w42 → axion_e2e15, w43 → axion_e2e16, w44 → axion_e2e17, w46 → axion_e2e2 (reused again; c30 merged), w47 → axion_e2e3 (c31 merged), w48 → axion_e2e4 (c32 merged), w45 → axion_e2e18, w49 → axion_e2e15 (c43 merged), w50 → axion_e2e16 (c44 merged), w51 → axion_e2e17 (c45 merged). Wave 5 (all earlier branches merged): w52 → axion_e2e18, w53 → axion_e2e2, w54 → axion_e2e3, w55 → axion_e2e4, w56 → axion_e2e15. Next free: axion_e2e18 (reserved for the M1 lane), then the DBs of lanes whose branches have merged (check with the controller). Edit the new lane's `server/.env` after `new-lane.sh`.

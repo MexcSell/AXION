@@ -85,3 +85,37 @@ Results or Models tabs, in their own final batch the owner can drop whole (owner
 - **Citations:** only the ones verified in `phase2/*-verified.md`. A new source is verified before it is cited.
 - **Logging:** each wave ends with a LOG entry, a LESSONS entry, and a SCORECARD update.
 - **Queued owner questions** are listed at the end of the phase: Q1–Q11 so far, plus any new ones. Q11: may Stage 8/9 records-only foundations (R1, A1, M2, G1) be built ahead of those stages' approval, or should they wait?
+
+## Wave 5 (Phase 2 proper; started 2026-11-22T17:45Z)
+
+Waves 1–4 (ungated) are merged and live (ed3ed73). Wave 5 has two tracks that run in parallel:
+
+**Track A, hardening what we built** (the merge and review follow-ups, five lanes, disjoint files):
+
+| Cycle | Lane | Project | Backlog |
+|---|---|---|---|
+| c53 | w52 | Eval-run integrity: no re-run shopping across proposals, resumable runs, judge labels, exact number rendering, reuse false positives (validation only, no run-write route) | E1c |
+| c54 | w53 | Clock bounds from SQL everywhere, plus six dimensions sourced from stored runs, c51 freshness, and a PageFrame tab instead of DL-98 | H11, M1b, M1c |
+| c55 | w54 | Thread follow-ups: measured-anchor restore, `ChatView.hold` forced layout, a relative latency bar, production-build number | P2b |
+| c56 | w55 | Pinned Public Suffix List snapshot with hash; refuse grants on any public suffix | P4b |
+| c57 | w56 | Test hygiene: a11y live-region race, exercise `GET /operations/anchors` hermetically | H12, H13 |
+
+**Track B, learning new things** (the owner's "innovative and new"): research round 2 (`phase2/research-r2.md`), done by
+a researcher and checked by a separate verifier (`phase2/research-r2-verified.md`). It looks at what is new since round 1
+and fits AXION's records-only boundary. Its verified ideas become Wave 6.
+
+**Wave 6** is chosen from round 2's verified ideas. The gated Wave 4 items (R1, A1, M2, G1) still run last as a droppable
+batch.
+
+**Cut-off:** no new lane starts after 2026-11-23T13:45Z. The gated batch runs only if it clears before then. The final
+live update and report land before 21:45Z.
+
+### Standing rules for every Wave 5+ brief
+- Branch from the commit named in the brief. LANES.md applies in full (heavy.sh, ports, PID-owned kills, never stash).
+- c50 contract coverage is in base. A new route or response field needs its registry, DTO and validator entries in the
+  same lane. **No new allowlist lines.**
+- Any reassign carries a brief (c51). Every advisory lock goes through `server/src/locks.ts`. Every time comparison
+  **and bound** uses DB `now()` in SQL (never `new Date()` from a DB clock, and never the app clock as a SQL bound).
+- Append-only tables need all four guards plus the `axion.purge_demo` exception.
+- Name every failing test, with its first error line, in the report. Print the load average next to every timing.
+- Show RED before GREEN for each item, and mark each threshold item PASS, FAIL or NOT MET honestly.
