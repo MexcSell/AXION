@@ -377,3 +377,16 @@ FAIL 900 /operations?tab=logs tab=Logs: clipped control button.icon-btn.xs[Dismi
 - **fit-check:** 77/77 ALL FIT. **ov-fit:** 32/32, NO SCROLL ANYWHERE.
 
 **Follow-up commits:** none. Controller files committed with this entry: LOG.md, QUEUE.md (modified).
+
+## Batch 5e: c28 (palette and gaps)
+
+- **Merged:** 2026-11-22 ~03:58 UTC. Pre-batch commit `01e55ec`.
+- **Merge commit:** `cd71789` c28-palette-and-gaps (072a1ea), `--no-ff`. **Conflicts:** none.
+- **Server:** tsc OK; vitest 37 files 586/586. **web:** tsc OK.
+- **api-e2e (exit 0):** api-auth-flow 15/15; api-flows 23/23; api-stage6 94/94; api-improve 107/107; **a11y-check (api) 40 views, 56 dialogs, 0 violations** (178.7 s; the error-state probes report `fail []`, meaning no violations).
+- **verify-all:** exit 0, "ALL 10 STEPS PASSED", no FAIL lines. flows 21/21: palette and theme toggle PASS. **Ruling (b) ends here: a palette FAIL now blocks.** Dialog smoke 112 checks, 0 failures.
+- **c28's own checks (against 5190):** c28-palette-fast 0/5 failures; c28-palette-pending PASS escape and PASS click (I1: no action after close, one navigation); c28-signout-refresh PASS (1 refresh with the stream open, 0 after sign-out); c28-palette `RUNS=10` 0/10 failures.
+- **a11y-check (demo):** 50 views, 56 dialogs, 0 violations (143.0 s).
+- **fit-check:** 77/77 ALL FIT. **ov-fit:** 32/32, NO SCROLL ANYWHERE.
+
+**Follow-up commits:** none. Controller files committed with this entry: BACKLOG.md, LANES.md, LOG.md, QUEUE.md (modified); cycles/c38-review, c38-rereview, c39-review, c41-brief, c42-brief (new).

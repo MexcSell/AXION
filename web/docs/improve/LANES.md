@@ -58,7 +58,9 @@ Migrations 0001–0013 are on `improve-30h`. Reserved numbers, so lanes never co
 | w33 (c35) | 0029 |
 | w34 (c36) | 0030 |
 | w36 (c38) | 0031 |
-| w37 (c39) | 0032 |
+| w37 (c39; dev port 8794, because 8790 is used by another app) | 0032 |
+| w39 (c41) | 0033 |
+| w41 (c42; lane 40 skipped, because port 9090 is used by another app) | 0034 |
 
 Use your number only if you really need a migration.
 
@@ -73,4 +75,4 @@ Use your number only if you really need a migration.
   condition waits.
 
 ## Test databases for lanes 28 and up
-The `axion` role can't create databases, and nobody uses sudo for that. New lanes reuse a retired lane's e2e DB, which the harness empties and re-migrates on every start: w28 → axion_e2e2, w29 → axion_e2e3, w30 → axion_e2e4. w31 → axion_e2e5, w32 → axion_e2e6, w33 → axion_e2e7, w34 → axion_e2e8, w35 → axion_e2e9, w36 → axion_e2e10, w37 → axion_e2e11, w38 → axion_e2e12. Next free: axion_e2e13 to axion_e2e18 (lanes merged). Edit the new lane's `server/.env` after `new-lane.sh`.
+The `axion` role can't create databases, and nobody uses sudo for that. New lanes reuse a retired lane's e2e DB, which the harness empties and re-migrates on every start: w28 → axion_e2e2, w29 → axion_e2e3, w30 → axion_e2e4. w31 → axion_e2e5, w32 → axion_e2e6, w33 → axion_e2e7, w34 → axion_e2e8, w35 → axion_e2e9, w36 → axion_e2e10, w37 → axion_e2e11, w38 → axion_e2e12, w39 → axion_e2e13, w41 → axion_e2e14. Next free: axion_e2e15 to axion_e2e18 (lanes merged). Edit the new lane's `server/.env` after `new-lane.sh`.
