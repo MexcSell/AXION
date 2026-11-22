@@ -8,6 +8,7 @@ import { loadAgents, useAgentsVersion, bumpInstances } from './agents';
 import { bumpProposals } from './orgProposals';
 import { bumpVersionProposals } from './versionProposals';
 import { bumpMentoring } from './mentoring';
+import { bumpPlaybooks } from './playbooks';
 import { bumpScorecard, clearScorecard } from './scorecard';
 import { bumpDepartments, clearDepartments } from './departments';
 import { onChannelEvent, refreshLoadedChannels, clearChannels, setChatUser } from './chat';
@@ -47,6 +48,7 @@ export function startSync(): () => void {
   const proposals = debounceKeyed(() => bumpProposals(), 150);
   const versions = debounceKeyed(() => bumpVersionProposals(), 150);
   const mentoring = debounceKeyed(() => bumpMentoring(), 150);
+  const playbooks = debounceKeyed(() => bumpPlaybooks(), 150); // c41
   const scorecard = debounceKeyed(() => bumpScorecard(), 400);
   // improvement cycle 3: each agent's measured reliability follows task outcomes and reassignments (the catalog carries it)
   const reliability = debounceKeyed(() => { void loadAgents().catch(() => undefined); }, 400);
@@ -84,6 +86,7 @@ export function startSync(): () => void {
     if (type.startsWith('agent.')) versions('v');
     // improvement cycle 19: mentoring plans, milestones and closures
     if (type.startsWith('mentoring.')) mentoring('m');
+    if (type.startsWith('playbook.') || type.startsWith('skill.')) playbooks('p'); // c41: lessons, playbook versions, skills
     if (type === 'org.revisionApplied') agents('a');
     // improvement cycle 2: the company scorecard follows state changes (and what the viewer can see)
     if (type === 'mission.stateChanged' || type === 'task.stateChanged' || type === 'mission.shared' || type === 'mission.deleted') scorecard('s');
@@ -114,12 +117,14 @@ export function startSync(): () => void {
       set('live');
       // the snapshot is read after the stream's cursor exists, so nothing committed in between is missed
       void loadSnapshot().catch(() => undefined);
+      if (opened) playbooks('p'); // c41: a reconnect re-reads the playbook panel too
       if (opened++) { agents('a'); instances('i'); proposals('o'); versions('v'); mentoring('m'); scorecard('s'); refreshLoadedMissionControl(); void refreshLoadedChannels(); departments('d'); } // a reconnect: re-read what this tab already shows
       else if (useAgentsVersion.getState().failed) agents('a'); // the first catalog load failed: try again now the server answers
     });
     for (const t of ['mission.created', 'mission.revised', 'mission.stateChanged', 'mission.shared', 'mission.deleted', 'staffing.progressed', 'approval.requested', 'approval.decided', 'notification.created', 'user.requested', 'user.changed', 'auth.approved',
       'agent.created', 'agent.updated', 'agent.versionCreated', 'agent.versionProposed', 'agent.versionPromoted', 'agent.rolledBack', 'agent.versionProposalDecided', 'mentoring.planned', 'mentoring.milestoneDone', 'mentoring.closed', 'org.proposalCreated', 'org.proposalDecided', 'org.revisionApplied', 'conversation.messageCreated', 'conversation.receipt', 'instance.created', 'instance.stateChanged', 'task.delegated', 'task.stateChanged'])
       es.addEventListener(t, (ev) => { heard(); onEvent(t, ev as MessageEvent); });
+    for (const t of ['playbook.lessonProposed', 'playbook.lessonDecided', 'playbook.versionCreated', 'skill.proposed', 'skill.decided']) es.addEventListener(t, (ev) => { heard(); onEvent(t, ev as MessageEvent); }); // c41
     // the server ends the stream when this session was revoked: re-check, which returns to Connect with the reason
     es.addEventListener('auth', () => {
       es?.close(); es = null;
@@ -140,6 +145,7 @@ export function startSync(): () => void {
   return () => {
     closed = true; es?.close(); window.clearTimeout(staleTimer); window.clearTimeout(fallback); window.clearInterval(watchdog);
     mission.cancel(); approvals.cancel(); notices.cancel(); people.cancel(); agents.cancel(); instances.cancel(); proposals.cancel(); versions.cancel(); mentoring.cancel(); scorecard.cancel(); reliability.cancel(); departments.cancel(); // no refresh fires after sign-out
+    playbooks.cancel(); // c41
     set('off');
   };
 }
