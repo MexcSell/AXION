@@ -52,13 +52,16 @@ async function visibleTaskRow(c: Tx | Db, ctx: ReviewCtx, id: string, lock = fal
  * change (raw SQL included) and which is append-only. The older sources (delegations, reassign audit rows) are still unioned in,
  * but they can only ADD names: they are no longer what the rule depends on. `rows` = 0 means the history is missing: fail closed.
  */
-async function ownerHistory(c: Tx | Db, t: TaskRow): Promise<{ rows: number; actors: Set<string> }> {
-  const h = (await c.query('select agent_id from task_owner_history where task_id=$1', [t.id])).rows;
+async function ownerHistory(c: Tx | Db, t: TaskRow): Promise<{ rows: number; current: boolean; actors: Set<string> }> {
+  const h = (await c.query('select agent_id, owner_agent, owner_instance_id from task_owner_history where task_id=$1 order by seq', [t.id])).rows;
+  const last = h[h.length - 1];
+  // c51 fix: the newest row must be the task's CURRENT owner, otherwise an owner change went unrecorded (fail closed)
+  const current = !!last && (last.owner_agent ?? null) === (t.owner_agent ?? null) && (last.owner_instance_id ?? null) === (t.owner_instance_id ?? null);
   const rs = (await c.query(
     `select i.agent_id from mission_delegations d join agent_instances i on i.id = d.to_instance where d.task_id = $1
      union select a.detail->>'fromAgent' from audit_events a where a.action = 'task.reassign' and a.subject = $1 and a.tenant_id = $2 and a.detail->>'fromAgent' is not null
      union select i.agent_id from audit_events a join agent_instances i on i.id = a.detail->>'fromInstanceId' where a.action = 'task.reassign' and a.subject = $1 and a.tenant_id = $2`, [t.id, t.tenant_id])).rows;
-  return { rows: h.length, actors: new Set([...h, ...rs].map((r) => r.agent_id as string).filter(Boolean)) };
+  return { rows: h.length, current, actors: new Set([...h, ...rs].map((r) => r.agent_id as string).filter(Boolean)) };
 }
 
 /**
@@ -90,9 +93,9 @@ async function reviewerOf(c: Tx | Db, ctx: ReviewCtx, who: Reviewer): Promise<Re
 }
 
 /** null when `reviewer` may review; otherwise the refusal. One rule for the route, the GET `canReview` and the recording. */
-export function independence(reviewer: ReviewActor, producer: ReviewActor, principalId: string, history: { rows: number; actors: ReadonlySet<string> }): { code: ErrorCode; message: string } | null {
+export function independence(reviewer: ReviewActor, producer: ReviewActor, principalId: string, history: { rows: number; current?: boolean; actors: ReadonlySet<string> }): { code: ErrorCode; message: string } | null {
   const prior = history.actors;
-  if (history.rows === 0) return { code: NOT_INDEPENDENT, message: 'The owner history of this task is missing, so it cannot be shown that the reviewer did not work on it. No review is accepted until the history exists.' };
+  if (history.rows === 0 || history.current === false) return { code: NOT_INDEPENDENT, message: 'The owner history of this task is missing or does not end at its current owner, so it cannot be shown that the reviewer did not work on it. No review is accepted until the history exists.' };
   if (reviewer.kind === 'agent' && prior.has(reviewer.id)) return { code: NOT_INDEPENDENT, message: 'This agent worked on an earlier attempt of the task, so it cannot review it.' };
   if (reviewer.id === producer.id) return { code: NOT_INDEPENDENT, message: 'The one who produced the work cannot review it.' };
   if (reviewer.kind === 'user' && reviewer.id === principalId) return { code: NOT_INDEPENDENT, message: 'You commissioned this mission, so you cannot be the independent reviewer of its work. Ask someone else to review it.' };

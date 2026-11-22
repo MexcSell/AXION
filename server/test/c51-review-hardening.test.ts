@@ -149,6 +149,18 @@ describe('the prior-actor exclusion reads the history, fail-closed (c51)', () =>
     expect(r.body.message).toMatch(/history/i);
     expect(await count('select count(*)::int n from task_reviews where task_id=$1', [id])).toBe(0);
   });
+  it('an owner change that went unrecorded (history does not end at the current owner) refuses the review too', async () => {
+    const id = await mkTask(M1);
+    await t.pool.query('alter table tasks disable trigger user');
+    try { await t.pool.query(`update tasks set owner_agent='tester-01', owner_instance_id=null where id=$1`, [id]); } finally { await t.pool.query('alter table tasks enable trigger user'); }
+    expect((await hist(id)).map((h) => h.agent_id)).toEqual(['coder-01']); // the trigger was off: no row for tester-01
+    const r = await ben.req('POST', `/tasks/${id}/reviews`, body(), key());
+    expect(r.status).toBe(403);
+    expect(r.body.code).toBe('REVIEW_NOT_INDEPENDENT');
+    expect(r.body.message).toMatch(/current owner/);
+    expect((await ben.req('GET', `/tasks/${id}/reviews`)).body.canReview).toMatchObject({ allowed: false, code: 'REVIEW_NOT_INDEPENDENT' });
+    expect(await count('select count(*)::int n from task_reviews where task_id=$1', [id])).toBe(0);
+  });
   it('GET canReview is also refused for such a task', async () => {
     await t.pool.query('alter table tasks disable trigger user');
     let id = '';
@@ -305,6 +317,14 @@ describe('POST /tasks/:id/reassign requires a brief (c51, O2a)', () => {
     const id = await mkTask(priv, null);
     expect((await ben.req('POST', `/tasks/${id}/reassign`, { toInstanceId: 'x' }, key())).status).toBe(404);
     expect((await L.req('POST', `/tasks/T-nope/reassign`, { toInstanceId: 'x' }, key())).status).toBe(404);
+  });
+  it('a member may reassign in a mission she owns (200), a member of a shared mission she does not own may not (403)', async () => {
+    const id = await mkTask(M1, `${M1}:coder-01`, 'ready');
+    const target = (await insts())[0];
+    const no = await ben.req('POST', `/tasks/${id}/reassign`, { toInstanceId: target.id, reason: 'x', brief: BRIEF }, key());
+    expect(no.status).toBe(403);
+    expect((await rows('select owner_instance_id from tasks where id=$1', [id]))[0].owner_instance_id).toBe(`${M1}:coder-01`);
+    expect((await mia.req('POST', `/tasks/${id}/reassign`, { toInstanceId: target.id, reason: 'x', brief: BRIEF }, key())).status).toBe(200);
   });
   it('retry and cancel do not need a brief', async () => {
     const id = await mkTask(M1, `${M1}:coder-01`, 'failed');

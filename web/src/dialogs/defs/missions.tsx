@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { isApi } from '@/api/mode';
-import { useMe } from '@/store/auth';
+import { useMe, isAdmin } from '@/store/auth';
 import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -388,7 +388,10 @@ function TaskCriteria({ close, props }: DialogComponentProps<{ missionId: string
   const tagInfo = useFailureTags('task', props.taskId).data?.subject; // cycle 33: the server knows whether the task was retried (a retried task is no longer 'failed')
   const rv = useTaskReviews(isApi() ? props.taskId : undefined); // cycle 38: the independent reviews of this task
   const bq = useDelegationBriefs(props.missionId);
+  const me = useMe();
   if (!m) return <Missing close={close} />;
+  // c51 fix F1: reassigning writes a root brief, which only an administrator or the mission owner may do (the server answers 403 otherwise)
+  const canReassign = !isApi() || (!!me && (isAdmin(me) || me.id === m.ownerId));
   const t = getMissionControl(m).tasks.find((x) => x.id === props.taskId);
   if (!t) return <Missing close={close} />;
   const owner = AGENT_BY_ID[t.owner];
@@ -404,8 +407,9 @@ function TaskCriteria({ close, props }: DialogComponentProps<{ missionId: string
   const api_ = isApi();
   return (
     <Modal title={t.title} icon={ListChecks} dialogId="DL-13" help="mission.progress.verified" onClose={close} drawer sub={`${t.id} · weight ${t.weight}`}
-      footer={<>{api_ && (t.state === 'failed' || tagInfo?.retried) && <button className="btn" data-tag-failure onClick={() => openDialog('failure-tag', { missionId: m.id, taskId: t.id, label: t.title })}><Tags size={15} />Tag failure</button>}{api_ && t.state === 'failed' && <button className="btn" disabled={busy} onClick={() => void run('retry')}><RotateCcw size={15} />Retry</button>}{api_ && t.state !== 'passed' && t.state !== 'canceled' && <button className="btn danger" disabled={busy} onClick={() => void run('cancel')}>Cancel task</button>}<button className="btn" onClick={() => openDialog('task-reassign', { missionId: m.id, taskId: t.id })}>Reassign</button>{api_ && <ReviewAction missionId={m.id} taskId={t.id} rv={rv} api_={api_} />}</>}>
+      footer={<>{api_ && (t.state === 'failed' || tagInfo?.retried) && <button className="btn" data-tag-failure onClick={() => openDialog('failure-tag', { missionId: m.id, taskId: t.id, label: t.title })}><Tags size={15} />Tag failure</button>}{api_ && t.state === 'failed' && <button className="btn" disabled={busy} onClick={() => void run('retry')}><RotateCcw size={15} />Retry</button>}{api_ && t.state !== 'passed' && t.state !== 'canceled' && <button className="btn danger" disabled={busy} onClick={() => void run('cancel')}>Cancel task</button>}<button className="btn" disabled={!canReassign} aria-describedby={canReassign ? undefined : 'reassign-why'} data-testid="reassign-btn" onClick={() => { if (canReassign) openDialog('task-reassign', { missionId: m.id, taskId: t.id }); }}>Reassign</button>{api_ && <ReviewAction missionId={m.id} taskId={t.id} rv={rv} api_={api_} />}</>}>
       <div className="row" style={{ gap: 8 }}><TaskStateChip state={t.state} /><span className="muted" style={{ fontSize: 12.5 }}>Owner</span><RobotAvatar role={owner?.role ?? 'dev'} size={26} /><b>{owner?.name}</b></div>
+      {!canReassign && <div id="reassign-why" className="dim" data-testid="reassign-why" style={{ fontSize: 12 }}>Only an administrator or the mission owner can reassign: reassigning writes the task's brief.</div>}
       <div className="section-label">Delegation brief</div>
       {mine && bq.data ? <DelegationBriefCard brief={mine} all={bq.data.briefs} /> : bq.loading ? <span className="dim">Loading…</span> : bq.error ? <span className="dim">{bq.error}</span> : <NoBrief demo={!api_} />}
       <div className="section-label">Expected result</div>
