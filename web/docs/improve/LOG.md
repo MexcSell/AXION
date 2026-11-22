@@ -532,3 +532,23 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
   - Follow-ups:
     - **c46b**: source `verdict_outcomes` from c47's stored runs after merge;
     - move the dialog to a PageFrame tab.
+- 2026-11-22T12:42Z · **Batch 10 merged** (integrator #4): c44 b80c2d1, c45 8798e82, no conflicts.
+  - Results: vitest 1752/1752, api-c26 22/22 (I2 ≤ 0.3 px), api-c44, api-c22 14/14, api-c45 11/11, stage6 and improve green, a11y 0 violations in both modes, fit and ov-fit all fit, e2e audit:verify OK.
+  - On the merged tree the c26 worst long task is 146–186 ms, down from 1.0–1.1 s after batch 9, so c44's flush and selector work closes P2b item (2)'s worst-task part.
+  - One verify-all run was killed with rc 143 (SIGTERM) in dialog smoke and passed 10/10 on re-run. Possibly another agent killing a process by pid (the c46 lane reported killing "an older verify-all run by pid"). Lesson: kill only your own ports or PIDs.
+- 2026-11-22T12:50Z · c48 merged (vitest 1780) but api-c48 fails 3/3 at the tiers "?" step. After Escape, focus returns to the gate "?", and its focus-opened tooltip covers the neighbouring tiers "?" on the Notifications card.
+  - Controller ruling: (b), a product fix in a `fix(c48 merge):` commit (tooltip side or spacing on all 4 surfaces). The test stays unchanged and must pass 3 times in a row.
+- 2026-11-22T13:02Z · c46 fix round at b15ad78.
+  - Changes:
+    - F1: the context-loss cell moved to Cognitive, and Environmental reads "not measured until Stage 7".
+    - F2: `hidden` and `unmeasured` states with `n: null`, reason on the cell face.
+    - F3: one REPEATABLE READ snapshot.
+    - F4–F6: scope wording and evidence fixes.
+    - F7: inline arrow, small-n de-emphasis, tap to see evidence.
+  - Results: c46 tests 54 (18 RED first), vitest 1730, api-c46 30/30, api a11y 0 violations, verify-all 10/10.
+  - **The lane disclosed it killed the integrator's verify-all by PID** (the rc 143 seen earlier). The rule is added to LANES.md: kill only a recorded PID with its cwd checked.
+  - One last small fix asked for: sequential `loadDeptRows` inside the transaction.
+- 2026-11-22T13:04Z · **c46 CLEARED** at f506a9a (controller check). `loadDeptRows` now runs sequentially on a transaction client and stays parallel on the pool, with the same rows; c46 and department tests passed 3/3 and vitest 1730. Queued as 11c, before c50. c50's registry follow-up now includes `GET /company/dimensions`.
+- 2026-11-22T13:06Z · Batch 11 merging: c48 (8274a8d, plus tooltip fix 8e2f894), c47 (94806cf), c49 (af6bed5, plus b06554e). Started two lanes from b06554e:
+  - **c51 O3a+O2a** (w50, e2e16, migration 0039): append-only owner history (fail-closed prior-actor exclusion), review freshness against the latest attempt, exact vendor matching, and a required delegation brief on reassignment.
+  - **c52 H10** (w51, e2e17): SQL `lower()` for the skill lock key, `taskReviews.cancel` on sign-out, a narrowed c04 History check, the decision response's `decidedByName`, and a diagnosis of the 3 vitest failures after c09.

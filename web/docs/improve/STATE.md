@@ -37,7 +37,7 @@ Rewritten 2026-11-22T07:35Z by the controller. The old w2–w18 lane list is his
 | w42 | c43 flows hardening (H7) | MERGED (2aba0a0, 09dd6cb) |
 | w43 | c44 page/store perf | CLEARED-AS-PARTIAL at 0abda0c, queued batch 10 |
 | w44 | c45 job leases J1 | CLEARED at 17b6390, queued batch 10 |
-| w45 | c46 six-dimension scorecard M1 | implementer running from 7a139d8; e2e18; 9590–93 |
+| w45 | c46 six-dimension scorecard M1 | CLEARED at f506a9a, batch 11c |
 | w46 | c47 E1b eval evidence | CLEARED at 15b1bd2, batch 11 |
 | w47 | c48 P3a approvals UI | CLEARED at d29339a, batch 11 |
 | w48 | c49 P5b audit anchor | CLEARED at 7b17bf6, batch 11 |

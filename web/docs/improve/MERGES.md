@@ -617,3 +617,29 @@ FAIL 900 /operations?tab=logs tab=Logs: clipped control button.icon-btn.xs[Dismi
 - **fit-check:** ALL FIT. **ov-fit:** NO SCROLL ANYWHERE.
 
 Controller files committed with this entry: BACKLOG.md, LANES.md, LOG.md, QUEUE.md, STATE.md, cycles/c46-brief.md, c47-review.md, c50-brief.md.
+
+## Batch 11 (Phase 2 · follow-ups): c48, c47, c49
+
+- Pre-batch commit `d4ec189`.
+- **`c48-approvals-ui` (d29339a)**, merge commit on improve-30h (see `git log --grep "merge(c48)"`). No conflicts. Server tsc and web tsc OK; vitest 1780/1780; no raw `pg_advisory` call.
+  - **api-c48 failed at first on the merged tree** (9 PASS, 1 FAIL, 3 runs out of 3): after Escape closed the gate "?" popover, focus returned to the gate "?", and its focus-opened tooltip "Help: Why you cannot decide this" (x 1058-1274, y 313-344) covered the neighbouring tiers "?" (x 1256-1274, y 321-339), so Playwright's click was intercepted. No tooltip or help component differed from c48's base; the controller ruled it a real overlap (a keyboard user gets a tooltip over the next control).
+  - **Fix `8e2f894` (fix(c48 merge)):** `HelpTrigger` gains an optional `tipSide`; `GateNote` passes `bottom` by default (Notifications card, mission Approvals tab, Overview queue) and the decision dialog (gate "?" in the footer, facts above) passes `top`. api-c48.mjs unchanged: **31 PASS, 0 FAIL, 3 runs in a row.** Screenshot: `web/docs/improve/cycles/shots-c48/merge-gate-tooltip-after-escape-dark.png` (card after Escape: tooltip below the focused gate "?", the tiers "?" clear).
+  - api-c35 16 PASS, 0 FAIL; api-stage6 94/94.
+- **`94806cf` c47-eval-evidence (15b1bd2).** Migration 0037.
+  - Conflict: `web/src/pages/Agents.tsx` imports only (kept c41's `PlaybookPanel` and c47's `EvaluationView` and `ProposalEvaluationDto`). `server/test/version-proposals.test.ts` auto-merged with both sides present (c47's `overrideReason`/`evaluationSha` in `decide()`, and the helper-based lock tests).
+  - Server tsc OK, web tsc OK, vitest 1886/1886. **api-c47 26/26, api-c05 31/31.** **Migration 0037 down then up on axion_e2e** (explicit URL): "schema at version 35", then "version 37", then up again a no-op at 37.
+- **`af6bed5` c49-audit-anchor, merged at 7b17bf6.** Note: the `c49-audit-anchor` branch still points at 66e3f45 (the first fix round); the cleared tip 7b17bf6 is a detached HEAD in `/home/luca/AXION-w48` and a descendant of the branch tip. I merged the commit 7b17bf6.
+  - Conflicts: `server/src/ops/routes.ts` imports (kept c45's `queueSummary` with c49's `ApiError`, `SlidingWindow`, `verifyAnchors`); `web/src/help/pages/stage5.ts` (kept `ops.jobRecords` and `ops.auditAnchor`). No advisory call. Server and web tsc OK.
+  - **api-c49 14/14** on the e2e stack (the script reads its key, domain and file from server/.env; I did not add them to the shared .env, I ran an unchanged copy of the script that read them from the environment, with a random test key, domain `integrator4-e2e` and a temp file; the copy is deleted). The script tampers the e2e DB on purpose (the next api-e2e start resets it).
+  - **Follow-up `fix(c49 merge)`:** `audit-anchor.test.ts` "creates the missing directory" called `writeAnchor` with no domain and passed only where the environment exports `AUDIT_ANCHOR_DOMAIN` (the lane's .env). It failed here (1 of 1962). It now uses `{ ...o(), file: nested }` like every other test; `audit-anchor.test.ts` 76/76.
+  - Full vitest on the merged tree after that fix: 63 files, 1962/1962.
+  - **Note for the live update:** with c49, `npm run audit:verify` exits 1 ("ANCHOR_MISSING: AUDIT_ANCHOR_KEY is not set") until `AUDIT_ANCHOR_KEY`, `AUDIT_ANCHOR_DOMAIN` and `AUDIT_ANCHOR_FILE` are configured and a first `npm run audit:anchor` is written; the chain itself reports OK. This is documented behavior (server/docs/audit-anchor.md).
+
+**Batch checks:**
+- **api-e2e (exit 0):** api-auth-flow 15/15; api-flows 23/23; api-stage6 94/94; api-improve 107/107; api-c35 16/0; api-c48 31/0; api-c47 26/26; api-c05 31/31; api-c45 PASS (0 FAIL lines).
+- **a11y-check (api):** 41 views, 64 dialogs, 0 violations. **a11y-check (demo):** 51 views, 64 dialogs, 0 violations.
+- **verify-all:** exit 0, "ALL 10 STEPS PASSED", dialog smoke 64 dialogs, 128 checks, 0 failures; no FAIL lines; ledger unchanged.
+- **fit-check:** ALL FIT. **ov-fit:** NO SCROLL ANYWHERE.
+- **e2e `audit:verify`** (explicit URL): chain OK for t-1 (3 rows), anchor ANCHOR_MISSING (exit 1, as above).
+
+**Follow-up commits in batch 11:** `8e2f894` (c48 tooltip), the c49 test fix. Controller files committed with this entry: LOG.md, QUEUE.md and whatever else is modified.
