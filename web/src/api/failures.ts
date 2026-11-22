@@ -50,7 +50,7 @@ export type Write<T> = { ok: true; value: T } | { ok: false; code: string; messa
 const fail = (e: unknown): { ok: false; code: string; message: string; fieldErrors?: Record<string, string> } =>
   (e instanceof ApiFailure ? { ok: false, code: e.code, message: e.message, fieldErrors: e.fieldErrors } : { ok: false, code: 'UNKNOWN', message: 'Something went wrong.' });
 
-export async function tagFailure(body: { subjectKind: FailureSubjectKind; subjectId: string; modeId: string; note?: string }, idempotencyKey: string): Promise<Write<FailureTagDto>> {
+export async function tagFailure(body: { subjectKind: FailureSubjectKind; subjectId: string; modeId: string; note?: string; detectionChannel?: string; mechanism?: string; controlExpected?: string; controlCaught?: string; detectionNote?: string }, idempotencyKey: string): Promise<Write<FailureTagDto>> {
   try { const r = await api<{ tag: FailureTagDto }>('POST', '/failure-tags', body, { idempotencyKey }); bumpFailures(); return { ok: true, value: r.tag }; }
   catch (e) { bumpFailures(); return fail(e); }
 }

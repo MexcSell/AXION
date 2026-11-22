@@ -30,3 +30,11 @@ export function snapshotTx<T>(db: Db, fn: (c: Tx) => Promise<T>): Promise<T> {
     return fn(c);
   });
 }
+
+/**
+ * c54/c63: the ONE closed-window predicate for a timestamptz column, on the millisecond grid: `[now() - ms, now()]`, both ends included at
+ * millisecond precision, so a row exactly N days old is inside and the SQL agrees with `windowOf`. `msParam` is a SQL parameter ($n) holding
+ * the window length in milliseconds. Used by the failure-mode counts and the c63 recurrence rule.
+ */
+export const sqlInWindow = (col: string, msParam: string): string =>
+  `date_trunc('milliseconds', ${col}) >= date_trunc('milliseconds', now()) - (${msParam}::double precision * interval '1 millisecond') and ${col} <= now()`;

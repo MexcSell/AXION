@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { Tags, Check, X, Loader2, ShieldAlert, Info, Bot, UserRound, ListChecks, BarChart3 } from 'lucide-react';
-import { ATTRIBUTION_HELP, FAILURE_TAXONOMY, FAILURE_TAXONOMY_VERSION, failureModeOf, type FailureSubjectKind, type FailureTagDto } from '@contracts';
+import { Tags, Check, X, Loader2, ShieldAlert, Info, Bot, UserRound, ListChecks, BarChart3, Radar, UserSearch } from 'lucide-react';
+import { ATTRIBUTION_HELP, FAILURE_TAXONOMY, FAILURE_TAXONOMY_VERSION, DETECTION_CHANNELS, FAILURE_MECHANISMS, FAILURE_CONTROLS, DETECTION_NOTE_MAX, failureModeOf, type FailureSubjectKind, type FailureTagDto } from '@contracts';
 import { Modal } from '@/components/ui/Modal';
 import { Field } from '@/components/ui/Form';
 import { Chip, DemoTag } from '@/components/ui/Chips';
@@ -19,6 +19,26 @@ const STATUS: Record<FailureTagDto['status'], { label: string; hue: number }> = 
 };
 const KIND_LABEL: Record<FailureSubjectKind, string> = { task: 'task', task_attempt: 'attempt', message: 'message', mission: 'mission' };
 const since = (iso: string) => { const m = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000)); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
+
+const labelOf = (l: readonly { id: string; label: string }[], id: string | null) => l.find((o) => o.id === id)?.label ?? id ?? '';
+/** Seconds as the two largest whole units: "2 h 5 min", "3 d 4 h". */
+const span = (sec: number) => { const m = Math.floor(sec / 60); if (m < 1) return 'under a minute'; if (m < 60) return `${m} min`; const h = Math.floor(m / 60); if (h < 24) return `${h} h ${m % 60} min`; const d = Math.floor(h / 24); return `${d} d ${h % 24} h`; };
+const pct = (x: number) => `${Math.round(x * 100)}%`;
+type Opt = { id: string; label: string; help: string };
+/** One optional detection question: a select (the first option is "not recorded"), a ? for the field, and a ? for the chosen value. */
+function DetectPick({ id, label, k, list, value, onChange, disabled }: { id: string; label: string; k: string; list: readonly Opt[]; value: string; onChange: (v: string) => void; disabled?: boolean }) {
+  return (
+    <div className="col" style={{ gap: 3, minWidth: 0 }}>
+      <div className="row" style={{ gap: 5 }}><label htmlFor={id} className="section-label" style={{ margin: 0 }}>{label}</label><HelpTrigger k={k} /></div>
+      <div className="row" style={{ gap: 4 }}>
+        <select id={id} className="select" style={{ flex: 1, minWidth: 0, height: 30 }} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} data-detect={id}>
+          <option value="">Not recorded</option>{list.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+        </select>
+        {value && <HelpTrigger k={`${k}.${value}`} />}
+      </div>
+    </div>
+  );
+}
 
 /** DEMO mode shows labelled samples only: nothing is stored and no count is claimed. */
 const SAMPLES = [
@@ -51,23 +71,30 @@ function TagFailure({ close, props }: DialogComponentProps<{ missionId?: string;
   const [cat, setCat] = useState(FAILURE_TAXONOMY[0].id);
   const [modeId, setModeId] = useState('');
   const [note, setNote] = useState('');
+  const [channel, setChannel] = useState('');
+  const [mech, setMech] = useState('');
+  const [ctrlE, setCtrlE] = useState('');
+  const [ctrlC, setCtrlC] = useState('');
+  const [dNote, setDNote] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [srvErr, setSrvErr] = useState<string | null>(null);
   const submitKey = useRef(newKey());
   const category = FAILURE_TAXONOMY.find((c) => c.id === cat)!;
   const chosen = failureModeOf(modeId);
   const tags = data?.tags ?? [];
-  const err = !api_ ? 'Failure tags are stored on the server' : !subjectId ? 'Open a task first' : !modeId ? 'Choose a failure mode' : '';
+  const needsNote = [mech, ctrlE, ctrlC].includes('other');
+  const err = !api_ ? 'Failure tags are stored on the server' : !subjectId ? 'Open a task first' : !modeId ? 'Choose a failure mode' : needsNote && !dNote.trim() ? 'Say what “something else” was' : '';
   const touch = () => { setSrvErr(null); };
 
   const submit = async () => {
     if (err || busy) return;
     setBusy('tag'); touch();
-    const r = await tagFailure({ subjectKind: kind, subjectId, modeId, ...(note.trim() ? { note: note.trim() } : {}) }, submitKey.current);
+    const r = await tagFailure({ subjectKind: kind, subjectId, modeId, ...(note.trim() ? { note: note.trim() } : {}),
+      ...(channel ? { detectionChannel: channel } : {}), ...(mech ? { mechanism: mech } : {}), ...(ctrlE ? { controlExpected: ctrlE } : {}), ...(ctrlC ? { controlCaught: ctrlC } : {}), ...(needsNote ? { detectionNote: dNote.trim() } : {}) }, submitKey.current);
     setBusy(null);
-    if (!r.ok) { setSrvErr(r.fieldErrors?.modeId ?? r.message); submitKey.current = newKey(); return; }
+    if (!r.ok) { setSrvErr(r.fieldErrors?.modeId ?? r.fieldErrors?.detectionNote ?? r.message); submitKey.current = newKey(); return; }
     toast({ tone: 'success', title: 'Failure tagged', body: `${r.value.modeId} ${r.value.modeName}: proposed. A person confirms it before it is counted.` });
-    submitKey.current = newKey(); setModeId(''); setNote('');
+    submitKey.current = newKey(); setModeId(''); setNote(''); setChannel(''); setMech(''); setCtrlE(''); setCtrlC(''); setDNote('');
   };
   const decide = async (t: FailureTagDto, d: 'confirm' | 'reject') => {
     if (busy) return;
@@ -82,7 +109,7 @@ function TagFailure({ close, props }: DialogComponentProps<{ missionId?: string;
   const modeCount = c && modeId ? c.categories.flatMap((x) => x.modes).find((m) => m.id === modeId)?.count ?? null : null;
   const header = useMemo(() => (props.label ? `${subjectId} · ${props.label}` : `${KIND_LABEL[kind]} ${subjectId}`.trim()), [props.label, kind, subjectId]);
   return (
-    <Modal title="Tag a failure" icon={Tags} help="failure.tag" dialogId="DL-78" size="lg" onClose={close}
+    <Modal title="Tag a failure" icon={Tags} help="failure.tag" dialogId="DL-78" size="xl" onClose={close}
       sub={`Why did ${subjectId ? header : 'this task'} fail? Names are the MAST taxonomy; a person confirms each tag.`}
       footer={<><button className="btn" onClick={close}>Close</button>
         <button className="btn primary" disabled={!!err || !!busy} title={err || undefined} onClick={submit} data-tag-submit>{busy === 'tag' ? <Loader2 size={14} className="spin" /> : <Tags size={14} />}Tag failure</button></>}>
@@ -111,6 +138,16 @@ function TagFailure({ close, props }: DialogComponentProps<{ missionId?: string;
                   <HelpTrigger k={`failure.mode.${id}`} />
                 </motion.div>); }}
             </RadioList>
+            <div className="col" style={{ gap: 6 }} data-detection-form>
+              <div className="row" style={{ gap: 6 }}><Radar size={13} className="info" aria-hidden /><div className="section-label" style={{ margin: 0 }}>How it was noticed (optional)</div><HelpTrigger k="failure.detect" /></div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 10px' }}>
+                <DetectPick id="ft-channel" label="Found by" k="failure.detect.channel" list={DETECTION_CHANNELS} value={channel} onChange={(v) => { touch(); setChannel(v); }} disabled={!api_} />
+                <DetectPick id="ft-mech" label="What failed" k="failure.detect.mechanism" list={FAILURE_MECHANISMS} value={mech} onChange={(v) => { touch(); setMech(v); }} disabled={!api_} />
+                <DetectPick id="ft-ce" label="Meant to catch it" k="failure.detect.controlExpected" list={FAILURE_CONTROLS} value={ctrlE} onChange={(v) => { touch(); setCtrlE(v); }} disabled={!api_} />
+                <DetectPick id="ft-cc" label="Did catch it" k="failure.detect.controlCaught" list={FAILURE_CONTROLS} value={ctrlC} onChange={(v) => { touch(); setCtrlC(v); }} disabled={!api_} />
+              </div>
+              {needsNote && <input id="ft-dnote" className="input" style={{ height: 30 }} maxLength={DETECTION_NOTE_MAX} aria-label="What “something else” was" placeholder="Say what “something else” was (required)" value={dNote} onChange={(e) => { touch(); setDNote(e.target.value); }} data-detect-note />}
+            </div>
           </div>
           <div className="col" style={{ gap: 10 }}>
             <Field label="Note (optional)" htmlFor="ft-note" hint={chosen ? <><b>{chosen.mode.id}</b> {chosen.mode.name}: {chosen.mode.definition}</> : 'Say what you saw, in your own words. The definition of the chosen mode appears here.'}>
@@ -127,6 +164,16 @@ function TagFailure({ close, props }: DialogComponentProps<{ missionId?: string;
                     <span className="mono dim" style={{ fontSize: 11 }}>{t.modeId}</span><b style={{ fontSize: 12.5 }}>{t.modeName}</b>
                     <span className="dim row" style={{ gap: 3, fontSize: 11.5 }}>{t.taggedByKind === 'agent' ? <Bot size={12} /> : <UserRound size={12} />}{t.taggedByName} · {since(t.createdAt)}</span>
                     {t.note && <span className="dim" style={{ fontSize: 11.5, flexBasis: '100%' }}>“{t.note}”</span>}
+                    {(t.detectionChannel || t.mechanism || t.controlExpected || t.controlCaught) && (
+                      <span className="row dim" style={{ flexBasis: '100%', gap: 8, flexWrap: 'wrap', fontSize: 11.5 }} data-detection={t.detectionChannel ?? ''} data-detected-after={t.detectedAfterSeconds ?? ''}>
+                        <UserSearch size={11} aria-hidden />
+                        {t.detectionChannel && <span>Found by <b>{labelOf(DETECTION_CHANNELS, t.detectionChannel)}</b></span>}
+                        {t.detectedAfterSeconds !== null && <span title="Measured to the moment the tag was made, not to when someone first noticed. Tagging late makes it longer.">tagged <b>{span(t.detectedAfterSeconds)}</b> after the failure</span>}
+                        {t.mechanism && <span>Failed: <b>{labelOf(FAILURE_MECHANISMS, t.mechanism)}</b></span>}
+                        {t.controlExpected && <span>Should have caught it: <b>{labelOf(FAILURE_CONTROLS, t.controlExpected)}</b></span>}
+                        {t.controlCaught && <span>Did: <b>{labelOf(FAILURE_CONTROLS, t.controlCaught)}</b></span>}
+                        {t.detectionNote && <span>“{t.detectionNote}”</span>}
+                      </span>)}
                     {t.attributions.length > 0 && (
                       <span className="col dim" style={{ flexBasis: '100%', gap: 2, fontSize: 11.5 }} data-attributions={t.attributions.length} data-disagreements={t.attributionDisagreements}>
                         <span className="row" style={{ gap: 6 }}>
@@ -171,6 +218,17 @@ function TagFailure({ close, props }: DialogComponentProps<{ missionId?: string;
                 </> : <span className="dim">{counts.error ?? 'Reading the counts…'}</span>}
               <span className="spacer" /><HelpTrigger k="failure.counts" />
             </div>
+            {api_ && c && (
+              <div className="oa-move" style={{ gap: 8 }} data-human-only={c.detection.humanOnly.share === null ? 'null' : String(c.detection.humanOnly.share)} data-human-only-n={c.detection.humanOnly.withChannel} data-missing-channel={c.detection.fields.channel.missing}>
+                <UserSearch size={14} className="info" aria-hidden />
+                <b>Found only by a person</b>
+                <span className="tnum" data-human-share>{c.detection.humanOnly.share === null ? '—' : `${c.detection.humanOnly.humanReview} of ${c.detection.humanOnly.withChannel} recorded`}</span>
+                <span className="dim tnum" title={`Failures with a recorded way of being found, in the last ${c.detection.humanOnly.window.replace('d', '')} days`}>
+                  n={c.detection.humanOnly.withChannel}, {c.detection.humanOnly.window === '30d' ? 'last 30 days' : c.detection.humanOnly.window}{c.detection.humanOnly.share === null ? `, needs ${c.detection.humanOnly.minN}` : ''}
+                </span>
+                <span className="dim tnum" data-missing>· no “found by” given: {c.detection.fields.channel.missing} of {c.n}{c.detection.fields.channel.missingShare !== null ? ` (${pct(c.detection.fields.channel.missingShare)})` : ''} · no stored failure time: {c.detection.noFailureTime} of {c.detection.fields.channel.have}</span><HelpTrigger k="failure.missing" />
+                <span className="spacer" /><HelpTrigger k="failure.humanOnly" />
+              </div>)}
           </div>
         </div>
         <span className="dim" style={{ fontSize: 11 }}>Taxonomy {FAILURE_TAXONOMY_VERSION}: names and ids from Cemri, Pan, Yang, Agrawal et al., “Why Do Multi-Agent LLM Systems Fail?”, arXiv:2503.13657v3, CC BY-NC-ND 4.0, arxiv.org/abs/2503.13657. Descriptions are AXION’s own.</span>

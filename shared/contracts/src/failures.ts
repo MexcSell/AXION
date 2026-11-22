@@ -61,6 +61,47 @@ export const failureModeOf = (id: string): { category: FailureCategoryDef; mode:
   return undefined;
 };
 
+/**
+ * c63 (R3-8): how a failure was noticed and what part of the system let it through. All of it is optional on a tag, and the counts say how many tags lack each field.
+ * The lists are AXION's own plain-words choices (no source defines them); each value has a label and a help sentence the dialog shows. A change is a new list version.
+ * Evidence honesty: the idea that silent failures are mostly caught by people comes from one author's write-up of one runtime (D2). It motivates the channel field; it gives no rate.
+ */
+export interface DetectionOption { id: string; label: string; help: string }
+export const DETECTION_CHANNELS = Object.freeze([
+  Object.freeze({ id: 'test', label: 'An automated test', help: 'A test or check that runs by itself failed and so showed the problem.' }),
+  Object.freeze({ id: 'audit', label: 'An audit or review of records', help: 'Someone checking the records afterwards (an audit, a log review, a scorecard) found it.' }),
+  Object.freeze({ id: 'human_review', label: 'A person looking at the result', help: 'A person opened the result, read it and saw that it was wrong. Nothing else flagged it first.' }),
+  Object.freeze({ id: 'other_agent', label: 'Another agent', help: 'A different agent, such as a reviewer or a verifier, noticed the problem while doing its own work.' }),
+  Object.freeze({ id: 'reported_later', label: 'Reported later, by someone affected', help: 'Nobody noticed at the time. It came to light afterwards, when someone downstream reported it.' }),
+] as const satisfies readonly DetectionOption[]);
+export const FAILURE_MECHANISMS = Object.freeze([
+  Object.freeze({ id: 'instructions', label: 'The instructions', help: 'The task description, brief or rules were unclear, wrong or missing something the agent needed.' }),
+  Object.freeze({ id: 'context', label: 'Missing or old information', help: 'The agent did not have the information it needed, or had an out-of-date version of it.' }),
+  Object.freeze({ id: 'tool', label: 'A tool or integration', help: 'A tool, a connection or an outside service returned something wrong or did not work.' }),
+  Object.freeze({ id: 'reasoning', label: "The agent's own judgement", help: "The agent had what it needed, but its plan or reading of the situation was wrong." }),
+  Object.freeze({ id: 'handoff', label: 'A handoff between agents', help: 'Work or information passed from one agent to another and something was lost or misread on the way.' }),
+  Object.freeze({ id: 'environment', label: 'Something outside the system', help: 'Timing, a change elsewhere or another condition outside the agents and tools caused it.' }),
+  Object.freeze({ id: 'other', label: 'Something else (add a note)', help: 'None of the above fits. Say what it was in the note; the note is required.' }),
+] as const satisfies readonly DetectionOption[]);
+export const FAILURE_CONTROLS = Object.freeze([
+  Object.freeze({ id: 'test', label: 'An automated test', help: 'A test that runs by itself.' }),
+  Object.freeze({ id: 'review', label: 'A review of the result', help: 'A person or reviewing agent reading the result before it was accepted.' }),
+  Object.freeze({ id: 'approval', label: 'An approval step', help: 'A person had to approve the action before it went ahead.' }),
+  Object.freeze({ id: 'monitoring', label: 'Monitoring or alerts', help: 'A watcher that raises a flag when something looks wrong while work is running.' }),
+  Object.freeze({ id: 'validation', label: 'A check of inputs or outputs', help: 'A rule that checks the shape or content of what goes in or comes out.' }),
+  Object.freeze({ id: 'none', label: 'None', help: 'For "should have caught it": no control was meant to catch this. For "did catch it": nothing caught it.' }),
+  Object.freeze({ id: 'other', label: 'Something else (add a note)', help: 'None of the above fits. Say what it was in the note; the note is required.' }),
+] as const satisfies readonly DetectionOption[]);
+export type DetectionChannel = (typeof DETECTION_CHANNELS)[number]['id'];
+export type FailureMechanism = (typeof FAILURE_MECHANISMS)[number]['id'];
+export type FailureControl = (typeof FAILURE_CONTROLS)[number]['id'];
+export const DETECTION_NOTE_MAX = 300;
+/** Below this many tags with a recorded channel the "found only by a person" share is null (never a number from a tiny sample). */
+export const HUMAN_ONLY_MIN_N = 5;
+export const FAILURE_PATTERN_WINDOW: '30d' = '30d';
+export const FAILURE_PATTERN_MIN_FAILURES = 3;
+export const FAILURE_PATTERN_MIN_DEPARTMENTS = 2;
+
 export const FAILURE_SUBJECT_KINDS = ['task', 'task_attempt', 'message', 'mission'] as const;
 export type FailureSubjectKind = (typeof FAILURE_SUBJECT_KINDS)[number];
 export type FailureTagStatus = 'proposed' | 'confirmed' | 'rejected';
@@ -82,14 +123,31 @@ export interface FailureTagDto {
   attributions: FailureAttributionDto[];
   /** c60: number of distinct (agent, step) targets among the entries, minus one (0 when there are no entries or all agree). Never hides an entry. */
   attributionDisagreements: number;
+  /** c63: optional detection fields; every one is null when the tagger left it out. `detectedAfterSeconds` is worked out by the database (now() minus the stored failure time) when a channel is given and a failure time exists, else null. */
+  detectionChannel: DetectionChannel | null; detectedAfterSeconds: number | null; mechanism: FailureMechanism | null;
+  controlExpected: FailureControl | null; controlCaught: FailureControl | null; detectionNote: string | null;
 }
 export interface FailureSubjectInfo { kind: FailureSubjectKind; id: string; missionId: string; demo: boolean; failed: boolean; retried: boolean }
 /** Counts per mode and category over CONFIRMED tags only; `count` is null (never 0) while n = 0 (nothing to count yet). */
 export interface FailureModeCount { id: string; name: string; count: number | null }
 export interface FailureCategoryCount { id: string; name: string; count: number | null; modes: FailureModeCount[] }
+/** c63: how many confirmed tags carry a field and how many lack it. The missing count and share are always shown; a share is null while n = 0. */
+export interface DetectionFieldCount { have: number; missing: number; missingShare: number | null }
+export const DETECTION_FIELD_KEYS = ['channel', 'detectedAfter', 'mechanism', 'controlExpected', 'controlCaught'] as const;
+export type DetectionFieldKey = (typeof DETECTION_FIELD_KEYS)[number];
+export interface FailureDetectionDto {
+  n: number; fields: Record<DetectionFieldKey, DetectionFieldCount>;
+  /** of the confirmed tags that have a channel: how many have no detected-after because no failure time is stored for the subject. (`fields.detectedAfter.missing` also counts the tags with no channel, for which it does not apply.) */
+  noFailureTime: number;
+  /** confirmed tags per detection channel (only tags that carry one) */
+  channels: Record<DetectionChannel, number>;
+  /** "Found only by a person": of the confirmed tags with a recorded channel (`withChannel`), how many were found by a person looking at the result. `share` is null below `minN` tags with a channel; `missing` tags have no channel and are not in the share. */
+  humanOnly: { humanReview: number; withChannel: number; missing: number; share: number | null; minN: number; window: '7d' | '30d' | '90d' };
+}
 export interface FailureModesDto {
   window: '7d' | '30d' | '90d'; from: string; to: string; includeDemo: boolean; taxonomyVersion: string; source: string;
   n: number; /** of n: tags on DEMO missions (0 unless includeDemo) */ demo: number; /** of n: confirmed by the person who tagged them */ selfConfirmed: number; proposed: number; categories: FailureCategoryCount[];
+  /** c63 */ detection: FailureDetectionDto;
 }
 
 /**
@@ -103,3 +161,13 @@ export const ATTRIBUTION_HELP =
   'People attributed this failure differently. Every entry is kept; none replaces another. There is no retraction: a person who changes their mind adds a second entry, which counts as a disagreement. '
   + 'An agent-only entry and an agent-plus-step entry count as different views. The comparison is exact-string, so "Agent-1" and "agent-1" differ. '
   + 'Sending the same target again with a different "full trace available" flag returns 409.';
+
+/**
+ * c63: a recurrence pattern that opened a candidate in c41's lesson review. `derivedBy` says the system derived it from stored records (tool records), not a person or an agent writing it.
+ * The candidate is only a proposal: a person accepts or rejects it through c41's review, and nothing here activates a playbook.
+ */
+export interface FailurePatternDto {
+  id: string; modeId: string; modeName: string; windowDays: number; failures: number; departments: string[];
+  candidateId: string; candidateStatus: 'proposed' | 'accepted' | 'rejected' | 'superseded'; derivedBy: 'system_failure_pattern'; createdAt: string;
+}
+export interface FailurePatternsDto { minFailures: number; minDepartments: number; windowDays: number; patterns: FailurePatternDto[] }

@@ -149,6 +149,12 @@ Not used on purpose: `gen_ai.provider.name`, `gen_ai.request.*`, `gen_ai.usage.*
 | `failure_tags.decided_by` | **no equivalent** |  | A person's identity is not exported. |
 | `failure_tags.decided_at` | **no equivalent** |  | Not exported; the status carries the outcome. |
 | `failure_tags.self_confirmed` | `axion.failure.self_confirmed` (AXION extension) |  | No equivalent. |
+| `failure_tags.detection_channel` | `axion.failure.detection_channel` (AXION extension) |  | No equivalent. A fixed list of five values (c63), so it is not free text. Only present when the tagger gave one. |
+| `failure_tags.detected_after_seconds` | `axion.failure.detected_after_seconds` (AXION extension) |  | No equivalent. Database now() minus the stored failure time at tag time (c63); only present when computed. |
+| `failure_tags.mechanism` | `axion.failure.mechanism` (AXION extension) |  | No equivalent. A fixed list (c63), not free text. |
+| `failure_tags.control_expected` | `axion.failure.control_expected` (AXION extension) |  | No equivalent. A fixed list (c63), not free text. |
+| `failure_tags.control_caught` | `axion.failure.control_caught` (AXION extension) |  | No equivalent. A fixed list (c63), not free text. |
+| `failure_tags.detection_note` | `axion.failure.detection_note_ref` (AXION extension) | `axion.failure.detection_note_ref` (text in `axion.failure.detection_note` only with --include-content) | Text a person wrote: content. Pointer by default. |
 
 ### failure_attributions
 
@@ -183,4 +189,4 @@ These describe the export itself (resource attributes, with the pinned version) 
 
 ## Counts
 
-100 AXION fields listed; 7 map to a pinned GenAI attribute; 29 have no equivalent and are not exported; the rest map to a span property or an `axion.*` extension attribute.
+106 AXION fields listed; 7 map to a pinned GenAI attribute; 29 have no equivalent and are not exported; the rest map to a span property or an `axion.*` extension attribute.
