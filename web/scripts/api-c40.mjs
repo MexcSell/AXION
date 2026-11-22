@@ -29,7 +29,7 @@ for (const [W, H] of SIZES) {
   // 2. help popovers on several pages
   let n = 0, bad = 0;
   for (const path of ['/overview', '/missions', demo ? `/missions/${demo.id}` : '/missions', '/operations', '/settings']) {
-    await go(path); const hb = p.locator(process.env.C40_HELP_SEL || '.help-btn'); const cnt = Math.min(await hb.count(), 12);
+    await go(path); await p.waitForFunction(() => document.querySelectorAll('.help-btn').length > 1, null, { timeout: 10000 }).catch(() => {}); /* condition wait: at 390 px the page body is still skeletons after settle() */ const hb = p.locator(process.env.C40_HELP_SEL || '.help-btn'); const cnt = Math.min(await hb.count(), 12);
     for (let i = 0; i < cnt; i++) {
       await hb.nth(i).evaluate((e) => e.scrollIntoView({ block: 'center', behavior: 'instant' })).catch(() => {}); await hb.nth(i).click({ force: true, timeout: 1500 }).catch(() => {}); await p.waitForSelector('.help-pop', { timeout: 1500 }).catch(() => {}); await p.waitForTimeout(150);
       const r = await p.evaluate(() => { const e = document.querySelector('.help-pop'); if (!e) return null; const r = e.getBoundingClientRect(); return [Math.round(r.top), Math.round(r.bottom), Math.round(r.left), Math.round(r.right)]; });
