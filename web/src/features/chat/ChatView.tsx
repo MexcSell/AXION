@@ -294,6 +294,10 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
   const hold = (commit = false) => {
     const el = scroller.current, v = vis.current;
     if (!el) return;
+    // c55: pinned to the bottom there is nothing to keep in place, so no layout read at all (the scrollTop read and record()'s
+    // getBoundingClientRect forced a synchronous layout after every commit of a live burst). record() runs when the reader
+    // scrolls away (onScroll), so the row it recorded last is never older than the position it was recorded for.
+    if (!restored.current && atBottomRef.current) return;
     const now = performance.now();
     const rh = restored.current;
     if (rh && el.scrollTop !== own.current) restored.current = null; // the reader scrolled
@@ -373,8 +377,10 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
       },
       get(): ResizeObserver {
         return (me.ro ??= new ResizeObserver((ents) => {
-          let changed = false, wide = false;
+          let changed = false, wide = false, above = false; // above: a row at or before the reader's row changed (or the width did)
           const sc = scroller.current;
+          // c55: a row after the reader's row (a message arriving at the end) moves nothing the reader sees, so it needs no hold()
+          const vr = vis.current && sc ? sc.querySelector<HTMLElement>(`[data-mid="${CSS.escape(vis.current.id)}"]`) : null;
           for (const en of ents) {
             const t = en.target as HTMLElement;
             if (t === sc) {
@@ -383,13 +389,13 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
                 geo.current.clear();
                 if (sc.querySelector('[data-gk]')) relearn(est.current); // estimates are learned again from the rows on screen
                 sc.querySelectorAll<HTMLElement>('[data-gk]').forEach((r) => me.row(r));
-                changed = wide = true;
+                changed = wide = above = true;
               }
               box.current.width = w;
               if (sc.clientHeight !== vpRef.current.h) moveVp(sc);
-            } else if (me.row(t)) changed = true;
+            } else if (me.row(t)) { changed = true; if (!vr || t === vr || !(vr.compareDocumentPosition(t) & Node.DOCUMENT_POSITION_FOLLOWING)) above = true; }
           }
-          if (changed) { holdRef.current(); me.bump(wide); } // a row above the reader changed size: keep the reader's row in place
+          if (changed) { if (above) holdRef.current(); me.bump(wide); } // a row above the reader changed size: keep the reader's row in place
         }));
       },
       // a measurement re-renders the thread (window, spacers, minimap) at most every GEO_WAIT ms, and within GEO_MAX_WAIT
@@ -507,7 +513,17 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
   };
 
   // after every change: keep the reader's row in place (declared after the other layout effects, so it runs last)
-  useLayoutEffect(() => { atBottomRef.current = atBottom; hold(true); });
+  const holdKey = useRef('');
+  useLayoutEffect(() => {
+    atBottomRef.current = atBottom;
+    // c55: a commit that only appended messages below the reader changed nothing above them, so there is nothing to keep in
+    // place and no layout to force (every size change above arrives through the ResizeObserver, which calls hold() itself). The
+    // rest runs as before: an older page, a new measurement model (geoV), a moved window, a view change, a restore in progress.
+    const key = `${geoV}|${vp.top}|${vp.h}|${firstShown}|${view}|${atBottom}`;
+    const same = key === holdKey.current;
+    holdKey.current = key;
+    if (!same || restored.current) hold(true);
+  });
 
   const rows: ReactNode[] = [];
   let at = 0, sp = 0;
