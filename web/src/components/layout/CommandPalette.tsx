@@ -136,20 +136,23 @@ export function CommandPalette() {
     return out.sort((x, y) => GROUP_ORDER.indexOf(x.group) - GROUP_ORDER.indexOf(y.group)).slice(0, 80);
   }, [q, all]);
 
-  latest.current = { results, sel };
+  // the highlighted row never points past the results: a hover on the longer list, or a late state update, could leave `sel` beyond a
+  // shorter filtered list, and Enter then ran nothing (cycle 43)
+  const at = Math.max(0, Math.min(sel, results.length - 1));
+  latest.current = { results, sel: at };
   useEffect(() => { setSel(0); }, [q]);
-  useEffect(() => { if (helpReg && pendingEnter.current) { pendingEnter.current = false; if (openRef.current) results[sel]?.run(); } }, [helpReg]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }); }, [sel]);
+  useEffect(() => { if (helpReg && pendingEnter.current) { pendingEnter.current = false; if (openRef.current) results[at]?.run(); } }, [helpReg]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }); }, [at]);
 
   const onKey = (e: React.KeyboardEvent) => {
-    if (e.key === 'ArrowDown') { e.preventDefault(); setSel((x) => Math.min(results.length - 1, x + 1)); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); setSel((x) => Math.max(0, x - 1)); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setSel(Math.min(results.length - 1, at + 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setSel(Math.max(0, at - 1)); }
     else if (e.key === 'Enter') {
       e.preventDefault();
       if (!helpReg && q.trim() && !pendingEnter.current) { // the help entries are not searchable yet: they could change the first result
         pendingEnter.current = true;
         loadHelp().catch(() => { if (pendingEnter.current) { pendingEnter.current = false; if (openRef.current) latest.current.results[latest.current.sel]?.run(); } });
-      } else if (!pendingEnter.current) results[sel]?.run();
+      } else if (!pendingEnter.current) results[at]?.run();
     }
     else if (e.key === 'Escape') { e.preventDefault(); setOpen(false); }
   };
@@ -165,7 +168,7 @@ export function CommandPalette() {
             <div style={{ position: 'relative' }}>
               <Search size={18} style={{ position: 'absolute', left: 17, top: 18, color: 'var(--accent-2)' }} />
               <input ref={inputRef} className="palette-input" placeholder="Search everything: commands, screens, missions, agents, models, VMs, users, jobs, news, help…" value={q} onChange={(e) => setQ(e.target.value)}
-                role="combobox" aria-expanded="true" aria-controls="palette-list" aria-activedescendant={results[sel] ? 'pc-' + results[sel].id : undefined} />
+                role="combobox" aria-expanded="true" aria-controls="palette-list" aria-activedescendant={results[at] ? 'pc-' + results[at].id : undefined} />
             </div>
             <div className="palette-list" id="palette-list" role="listbox" ref={listRef}>
               {results.length === 0 && <div className="empty" style={{ padding: 24 }}>No matches for “{q}”.</div>}
@@ -174,11 +177,11 @@ export function CommandPalette() {
                 return (
                   <div key={c.id}>
                     {head && <div className="palette-group">{head}</div>}
-                    <button id={'pc-' + c.id} role="option" aria-selected={i === sel} className="palette-item" onMouseEnter={() => setSel(i)} onClick={() => { pendingEnter.current = false; c.run(); }}>
+                    <button id={'pc-' + c.id} role="option" aria-selected={i === at} className="palette-item" onMouseMove={() => setSel(i)} onClick={() => { pendingEnter.current = false; c.run(); }}>
                       <c.icon size={16} style={{ color: 'var(--accent-2)', flex: 'none' }} />
                       <span className="ellipsis">{c.label}</span>
                       {c.hint && <span className="dim" style={{ fontSize: 12, marginLeft: 'auto' }}>{c.hint}</span>}
-                      {i === sel && <CornerDownLeft size={14} style={{ marginLeft: c.hint ? 8 : 'auto', color: 'var(--text-dim)' }} />}
+                      {i === at && <CornerDownLeft size={14} style={{ marginLeft: c.hint ? 8 : 'auto', color: 'var(--text-dim)' }} />}
                     </button>
                   </div>
                 );
