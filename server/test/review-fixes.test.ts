@@ -123,7 +123,7 @@ describe('I4 resume returns to where the mission was paused', () => {
     const { admin } = await withAdmin(t.app);
     const m = (await admin.req('POST', '/missions', { text: 'Publish it', files: [], shared: false }, { 'idempotency-key': 'i4-' + n++ })).body.mission;
     await t.pool.query(`update missions set status='waiting_approval' where id=$1`, [m.id]);
-    await tx(t.app.db, (c) => requestApproval(c, { tenantId: 't-1', missionId: m.id, agentId: 'release-01', kind: 'release', title: 'Publish', detail: '', risk: 'R3', payload: {}, expiresInMin: 60 }));
+    await tx(t.app.db, (c) => requestApproval(c, { tenantId: 't-1', missionId: m.id, agentId: 'release-01', kind: 'release', title: 'Publish', detail: '', payload: {}, expiresInMin: 60 }));
     await admin.req('POST', `/missions/${m.id}/actions/pause`, {}, { 'idempotency-key': 'i4p' + n++ });
     const r = await admin.req('POST', `/missions/${m.id}/actions/resume`, {}, { 'idempotency-key': 'i4r' + n++ });
     expect(r.body.mission.status).toBe('waiting');
@@ -185,7 +185,7 @@ describe('review 2', () => {
     for (let i = 0; i < 8; i++) {
       const m = (await admin.req('POST', '/missions', { text: 'Race ' + i, files: [], shared: false }, { 'idempotency-key': 'r3m' + n++ })).body.mission;
       await t.pool.query(`update missions set status='waiting_approval' where id=$1`, [m.id]);
-      const a = await tx(t.app.db, (c) => requestApproval(c, { tenantId: 't-1', missionId: m.id, agentId: 'release-01', kind: 'release', title: 'P', detail: '', risk: 'R2', payload: { i }, expiresInMin: 60 }));
+      const a = await tx(t.app.db, (c) => requestApproval(c, { tenantId: 't-1', missionId: m.id, agentId: 'release-01', kind: 'release', title: 'P', detail: '', payload: { i }, expiresInMin: 60 }));
       const [d, p] = await Promise.all([
         admin.req('POST', `/approvals/${a.id}/decision`, { decision: 'approved', digest: a.digest }),
         admin.req('POST', `/missions/${m.id}/actions/cancel`, {}, { 'idempotency-key': 'r3c' + n++ }),
@@ -199,7 +199,7 @@ describe('review 2', () => {
     const { admin } = await withAdmin(t.app);
     const m = (await admin.req('POST', '/missions', { text: 'Expire', files: [], shared: false }, { 'idempotency-key': 'r4' + n++ })).body.mission;
     await t.pool.query(`update missions set status='waiting_approval' where id=$1`, [m.id]);
-    await tx(t.app.db, (c) => requestApproval(c, { tenantId: 't-1', missionId: m.id, agentId: 'release-01', kind: 'release', title: 'Old', detail: '', risk: 'R2', payload: {}, expiresInMin: -1 }));
+    await tx(t.app.db, (c) => requestApproval(c, { tenantId: 't-1', missionId: m.id, agentId: 'release-01', kind: 'release', title: 'Old', detail: '', payload: {}, expiresInMin: -1 }));
     const list = (await admin.req('GET', '/approvals')).body.approvals;
     expect(list.filter((x: any) => x.missionId === m.id)).toEqual([]);
     const after = (await admin.req('GET', `/missions/${m.id}`)).body.mission;

@@ -1,7 +1,7 @@
 import type { Db } from '../db.ts';
 import { tx } from '../db.ts';
 import { audit } from '../audit.ts';
-import { requestApproval, TIER_OF } from '../approvals/service.ts';
+import { requestApproval } from '../approvals/service.ts';
 import { backfillMissionControl } from '../instances/backfill.ts';
 import { MISSIONS, FIXTURE_OWNERS, getMissionControl } from '../../../web/src/data/missions.ts';
 
@@ -31,7 +31,7 @@ export async function seedDemo(db: Db, tenantId: string, adminId: string) {
       missions++;
       for (const a of getMissionControl(m).approvals) {
         await requestApproval(c, {
-          tenantId, missionId: id, id: a.id, agentId: a.agentId, kind: a.kind, title: a.title, detail: a.detail, risk: TIER_OF[a.risk] ?? 'R2',
+          tenantId, missionId: id, id: a.id, agentId: a.agentId, kind: a.kind, title: a.title, detail: a.detail,
           payload: { fixture: a.id, detail: a.detail }, expiresInMin: Math.max(a.expiresMin, 7 * 24 * 60), // a week, so the samples stay decidable createdAgoMin: a.agoMin, demo: true,
         });
         approvals++;

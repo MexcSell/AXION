@@ -20,7 +20,7 @@ afterEach(async () => { await t.close(); });
 
 let n = 0;
 const create = (b: Browser, body: Record<string, unknown> = {}) => b.req('POST', '/missions', { text: 'Publish the homepage preview.', files: [], shared: false, ...body }, { 'idempotency-key': 'k' + Date.now() + n++ });
-const ask = (missionId: string, over: Record<string, unknown> = {}) => tx(t.app.db, (c) => requestApproval(c, { tenantId: 't-1', missionId, agentId: 'release-01', kind: 'release', title: 'Publish homepage v2.1', detail: 'Release-01 asks to publish.', risk: 'R3', payload: { version: 'v2.1' }, expiresInMin: 60, ...over }));
+const ask = (missionId: string, over: Record<string, unknown> = {}) => tx(t.app.db, (c) => requestApproval(c, { tenantId: 't-1', missionId, agentId: 'release-01', kind: 'release', title: 'Publish homepage v2.1', detail: 'Release-01 asks to publish.', payload: { version: 'v2.1' }, expiresInMin: 60, ...over }));
 
 describe('approvals', () => {
   it('lists approvals of visible missions only, with a digest', async () => {
