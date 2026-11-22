@@ -21,7 +21,7 @@ const task = (id: string, owner: string, o: Partial<DimInput['tasks'][number]> =
 });
 const review = (taskId: string, o: Partial<DimInput['reviews'][number]> = {}): DimInput['reviews'][number] => ({
   taskId, missionId: 'M1', reviewerId: 'rev', reviewerKind: 'user', reviewerFamily: null, producerId: 'M1:a1', producerKind: 'agent', producerFamily: 'fam-a', principalId: 'owner',
-  verdict: 'accepted', evidenceCount: 1, at: ago(3 * D), seq: 1, simulated: false, ...o,
+  verdict: 'accepted', evidenceCount: 1, at: ago(3 * D), seq: 1, simulated: false, stale: false, ...o,
 });
 /** a company with missions M1 (Eng) and M2 (Ops) and enough rows for most cells */
 function rich(): DimInput {
@@ -145,6 +145,14 @@ describe('simulated and DEMO rows change no value', () => {
     p.delegations = p.delegations.map((d) => ({ ...d, simulated: false }));
     p.briefs = p.briefs.map((b) => ({ ...b, simulated: false }));
     expect(run(p)).not.toEqual(run(rich()));
+  });
+});
+
+describe('review freshness (c54 M1c)', () => {
+  it('a stale review is in the sample but never verifies', () => {
+    const i = empty(); i.agents = AGENTS; i.missions = [{ id: 'M1', demo: false }];
+    for (let k = 0; k < 4; k++) { i.tasks.push(task(`f${k}`, 'a1')); i.reviews.push(review(`f${k}`, { seq: k + 1, stale: k === 3 })); }
+    expect(cell(run(i), 'cognitive.first_attempt_verified')).toMatchObject({ n: 4, value: 75 });
   });
 });
 

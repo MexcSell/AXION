@@ -4,6 +4,7 @@ import { requireUser } from '../auth/session.ts';
 import { parse } from '../auth/routes.ts';
 import { notFound } from '../errors.ts';
 import { tx } from '../db.ts';
+import { STALE_BEFORE_SQL } from '../tasks/reviews.ts';
 import { VISIBLE_SQL } from '../missions/visibility.ts';
 import { DIMENSION_WINDOWS, FAILURE_TAXONOMY_VERSION } from '../../../shared/contracts/src/index.ts';
 import { computeDimensions, type DimInput } from './dimensions.ts';
@@ -50,7 +51,7 @@ export default async function dimensionRoutes(app: FastifyInstance) {
       const queries: (() => Promise<{ rows: Record<string, any>[] }>)[] = [
         () => q(`select i.mission_id, i.agent_id, i.simulated, i.created_at from agent_instances i where i.tenant_id=$1 and i.mission_id = any($2::text[])`, [T, ids]),
         () => q(`select r.task_id, r.mission_id, r.reviewer_id, r.reviewer_kind, r.reviewer_model_family, r.producer_id, r.producer_kind, r.producer_model_family, r.principal_id,
-                  r.verdict, jsonb_array_length(r.evidence) as ev, r.created_at, r.seq, (t.simulated or m.demo) as simulated
+                  r.verdict, jsonb_array_length(r.evidence) as ev, r.created_at, r.seq, (t.simulated or m.demo) as simulated, (${STALE_BEFORE_SQL('r')} is not null) as stale
              from task_reviews r join tasks t on t.id=r.task_id join missions m on m.id=r.mission_id
             where r.tenant_id=$1 and r.mission_id = any($2::text[]) and r.created_at <= now()`, [T, ids]),
         () => q(`select l.mission_id, l.version, l.body, l.created_at, l.demo from mission_ledgers l where l.tenant_id=$1 and l.kind='progress' and l.mission_id = any($2::text[]) and l.created_at <= now()`, [T, ids]),
@@ -76,7 +77,7 @@ export default async function dimensionRoutes(app: FastifyInstance) {
         missions: missions.map((m) => ({ id: m.id, demo: m.demo })),
         instances: instances.rows.map((i) => ({ missionId: i.mission_id, agentId: i.agent_id, simulated: i.simulated, at: D(i.created_at) })),
         tasks: dept.tasks,
-        reviews: reviews.rows.map((r) => ({ taskId: r.task_id, missionId: r.mission_id, reviewerId: r.reviewer_id, reviewerKind: r.reviewer_kind, reviewerFamily: r.reviewer_model_family, producerId: r.producer_id, producerKind: r.producer_kind, producerFamily: r.producer_model_family, principalId: r.principal_id, verdict: r.verdict, evidenceCount: Number(r.ev), at: D(r.created_at), seq: Number(r.seq), simulated: r.simulated })),
+        reviews: reviews.rows.map((r) => ({ taskId: r.task_id, missionId: r.mission_id, reviewerId: r.reviewer_id, reviewerKind: r.reviewer_kind, reviewerFamily: r.reviewer_model_family, producerId: r.producer_id, producerKind: r.producer_kind, producerFamily: r.producer_model_family, principalId: r.principal_id, verdict: r.verdict, evidenceCount: Number(r.ev), at: D(r.created_at), seq: Number(r.seq), simulated: r.simulated, stale: !!r.stale })),
         ledgers: ledgers.rows.map((l) => ({ missionId: l.mission_id, version: l.version, body: l.body, at: D(l.created_at), demo: l.demo })),
         approvals: approvals.rows.map((a) => ({ missionId: a.mission_id, createdAt: D(a.created_at), decidedAt: a.decided_at ? D(a.decided_at) : null, demo: a.demo })),
         delegations: delegations.rows.map((d) => ({ missionId: d.mission_id, toInstance: d.to_instance, toAgent: d.agent_id, at: D(d.at), simulated: d.simulated })),
