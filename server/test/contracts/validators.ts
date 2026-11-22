@@ -3,7 +3,7 @@ import {
   ERROR_CODES, MISSION_STATUSES, SCORECARD_WINDOWS, REVIEW_VERDICTS, RUBRIC_RESULTS, EVIDENCE_KINDS, FAILURE_SUBJECT_KINDS, DETECTION_CHANNELS, FAILURE_MECHANISMS, FAILURE_CONTROLS, STEP_STATUSES, STALL_POLICY,
   type AccountDto, type PhaseDto, type StaffingDto, type AgentDto, type AgentVersionDto, type ApprovalDto, type AttachmentDto, type AuditVerifyDto, type AvatarDto, type BriefTier, type ChannelDto,
   type CompanyScorecardDto, type ConnectResult, type DelegableKind, type DelegationBriefDto, type DelegationBriefList, type DepartmentFacts, type DepartmentsDto, type DeviceDto,
-  type ErrorEnvelope, type EvidenceRef, type DetectionFieldCount, type FailureDetectionDto, type FailureAttributionDto, type FailureCategoryCount, type FailureModeCount, type FailureModesDto, type FailureSubjectInfo, type FailureTagDto, type HealthDto,
+  type ErrorEnvelope, type EvidenceRef, type DetectionFieldCount, type FailurePatternDto, type FailurePatternsDto, type FailureDetectionDto, type FailureAttributionDto, type FailureCategoryCount, type FailureModeCount, type FailureModesDto, type FailureSubjectInfo, type FailureTagDto, type HealthDto,
   type HierarchyDto, type HierarchyEdgeDto, type HierarchyNodeDto, type InstanceDto, type InstancesPageDto, type LedgerDto, type LedgerVersionDto, type LedgerVersionPageDto,
   type LedgersDto, type LessonCandidateDto, type LessonConflict, type MeDto, type MentoringMilestoneDto, type MentoringPlanDto, type MessageDto, type MessagePageDto,
   type MissionDto, type MissionFileDto, type MissionThreadsDto, type NoticeDto, type OpsHealthDto, type OriginCheckDto, type OrgCoverage, type OrgCoverageChange,
@@ -340,6 +340,11 @@ const detection: V<FailureDetectionDto> = obj<FailureDetectionDto>({
 export const failureModes: V<FailureModesDto> = obj<FailureModesDto>({
   window: oneOf(SCORECARD_WINDOWS), from: iso, to: iso, includeDemo: bool, taxonomyVersion: str, source: str, n: int, demo: int, selfConfirmed: int, proposed: int, categories: arr(categoryCount), detection,
 });
+
+const failurePattern: V<FailurePatternDto> = obj<FailurePatternDto>({
+  id: str, modeId: str, modeName: str, windowDays: int, failures: int, departments: arr(str), candidateId: str, candidateStatus: oneOf(['proposed', 'accepted', 'rejected', 'superseded'] as const), derivedBy: lit('system_failure_pattern' as const), createdAt: iso,
+});
+export const failurePatterns: V<FailurePatternsDto> = obj<FailurePatternsDto>({ minFailures: int, minDepartments: int, windowDays: int, patterns: arr(failurePattern) });
 
 // ---- company: scorecard, throughput, departments
 const scoreRow: V<ScorecardRow> = obj<ScorecardRow>({

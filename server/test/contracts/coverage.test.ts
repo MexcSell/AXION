@@ -327,8 +327,9 @@ describe('API coverage run', () => {
     // a decision does not close attribution: a second view is appended after it (the response then shows the decided fields filled)
     await call(admin, 'POST', '/failure-tags/:id/attributions', `/failure-tags/${tag.id}/attributions`, { status: 201, headers: key(), body: { agentId: 'agent-c60b', stepRef: 'step-4', fullTraceAvailable: true } });
     // c63: detection fields. Six confirmed tags with a channel (so the "found only by a person" share is a number), one carrying every field, and one with "other" and its note.
-    for (let i = 0; i < 6; i++) {
-      await mkTask(`T-c63${i}`, 'failed', mine[1].id);
+    for (const [id, dept] of [['agent-c63x', 'C63 Alpha'], ['agent-c63y', 'C63 Beta']]) await t.pool.query(`insert into agent_definitions(id, tenant_id, name, role, dept, duty, created_by) values ($1,$2,$1,'worker',$3,$1,'u-x')`, [id, tenant, dept]);
+    for (let i = 0; i < 6; i++) { // two departments, so the third confirmed failure of FM-3.2 opens a recurrence candidate (c63 item 2)
+      await t.pool.query(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent) values ($1,$2,$3,'A task','failed',$4)`, [`T-c63${i}`, tenant, m1, i % 2 ? 'agent-c63x' : 'agent-c63y']);
       await t.pool.query(`insert into task_attempts(task_id, attempt_no, result, started_at, finished_at) values ($1, 1, 'failed', now() - interval '3 hours', now() - interval '2 hours')`, [`T-c63${i}`]);
       const body = i === 0 ? { detectionChannel: 'human_review', mechanism: 'other', detectionNote: 'An outside vendor changed a field.', controlExpected: 'test', controlCaught: 'review' } : { detectionChannel: i % 2 ? 'test' : 'human_review' };
       const dt = (await call(admin, 'POST', '/failure-tags', '/failure-tags', { status: 201, headers: key(), body: { subjectKind: 'task', subjectId: `T-c63${i}`, modeId: 'FM-3.2', ...body } })).body.tag;
@@ -338,6 +339,7 @@ describe('API coverage run', () => {
       } else await admin.req('POST', `/failure-tags/${dt.id}/decision`, { decision: 'confirm' });
     }
     await call(admin, 'GET', '/failure-tags', '/failure-tags', { query: '?subjectKind=task&subjectId=T-c630' });
+    await call(admin, 'GET', '/company/failure-patterns', '/company/failure-patterns');
     await call(admin, 'GET', '/failure-tags', '/failure-tags', { query: '?subjectKind=task&subjectId=T-c50a' });
     await call(admin, 'GET', '/site-grants', '/site-grants');
 

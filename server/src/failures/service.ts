@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { Tx, Db } from '../db.ts';
 import { audit } from '../audit.ts';
+import { evaluateFailurePattern } from './patterns.ts';
 import { ApiError, notFound } from '../errors.ts';
 import { emit } from '../events/hooks.ts';
 import { VISIBLE_SQL } from '../missions/visibility.ts';
@@ -207,6 +208,7 @@ export async function decideTag(c: Tx, ctx: Viewer & { correlationId?: string },
   await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: A, subject: id, result: 'ok', correlationId: ctx.correlationId ?? '', detail: { decision: status, selfConfirmed: self, modeId: f.mode_id, subjectKind: f.subject_kind, subjectId: f.subject_id } });
   await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'failure.decided', subject: id, subjectKind: 'failure_tag', missionId: f.mission_id,
     payload: { tagId: id, subjectKind: f.subject_kind, subjectId: f.subject_id, modeId: f.mode_id, status, selfConfirmed: self } });
+  if (status === 'confirmed') await evaluateFailurePattern(c, ctx.tenantId, f.mode_id, { taxonomyVersion: f.taxonomy_version, correlationId: ctx.correlationId }); // c63: may open a candidate in c41's review (never a playbook)
   return { tag: (await tagById(c, ctx.tenantId, id))! };
 }
 

@@ -3,7 +3,7 @@
 --    service from database timestamps, never sent by a caller), what part failed (mechanism), which control should have caught it and
 --    which did. All nullable. "other" values need a note. Columns are written at tag time only: the decision trigger below makes them
 --    as immutable as the rest of the row (append-only, as c33 and c60).
--- 2. failure_pattern_candidates: one append-only row per recurrence pattern that opened a row in c41's lesson_candidates. c41's table is
+-- (see section 2 below) failure_pattern_candidates: one append-only row per recurrence pattern that opened a row in c41's lesson_candidates. c41's table is
 --    not touched. The row names the failures behind the candidate and marks it as derived by the system from tool records.
 alter table failure_tags
   add column detection_channel text check (detection_channel in ('test','audit','human_review','other_agent','reported_later')),
@@ -37,3 +37,29 @@ begin
   then raise exception 'self_confirmed must record whether the tagger confirmed their own tag'; end if;
   return new;
 end $$;
+
+-- 2. One row per recurrence pattern that opened a candidate. The candidate itself is an ordinary row of c41's lesson_candidates (proposed,
+--    never active); this row says which failures it came from and that the system derived it from stored records (tool records), not a person.
+--    candidate_id has no foreign key on purpose: a referenced lesson_candidates could no longer be TRUNCATE-refused by its own guard (as c60's tag_id).
+create table failure_pattern_candidates (
+  id text primary key,                                          -- 'FP-' + 128 random bits
+  tenant_id text not null references tenants(id),
+  mode_id text not null check (mode_id ~ '^FM-[0-9]+\.[0-9]+$'),
+  window_days int not null check (window_days in (7, 30, 90)),
+  candidate_id text not null unique,
+  failure_count int not null check (failure_count >= 3),        -- distinct failed tasks
+  department_count int not null check (department_count >= 2),
+  departments jsonb not null check (jsonb_typeof(departments) = 'array'),
+  task_ids jsonb not null check (jsonb_typeof(task_ids) = 'array'),
+  tag_ids jsonb not null check (jsonb_typeof(tag_ids) = 'array'),
+  origin text not null default 'system_failure_pattern' check (origin = 'system_failure_pattern'),
+  created_at timestamptz not null default now()
+);
+create index failure_pattern_candidates_pattern on failure_pattern_candidates(tenant_id, mode_id, window_days, created_at desc);
+create function failure_pattern_candidates_guard() returns trigger language plpgsql as $$
+begin
+  if tg_op = 'DELETE' and coalesce(current_setting('axion.purge_demo', true), '') = 'on' then return old; end if;
+  raise exception 'failure_pattern_candidates is append-only';
+end $$;
+create trigger failure_pattern_candidates_no_edit before update or delete on failure_pattern_candidates for each row execute function failure_pattern_candidates_guard();
+create trigger failure_pattern_candidates_no_truncate before truncate on failure_pattern_candidates for each statement execute function failure_pattern_candidates_guard();

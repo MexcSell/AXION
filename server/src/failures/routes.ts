@@ -1,12 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { tx } from '../db.ts';
-import { requireUser } from '../auth/session.ts';
+import { requireUser, requireAdmin } from '../auth/session.ts';
 import { parse } from '../auth/routes.ts';
 import { idempotent } from '../idempotency.ts';
 import { SCORECARD_WINDOWS, DETECTION_CHANNELS, FAILURE_MECHANISMS, FAILURE_CONTROLS, DETECTION_NOTE_MAX } from '../../../shared/contracts/src/index.ts';
 import { windowOf } from '../company/scorecard.ts';
 import { FAILURE_SUBJECT_KINDS } from './taxonomy.ts';
+import { listFailurePatterns } from './patterns.ts';
 import { createTag, createAttribution, decideTag, tagsOfSubject, failureModeCounts } from './service.ts';
 
 /**
@@ -68,6 +69,12 @@ export default async function failureRoutes(app: FastifyInstance) {
     const out = await tx(app.db, (c) => decideTag(c, ctx, id, b.decision));
     if ('err' in out) throw out.err;
     return out;
+  });
+
+  // c63: the recurrence patterns that opened a candidate in c41's lesson review (administrators only: it spans every mission of the tenant)
+  app.get('/company/failure-patterns', async (req) => {
+    const ctx = await requireAdmin(req);
+    return tx(app.db, (c) => listFailurePatterns(c, ctx.tenantId));
   });
 
   app.get('/company/failure-modes', async (req) => {

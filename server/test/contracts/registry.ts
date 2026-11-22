@@ -27,6 +27,7 @@ export const ROUTES: Record<string, RouteEntry> = {
   'GET /channels/admin/:userId/messages': { v: C.messagePage },
   'GET /company/dimensions': { v: C.dimensions },
   'GET /company/failure-modes': { v: C.failureModes },
+  'GET /company/failure-patterns': { v: C.failurePatterns, admin: true },
   'GET /company/scorecard': { v: C.scorecard },
   'GET /company/throughput': { v: C.throughput },
   'GET /departments': { v: C.departments },

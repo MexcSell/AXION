@@ -19,3 +19,5 @@ begin
 end $$;
 alter table failure_tags drop constraint failure_tags_detected_after_needs_channel, drop constraint failure_tags_other_needs_note,
   drop column detection_channel, drop column detected_after_seconds, drop column mechanism, drop column control_expected, drop column control_caught, drop column detection_note;
+drop table if exists failure_pattern_candidates;
+drop function if exists failure_pattern_candidates_guard();

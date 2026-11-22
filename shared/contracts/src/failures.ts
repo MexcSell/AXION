@@ -159,3 +159,13 @@ export const ATTRIBUTION_HELP =
   'People attributed this failure differently. Every entry is kept; none replaces another. There is no retraction: a person who changes their mind adds a second entry, which counts as a disagreement. '
   + 'An agent-only entry and an agent-plus-step entry count as different views. The comparison is exact-string, so "Agent-1" and "agent-1" differ. '
   + 'Sending the same target again with a different "full trace available" flag returns 409.';
+
+/**
+ * c63: a recurrence pattern that opened a candidate in c41's lesson review. `derivedBy` says the system derived it from stored records (tool records), not a person or an agent writing it.
+ * The candidate is only a proposal: a person accepts or rejects it through c41's review, and nothing here activates a playbook.
+ */
+export interface FailurePatternDto {
+  id: string; modeId: string; modeName: string; windowDays: number; failures: number; departments: string[];
+  candidateId: string; candidateStatus: 'proposed' | 'accepted' | 'rejected' | 'superseded'; derivedBy: 'system_failure_pattern'; createdAt: string;
+}
+export interface FailurePatternsDto { minFailures: number; minDepartments: number; windowDays: number; patterns: FailurePatternDto[] }
