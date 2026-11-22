@@ -301,7 +301,8 @@ export function onMissionControlEvent(type: string, e: DomainEvent) {
   if (!mid) return;
   if (type === 'conversation.messageCreated' || type === 'conversation.receipt') {
     queued.push({ type, mid, e });
-    if (!flushTimer) flushTimer = window.setTimeout(flushMissionControlEvents, flushDelay());
+    const delay = flushDelay(); // called for every event: it tracks the gap between events
+    if (!flushTimer) flushTimer = window.setTimeout(flushMissionControlEvents, delay);
   } else if (type.startsWith('instance.') || type.startsWith('task.')) {
     refreshSoon(mid, ['hierarchy', 'tasks', 'threads']);
   }
@@ -309,14 +310,20 @@ export function onMissionControlEvent(type: string, e: DomainEvent) {
 
 const FLUSH_MS = 60;
 /**
- * c44: the flush interval adapts to load, between FLUSH_MS and FLUSH_MAX_MS. A quiet thread keeps the 60 ms latency; when
- * the last batch was big (a burst), the next flush waits longer so more events share one store write and one render. It
- * falls back to FLUSH_MS as soon as a batch is small again or the stream has been quiet for a second.
+ * c44: the flush interval adapts to load, between FLUSH_MS and FLUSH_MAX_MS. While events stream in back to back (the gap to
+ * the previous event is under STREAM_GAP_MS) and the last batch was big, the next flush waits longer so more events share
+ * one store write and one render. An event that arrives after a pause (a lone message right after a burst) or after a small
+ * batch is flushed after FLUSH_MS as usual.
  */
 const FLUSH_MAX_MS = 400;
+const STREAM_GAP_MS = 100;
 let lastBatch = 0;
-let lastFlushAt = 0;
-const flushDelay = () => (Date.now() - lastFlushAt > 1000 || lastBatch < 8 ? FLUSH_MS : Math.min(FLUSH_MAX_MS, FLUSH_MS + lastBatch * 12));
+let lastEventAt = 0;
+const flushDelay = () => {
+  const now = Date.now(), streaming = now - lastEventAt < STREAM_GAP_MS;
+  lastEventAt = now;
+  return streaming && lastBatch >= 8 ? Math.min(FLUSH_MAX_MS, FLUSH_MS + lastBatch * 12) : FLUSH_MS;
+};
 let queued: { type: string; mid: string; e: DomainEvent }[] = [];
 let flushTimer = 0;
 function dropQueued(mid?: string) {
@@ -330,7 +337,7 @@ export function flushMissionControlEvents() {
   if (!queued.length) return;
   const batch = queued;
   queued = [];
-  lastBatch = batch.length; lastFlushAt = Date.now();
+  lastBatch = batch.length;
   const before = useMC.getState().byMission;
   let byMission = before;
   const refresh = new Set<string>();
