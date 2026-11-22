@@ -29,6 +29,8 @@ export const KIND_HUE: Record<MessageKind, number> = { delegation: 190, report: 
 
 /** a scroll the reader started counts as moving until this many ms after its last scroll event */
 const SCROLL_IDLE = 160;
+/** after an older page lands, the restored row stays the scroll anchor for this long (ms) unless the reader scrolls */
+const RESTORE_HOLD_MS = 1000;
 const MINIMAP_KEY = 'axion.thread.minimap';
 const readMinimap = () => { try { return localStorage.getItem(MINIMAP_KEY) !== '0'; } catch { return true; } };
 const writeMinimap = (v: boolean) => { try { localStorage.setItem(MINIMAP_KEY, v ? '1' : '0'); } catch { /* per-viewer convenience only */ } };
@@ -274,13 +276,27 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
   // last moved. Near the top the correction stays on (an older page landing there must keep its row in place).
   const own = useRef(-1);
   const moving = useRef(-1e9);
+  // c44: after an older page is restored, the row the reader was on (not the first row the next record() happens to find: the
+  // window may be cut a little off while estimates are replaced by measurements) is the anchor for RESTORE_HOLD_MS, as long
+  // as nobody scrolled. It was the missing piece when a thread write no longer re-rendered the whole page (a timing change).
+  const restored = useRef<{ id: string; top: number; until: number } | null>(null);
   const hold = () => {
     const el = scroller.current, v = vis.current;
     if (!el) return;
-    const reading = performance.now() - moving.current < SCROLL_IDLE && el.scrollTop >= 80;
-    if (v && !atBottomRef.current && !reading && el.scrollTop === v.st) {
-      const r = el.querySelector<HTMLElement>(`[data-mid="${CSS.escape(v.id)}"]`);
-      if (r) { const d = r.getBoundingClientRect().top - el.getBoundingClientRect().top - v.top; if (Math.abs(d) >= .5) { el.scrollTop += d; own.current = el.scrollTop; } }
+    const now = performance.now();
+    const rh = restored.current;
+    if (rh && (now > rh.until || el.scrollTop !== own.current)) restored.current = null;
+    const reading = now - moving.current < SCROLL_IDLE && el.scrollTop >= 80;
+    if (!atBottomRef.current && !reading) {
+      const ra = restored.current;
+      const rr = ra ? el.querySelector<HTMLElement>(`[data-mid="${CSS.escape(ra.id)}"]`) : null;
+      if (ra && rr) {
+        const d = rr.getBoundingClientRect().top - el.getBoundingClientRect().top - ra.top;
+        if (Math.abs(d) >= .5) { el.scrollTop += d; own.current = el.scrollTop; }
+      } else if (v && el.scrollTop === v.st) {
+        const r = el.querySelector<HTMLElement>(`[data-mid="${CSS.escape(v.id)}"]`);
+        if (r) { const d = r.getBoundingClientRect().top - el.getBoundingClientRect().top - v.top; if (Math.abs(d) >= .5) { el.scrollTop += d; own.current = el.scrollTop; } }
+      }
     }
     record();
   };
@@ -431,7 +447,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
     const el = scroller.current, a = anchor.current;
     if (!el || !a) return;
     const n = el.querySelector<HTMLElement>(`[data-mid="${CSS.escape(a.id)}"]`);
-    if (n) { el.scrollTop += n.getBoundingClientRect().top - el.getBoundingClientRect().top - a.top; own.current = el.scrollTop; }
+    if (n) { el.scrollTop += n.getBoundingClientRect().top - el.getBoundingClientRect().top - a.top; own.current = el.scrollTop; restored.current = { id: a.id, top: a.top, until: performance.now() + RESTORE_HOLD_MS }; }
     anchor.current = null;
   }, [firstId]);
   useEffect(() => { if (!loadingOlder) anchor.current = null; }, [loadingOlder]); // a failed or empty load leaves nothing to restore
