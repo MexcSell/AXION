@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { audit } from '../src/audit.ts';
 import { makeSchema } from './helpers.ts';
 import { migrate, listMigrations } from '../src/migrate.ts';
 import { assertOwnLaneDb, laneDbOf } from '../scripts/scale-guard.ts';
@@ -14,7 +15,7 @@ describe('migration 0017 scale indexes', () => {
       const idx = async () => (await s.pool.query(`select indexname from pg_indexes where schemaname = current_schema() and indexname = any($1)`, [NAMES])).rows.map((r) => r.indexname as string).sort();
       expect(await idx()).toEqual([...NAMES].sort());
       await s.pool.query(`insert into events (tenant_id, type, subject_kind, subject_id) select 't-1', 'task.stateChanged', 'task', 'x' || g from generate_series(1, 200) g`);
-      await s.pool.query(`insert into audit_events (tenant_id, actor, action, subject, result, correlation_id) select 't-1', 'a', 'task.reassign', 'x' || g, 'ok', 'c' from generate_series(1, 200) g`);
+      for (let g = 1; g <= 200; g++) await audit(s.pool, { tenantId: 't-1', actor: 'a', action: 'task.reassign', subject: 'x' + g, result: 'ok', correlationId: 'c' });
       expect(await migrate(s.pool, 'down', 16)).toBe(Math.max(...listMigrations().map((m) => m.version).filter((v) => v < 17)));
       expect(await idx()).toEqual([]);
       expect(await migrate(s.pool, 'up')).toBe(LATEST);
