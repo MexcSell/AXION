@@ -75,6 +75,7 @@ export function EvaluationView({ e, sample }: { e: ProposalEvaluationDto; sample
         <span data-eval-outcome={e.outcome}><Chip hue={O.hue} icon={O.icon} size="sm" solid={e.outcome === 'verified_better'} title={O.hint}>{O.label}</Chip></span>
         <span className="tnum" data-eval-n={e.n} title="Cases scored on both the active version and the candidate">n = {e.n}</span>
         <span className="dim tnum">{e.wins} won · {e.losses} lost · mean {pts(e.delta)} pts</span>
+        {e.validity.unvalidated && <Chip hue={38} size="sm" title={e.validity.status === 'failing' ? `The dataset checklist has "no" answers: ${e.validity.failedItems.join(', ')}` : 'The holdout dataset was not attested (checklist) before it was frozen, so this evidence is unvalidated'} data-eval-unvalidated={e.validity.status}>unvalidated</Chip>}
         {e.runCount > 1 && <Chip hue={38} size="sm" title="More than one run on this holdout">{e.runCount} runs</Chip>}
         {sample && <Chip hue={225} size="sm" title="Demo data: nothing was measured">Sample</Chip>}
         <span className="spacer" /><HelpTrigger k="agent.version.evaluation" />

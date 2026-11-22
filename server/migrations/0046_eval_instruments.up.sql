@@ -119,3 +119,100 @@ begin
   if miss > 0 then raise exception 'run_incomplete: eval run % is missing % result(s); it cannot be finished', old.id, miss; end if;
   return new;
 end $$;
+
+-- ======================================================================================================================
+-- R2-3 dataset attestation. ABC-style (A3, NeurIPS 2025 Datasets and Benchmarks): task validity, outcome validity, reporting. The
+-- item wording is ours; we do not claim the paper's item list. A person (an administrator, who is not the dataset's author)
+-- answers every item before the dataset is frozen; an answer is yes, no, or not_applicable with a written reason.
+--   * the attestation stores the content hash of the cases AS THEY ARE when it is written (computed here, never taken from the
+--     caller) and a version number; changing an answer is a new version, never an edit;
+--   * a freeze records which attestation version (if any) matches the frozen hash (eval_datasets.attested_version, computed by
+--     the guard, never taken from the caller). A freeze without one is "unattested" and every verdict on it is flagged unvalidated;
+--   * a frozen dataset can no longer be attested: the attestation comes BEFORE the freeze.
+-- The per-run "disallowed source reachable" flag is deferred: it needs execution.
+alter table eval_datasets add column created_by text;
+alter table eval_datasets add column attested_version int;
+
+create function eval_attestation_item_ids() returns text[] language sql immutable as $$
+  select array['tv_solvable','tv_environment','tv_no_shortcut','tv_sources_stated','ov_reference_checked','ov_wrong_rejected','ov_equivalent_accepted','ov_grader_stable','rp_contamination','rp_limits','rp_noise','rp_scoring']::text[]
+$$;
+-- the problem with an answers object, or null when it is complete: every item, no other key, a known answer, and a reason for not_applicable
+create function eval_attestation_problem(a jsonb) returns text language plpgsql immutable as $$
+declare k text; v jsonb;
+begin
+  if a is null or jsonb_typeof(a) <> 'object' then return 'answers must be an object with one entry per item'; end if;
+  for k in select unnest(eval_attestation_item_ids()) loop
+    if not (a ? k) then return 'item ' || k || ' has no answer'; end if;
+  end loop;
+  for k, v in select * from jsonb_each(a) loop
+    if not (k = any(eval_attestation_item_ids())) then return 'unknown item ' || k; end if;
+    if jsonb_typeof(v) <> 'object' or jsonb_typeof(v -> 'answer') <> 'string' or (v ->> 'answer') not in ('yes','no','not_applicable') then return 'item ' || k || ' needs an answer of yes, no or not_applicable'; end if;
+    if exists (select 1 from jsonb_object_keys(v) x where x not in ('answer','note')) then return 'item ' || k || ' has an unknown field'; end if;
+    if (v ->> 'answer') = 'not_applicable' and char_length(btrim(coalesce(v ->> 'note', ''))) < 10 then return 'item ' || k || ' is not applicable and needs a reason of at least 10 characters'; end if;
+  end loop;
+  return null;
+end $$;
+
+create table eval_attestations (
+  dataset_id text not null references eval_datasets(id),
+  version int not null check (version >= 1),
+  tenant_id text not null references tenants(id),
+  content_sha256 text not null check (content_sha256 ~ '^[0-9a-f]{64}$'),
+  attestor_id text not null references users(id),
+  answers jsonb not null,
+  created_at timestamptz not null default now(),
+  primary key (dataset_id, version)
+);
+create function eval_attestations_check() returns trigger language plpgsql as $$
+declare d eval_datasets; prev eval_attestations; prob text;
+begin
+  select * into d from eval_datasets where id = new.dataset_id for update; -- serialises attestations with each other and with the freeze
+  if not found then raise exception 'no such eval dataset %', new.dataset_id; end if;
+  if d.tenant_id <> new.tenant_id then raise exception 'an attestation has the tenant of its dataset'; end if;
+  if d.frozen_at is not null then raise exception 'dataset_frozen: eval dataset % is frozen; an attestation comes before the freeze', d.id; end if;
+  if d.created_by is null or btrim(d.created_by) = '' then raise exception 'author_unknown: the author of eval dataset % is not recorded, so "the attestor is not the author" cannot be checked', d.id; end if;
+  if lower(btrim(new.attestor_id)) = lower(btrim(d.created_by)) then raise exception 'attestor_is_author: the author of a dataset cannot attest it'; end if;
+  if not exists (select 1 from users where id = new.attestor_id and tenant_id = new.tenant_id and role = 'admin' and status = 'approved') then
+    raise exception 'attestor_not_admin: only an approved administrator can attest a dataset'; end if;
+  prob := eval_attestation_problem(new.answers);
+  if prob is not null then raise exception 'attestation_incomplete: %', prob; end if;
+  if not exists (select 1 from eval_cases where dataset_id = d.id) then raise exception 'eval dataset % has no cases; it cannot be attested', d.id; end if;
+  new.content_sha256 := eval_dataset_sha(d.id);
+  select * into prev from eval_attestations where dataset_id = d.id order by version desc limit 1;
+  if found and prev.content_sha256 = new.content_sha256 and prev.answers = new.answers then
+    raise exception 'attestation_unchanged: version % already records these answers for this content', prev.version; end if;
+  new.version := coalesce(prev.version, 0) + 1;
+  return new;
+end $$;
+create trigger eval_attestations_check before insert on eval_attestations for each row execute function eval_attestations_check();
+create trigger eval_attestations_no_update before update or delete on eval_attestations for each row execute function instances_append_only();
+create trigger eval_attestations_no_truncate before truncate on eval_attestations for each statement execute function instances_append_only();
+
+-- the dataset guard of 0037, plus: the author cannot change once recorded; the attested version of a freeze is computed here
+create or replace function eval_datasets_guard() returns trigger language plpgsql as $$
+begin
+  if tg_op = 'INSERT' then
+    if new.frozen_at is not null then raise exception 'eval dataset % cannot be created frozen; freeze it with eval_freeze_dataset', new.id; end if;
+    new.attested_version := null;
+    return new;
+  end if;
+  if tg_op = 'DELETE' then
+    if old.frozen_at is not null and coalesce(current_setting('axion.purge_demo', true), '') <> 'on' then
+      raise exception 'eval dataset % is frozen', old.id;
+    end if;
+    return old;
+  end if;
+  if old.frozen_at is not null then raise exception 'eval dataset % is frozen', old.id; end if;
+  if old.created_by is not null and new.created_by is distinct from old.created_by then raise exception 'the author of eval dataset % cannot change', old.id; end if;
+  new.attested_version := null;
+  if new.frozen_at is not null then
+    if not exists (select 1 from eval_cases where dataset_id = old.id) then
+      raise exception 'eval dataset % has no cases; it cannot be frozen', old.id;
+    end if;
+    if new.content_sha256 is distinct from eval_dataset_sha(old.id) then
+      raise exception 'eval dataset % content hash does not match its stored cases', old.id;
+    end if;
+    new.attested_version := (select max(version) from eval_attestations where dataset_id = old.id and content_sha256 = new.content_sha256);
+  end if;
+  return new;
+end $$;

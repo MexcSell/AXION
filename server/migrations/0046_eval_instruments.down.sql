@@ -1,4 +1,34 @@
 -- c61: down (re-runnable: every drop is conditional). Restores the 0040 run guard.
+-- c61: down (re-runnable: every drop is conditional). Restores the 0037 dataset guard and the 0040 run guard.
+drop table if exists eval_attestations;
+drop function if exists eval_attestations_check();
+create or replace function eval_datasets_guard() returns trigger language plpgsql as $$
+begin
+  if tg_op = 'INSERT' then
+    if new.frozen_at is not null then raise exception 'eval dataset % cannot be created frozen; freeze it with eval_freeze_dataset', new.id; end if;
+    return new;
+  end if;
+  if tg_op = 'DELETE' then
+    if old.frozen_at is not null and coalesce(current_setting('axion.purge_demo', true), '') <> 'on' then
+      raise exception 'eval dataset % is frozen', old.id;
+    end if;
+    return old;
+  end if;
+  if old.frozen_at is not null then raise exception 'eval dataset % is frozen', old.id; end if;
+  if new.frozen_at is not null then
+    if not exists (select 1 from eval_cases where dataset_id = old.id) then
+      raise exception 'eval dataset % has no cases; it cannot be frozen', old.id;
+    end if;
+    if new.content_sha256 is distinct from eval_dataset_sha(old.id) then
+      raise exception 'eval dataset % content hash does not match its stored cases', old.id;
+    end if;
+  end if;
+  return new;
+end $$;
+drop function if exists eval_attestation_problem(jsonb);
+drop function if exists eval_attestation_item_ids();
+alter table eval_datasets drop column if exists attested_version;
+alter table eval_datasets drop column if exists created_by;
 drop table if exists eval_regrade_cases;
 drop table if exists eval_regrades;
 drop function if exists eval_regrade_cases_check();

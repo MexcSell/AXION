@@ -104,6 +104,7 @@ export interface VersionProposalDto {
 export type EvalOutcome = 'verified_better' | 'inconclusive' | 'worse';
 /** attempts of a run, how many carry a grade, and the grader (name and version) that graded them; null = not recorded (runs before c61) */
 export interface GradingDto { attempted: number; graded: number; graderName: string | null; graderVersion: string | null }
+export interface DatasetValidityDto { unvalidated: boolean; status: 'attested' | 'failing' | 'unattested'; version: number | null; failedItems: string[] }
 export interface EvalRefusalDto { code: string; detail: string }
 export interface ProposalEvaluationDto {
   outcome: EvalOutcome;
@@ -127,6 +128,11 @@ export interface ProposalEvaluationDto {
    * that links two runs graded by different grader versions (its NEW grades are the ones compared); null when none was needed.
    */
   grading: { baseline: GradingDto | null; candidate: GradingDto; excludedCases: number; sufficient: boolean; minFraction: number; regradeId: string | null };
+  /**
+   * c61 (R2-3): was the dataset attested (ABC-style checklist, by an administrator who is not its author) before it was frozen? An
+   * unattested dataset can still be used, but the verdict is flagged `unvalidated`. `failing`: attested, with at least one "no" answer.
+   */
+  validity: DatasetValidityDto;
   /** runs recorded for this candidate on that dataset (finished or not): more than one is refused as re-run shopping */
   runCount: number;
 }

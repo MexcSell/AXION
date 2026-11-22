@@ -1,14 +1,24 @@
 // c47: fixtures for evaluation evidence. These write RECORDS only (datasets, cases, runs, results); nothing here runs an
 // evaluation or calls a model. Used by tests (and mirrored in web/scripts/api-c47.mjs for the browser check).
 import type pg from 'pg';
+import { ATTESTATION_ITEMS, attestDataset } from '../src/evolution/attestation.ts';
 
-export interface DatasetOpts { id: string; tenant?: string; split?: 'dev' | 'holdout'; cases?: number; name?: string; freeze?: boolean; /** cases carry this tag in their input (default: the dataset id, so two datasets share no case); give two datasets the same tag to make them overlap */ inputTag?: string }
+/** every attestation item answered yes */
+export const allYes = () => Object.fromEntries(ATTESTATION_ITEMS.map((i) => [i.id, { answer: 'yes' as const }]));
+
+export interface DatasetOpts { id: string; tenant?: string; split?: 'dev' | 'holdout'; cases?: number; name?: string; freeze?: boolean; /** cases carry this tag in their input (default: the dataset id, so two datasets share no case); give two datasets the same tag to make them overlap */ inputTag?: string;
+  /** c61: who wrote the dataset (the attestor must be someone else); omitted = not recorded */ createdBy?: string;
+  /** c61: an administrator who attests the dataset (every item answered yes) before it is frozen; omitted = frozen without an attestation */ attestBy?: string }
 /** Inserts a dataset with n cases (c01..cNN) and freezes it through eval_freeze_dataset (the hash is computed in the database). */
 export async function makeDataset(pool: pg.Pool, o: DatasetOpts): Promise<string[]> {
   const n = o.cases ?? 12;
-  await pool.query(`insert into eval_datasets(id, tenant_id, name, version, split) values ($1,$2,$3,1,$4)`, [o.id, o.tenant ?? 't-1', o.name ?? 'set-' + o.id, o.split ?? 'holdout']);
+  await pool.query(`insert into eval_datasets(id, tenant_id, name, version, split, created_by) values ($1,$2,$3,1,$4,$5)`, [o.id, o.tenant ?? 't-1', o.name ?? 'set-' + o.id, o.split ?? 'holdout', o.createdBy ?? null]);
   const ids = Array.from({ length: n }, (_, i) => 'c' + String(i + 1).padStart(2, '0'));
   for (const [i, c] of ids.entries()) await pool.query(`insert into eval_cases(dataset_id, case_id, input, expected) values ($1,$2,$3,$4)`, [o.id, c, JSON.stringify({ q: i, text: 'question ' + i, set: o.inputTag ?? o.id }), JSON.stringify({ a: i * 2 })]);
+  if (o.attestBy) {
+    const c = await pool.connect();
+    try { await attestDataset(c, { tenantId: o.tenant ?? 't-1', datasetId: o.id, attestorId: o.attestBy, answers: allYes() }); } finally { c.release(); }
+  }
   if (o.freeze !== false) await pool.query(`select eval_freeze_dataset($1)`, [o.id]);
   return ids;
 }

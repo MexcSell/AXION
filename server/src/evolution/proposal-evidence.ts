@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { Tx } from '../db.ts';
 import { hashDataset, verdictV2, type Attempt, type CaseRuns } from './verdict-v2.ts';
+import { datasetValidity } from './attestation.ts';
 import { modelFamily as vendorOf } from '../tasks/review-rules.ts';
 import type { EvalRefusalDto, ProposalEvaluationDto } from '../../../shared/contracts/src/index.ts';
 
@@ -37,7 +38,7 @@ interface RunRow { id: string; dataset_id: string; k: number; judge_model_family
 
 /** What a decision is bound to: the runs, the dataset hash, the outcome and the refusal codes; a fixed value when there is no evaluation. */
 export function evaluationSha(e: ProposalEvaluationDto | null): string {
-  const body = e ? [e.candidateRunId, e.baseRunId, e.datasetId, e.datasetSha, e.outcome, e.runCount, e.refusals.map((r) => r.code).sort(), e.grading] : 'no-evaluation';
+  const body = e ? [e.candidateRunId, e.baseRunId, e.datasetId, e.datasetSha, e.outcome, e.runCount, e.refusals.map((r) => r.code).sort(), e.grading, e.validity] : 'no-evaluation';
   return createHash('sha256').update(JSON.stringify(body)).digest('hex');
 }
 
@@ -168,6 +169,7 @@ export async function loadEvaluations(c: Tx, tenantId: string, proposals: Eviden
         candidate: { ...v.grading.candidate, graderName: regradeCand ? gBase!.name : gCand?.name ?? null, graderVersion: regradeCand ? gBase!.version : gCand?.version ?? null },
         excludedCases: v.grading.excludedCases, sufficient: v.grading.sufficient, minFraction: v.grading.minFraction, regradeId: regradeBase ?? regradeCand,
       },
+      validity: await datasetValidity(c, cand.dataset_id),
       datasetId: cand.dataset_id, datasetSha: cand.content_sha256, baseRunId: base?.id ?? null, candidateRunId: cand.id, runCount,
     });
   }
