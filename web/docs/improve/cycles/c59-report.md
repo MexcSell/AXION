@@ -105,3 +105,10 @@ Commits: d00b04a (F1, F5, F6 together: they share the migration and the log writ
 | F6 case | Trigger matches `lower(kind)`; tested with Lesson, LESSON, Skill. |
 
 Re-runs: server and web tsc clean. Full vitest serial (`--no-file-parallelism`, load 15.3): 74 files; first run had 2 files fail on connection exhaustion (`c48-can-decide`, `conversations`: `too many connections for role "axion"` / `admin connect failed … INTERNAL`), and both passed (48 tests) when re-run serially; the other 72 files passed. api-c41 45/45 and api-stage6 94/94 (default cap), api-c59 26/26 (cap 3, 1366x768), a11y api 41 views, 65 dialogs, 0 violations. Servers on 10890-10893 are stopped. verify-all and fit-check were not re-run (no page layout changed beyond one more small chip).
+
+### Re-review items (R1, R2a, R2b), one commit
+RED on the previous tip with two new `c59-fix.test.ts` tests: "withdraw, restore, withdraw again: the log ends with withdrawn": `expected [ 'proposed', 'accepted', …(2) ] to deeply equal [ …(3) ]`; "an actor without a kind is refused…": `promise resolved … instead of rejecting`.
+- R1: the rollback route writes a `withdrawn` line for a lesson whose row cannot change again (already superseded), so withdraw, restore, withdraw ends with `withdrawn`. The earlier "spurious" expectation was reversed.
+- R2a: the trigger now raises when `axion.actor` is set without `axion.actor_kind` (no default to human).
+- R2b: `record_contributions.asserted` (false when the insert fallback used the row's proposer), DTO `actorAsserted`, shown as "(actor not asserted)" in the log. 0044 is edited in place a third time (unmerged).
+Result: tsc clean (server and web); 10 files, 135 tests passed (c59 x5, c59-fix, playbooks, playbooks-migration, contracts), serial, after one connection-exhaustion retry; api-c59 26/26. api-c41 and the other suites were not re-run for this small change beyond the c41 `playbooks.test.ts` file.

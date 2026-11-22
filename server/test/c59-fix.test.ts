@@ -73,12 +73,25 @@ describe('F5: the log is complete by construction', () => {
     expect(line).toMatchObject({ actor: 'tester-01', actorKind: 'agent', filedBy: aId, filedByName: 'Luca' });
   });
 
-  it('a second rollback does not write a withdrawn line for a lesson that was already superseded', async () => {
+  it('withdraw, restore, withdraw again: the log ends with withdrawn (the second withdrawal is a real event)', async () => {
     const l1 = (await lesson(M, 'Rollback line one ' + n++, 'tester-01')).body.lesson.id as string;
     const l2 = (await lesson(M, 'Rollback line two ' + n++, 'tester-01')).body.lesson.id as string;
     expect((await B.req('POST', `/lessons/${l1}/decision`, { decision: 'accept', baseVersion: 0 })).status).toBe(200);
     expect((await B.req('POST', `/lessons/${l2}/decision`, { decision: 'accept', baseVersion: 1 })).status).toBe(200);
     for (const [to, base] of [[1, 2], [2, 3], [1, 4]]) expect((await B.req('POST', '/agents/tester-01/playbook/rollback', { toVersion: to, baseVersion: base, why: 'again' })).status).toBe(200);
-    expect(await actions(l2)).toEqual(['proposed', 'accepted', 'withdrawn', 'restored']);
+    expect(await actions(l2)).toEqual(['proposed', 'accepted', 'withdrawn', 'restored', 'withdrawn']);
+  });
+
+  it('an actor without a kind is refused, and a line written by the insert fallback says the actor was not asserted', async () => {
+    const sk = (await M.req('POST', '/skills', { name: 'Kind probe ' + n++, description: 'd', steps: [{ kind: 'note', detail: 'x' }], preconditions: [], sources: SRC }, key())).body.skill.id as string;
+    const c = await t.pool.connect();
+    try {
+      await c.query('begin'); await c.query(`select set_config('axion.actor','u-9',true), set_config('axion.actor_kind','',true)`);
+      await expect(c.query(`update skills set status='retired', retired_by='u-9', retired_at=now() where id=$1`, [sk])).rejects.toThrow(/kind/);
+      await c.query('rollback');
+    } finally { c.release(); }
+    expect((await A.req('GET', `/skills/${sk}/contributions`)).body.contributions[0]).toMatchObject({ action: 'proposed', actorAsserted: true });
+    await t.pool.query(`insert into skills(id,tenant_id,name,version,description,steps,sources,proposed_by) values ('SK-FB','t-1','Fallback',1,'d','[{"kind":"note","detail":"x"}]',$1,'u-raw')`, [JSON.stringify(SRC)]);
+    expect((await A.req('GET', '/skills/SK-FB/contributions')).body.contributions[0]).toMatchObject({ actor: 'u-raw', actorAsserted: false });
   });
 });

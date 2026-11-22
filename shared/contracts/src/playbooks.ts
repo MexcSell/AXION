@@ -71,6 +71,8 @@ export type ContributionAction = (typeof CONTRIBUTION_ACTIONS)[number];
 export interface ContributionDto {
   seq: number; recordKind: 'lesson' | 'skill'; recordId: string; action: ContributionAction;
   actor: string; actorName: string; actorKind: 'human' | 'agent' | 'system';
+  /** false when no actor was named and the database used the record's proposer as a fallback (a raw insert) */
+  actorAsserted: boolean;
   /** the person who filed an agent's proposal (the actor is then the agent), otherwise null */
   filedBy: string | null; filedByName: string | null;
   originChannel: OriginChannel; originClass: OriginClass;

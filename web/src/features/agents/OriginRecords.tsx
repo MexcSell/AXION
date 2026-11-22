@@ -66,7 +66,7 @@ export function ContribLog({ kind, id, label }: { kind: 'lessons' | 'skills'; id
         : <ol className="col" style={{ gap: 2, margin: 0, paddingLeft: 16, fontSize: 11.5 }} aria-label={`Contribution log of ${label}`} data-contrib-log={id}>
           {r.data.map((c) => (
             <li key={c.seq} data-contrib={c.action}>
-              <b>{c.actorName}</b>{c.actorKind === 'system' ? ' (system)' : c.actorKind === 'agent' ? ' (agent)' : ''}{c.filedByName ? ` (filed by ${c.filedByName})` : ''} {ACTION[c.action]}{c.version ? ` · v${c.version}` : ''} · <span className="dim">{since(c.at)}</span>
+              <b>{c.actorName}</b>{c.actorKind === 'system' ? ' (system)' : c.actorKind === 'agent' ? ' (agent)' : ''}{c.filedByName ? ` (filed by ${c.filedByName})` : ''}{c.actorAsserted ? '' : ' (actor not asserted)'} {ACTION[c.action]}{c.version ? ` · v${c.version}` : ''} · <span className="dim">{since(c.at)}</span>
               {c.sources.length > 0 && <span className="dim"> · {c.sources.length} source{c.sources.length === 1 ? '' : 's'}</span>}
               {c.note && <span className="dim"> · “{c.note}”</span>}
             </li>))}

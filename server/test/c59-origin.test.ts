@@ -142,7 +142,7 @@ describe('derivation: never above the weakest source', () => {
     for (const set of ["origin_class='human'", "origin_class='agent'", "origin_channel='human_entry', origin_class='human'"])
       await expect(t.pool.query(`update lesson_candidates set ${set} where id='LC-OK'`), set).rejects.toThrow(/can only be decided/);
     const dc = await t.pool.connect(); // a raw decision now needs a named actor (the contribution trigger fails closed without one)
-    try { await dc.query('begin'); await dc.query(`select set_config('axion.actor','u-other',true)`);
+    try { await dc.query('begin'); await dc.query(`select set_config('axion.actor','u-other',true), set_config('axion.actor_kind','human',true)`);
       await dc.query(`update lesson_candidates set status='rejected', decided_by='u-other', decided_at=now() where id='LC-OK'`); await dc.query('commit'); } finally { dc.release(); }
     await expect(t.pool.query(`update lesson_candidates set origin_class='human' where id='LC-OK'`)).rejects.toThrow(/never changes/);
     const sk = (await A.req('POST', '/skills', skillBody(), key())).body.skill;

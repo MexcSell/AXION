@@ -463,7 +463,8 @@ export default async function playbookRoutes(app: FastifyInstance) {
       }
       await c.query('release savepoint pb_insert');
       await setActor(c, ctx.user.id, 'human', { note: b.why });
-      if (gone.length) await c.query(`update lesson_candidates set status='superseded', withdrawn_in_version=$2 where id = any($1) and status='accepted'`, [gone, version]); // withdrawn by this rollback
+      const changed = new Set(gone.length ? (await c.query(`update lesson_candidates set status='superseded', withdrawn_in_version=$2 where id = any($1) and status='accepted' returning id`, [gone, version])).rows.map((r) => r.id as string) : []); // withdrawn by this rollback (the trigger logs these)
+      for (const g of gone.filter((x) => !changed.has(x))) await logContribution(c, { tenantId: ctx.tenantId, kind: 'lesson', recordId: g, action: 'withdrawn', actor: ctx.user.id, actorKind: 'human', version, note: b.why }); // already superseded: the row cannot change again, but the item left this playbook again
       for (const r of back) await logContribution(c, { tenantId: ctx.tenantId, kind: 'lesson', recordId: r, action: 'restored', actor: ctx.user.id, actorKind: 'human', version, note: b.why });
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: A, subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { why: b.why, fromVersion: cur.version, toVersion: target.version, newVersion: version, withdrawn: gone, restored: back } });
       await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'playbook.versionCreated', subject: id, subjectKind: 'agent', payload: { version, rollbackTo: target.version } }); // the reason stays in the audit row
@@ -508,7 +509,7 @@ export default async function playbookRoutes(app: FastifyInstance) {
 
   /* ----- c59: the contribution log of a record, readable by whoever can open the record (404 otherwise) ----- */
   const contributionDto = (r: any, ctx: Ctx, self: boolean): ContributionDto => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
-    seq: Number(r.seq), recordKind: r.record_kind, recordId: r.record_id, action: r.action, actor: r.actor, actorName: r.actor_name, actorKind: r.actor_kind, filedBy: r.filed_by, filedByName: r.filed_by ? (r.filed_name ?? r.filed_by) : null,
+    seq: Number(r.seq), recordKind: r.record_kind, recordId: r.record_id, action: r.action, actor: r.actor, actorName: r.actor_name, actorKind: r.actor_kind, actorAsserted: r.asserted, filedBy: r.filed_by, filedByName: r.filed_by ? (r.filed_name ?? r.filed_by) : null,
     originChannel: r.origin_channel, originClass: r.origin_class, sources: (r.sources as SourceRef[]).map((x) => shapeSource(x, ctx.user.role === 'admin' || self)),
     version: r.version, note: ctx.user.role === 'admin' ? r.note : null, at: iso(r.at)!,
   });

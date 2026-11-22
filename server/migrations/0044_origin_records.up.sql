@@ -108,6 +108,7 @@ create table record_contributions (
   sources jsonb not null default '[]'::jsonb check (jsonb_typeof(sources) = 'array'),
   version int,
   note text,
+  asserted boolean not null default true,                -- false when the insert fallback named the row's proposer because no actor was set
   filed_by text,                                         -- the person who filed an agent's proposal (the actor is then the agent)
   ref text,                                              -- a retirement_kept line names the skill_outcomes row it dismissed
   at timestamptz not null default now()
@@ -141,7 +142,7 @@ create trigger skill_outcomes_no_truncate before truncate on skill_outcomes for 
 create function contribution_trigger() returns trigger language plpgsql as $$
 declare act text; actor text := nullif(current_setting('axion.actor', true), ''); akind text := nullif(current_setting('axion.actor_kind', true), '');
         note text := nullif(current_setting('axion.contrib_note', true), ''); over text := nullif(current_setting('axion.contrib_action', true), '');
-        kind text; ver int; filed text;
+        kind text; ver int; filed text; asserted boolean := true;
 begin
   if tg_table_name = 'lesson_candidates' then
     kind := 'lesson';
@@ -159,11 +160,11 @@ begin
     else return null; end if;
   end if;
   if actor is null then
-    if tg_op = 'INSERT' then actor := new.proposed_by; akind := new.proposed_by_kind;
+    if tg_op = 'INSERT' then actor := new.proposed_by; akind := new.proposed_by_kind; asserted := false;
     else raise exception 'contribution actor not set (axion.actor)'; end if;
-  end if;
-  insert into record_contributions(tenant_id, record_kind, record_id, action, actor, actor_kind, origin_channel, origin_class, sources, version, note, filed_by)
-  values (new.tenant_id, kind, new.id, act, actor, coalesce(akind, 'human'), new.origin_channel, new.origin_class, new.sources, ver, note, filed);
+  elsif akind is null then raise exception 'contribution actor kind not set (axion.actor_kind)'; end if;
+  insert into record_contributions(tenant_id, record_kind, record_id, action, actor, actor_kind, origin_channel, origin_class, sources, version, note, filed_by, asserted)
+  values (new.tenant_id, kind, new.id, act, actor, akind, new.origin_channel, new.origin_class, new.sources, ver, note, filed, asserted);
   return null;
 end $$;
 create trigger lesson_candidates_contribution after insert or update on lesson_candidates for each row execute function contribution_trigger();
