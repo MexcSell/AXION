@@ -20,6 +20,17 @@ export function modelFamily(model: string): string {
   return /^[a-z]+/.exec(last)?.[0] ?? last;
 }
 
+/**
+ * c53: when does a dev dataset "share cases" with the holdout? A holdout case counts as shared when its input also appears in a dev
+ * dataset the candidate ran on AND the input is not generic (a canonical JSON text shorter than GENERIC_INPUT_MIN_LEN chars, such as
+ * 1, {}, null or "ok", appears in unrelated datasets by chance). The datasets are linked when at least MIN_REUSE_OVERLAP cases
+ * (and at least REUSE_OVERLAP_SHARE of the holdout) are shared, capped at the holdout's size so a one-case holdout can still be hit.
+ * Case ids are not compared, so a copy under renumbered ids is still caught.
+ */
+export const GENERIC_INPUT_MIN_LEN = 20;
+export const MIN_REUSE_OVERLAP = 2;
+export const REUSE_OVERLAP_SHARE = 0.1;
+
 export interface EvidenceSubject { id: string; created_by: string; base_version_id: string; candidate: unknown }
 
 interface RunRow { id: string; dataset_id: string; k: number; judge_model_family: string | null; evaluator_id: string | null; split: 'dev' | 'holdout'; content_sha256: string | null; subject_proposal_id: string; finished_at: string | null }
@@ -60,9 +71,13 @@ export async function loadEvaluations(c: Tx, tenantId: string, proposals: Eviden
     const cand = mine.find((r) => r.split === 'holdout') ?? mine[0];
     const devIds = [...new Set(mine.filter((r) => r.split === 'dev').map((r) => r.dataset_id))];
     const tuned = [...devIds];
-    // a dev dataset the candidate ran on that shares a case with the holdout means the holdout leaks into tuning
-    if (cand.split === 'holdout' && devIds.length &&
-        (await c.query(`select 1 from eval_cases h join eval_cases d on d.input = h.input where h.dataset_id=$1 and d.dataset_id = any($2) limit 1`, [cand.dataset_id, devIds])).rowCount) tuned.push(cand.dataset_id);
+    // a dev dataset the candidate ran on that shares cases with the holdout means the holdout leaks into tuning (c53: real overlap only)
+    if (cand.split === 'holdout' && devIds.length) {
+      const o = (await c.query(
+        `select count(*) filter (where length(h.input::text) >= $3 and exists (select 1 from eval_cases d where d.dataset_id = any($2) and d.input = h.input))::int as shared, count(*)::int as total
+           from eval_cases h where h.dataset_id=$1`, [cand.dataset_id, devIds, GENERIC_INPUT_MIN_LEN])).rows[0] as { shared: number; total: number };
+      if (o.total && o.shared >= Math.min(o.total, Math.max(MIN_REUSE_OVERLAP, Math.ceil(o.total * REUSE_OVERLAP_SHARE)))) tuned.push(cand.dataset_id);
+    }
     // c53: runs of ANY proposal with the same agent and candidate config on this dataset count (withdraw and re-propose buys nothing)
     const runCount = Number((await c.query(
       `select count(*)::int n from eval_runs r join agent_version_proposals q on q.id = r.subject_proposal_id

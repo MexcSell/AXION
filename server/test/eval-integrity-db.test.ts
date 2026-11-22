@@ -325,3 +325,54 @@ describe('item 4: 16 and 17 digit floats freeze only when JS and SQL render them
     await expect(q(`update eval_datasets set frozen_at = now(), content_sha256 = $1 where id='N-RAW'`, ['a'.repeat(64)])).rejects.toThrow(/canonical form|hash/);
   });
 });
+
+// ---- item 5 ---------------------------------------------------------------------------------------------------------------
+let n5 = 0;
+/** dev and holdout datasets from raw inputs (case ids c01..), the candidate run on dev, base and candidate on the holdout; returns the refusal codes. */
+async function reuseScenario(devInputs: string[], hoInputs: string[], opts: { devIds?: string[] } = {}) {
+  const id = ++n5, dev = 'RU-D' + id, ho = 'RU-H' + id, pid = 'RU-P' + id;
+  const mk = async (ds: string, split: string, inputs: string[], ids?: string[]) => {
+    await q(`insert into eval_datasets(id, tenant_id, name, split) values ($1,'t-1',$1,$2)`, [ds, split]);
+    for (const [i, inp] of inputs.entries()) await q(`insert into eval_cases(dataset_id, case_id, input, expected) values ($1,$2,$3::jsonb,'1')`, [ds, ids?.[i] ?? 'c' + String(i + 1).padStart(2, '0'), inp]);
+    await q(`select eval_freeze_dataset($1)`, [ds]);
+  };
+  await mk(dev, 'dev', devInputs, opts.devIds); await mk(ho, 'holdout', hoInputs);
+  await prop(pid, 'a-1', v1, 'sha-RU' + id);
+  const base = hoInputs.map(() => 40), cand = hoInputs.map((_, i) => 70 + (i % 3));
+  await addRun(s.pool, { id: 'RU-d' + id, datasetId: dev, proposalId: pid, scores: devInputs.map(() => 80), caseIds: opts.devIds, judge: 'qwen-max', evaluator: 'ev-b' });
+  await addRun(s.pool, { id: 'RU-b' + id, datasetId: ho, versionId: v1, scores: base, judge: 'qwen-max', evaluator: 'ev-b' });
+  await addRun(s.pool, { id: 'RU-c' + id, datasetId: ho, proposalId: pid, scores: cand, judge: 'qwen-max', evaluator: 'ev-b' });
+  const c = await s.pool.connect();
+  try { const e = (await loadEvaluations(c, 't-1', [{ id: pid, created_by: 'u', base_version_id: v1, candidate: { model: 'claude-sonnet-4' } }])).get(pid)!; return { codes: e.refusals.map((r) => r.code), outcome: e.outcome, datasetId: e.datasetId, ho }; }
+  finally { c.release(); }
+}
+const long = (i: number) => JSON.stringify({ prompt: 'Summarise the quarterly report for region ' + i });
+const longs = (n: number, off = 0) => Array.from({ length: n }, (_, i) => long(i + off));
+
+describe('item 5: dev_holdout_reuse needs real overlap, not a generic shared input', () => {
+  it('true positive: every case shared', async () => {
+    const r = await reuseScenario(longs(12), longs(12));
+    expect(r.codes).toContain('dev_holdout_reuse'); expect(r.outcome).toBe('inconclusive');
+  });
+  it('true positive: a quarter of the holdout shared, with the same ids', async () => {
+    const r = await reuseScenario([...longs(3), ...longs(9, 100)], [...longs(3), ...longs(9, 200)]);
+    expect(r.codes).toContain('dev_holdout_reuse');
+  });
+  it('true positive: the same long inputs under renumbered case ids', async () => {
+    const ids = Array.from({ length: 12 }, (_, i) => 'z' + String(i).padStart(2, '0'));
+    const r = await reuseScenario(longs(12), longs(12), { devIds: ids });
+    expect(r.codes).toContain('dev_holdout_reuse');
+  });
+  it.each([['1'], ['{}'], ['"ok"'], ['null'], ['{"q":1}'], ['"What is 2+2?"']])('a generic shared input %s on every case is not reuse', async (g) => {
+    const r = await reuseScenario(Array.from({ length: 12 }, () => g), Array.from({ length: 12 }, () => g));
+    expect(r.codes).not.toContain('dev_holdout_reuse'); expect(r.outcome).toBe('verified_better');
+  });
+  it('one shared long input out of twelve is below the minimum overlap', async () => {
+    const r = await reuseScenario([long(0), ...longs(11, 100)], [long(0), ...longs(11, 200)]);
+    expect(r.codes).not.toContain('dev_holdout_reuse'); expect(r.outcome).toBe('verified_better');
+  });
+  it('disjoint datasets are clean', async () => {
+    const r = await reuseScenario(longs(12), longs(12, 500));
+    expect(r.codes).not.toContain('dev_holdout_reuse'); expect(r.outcome).toBe('verified_better');
+  });
+});
