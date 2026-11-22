@@ -85,7 +85,8 @@ export interface DecisionRecordDto { latencyMs: number; queueSize: number; fastB
 /** One cell of the approval-quality statistics. Below `minEvidence` decisions the numbers are null and the cell reads "not enough evidence". */
 export interface QualityCellDto { n: number; enough: boolean; approvalRate: number | null; medianLatencyMs: number | null; fastBulk: number | null }
 /** GET /approvals/quality (everyone): the aggregate over the tenant, no names. */
-export interface ApprovalQualityDto extends QualityCellDto { medianQueueSize: number | null; windowDays: number; windowStart: string; minEvidence: number }
+/** `approverCount` is how many different people decided in the window; everyone but an administrator needs `minApprovers` of them before any number shows. Windows are 7, 30 or 90 days only. */
+export interface ApprovalQualityDto extends QualityCellDto { medianQueueSize: number | null; windowDays: number; windowStart: string; minEvidence: number; approverCount: number; minApprovers: number }
 /** GET /approvals/quality/approvers (administrators only): one row per approver. */
 export interface ApproverQualityDto extends QualityCellDto { userId: string; name: string }
 export interface ApproverQualityBody { windowDays: number; minEvidence: number; approvers: ApproverQualityDto[] }

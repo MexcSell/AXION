@@ -59,6 +59,7 @@ function ApprovalQuality({ close }: DialogComponentProps) {
               <Cell i={3} testid="queue" icon={ListOrdered} label="Median queue" value={agg.medianQueueSize === null ? '' : String(agg.medianQueueSize)} n={agg.n} enough={agg.enough} />
               <Cell i={4} testid="fast" icon={Zap} label="Quick runs flagged" value={agg.fastBulk === null ? '' : String(agg.fastBulk)} n={agg.n} enough={agg.enough} />
             </div>
+            {!admin && !agg.enough && agg.n >= agg.minEvidence && agg.approverCount < agg.minApprovers && <p className="dim aq-note" data-approvers-floor="shown">Totals show once at least {agg.minApprovers} different people have decided in the window, so they never describe one person. {agg.approverCount} so far.</p>}
             <div className="aq-people">
               <div className="row aq-ph"><Users size={14} aria-hidden /><b>Per approver</b><HelpTrigger k="approval.quality.approvers" /><span className="spacer" />{!admin && <span className="dim row" style={{ gap: 4, fontSize: 12 }}><Lock size={12} aria-hidden />administrators only</span>}</div>
               {!admin ? <p className="dim aq-note" data-approvers="hidden">Per-person numbers describe an individual, so only administrators see them. You see the totals above.</p>

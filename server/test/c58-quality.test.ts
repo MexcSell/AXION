@@ -124,18 +124,36 @@ describe('c58 item 4b: the statistics (n and window; below 5, "not enough eviden
     expect(by.Luca).toMatchObject({ userId: A.adminId, n: 5, enough: true, approvalRate: 0.8, medianLatencyMs: 10_000 });
     expect(by.Mina).toMatchObject({ n: 2, enough: false, approvalRate: null, medianLatencyMs: null });
   });
-  it('a member sees aggregates only: the per-approver route is refused and the aggregate names nobody', async () => {
-    const mina = await A.member('Mina');
-    for (let i = 0; i < 5; i++) await seed((await ask()).id, A.adminId, 'approved', 8000);
+  it('a member sees aggregates only: the per-approver route is refused and the aggregate names nobody (three approvers, five decisions)', async () => {
+    const mina = await A.member('Mina'), bea = await A.member('Bea');
+    for (const [who, k] of [[A.adminId, 2], [mina.id, 2], [bea.id, 1]] as [string, number][]) for (let i = 0; i < k; i++) await seed((await ask()).id, who, 'approved', 8000);
     const refused = await mina.b.req('GET', '/approvals/quality/approvers');
     expect(refused.status).toBe(403);
     expect(refused.body.code).toBe('FORBIDDEN');
     expect(JSON.stringify(refused.body)).not.toContain('Luca');
     const agg = await mina.b.req('GET', '/approvals/quality');
     expect(agg.status).toBe(200);
-    expect(agg.body.quality).toMatchObject({ n: 5, enough: true });
+    expect(agg.body.quality).toMatchObject({ n: 5, enough: true, approverCount: 3, minApprovers: 3 });
     const text = JSON.stringify(agg.body);
     expect(text).not.toContain('Luca'); expect(text).not.toContain(A.adminId); expect(agg.body.approvers).toBeUndefined(); expect(agg.body.quality.approvers).toBeUndefined();
+  });
+  it('c58 fix F3: a one-approver or two-approver tenant shows a member nothing, however many decisions; an administrator still sees the totals', async () => {
+    const mina = await A.member('Mina');
+    for (let i = 0; i < 6; i++) await seed((await ask()).id, A.adminId, 'approved', 8000);
+    let m = (await mina.b.req('GET', '/approvals/quality')).body.quality;
+    expect(m).toMatchObject({ n: 6, enough: false, approvalRate: null, medianLatencyMs: null, medianQueueSize: null, fastBulk: null, approverCount: 1, minApprovers: 3 });
+    for (let i = 0; i < 4; i++) await seed((await ask()).id, mina.id, 'denied', 2000);
+    m = (await mina.b.req('GET', '/approvals/quality')).body.quality;
+    expect(m).toMatchObject({ n: 10, enough: false, approvalRate: null, approverCount: 2 });
+    expect((await A.admin.req('GET', '/approvals/quality')).body.quality).toMatchObject({ n: 10, enough: true, approvalRate: 0.6 });
+    const bea = await A.member('Bea');
+    await seed((await ask()).id, bea.id, 'approved', 1000);
+    expect((await mina.b.req('GET', '/approvals/quality')).body.quality).toMatchObject({ n: 11, enough: true, approverCount: 3 });
+  });
+  it('c58 fix F3: only the windows 7, 30 and 90 days are accepted, so two windows cannot be differenced', async () => {
+    for (const w of [7, 30, 90]) expect((await A.admin.req('GET', `/approvals/quality?windowDays=${w}`)).status, String(w)).toBe(200);
+    for (const w of ['1', '8', '29', '31', '89', '91', '365', '0', '-7', '30.5', 'abc', '']) expect((await A.admin.req('GET', `/approvals/quality?windowDays=${w}`)).status, w).toBe(400);
+    expect((await A.admin.req('GET', '/approvals/quality/approvers?windowDays=45')).status).toBe(400);
   });
   it('signed out: refused', async () => {
     expect((await new Browser(t.app).req('GET', '/approvals/quality')).status).toBe(401);

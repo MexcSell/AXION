@@ -10,8 +10,11 @@ export const BULK_WINDOW_S = 60;
 export const BULK_COUNT = 3;
 /** R2 and above, taken from the existing tier table (the external-effect floor), not a second list. */
 export const BULK_TIERS: readonly string[] = TIERS.filter((t) => tierRank(t) >= tierRank(EFFECT_FLOOR.external));
+/** Only these windows exist, so a member cannot difference two adjacent windows to isolate single decisions. */
+export const WINDOWS = [7, 30, 90] as const;
 export const DEFAULT_WINDOW_DAYS = 30;
-export const MAX_WINDOW_DAYS = 365;
+/** A member sees the aggregate only when at least this many different people decided in the window (with one or two, the "total" is a person's own record). */
+export const MIN_APPROVERS = 3;
 
 /** Pending requests of this tenant right now, by the database clock (this one included). Read before the decision is written. */
 export async function pendingQueueSize(c: Tx, tenantId: string): Promise<number> {
@@ -35,8 +38,8 @@ export async function recordDecision(c: Tx, a: { approvalId: string; decision: '
 }
 
 export interface QualityCell { n: number; enough: boolean; approvalRate: number | null; medianLatencyMs: number | null; fastBulk: number | null }
-const cell = (r: { n: number | string; approved: number | string; med: number | string | null; fast: number | string }): QualityCell => {
-  const n = Number(r.n), enough = n >= MIN_EVIDENCE;
+const cell = (r: { n: number | string; approved: number | string; med: number | string | null; fast: number | string }, floorOk = true): QualityCell => {
+  const n = Number(r.n), enough = n >= MIN_EVIDENCE && floorOk;
   return { n, enough, approvalRate: enough ? Number(r.approved) / n : null, medianLatencyMs: enough && r.med !== null ? Math.round(Number(r.med)) : null, fastBulk: enough ? Number(r.fast) : null };
 };
 const CELL_SQL = `count(*)::int as n, count(*) filter (where d.decision='approved')::int as approved,
@@ -44,12 +47,13 @@ const CELL_SQL = `count(*)::int as n, count(*) filter (where d.decision='approve
 const WHERE = `r.tenant_id = $1 and r.demo = false and d.latency_ms is not null and d.decided_at > now() - make_interval(days => $2::int)`;
 
 /** Aggregate for everyone: counts and medians over the whole tenant, no names. */
-export async function aggregateQuality(db: Db | Tx, tenantId: string, windowDays: number) {
+export async function aggregateQuality(db: Db | Tx, tenantId: string, windowDays: number, viewerIsAdmin: boolean) {
   const r = (await db.query(
-    `select ${CELL_SQL}, percentile_cont(0.5) within group (order by d.queue_size) as medq, (now() - make_interval(days => $2::int)) as window_start
+    `select ${CELL_SQL}, count(distinct d.decided_by)::int as approvers, percentile_cont(0.5) within group (order by d.queue_size) as medq, (now() - make_interval(days => $2::int)) as window_start
        from approval_decisions d join approval_requests r on r.id = d.approval_id where ${WHERE}`, [tenantId, windowDays])).rows[0];
-  const c = cell(r);
-  return { ...c, medianQueueSize: c.enough && r.medq !== null ? Math.round(Number(r.medq) * 10) / 10 : null, windowDays, windowStart: new Date(r.window_start).toISOString(), minEvidence: MIN_EVIDENCE };
+  const approverCount = Number(r.approvers);
+  const c = cell(r, viewerIsAdmin || approverCount >= MIN_APPROVERS); // administrators see the per-approver table anyway; everyone else needs three people
+  return { ...c, approverCount, minApprovers: MIN_APPROVERS, medianQueueSize: c.enough && r.medq !== null ? Math.round(Number(r.medq) * 10) / 10 : null, windowDays, windowStart: new Date(r.window_start).toISOString(), minEvidence: MIN_EVIDENCE };
 }
 
 /** Per approver, for administrators only: a person is a monitored individual, so this is never shown to anyone else. */

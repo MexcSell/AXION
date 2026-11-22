@@ -4,7 +4,7 @@ import { tx } from '../db.ts';
 import { audit } from '../audit.ts';
 import { ApiError, notFound } from '../errors.ts';
 import { requireAdmin, requireUser } from '../auth/session.ts';
-import { DEFAULT_WINDOW_DAYS, MAX_WINDOW_DAYS, MIN_EVIDENCE, aggregateQuality, approverQuality, pendingQueueSize, recordDecision } from './quality.ts';
+import { DEFAULT_WINDOW_DAYS, WINDOWS, MIN_EVIDENCE, aggregateQuality, approverQuality, pendingQueueSize, recordDecision } from './quality.ts';
 import { parse } from '../auth/routes.ts';
 import { emit } from '../events/hooks.ts';
 import { VISIBLE_SQL } from '../missions/visibility.ts';
@@ -28,11 +28,11 @@ export default async function approvalRoutes(app: FastifyInstance) {
   });
 
   // c58 (R2-9): approval-quality statistics. Everyone gets the aggregate; per-approver numbers are for administrators only (they monitor a person).
-  const WindowQ = z.object({ windowDays: z.coerce.number().int().min(1).max(MAX_WINDOW_DAYS).default(DEFAULT_WINDOW_DAYS) });
+  const WindowQ = z.object({ windowDays: z.coerce.number().pipe(z.union([z.literal(WINDOWS[0]), z.literal(WINDOWS[1]), z.literal(WINDOWS[2])])).default(DEFAULT_WINDOW_DAYS) });
   app.get('/approvals/quality', async (req) => {
     const ctx = await requireUser(req);
     const q = parse(WindowQ, req.query ?? {});
-    return { quality: await aggregateQuality(app.db, ctx.tenantId, q.windowDays) };
+    return { quality: await aggregateQuality(app.db, ctx.tenantId, q.windowDays, ctx.user.role === 'admin') };
   });
   app.get('/approvals/quality/approvers', async (req) => {
     const ctx = await requireAdmin(req);
