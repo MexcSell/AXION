@@ -1,4 +1,7 @@
 -- c61: down (re-runnable: every drop is conditional). Restores the 0040 run guard.
+drop table if exists eval_calibration_labels;
+drop function if exists eval_calibration_labels_check();
+drop function if exists eval_input_sha(jsonb);
 -- c61: down (re-runnable: every drop is conditional). Restores the 0037 dataset guard and the 0040 run guard.
 drop table if exists eval_attestations;
 drop function if exists eval_attestations_check();

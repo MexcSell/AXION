@@ -216,3 +216,43 @@ begin
   end if;
   return new;
 end $$;
+
+-- ======================================================================================================================
+-- R2-1 judge calibration SCAFFOLD. Human labels for a judge family on a dataset: the judge's verdict on an item and a person's label of
+-- the same item. Judges exist today only as family labels (c53), so nothing in a proposal's verdict reads these yet.
+--   * the items are DISJOINT from the test set, enforced here: the dataset must be frozen (so its cases can no longer change, and one
+--     check direction is enough) and no case of it may have the same canonical input as a label;
+--   * the input hash is computed here (same canonical form as the dataset hash), never taken from the caller;
+--   * one label per (dataset, judge family, item).
+create function eval_input_sha(v jsonb) returns text language sql immutable as $$
+  select encode(sha256(convert_to(eval_canon(v), 'UTF8')), 'hex')
+$$;
+create table eval_calibration_labels (
+  tenant_id text not null references tenants(id),
+  dataset_id text not null references eval_datasets(id),
+  judge_family text not null check (btrim(judge_family) <> ''),
+  input jsonb not null,
+  input_sha256 text not null check (input_sha256 ~ '^[0-9a-f]{64}$'),
+  judge_verdict boolean not null,
+  human_label boolean not null,
+  labeled_by text not null references users(id),
+  created_at timestamptz not null default now(),
+  primary key (tenant_id, dataset_id, judge_family, input_sha256)
+);
+create function eval_calibration_labels_check() returns trigger language plpgsql as $$
+declare d eval_datasets;
+begin
+  select * into d from eval_datasets where id = new.dataset_id;
+  if not found or d.tenant_id <> new.tenant_id then raise exception 'no such eval dataset % in this tenant', new.dataset_id; end if;
+  if d.frozen_at is null then raise exception 'dataset_not_frozen: calibration labels are bound to a frozen dataset, so the test set cannot change under them'; end if;
+  if not exists (select 1 from users where id = new.labeled_by and tenant_id = new.tenant_id and status = 'approved') then
+    raise exception 'labeler_unknown: the labeller must be an approved person of this tenant'; end if;
+  if eval_json_bad(new.input) then raise exception 'calibration_input_unhashable: the input has a value whose canonical form could differ between the database and the application'; end if;
+  new.input_sha256 := eval_input_sha(new.input);
+  if exists (select 1 from eval_cases c where c.dataset_id = d.id and eval_input_sha(c.input) = new.input_sha256) then
+    raise exception 'calibration_overlaps_test: this input is a case of test dataset %; calibration items must be disjoint from the test set', d.id; end if;
+  return new;
+end $$;
+create trigger eval_calibration_labels_check before insert on eval_calibration_labels for each row execute function eval_calibration_labels_check();
+create trigger eval_calibration_labels_no_update before update or delete on eval_calibration_labels for each row execute function instances_append_only();
+create trigger eval_calibration_labels_no_truncate before truncate on eval_calibration_labels for each statement execute function instances_append_only();
