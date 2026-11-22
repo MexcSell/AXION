@@ -159,10 +159,13 @@ try {
   check('overview fits 1366x768', await fits(B.p));
   const clipped = await B.p.evaluate(() => [...document.querySelectorAll('.ov-row .panel')].flatMap((pn) => { const pr = pn.getBoundingClientRect(); return [...pn.querySelectorAll(':scope > .panel-head > *')].filter((c) => { const r = c.getBoundingClientRect(); return r.width > 0 && r.right > pr.right - 4 + 0.5 && !c.classList.contains('spacer'); }).map((c) => `${pn.getAttribute('aria-label') ?? pn.querySelector('.panel-title')?.textContent}: ${c.textContent?.trim() || c.className}`); }));
   check('overview: no panel head item is clipped at the right edge (Open, DEMO)', clipped.length === 0, clipped.join(' | '));
-  const tipLabel = await B.p.locator('.oa-appr button[aria-label^="Approve"][aria-disabled="true"]').first().getAttribute('aria-label');
+  await B.p.locator('.oa-appr button[aria-label^="Approve"][aria-disabled="true"]').first().waitFor({ timeout: 10000 });
+  const tipLabel = await B.p.locator('.oa-appr button[aria-label^="Approve"][aria-disabled="true"]').first().getAttribute('aria-label', { timeout: 10000 });
   check('overview queue: a gated icon carries the reason as its label/tooltip text', /Needs an administrator/.test(tipLabel ?? ''), tipLabel ?? '');
   await bad.hover(); 
   check('overview queue: hovering a gated icon shows the reason tooltip', await until(async () => /Needs an administrator/.test(await B.p.locator('[role="tooltip"]').allInnerTexts().then((t) => t.join(' '))), 4000));
+  await B.p.screenshot({ path: `${SHOTS}/member-overview-tooltip-dark.png` });
+  await B.p.mouse.move(5, 400);
   await settled(B.p);
   await B.p.screenshot({ path: `${SHOTS}/member-overview-dark.png` });
 
@@ -199,6 +202,11 @@ try {
   await L.p.locator('.help-pop').waitFor({ timeout: 5000 });
   await L.p.screenshot({ path: `${SHOTS}/member-tiers-help-light.png` });
   check('light mode: member card fits 1366x768', await fits(L.p));
+  await L.p.goto(base + '/overview', { waitUntil: 'domcontentloaded' });
+  await L.p.locator('.oa-appr').first().waitFor({ timeout: 10000 });
+  await settled(L.p);
+  await L.p.screenshot({ path: `${SHOTS}/member-overview-light.png` });
+  check('light mode: overview fits 1366x768', await fits(L.p));
 } catch (e) {
   check('script ran to the end', false, String(e && e.message || e).slice(0, 300));
 }
