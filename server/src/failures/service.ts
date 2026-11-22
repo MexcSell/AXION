@@ -104,7 +104,7 @@ export async function decideTag(c: Tx, ctx: Viewer & { correlationId?: string },
 export async function failureModeCounts(c: Q, ctx: Viewer, w: { window: '7d' | '30d' | '90d'; from: Date; to: Date }, includeDemo: boolean): Promise<FailureModesDto> {
   const rows = (await c.query(`select f.mode_id, f.status, m.demo, f.self_confirmed, count(*)::int as n from failure_tags f join missions m on m.id=f.mission_id
       where f.tenant_id=$1 and m.tenant_id=$1 and m.deleted_at is null and ${VISIBLE_SQL('$2', '$3')} and ($4::boolean or not m.demo)
-        and f.taxonomy_version=$5 and f.status in ('confirmed','proposed') and f.created_at > now() - ($6::double precision * interval '1 millisecond') and f.created_at <= now() group by 1, 2, 3, 4`,
+        and f.taxonomy_version=$5 and f.status in ('confirmed','proposed') and date_trunc('milliseconds', f.created_at) >= date_trunc('milliseconds', now()) - ($6::double precision * interval '1 millisecond') and f.created_at <= now() group by 1, 2, 3, 4`,
     [ctx.tenantId, ctx.user.role === 'admin', ctx.user.id, includeDemo, FAILURE_TAXONOMY_VERSION, w.to.getTime() - w.from.getTime()])).rows;
   const by = new Map<string, number>();
   let n = 0, proposed = 0, demo = 0, selfConfirmed = 0;
