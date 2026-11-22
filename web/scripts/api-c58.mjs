@@ -177,6 +177,10 @@ try {
   check('quality (member): fits 1366x768', await inView(B.p, '[data-dialog="DL-100"]'));
   await frame(B.p);
   await B.p.screenshot({ path: `${SHOTS}/quality-member-dark.png` });
+  await B.p.setViewportSize({ width: 390, height: 844 }); await frame(B.p);
+  check('quality (phone 390x844): the dialog fits and the page does not scroll sideways', await inView(B.p, '[data-dialog="DL-100"]') && await B.p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+  await B.p.screenshot({ path: `${SHOTS}/quality-member-phone-dark.png` });
+  await B.p.setViewportSize({ width: 1366, height: 768 });
   await B.p.keyboard.press('Escape');
 
   // ---- light mode (the same admin session: a second sign-in would be a new device)

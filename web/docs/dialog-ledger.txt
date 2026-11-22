@@ -20,6 +20,8 @@ PASS  appearance                 no-props DL-56
 PASS  appearance                 props    DL-56   
 PASS  approval-decision          no-props DL-48   
 PASS  approval-decision          props    DL-48   
+PASS  approval-quality           no-props DL-100  
+PASS  approval-quality           props    DL-100  
 PASS  artifact-preview           no-props DL-26   
 PASS  artifact-preview           props    DL-26   
 PASS  artifact-run               no-props DL-29   
