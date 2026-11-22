@@ -21,6 +21,7 @@ export const ROUTES: Record<string, RouteEntry> = {
   'GET /approvals': { v: C.approvalsBody },
   'GET /approvals/quality': { v: C.qualityBody },
   'GET /approvals/quality/approvers': { v: C.approversBody, admin: true },
+  'GET /attention': { v: C.attention },
   'GET /audit/verify': { v: C.auditVerify, admin: true },
   'GET /auth/hello': { v: C.helloBody },
   'GET /auth/wait': { v: C.connectResult },

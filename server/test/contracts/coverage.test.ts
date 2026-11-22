@@ -397,6 +397,10 @@ describe('API coverage run', () => {
     }
     await call(admin, 'GET', '/failure-tags', '/failure-tags', { query: '?subjectKind=task&subjectId=T-c630' });
     await call(admin, 'GET', '/company/failure-patterns', '/company/failure-patterns');
+    // c68: the attention queue, for an administrator (rows of several kinds) and for a member
+    const att = (await call(admin, 'GET', '/attention', '/attention')).body;
+    expect(att.rows.length).toBeGreaterThan(0);
+    await call(mina, 'GET', '/attention', '/attention');
     await call(admin, 'GET', '/failure-tags', '/failure-tags', { query: '?subjectKind=task&subjectId=T-c50a' });
     await call(admin, 'GET', '/site-grants', '/site-grants');
 

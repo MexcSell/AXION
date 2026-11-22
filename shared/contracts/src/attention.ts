@@ -96,7 +96,7 @@ export interface AttentionAction { label: string; route: string; canAct: boolean
 /** One underlying item. A row holds one item, or several that were collapsed. */
 export interface AttentionMemberDto {
   id: string; subject: string; ageSec: number; expiresInSec: number | null; route: string;
-  tier: string | null; canAct: boolean; evidence: AttentionEvidence;
+  tier: string | null; canAct: boolean; /** from a prototype (demo) mission */ demo: boolean; evidence: AttentionEvidence;
 }
 export interface AttentionRowDto {
   id: string; reason: AttentionReasonCode; kind: AttentionKind; icon: AttentionIcon;
@@ -115,6 +115,8 @@ export interface AttentionRowDto {
   evidence: AttentionEvidence;
   /** what grouped the items, or null for a row that is never collapsed */
   groupedBy: string | null;
+  /** the mission of the lead item, when it has one */
+  missionId: string | null;
 }
 export interface AttentionDto {
   rows: AttentionRowDto[];
