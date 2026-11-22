@@ -83,3 +83,31 @@ tests the trigger defaults, not `proposeLesson`. The server-side tests do use `p
    Squash advice: F8.
 7. UI: plain words mostly good; `?` on cap (chip and disabled Accept), log, retirement, derived note; none on the origin chip (F4). 1366x768 screenshots show no clip; api-c59 ran at 1366x768 26/26. a11y not re-run (lane reports 0 violations); Log and Keep/Retire buttons have aria-labels, aria-expanded on Log.
 8. Honesty: not stated in UI/help (F3).
+
+---
+# Re-review (fix round) aa28be9..4b6426f
+Re-run: 11 server test files (c59 x5 incl. new c59-fix, playbooks, playbooks-migration, contracts, security) 221 passed, serial; web tsc clean; api-c59 at 1366x768 cap 3: 26/26.
+c41 files (playbooks.test.ts, playbooks-migration.test.ts, api-c41.mjs) and allowlists.ts: still no diff against 5b3e32b^. Probes: BEGIN..ROLLBACK on axion_e2e17 (down, seed pre-c59 rows, up).
+
+- F1 CLOSED. Seeded pre-0044 rows, ran down then up: agent-kind -> tool_output/tool (also one filed by a person); human row citing `{"kind":"Lesson"}` -> derived/tool;
+  human row citing a skill -> derived/tool; human row with only a note source -> human_entry/human (the only code path that writes it). No row rose; a derived row that was
+  agent/human class falls to tool (lower, never higher). Down guard md5s equal the earlier 0033 values (a03f755e..., aa417c80...), contribution_trigger removed, re-up works.
+- F6 CLOSED, consistent. Raw `Lesson`/`LESSON`/`Skill` kind: as human_entry refused ("a record that cites other records is derived"); as derived it is counted as a record source
+  (class capped: derived human over an agent source refused, derived tool accepted). Backfill uses lower() too. The stored kind string is not normalised, and app-side `isRecordSource` is still case-sensitive, but the service zod enum rejects variants, so only raw writers can store them. Minor, no action.
+- F2/F3/F4 CLOSED. Cap tooltip, help text, DTO doc and server messages now say "per agent playbook" / "the playbook of <agent>"; help and chip tooltip state that hand-typed agent text is undetectable, the rule follows recorded links only, and
+  mission/review/note sources carry no class; OriginChip now includes `<HelpTrigger k="playbook.origin" />`, so every chip has a `?`.
+- Rows reclassified (agent-proposed c41 rows now `tool`): acceptable and honest, and the right direction (fail closed; before 0044 nothing recorded agent vs tool output). Cost: the label "tool" on an old agent-written
+  row understates what we know, and it cannot be told apart from true tool output afterwards. State it in the release note. The lane changed only its own c59 migration test expectation; no c41 test changed (verified by diff).
+
+## New findings
+- R1 (should-fix, small) The "second withdrawal dropped" is a LOST event, and my F5(b) called it spurious wrongly. Sequence withdraw -> restore -> withdraw again: the lesson row stays `superseded`
+  (c41), so the status-change trigger does not fire, and the log ends `proposed, accepted, withdrawn, restored` while the lesson is out of the playbook again (c59-fix test asserts exactly this list).
+  The old app-level line was accurate (it left the playbook in that version). Fix: in the rollback route, for each id in `gone` whose update did not change a row, call the existing logContribution('withdrawn') with the version.
+- R2 (minor) The INSERT fallback attributes by the row's own proposer. Probe: a raw `insert ... proposed_by 'u-fake', proposed_by_kind 'human'` logs actor `u-fake` actor_kind `human` action `proposed`.
+  This is the same claim the row itself makes (no new lie, and it cannot produce class human: origin checks are independent), and c41's raw-insert tests need some fallback, so it is acceptable. Two hardening steps: (a) if
+  `axion.actor` is set but `axion.actor_kind` is not, the trigger defaults to 'human' (probe: actor `u-z` with no kind logged as human): default to 'system' or raise instead; (b) for the fallback, add note
+  "recorded from the row; actor not asserted" or actor_kind 'system'. Actor settings are asserted by the caller, not verified, like any DB-level session value; that is inherent and fine for this threat model.
+- R3 (info) UPDATE with no actor is refused (probe: "contribution actor not set (axion.actor)"). Updates that change neither status nor tracked columns (the trigger's `else return null`) are allowed without a log; the c41/0044 guards leave no other mutable columns, so none were found.
+
+## Verdict: CLEAR AFTER FIXES
+Remaining: R1 (log the second withdrawal; one small route change and a test update to expect `withdrawn` last) and R2(a) (no 'human' default when the kind is missing). R2(b) optional. Everything else closed.
