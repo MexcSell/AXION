@@ -37,13 +37,14 @@ import { GrowthBadge, LevelPips, EvoTrack, GROWTH } from '@/features/agents/Grow
 import { Departments, Assignments, Policies, Proposals } from '@/features/agents/OrgSections';
 import type { ProposalEvaluationDto } from '@contracts';
 import { ServerDevelopment, EvaluationView } from '@/features/agents/VersionProposals';
+import { Dimensions } from '@/features/agents/Dimensions';
 import { PlaybookPanel } from '@/features/agents/Playbooks';
 import { useVersionProposals } from '@/api/versionProposals';
 import { useMentoringPlans } from '@/api/mentoring';
 
 type Filter = 'all' | 'working' | 'in-mission' | 'idle' | 'learning' | 'evolving';
 type View = 'cards' | 'list' | 'hierarchy';
-const TAB_ICONS = [Bot, Sprout, GitBranch, Activity, Building2, ClipboardList, ScrollText, Lightbulb];
+const TAB_ICONS = [Bot, Sprout, GitBranch, Activity, Building2, ClipboardList, ScrollText, Lightbulb, Layers];
 const TAB_NOTE: Record<string, string> = {
   Directory: 'One agent per role. Switch between cards, list and the zoomable hierarchy.',
   Development: 'Who is learning, who is evolving, and each agent’s development stage.',
@@ -53,6 +54,7 @@ const TAB_NOTE: Record<string, string> = {
   Assignments: 'Agent workload per mission and conflicts.',
   Policies: 'Constitution, autonomy caps and delegation rules.',
   Proposals: 'Reorganizations: simulate, evaluate, approve, apply with rollback.',
+  Dimensions: 'Six dimensions of how the company is learning: each cell is a value with its sample size and window, never a total.',
 };
 
 /** Functions, not constants: in api mode the catalog arrives from the server after sign-in and changes live (Stage 6). */
@@ -149,6 +151,7 @@ export function useAgentsSection() {
       {tab === 'Assignments' && <Assignments />}
       {tab === 'Policies' && <Policies />}
       {tab === 'Proposals' && <Proposals />}
+      {tab === 'Dimensions' && <Dimensions />}
     </>,
     bottom: <BottomBoard id="agents" title="Agent boards"><Lifecycle /><StageBoard /><TopPerformers /><EvolutionPipeline /></BottomBoard>,
   };

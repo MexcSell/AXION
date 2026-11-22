@@ -1,4 +1,4 @@
-// c46 (Phase 2, M1), api mode: the six-dimension panel (DL-98).
+// c46 (Phase 2, M1), api mode: the six-dimension view. Since c54 it is a tab (Agents > Dimensions in System Operations, ?tab=agents&sub=dimensions) of the shared page frame, not dialog DL-98.
 // Admin: opens it from the Overview scorecard and from Agents > Departments; six rows each with a ?; every cell is a value with
 // n and window or "not enough evidence (n = k)"; the DOM agrees with GET /company/dimensions; the department selector and the
 // window switch re-read; ? popovers; no total anywhere; fits one 1366x768 screen. Member: same panel, administrator-only cells
@@ -39,8 +39,8 @@ async function open(name, theme = 'dark') {
   p.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource|ERR_CONNECTION|ERR_INTERNET_DISCONNECTED|502|503|504|EventSource/.test(m.text())) errors.push(`${name} console: ${m.text()}`); });
   return { ctx, p };
 }
-const dlg = (p) => p.locator('[data-dialog="DL-98"]');
-const ready = (p) => p.locator('[data-dialog="DL-98"] [data-dimensions="ready"]');
+const dlg = (p) => p.locator('body'); // the tab's controls and rows live in the page itself (kept under the old name so each check below reads the same)
+const ready = (p) => p.locator('[data-dimensions="ready"]');
 const apiGet = async (p, path) => { const r = await p.request.get(base + '/api/v1' + path); return { status: r.status(), body: await r.json().catch(() => ({})) }; };
 
 try {
@@ -60,7 +60,7 @@ try {
     await db.query(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent, owner_instance_id, created_at) values ($1,$2,'C46','T','passed','coder-01','C46:coder-01', now() - interval '3 days')`, [`C46T${i}`, T]);
     await db.query(`insert into task_attempts(task_id, attempt_no, started_at, finished_at, result) values ($1,1, now() - interval '2 days', now() - interval '1 day','passed')`, [`C46T${i}`]);
     await db.query(`insert into events(tenant_id, type, mission_id, seq, subject_kind, subject_id, audience, payload, occurred_at) values ($1,'task.stateChanged','C46',$2,'task',$3,'mission',$4, now() - interval '1 day')`, [T, 770000 + i, `C46T${i}`, JSON.stringify({ taskId: `C46T${i}`, from: 'running', to: 'passed' })]);
-    if (i < 4) await db.query(`insert into task_reviews(id, tenant_id, mission_id, task_id, reviewer_id, reviewer_kind, reviewer_model_family, producer_id, producer_kind, producer_model_family, principal_id, rubric, verdict, evidence) values ($1,$2,'C46',$3,'rev-x','agent','fam-b','C46:coder-01','agent','fam-a',$4,'[{"criterion":"c","result":"pass"}]','accepted','[{"kind":"note","id":"n"}]')`, [`TR-C46-${i}`, T, `C46T${i}`, A]);
+    if (i < 4) await db.query(`insert into task_reviews(id, tenant_id, mission_id, task_id, attempt_id, reviewer_id, reviewer_kind, reviewer_model_family, producer_id, producer_kind, producer_model_family, principal_id, rubric, verdict, evidence) values ($1,$2,'C46',$3,(select id from task_attempts where task_id=$3 order by attempt_no desc limit 1),'rev-x','agent','fam-b','C46:coder-01','agent','fam-a',$4,'[{"criterion":"c","result":"pass"}]','accepted','[{"kind":"note","id":"n"}]')`, [`TR-C46-${i}`, T, `C46T${i}`, A]);
   }
   await db.end();
 
@@ -70,7 +70,8 @@ try {
   await p.goto(base + '/overview', { waitUntil: 'domcontentloaded' });
   await settle(p);
   await p.locator('[data-six-dimensions]').first().click();
-  check('admin opens "Six dimensions" from the Overview scorecard', await until(async () => (await ready(p).count()) === 1, 15000));
+  check('admin opens "Six dimensions" from the Overview scorecard: it lands on the Dimensions tab of Agents (no dialog)', await until(async () => (await ready(p).count()) === 1, 15000) && /[?&]sub=dimensions/.test(p.url()) && (await p.locator('[aria-modal=true]').count()) === 0);
+  check('the Dimensions tab is a tab of the shared frame, selected, with an icon', (await p.locator('[role=tab][aria-selected=true]:has-text("Dimensions") svg').count()) === 1);
   await calm(p);
 
   const rows = p.locator('[data-dimension]');
@@ -107,10 +108,28 @@ try {
   check('the response has no score, total or overall field at any level', !/"(score|total|overall|composite|rating)"/i.test(JSON.stringify(srv)));
 
   // fit one 1366x768 screen
-  const fit = await p.evaluate(() => { const m = document.querySelector('[data-dialog="DL-98"]'); const r = m.getBoundingClientRect(); const body = m.querySelector('.modal-body') ?? m; return { top: r.top, bottom: r.bottom, w: r.width, scroll: body.scrollHeight - body.clientHeight, docScroll: document.documentElement.scrollHeight - innerHeight }; });
-  check('the panel fits 1366x768 without scrolling', fit.top >= 0 && fit.bottom <= 768 && fit.scroll <= 2, JSON.stringify(fit));
+  const fit = await p.evaluate(() => { const f = document.querySelector('.fit-scroll'); const rows = [...document.querySelectorAll('.dim-row')]; const last = rows[rows.length - 1].getBoundingClientRect(); const note = document.querySelector('.dim-note').getBoundingClientRect(); return { inner: f ? f.scrollHeight - f.clientHeight : -1, docScroll: document.documentElement.scrollHeight - innerHeight, sideScroll: document.documentElement.scrollWidth - innerWidth, lastBottom: Math.round(last.bottom), noteBottom: Math.round(note.bottom), vh: innerHeight }; });
+  check('the tab fits 1366x768 without scrolling (no inner or page scroll, every row and the evidence line on screen)', fit.inner >= 0 && fit.inner <= 2 && fit.docScroll <= 0 && fit.sideScroll <= 0 && fit.noteBottom <= fit.vh, JSON.stringify(fit));
+  // c54 fix round: no cell clips its content, no label is cut, and a tab strip that overflows says so (an edge fade), whatever font loaded
+  const cells = await p.evaluate(() => [...document.querySelectorAll('.dim-cell')].map((c) => ({ over: c.scrollHeight - c.clientHeight, h: Math.round(c.getBoundingClientRect().height), label: (() => { const l = c.querySelector('.dim-cl'); return l ? l.scrollWidth - l.clientWidth : 0; })() })));
+  check('no dimension cell clips its content vertically (scrollHeight <= clientHeight)', cells.length > 0 && cells.every((c) => c.over <= 0), JSON.stringify(cells.filter((c) => c.over > 0)));
+  const cut = await p.evaluate(() => [...document.querySelectorAll('.dim-cl')].filter((l) => l.scrollWidth > l.clientWidth + 0.5).map((l) => l.textContent));
+  check('no cell label is cut off (no ellipsis) at 1366', cut.length === 0, JSON.stringify(cut));
+  const strip = await p.evaluate(() => [...document.querySelectorAll('.tabs')].map((t) => ({ aria: t.getAttribute('aria-label'), over: t.scrollWidth - t.clientWidth, fade: t.getAttribute('data-fade') })));
+  check('every tab strip that overflows carries an edge fade (data-fade), none that fits does', strip.every((t) => (t.over > 1) === !!t.fade), JSON.stringify(strip));
   await p.screenshot({ path: `${SHOTS}/c46-dark.png` });
   if (DOC) await p.screenshot({ path: `${DOC}-dark.png` });
+  const vo = dom.find((c) => c.key === 'evolutionary.verdict_outcomes');
+  check('Evaluation verdicts is a measured cell now (c54): n = 0 and "not enough evidence (n = 0)" with no stored evaluation run, not "unmeasured"', vo?.state === 'none' && vo.n === 0 && /not enough evidence \(n = 0\)/.test(vo.text), JSON.stringify(vo));
+  await p.setViewportSize({ width: 390, height: 844 });
+  await until(async () => (await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)), 5000);
+  const mob = await p.evaluate(() => { const bar = document.querySelector('.dim-bar').getBoundingClientRect(); return { over: document.documentElement.scrollWidth - innerWidth, cells: document.querySelectorAll('[data-cell]').length, barRight: Math.round(bar.right), vw: innerWidth }; });
+  check('at 390 px the tab has no sideways overflow, its controls inside the screen, and keeps its cells', mob.over <= 0 && mob.cells >= 15 && mob.barRight <= mob.vw, JSON.stringify(mob));
+  await p.locator('.dim-bar').first().evaluate((e) => e.scrollIntoView({ block: 'start' })).catch(() => {});
+  await p.screenshot({ path: `${SHOTS}/c46-dark-390.png` });
+  if (DOC) await p.screenshot({ path: `${DOC}-dark-390.png` });
+  await p.setViewportSize({ width: 1366, height: 768 });
+  await until(async () => (await p.evaluate(() => innerWidth === 1366)), 3000);
 
   // ---- 2. department switch and window switch
   const waitReq = (frag) => p.waitForRequest((r) => r.url().includes('/company/dimensions') && r.url().includes(frag), { timeout: 10000 }).catch(() => null);
@@ -138,19 +157,15 @@ try {
     if (ok && (KEYS.some((x) => k === `dimensions.${x}`) ? (k === 'dimensions.environmental' ? /not measured until Stage 7/ : /not enough evidence/).test(txt) : true)) helpOk++;
     await p.keyboard.press('Escape');
     await until(async () => (await p.locator('.help-pop').count()) === 0, 4000);
-    if (!(await dlg(p).count())) await p.locator('[data-six-dimensions]').first().click(); // Escape closed the dialog too: reopen
   }
   check('every ? opens a popover with its text (each dimension explains why it may be empty)', helpOk === 9, `${helpOk}/9`);
-  if (!(await dlg(p).count())) { await p.locator('[data-six-dimensions]').first().click(); await ready(p).waitFor({ timeout: 10000 }); }
 
   // ---- 4. light theme screenshot, then from Agents > Departments
-  await dlg(p).getByRole('button', { name: /Close/i }).first().click().catch(() => p.keyboard.press('Escape'));
-  await until(async () => (await dlg(p).count()) === 0, 5000);
   const light = await open('Luca', 'light');
   await light.p.goto(base + '/operations?tab=agents&sub=departments', { waitUntil: 'domcontentloaded' });
   await settle(light.p);
   await light.p.locator('[data-six-dimensions]').first().click();
-  check('Agents > Departments also opens the panel', await until(async () => (await ready(light.p).count()) === 1, 15000));
+  check('Agents > Departments also leads to the Dimensions tab', await until(async () => (await ready(light.p).count()) === 1, 15000));
   await calm(light.p);
   await light.p.screenshot({ path: `${SHOTS}/c46-light.png` });
   if (DOC) await light.p.screenshot({ path: `${DOC}-light.png` });
@@ -161,7 +176,7 @@ try {
   await mem.p.goto(base + '/overview', { waitUntil: 'domcontentloaded' });
   await settle(mem.p);
   await mem.p.locator('[data-six-dimensions]').first().click();
-  check('a member opens the panel too', await until(async () => (await ready(mem.p).count()) === 1, 15000));
+  check('a member opens the tab too', await until(async () => (await ready(mem.p).count()) === 1, 15000));
   await calm(mem.p);
   const md = await mem.p.locator('[data-cell]').evaluateAll((els) => els.map((e) => ({ key: e.getAttribute('data-cell'), state: e.getAttribute('data-state'), n: e.getAttribute('data-n') === '' ? null : Number(e.getAttribute('data-n')), text: e.innerText })));
   const adminOnly = ['capability.site_grants', 'knowledge.lessons_proposed', 'knowledge.lessons_accepted', 'knowledge.lessons_rolled_back'];

@@ -24,8 +24,8 @@ async function task(id: string, m: string, agent: string, status: string, o: { s
   await q(`insert into events(tenant_id, type, mission_id, seq, subject_kind, subject_id, audience, payload, occurred_at) values ('t-1','task.stateChanged',$1,$2,'task',$3,'mission',$4, now() - interval '1 day')`, [m, 800000 + seq++, id, JSON.stringify({ taskId: id, from: 'running', to: status })]);
 }
 const review = (id: string, m: string, taskId: string, agent: string) => q(
-  `insert into task_reviews(id, tenant_id, mission_id, task_id, reviewer_id, reviewer_kind, reviewer_model_family, producer_id, producer_kind, producer_model_family, principal_id, rubric, verdict, evidence)
-   values ($1,'t-1',$2,$3,'rev-x','agent','fam-b',$4,'agent','fam-a','owner-x','[{"criterion":"c","result":"pass"}]','accepted','[{"kind":"note","id":"n"}]')`, [id, m, taskId, `${m}:${agent}`]);
+  `insert into task_reviews(id, tenant_id, mission_id, task_id, attempt_id, reviewer_id, reviewer_kind, reviewer_model_family, producer_id, producer_kind, producer_model_family, principal_id, rubric, verdict, evidence)
+   values ($1,'t-1',$2,$3,(select id from task_attempts where task_id=$3 order by attempt_no desc limit 1),'rev-x','agent','fam-b',$4,'agent','fam-a','owner-x','[{"criterion":"c","result":"pass"}]','accepted','[{"kind":"note","id":"n"}]')`, [id, m, taskId, `${m}:${agent}`]);
 const ledger = (m: string, v: number) => q(`insert into mission_ledgers(tenant_id, mission_id, kind, version, body, author_id, author_kind) values ('t-1',$1,'progress',$2,'{"satisfied":false,"looping":false,"progressing":false,"notes":"","stall":1}','u','human')`, [m, v]);
 const approval = (id: string, m: string, by: string, demo = false) => q(`insert into approval_requests(id, tenant_id, mission_id, agent_id, kind, title, risk, action_digest, digest_version, demo, created_at, expires_at) values ($1,'t-1',$2,'coder-01','k','t','R1','d',2,$3, now() - interval '1 day', now() + interval '1 day')`, [id, m, demo])
   .then(() => q(`insert into approval_decisions(approval_id, decision, digest, decided_by, decided_at) values ($1,'approved','d',$2, now() - interval '1 day' + interval '2 hours')`, [id, by]));

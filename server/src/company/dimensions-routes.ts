@@ -4,11 +4,13 @@ import { requireUser } from '../auth/session.ts';
 import { parse } from '../auth/routes.ts';
 import { notFound } from '../errors.ts';
 import { tx } from '../db.ts';
+import { STALE_BEFORE_SQL } from '../tasks/reviews.ts';
 import { VISIBLE_SQL } from '../missions/visibility.ts';
 import { DIMENSION_WINDOWS, FAILURE_TAXONOMY_VERSION } from '../../../shared/contracts/src/index.ts';
 import { computeDimensions, type DimInput } from './dimensions.ts';
+import { loadEvaluations } from '../evolution/proposal-evidence.ts';
 import { loadDeptRows } from './departments.ts';
-import { windowOf } from './scorecard.ts';
+import { dbWindow } from './clock.ts';
 
 const QueryIn = z.object({ window: z.enum(DIMENSION_WINDOWS as unknown as [string, ...string[]]).default('30d'), department: z.string().trim().min(1).max(80).optional() }).strict();
 
@@ -32,9 +34,7 @@ export default async function dimensionRoutes(app: FastifyInstance) {
       // one snapshot for every read: REPEATABLE READ (the first statement of the transaction), one database clock
       await c.query('set transaction isolation level repeatable read read only');
       // one clock for the whole read: the database's (expiry and window ends are compared against it, never the app clock)
-      const to = new Date((await c.query(`select now() as now`)).rows[0].now);
-      const w = windowOf(qs.window as '7d' | '30d' | '90d', to);
-      const prevFrom = new Date(w.from.getTime() - (w.to.getTime() - w.from.getTime()) - 1);
+      const w = await dbWindow(c, qs.window as '7d' | '30d' | '90d');
       // SQL time bounds come from SQL: pg hands timestamptz back as a JS Date (milliseconds), so a row written in the same millisecond as
       // this read's now() has created_at above the Date and would be dropped by `<= $to`. Upper bound: `<= now()` (the same transaction
       // clock). Lower bound: `now() - interval`, 2 ms wider than the JS window start (the pure function filters rows by the JS dates; the SQL bound only has to load a superset).
@@ -52,7 +52,7 @@ export default async function dimensionRoutes(app: FastifyInstance) {
       const queries: (() => Promise<{ rows: Record<string, any>[] }>)[] = [
         () => q(`select i.mission_id, i.agent_id, i.simulated, i.created_at from agent_instances i where i.tenant_id=$1 and i.mission_id = any($2::text[])`, [T, ids]),
         () => q(`select r.task_id, r.mission_id, r.reviewer_id, r.reviewer_kind, r.reviewer_model_family, r.producer_id, r.producer_kind, r.producer_model_family, r.principal_id,
-                  r.verdict, jsonb_array_length(r.evidence) as ev, r.created_at, r.seq, (t.simulated or m.demo) as simulated
+                  r.verdict, jsonb_array_length(r.evidence) as ev, r.created_at, r.seq, (t.simulated or m.demo) as simulated, (${STALE_BEFORE_SQL('r')} is not null) as stale
              from task_reviews r join tasks t on t.id=r.task_id join missions m on m.id=r.mission_id
             where r.tenant_id=$1 and r.mission_id = any($2::text[]) and r.created_at <= now()`, [T, ids]),
         () => q(`select l.mission_id, l.version, l.body, l.created_at, l.demo from mission_ledgers l where l.tenant_id=$1 and l.kind='progress' and l.mission_id = any($2::text[]) and l.created_at <= now()`, [T, ids]),
@@ -72,13 +72,19 @@ export default async function dimensionRoutes(app: FastifyInstance) {
       ];
       const [instances, reviews, ledgers, approvals, delegations, briefs, grants, tags, lessons, playbooks, promotions, rollbacks, orgRevs] = await runInOrder(c, queries);
       const D = (x: unknown) => new Date(x as string);
+      // c54: proposals with a finished stored run, outcome recomputed by verdictV2 over the stored runs (read only; readable by every signed-in user like the proposals themselves)
+      const props = (await c.query(
+        `select p.id, p.agent_id, p.created_by, p.base_version_id, p.candidate, (select max(r.finished_at) from eval_runs r where r.subject_proposal_id = p.id and r.finished_at is not null) as at
+           from agent_version_proposals p where p.tenant_id=$1 and exists (select 1 from eval_runs r where r.subject_proposal_id = p.id and r.finished_at is not null)`, [T])).rows;
+      const evals = await loadEvaluations(c, T, props);
+      const verdicts: DimInput['verdicts'] = props.filter((p) => evals.has(p.id)).map((p) => ({ agentId: p.agent_id, outcome: evals.get(p.id)!.outcome, at: D(p.at) }));
       const input: DimInput = {
         admin,
         agents: dept.agents.map((a) => ({ id: a.id, dept: a.dept, role: '', active: a.active })),
         missions: missions.map((m) => ({ id: m.id, demo: m.demo })),
         instances: instances.rows.map((i) => ({ missionId: i.mission_id, agentId: i.agent_id, simulated: i.simulated, at: D(i.created_at) })),
         tasks: dept.tasks,
-        reviews: reviews.rows.map((r) => ({ taskId: r.task_id, missionId: r.mission_id, reviewerId: r.reviewer_id, reviewerKind: r.reviewer_kind, reviewerFamily: r.reviewer_model_family, producerId: r.producer_id, producerKind: r.producer_kind, producerFamily: r.producer_model_family, principalId: r.principal_id, verdict: r.verdict, evidenceCount: Number(r.ev), at: D(r.created_at), seq: Number(r.seq), simulated: r.simulated })),
+        reviews: reviews.rows.map((r) => ({ taskId: r.task_id, missionId: r.mission_id, reviewerId: r.reviewer_id, reviewerKind: r.reviewer_kind, reviewerFamily: r.reviewer_model_family, producerId: r.producer_id, producerKind: r.producer_kind, producerFamily: r.producer_model_family, principalId: r.principal_id, verdict: r.verdict, evidenceCount: Number(r.ev), at: D(r.created_at), seq: Number(r.seq), simulated: r.simulated, stale: !!r.stale })),
         ledgers: ledgers.rows.map((l) => ({ missionId: l.mission_id, version: l.version, body: l.body, at: D(l.created_at), demo: l.demo })),
         approvals: approvals.rows.map((a) => ({ missionId: a.mission_id, createdAt: D(a.created_at), decidedAt: a.decided_at ? D(a.decided_at) : null, demo: a.demo })),
         delegations: delegations.rows.map((d) => ({ missionId: d.mission_id, toInstance: d.to_instance, toAgent: d.agent_id, at: D(d.at), simulated: d.simulated })),
@@ -89,6 +95,7 @@ export default async function dimensionRoutes(app: FastifyInstance) {
         playbooks: playbooks.rows.map((p) => ({ agentId: p.agent_id, version: p.version, items: Number(p.items), at: D(p.created_at) })),
         promotions: promotions.rows.map((p) => ({ agentId: p.agent_id, at: D(p.decided_at) })),
         rollbacks: rollbacks.rows.map((r) => ({ agentId: r.agent_id, at: D(r.at) })),
+        verdicts,
         orgRevisions: orgRevs.rows.map((r) => ({ seq: r.seq, at: D(r.active_from) })),
         orgChanges: dept.orgChanges,
       };

@@ -286,6 +286,10 @@ h1, h2, h3, h4, p { margin: 0; }
 /* ------------------------------------------------------------------ */
 .tabs { display: flex; align-items: center; gap: 6px; min-width: 0; overflow-x: auto; scrollbar-width: none; padding: 2px; }
 .tabs::-webkit-scrollbar { display: none; }
+/* c54: a strip wider than its box fades the edge that hides tabs (Tabs.tsx sets data-fade), so a clipped tab is never invisible */
+.tabs[data-fade='r'] { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
+.tabs[data-fade='l'] { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent); }
+.tabs[data-fade='lr'] { -webkit-mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
 .tab {
   position: relative; display: inline-flex; align-items: center; gap: 7px;
   height: 32px; padding: 0 14px; border-radius: var(--r-sm);

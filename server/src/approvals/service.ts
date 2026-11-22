@@ -48,6 +48,10 @@ export interface ApprovalInput { tenantId: string; missionId: string; agentId: s
  */
 export async function requestApproval(c: Tx, a: ApprovalInput) {
   const requestedBy = a.requestedBy ?? a.agentId;
+  // the database clock, truncated to the millisecond the digest binds: the transaction's now(), never the application clock (c54 H11)
+  const stamp = (await c.query(
+    `select date_trunc('milliseconds', now()) as at, date_trunc('milliseconds', now() - $1::double precision * interval '1 minute') as created, date_trunc('milliseconds', now() + $2::double precision * interval '1 minute') as expires`,
+    [a.createdAgoMin ?? 0, a.expiresInMin])).rows[0];
   // what is hashed is exactly what is stored: the JSON round-trip of the payload; '' means absent
   const payload = JSON.parse(JSON.stringify(a.payload)) as Record<string, unknown>;
   const taskId = a.taskId || undefined, origin = a.origin || undefined, target = a.target || undefined;
@@ -55,13 +59,13 @@ export async function requestApproval(c: Tx, a: ApprovalInput) {
   // Rule of Two (c58): the flags are derived here from the agent's configuration (briefs, grants, content origins) and this action's kind.
   // Nothing in `a.payload`, `a.title` or `a.detail` is read for them, so the requester cannot set or clear one.
   const flags = deriveFlags(await loadConfigProfile(c, { tenantId: a.tenantId, missionId: a.missionId, agentId: a.agentId, action: { kind: a.kind, origin: a.origin } }));
-  const d = evaluate({ kind: a.kind, requester: { id: requestedBy, kind: requestedBy === a.agentId ? 'agent' : 'user', role: requestedBy === a.agentId ? 'agent' : 'member' }, effect: 'read', payload: a.payload, missionId: a.missionId, target: a.target, origin: a.origin }, [], {}, Date.now(), flags);
+  const d = evaluate({ kind: a.kind, requester: { id: requestedBy, kind: requestedBy === a.agentId ? 'agent' : 'user', role: requestedBy === a.agentId ? 'agent' : 'member' }, effect: 'read', payload: a.payload, missionId: a.missionId, target: a.target, origin: a.origin }, [], {}, new Date(stamp.at).getTime(), flags);
   if (d.outcome === 'deny') throw new ApiError('POLICY_DENIED', 403, `Policy denies this action (${d.reasons.join(', ')}).`);
   const risk = d.tier;
   const id = a.id ?? 'APR-' + randomBytes(5).toString('hex');
   // timestamps are fixed here (millisecond precision) so the expiry the digest binds is exactly the stored one
-  const createdAt = new Date(Date.now() - (a.createdAgoMin ?? 0) * 60_000);
-  const expiresAt = new Date(Date.now() + a.expiresInMin * 60_000);
+  const createdAt = new Date(stamp.created);
+  const expiresAt = new Date(stamp.expires);
   const digest = digestV2({ tenantId: a.tenantId, missionId: a.missionId, taskId: a.taskId, kind: a.kind, origin: a.origin, target: a.target, payload: a.payload, tier: risk, requestedBy, expiresAt: expiresAt.toISOString() });
   await c.query(
     `insert into approval_requests(id, tenant_id, mission_id, agent_id, kind, title, detail, risk, payload, action_digest, digest_version, task_id, origin, target, requested_by, demo, created_at, expires_at, rule_of_two)

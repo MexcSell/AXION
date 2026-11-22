@@ -32,7 +32,8 @@ export interface ScoreInput {
   reviews?: { taskId: string; missionId: string; verdict: string; reviewerId: string; producerId: string; principalId: string; evidenceCount: number; at: Date; seq: number; stale?: boolean }[];
 }
 
-export function windowOf(w: ScorecardWindow, now = new Date()) {
+/** `now` is REQUIRED: callers pass the database clock (company/clock.ts `dbWindow`); the application clock is never a window bound. */
+export function windowOf(w: ScorecardWindow, now: Date) {
   const days = w === '7d' ? 7 : w === '90d' ? 90 : 30;
   return { window: w, from: new Date(now.getTime() - days * DAY), to: now };
 }

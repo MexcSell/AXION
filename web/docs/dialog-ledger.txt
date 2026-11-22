@@ -112,8 +112,6 @@ PASS  service-restart            no-props DL-60
 PASS  service-restart            props    DL-60   
 PASS  site-grant                 no-props DL-90   
 PASS  site-grant                 props    DL-90   
-PASS  six-dimensions             no-props DL-98   
-PASS  six-dimensions             props    DL-98   
 PASS  skill-propose              no-props DL-95   
 PASS  skill-propose              props    DL-95   
 PASS  task-criteria              no-props         

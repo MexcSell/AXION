@@ -1,5 +1,5 @@
 import { DIMENSION_KEYS, DIMENSION_LABEL, stallCheck, FAILURE_MODE_IDS, type CompanyDimensionsDto, type DimensionCell, type DimensionKey, type DimensionRowDto, type DimensionWindow, type ProgressBody } from '../../../shared/contracts/src/index.ts';
-import { MIN_N, trendOf, windowOf } from './scorecard.ts';
+import { MIN_N, trendOf } from './scorecard.ts';
 import { outcomesOf, type DeptRows } from './departments.ts';
 
 /**
@@ -49,7 +49,9 @@ export interface DimInput {
   missions: { id: string; demo: boolean }[];
   instances: { missionId: string; agentId: string; simulated: boolean; at: Date }[];
   tasks: Task[];
-  reviews: { taskId: string; missionId: string; reviewerId: string; reviewerKind: 'user' | 'agent'; reviewerFamily: string | null; producerId: string; producerKind: 'user' | 'agent'; producerFamily: string | null; principalId: string; verdict: string; evidenceCount: number; at: Date; seq: number; simulated: boolean }[];
+  reviews: { taskId: string; missionId: string; reviewerId: string; reviewerKind: 'user' | 'agent'; reviewerFamily: string | null; producerId: string; producerKind: 'user' | 'agent'; producerFamily: string | null; principalId: string; verdict: string; evidenceCount: number; at: Date; seq: number; simulated: boolean;
+    /** c51 freshness, as GET /tasks/:id/reviews computes it (STALE_BEFORE_SQL): a later attempt exists, or the latest attempt started after the review. A stale review never verifies. */
+    stale: boolean }[];
   /** progress ledger versions, any order */
   ledgers: { missionId: string; version: number; body: Pick<ProgressBody, 'satisfied' | 'looping' | 'progressing'>; at: Date; demo: boolean }[];
   approvals: { missionId: string; createdAt: Date; decidedAt: Date | null; demo: boolean }[];
@@ -63,6 +65,8 @@ export interface DimInput {
   playbooks: { agentId: string; version: number; items: number; at: Date }[];
   promotions: { agentId: string; at: Date }[];
   rollbacks: { agentId: string; at: Date }[];
+  /** c54: one per proposal with a finished stored run: the outcome verdictV2 gives over the stored runs (loadEvaluations, read only), placed at its newest finished run */
+  verdicts: { agentId: string; outcome: 'verified_better' | 'inconclusive' | 'worse'; at: Date }[];
   orgRevisions: { seq: number; at: Date }[];
   orgChanges: { seq: number; at: Date; subordinateId: string }[];
 }
@@ -122,7 +126,7 @@ const SPECS: { dim: DimensionKey; spec: Spec; measure: Measurer | typeof UNMEASU
       const t = tasks.get(r.taskId);
       return !!t && t.attempts.filter((a) => a !== null && a.getTime() <= c.to).length <= 1 && (!c.dept || c.agentIn(t.owner));
     });
-    const ok = rows.filter((r) => r.verdict === 'accepted' && r.evidenceCount >= 1 && r.reviewerId !== r.producerId && r.reviewerId !== r.principalId && tasks.get(r.taskId)!.status === 'passed').length;
+    const ok = rows.filter((r) => r.verdict === 'accepted' && r.evidenceCount >= 1 && r.reviewerId !== r.producerId && r.reviewerId !== r.principalId && !r.stale && tasks.get(r.taskId)!.status === 'passed').length;
     return rate(ok, rows.length, (a, b) => `${a} of ${plural(b, 'reviewed task')} that needed one attempt had an accepted review with evidence from someone other than the producer and the mission owner`, MIN_N, `${plural(rows.length, 'reviewed first-attempt task')}`);
   } },
   { dim: 'cognitive', spec: { key: 'cognitive.stalled_missions', label: 'Missions with a flagged stall', unit: '%', minN: MIN_N, scope: 'missions' }, measure: (input, c) => {
@@ -250,7 +254,12 @@ const SPECS: { dim: DimensionKey; spec: Spec; measure: Measurer | typeof UNMEASU
     const n = input.rollbacks.filter((p) => c.agentIn(p.agentId) && c.inWin(p.at)).length;
     return count(n, `${plural(n, 'rollback')} of an agent to an earlier configuration in the window`, `${plural(n, 'rollback')}`);
   } },
-  { dim: 'evolutionary', spec: { key: 'evolutionary.verdict_outcomes', label: 'Evaluation verdicts (win / inconclusive / loss)', unit: 'count', minN: MIN_N, scope: 'company' }, measure: UNMEASURED, reason: 'not measured yet (cycle 47)' },
+  { dim: 'evolutionary', spec: { key: 'evolutionary.verdict_outcomes', label: 'Evaluation verdicts', unit: 'count', minN: MIN_N, scope: 'company' }, measure: (input, c) => {
+    // c54: recomputed from stored runs at read time (verdictV2, the same call the proposal card uses); the count is evaluated proposals, never a score
+    const vs = input.verdicts.filter((v) => c.agentIn(v.agentId) && c.inWin(v.at));
+    const by = (o: string) => vs.filter((v) => v.outcome === o).length;
+    return count(vs.length, `${by('verified_better')} verified better, ${by('inconclusive')} inconclusive, ${by('worse')} worse: ${plural(vs.length, 'proposal')}, each placed by its newest finished run in the window; verdicts are recomputed from the stored runs, current, not as of the window end`, `${plural(vs.length, 'evaluated proposal')}`);
+  } },
   { dim: 'evolutionary', spec: { key: 'evolutionary.org_revisions', label: 'Org revisions applied', unit: 'count', minN: MIN_N, scope: 'company' }, measure: (input, c) => {
     const first = input.orgRevisions.reduce((m, r) => Math.min(m, r.seq), Infinity); // the first revision is the starting chart, not an applied change
     const seqs = c.dept
@@ -291,5 +300,4 @@ export function computeDimensions(input: DimInput, opt: { window: DimensionWindo
   return { window: opt.window, from: iso(opt.from), to: iso(opt.to), previousFrom: iso(pFrom), previousTo: iso(pTo), department: opt.department, departments, dimensions };
 }
 
-export { windowOf };
 export const DIMENSION_DAY = DAY;
