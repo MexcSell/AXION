@@ -301,13 +301,22 @@ export function onMissionControlEvent(type: string, e: DomainEvent) {
   if (!mid) return;
   if (type === 'conversation.messageCreated' || type === 'conversation.receipt') {
     queued.push({ type, mid, e });
-    if (!flushTimer) flushTimer = window.setTimeout(flushMissionControlEvents, FLUSH_MS);
+    if (!flushTimer) flushTimer = window.setTimeout(flushMissionControlEvents, flushDelay());
   } else if (type.startsWith('instance.') || type.startsWith('task.')) {
     refreshSoon(mid, ['hierarchy', 'tasks', 'threads']);
   }
 }
 
 const FLUSH_MS = 60;
+/**
+ * c44: the flush interval adapts to load, between FLUSH_MS and FLUSH_MAX_MS. A quiet thread keeps the 60 ms latency; when
+ * the last batch was big (a burst), the next flush waits longer so more events share one store write and one render. It
+ * falls back to FLUSH_MS as soon as a batch is small again or the stream has been quiet for a second.
+ */
+const FLUSH_MAX_MS = 400;
+let lastBatch = 0;
+let lastFlushAt = 0;
+const flushDelay = () => (Date.now() - lastFlushAt > 1000 || lastBatch < 8 ? FLUSH_MS : Math.min(FLUSH_MAX_MS, FLUSH_MS + lastBatch * 12));
 let queued: { type: string; mid: string; e: DomainEvent }[] = [];
 let flushTimer = 0;
 function dropQueued(mid?: string) {
@@ -321,6 +330,7 @@ export function flushMissionControlEvents() {
   if (!queued.length) return;
   const batch = queued;
   queued = [];
+  lastBatch = batch.length; lastFlushAt = Date.now();
   const before = useMC.getState().byMission;
   let byMission = before;
   const refresh = new Set<string>();
