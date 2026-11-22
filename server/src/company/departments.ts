@@ -175,17 +175,26 @@ export function departmentFacts(rows: DeptRows, opt: { window: ScorecardWindow; 
  * `missions m` and repeats the tenant, not-deleted, VISIBLE_SQL and DEMO conditions; catalog and org queries are tenant-only
  * (org_edges has no tenant column: it is reached through org_revisions).
  */
+/**
+ * Runs the queries. On a pool they go out together (as before). On a transaction client (it has `release`) they go one after
+ * another: one client runs one query at a time, and node-postgres will stop queueing concurrent ones. Same rows either way.
+ */
+async function runQueries(c: Tx | Db, fs: (() => Promise<{ rows: any[] }>)[]): Promise<any[][]> {
+  if ('release' in c) { const out: any[][] = []; for (const f of fs) out.push((await f()).rows); return out; }
+  return (await Promise.all(fs.map((f) => f()))).map((r) => r.rows);
+}
+
 export async function loadDeptRows(c: Tx | Db, viewer: { tenantId: string; admin: boolean; userId: string }, includeDemo: boolean): Promise<DeptRows> {
   const V = [viewer.tenantId, viewer.admin, viewer.userId, includeDemo];
   const MISSIONS = `m.tenant_id = $1 and m.deleted_at is null and ${VISIBLE_SQL('$2', '$3')} and ($4::boolean or not m.demo)`;
-  const [agents, edges, instances, tasks, changes] = await Promise.all([
-    c.query(`select id, dept, status from agent_definitions where tenant_id = $1`, [viewer.tenantId]),
-    c.query(`select e.supervisor_id, e.subordinate_id from org_edges e
+  const [agents, edges, instances, tasks, changes] = await runQueries(c, [
+    () => c.query(`select id, dept, status from agent_definitions where tenant_id = $1`, [viewer.tenantId]),
+    () => c.query(`select e.supervisor_id, e.subordinate_id from org_edges e
               where e.revision_id = (select id from org_revisions where tenant_id = $1 order by seq desc limit 1)`, [viewer.tenantId]),
-    c.query(`select i.agent_id, i.mission_id, m.status, (i.ended_at is not null) as ended, (i.simulated or m.demo) as simulated
+    () => c.query(`select i.agent_id, i.mission_id, m.status, (i.ended_at is not null) as ended, (i.simulated or m.demo) as simulated
                from agent_instances i join missions m on m.id = i.mission_id
               where i.tenant_id = $1 and ${MISSIONS} and i.ended_at is null and m.status in ('planning','running','verifying','waiting_approval')`, V),
-    c.query(`with vis as (
+    () => c.query(`with vis as (
                select t.id, t.status, m.status as mission_status, (t.simulated or m.demo) as simulated, t.created_at, coalesce(i.agent_id, t.owner_agent) as owner
                  from tasks t join missions m on m.id = t.mission_id left join agent_instances i on i.id = t.owner_instance_id
                 where t.tenant_id = $1 and ${MISSIONS}
@@ -210,7 +219,7 @@ export async function loadDeptRows(c: Tx | Db, viewer: { tenantId: string; admin
                     case when v.status in ('passed','failed') then greatest(ev.at, att.at, v.created_at) end as finished_at
                from vis v left join ev on ev.task_id = v.id and ev.status = v.status left join att on att.task_id = v.id left join moved on moved.task_id = v.id`, V),
     // each revision against the one before it (by seq): lines added, removed or re-pointed, keyed by subordinate
-    c.query(`with r as (
+    () => c.query(`with r as (
                select id, seq, active_from, lag(id) over (order by seq) as prev from org_revisions where tenant_id = $1
              )
              select r.seq, r.active_from, x.subordinate_id from r cross join lateral (
@@ -220,7 +229,8 @@ export async function loadDeptRows(c: Tx | Db, viewer: { tenantId: string; admin
                (select subordinate_id, supervisor_id, edge_type from org_edges where revision_id = r.prev
                 except select subordinate_id, supervisor_id, edge_type from org_edges where revision_id = r.id)
              ) x`, [viewer.tenantId]),
-  ]).then((rs) => rs.map((r) => r.rows));
+  ]);
+
   return {
     agents: agents.map((a) => ({ id: a.id, dept: a.dept, active: a.status === 'active' })),
     edges: edges.map((e) => ({ supervisorId: e.supervisor_id, subordinateId: e.subordinate_id })),

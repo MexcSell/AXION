@@ -82,3 +82,5 @@ Re-runs: server and web tsc clean; full vitest 1730 passed; `api-c46.mjs` 30/30 
 
 Not done (out of scope as instructed): sourcing `verdict_outcomes` from c47 (follow-up c46b) and moving the dialog to a page tab.
 verify-all after the fix round: ALL 10 STEPS PASSED (own OUT dir /tmp/axion-verify-w45b, dev server on 9590).
+
+Follow-up: `loadDeptRows` now runs its queries one after another on a transaction client (and together on a pool, as before; GET /departments is unchanged). The pg deprecation warning is gone; c46 plus department tests passed 3 times and the full suite once (1730 tests).
