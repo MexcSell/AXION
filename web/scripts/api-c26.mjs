@@ -181,6 +181,24 @@ async function behaviour(mid, tid) {
   await p.waitForTimeout(400);
   const c2 = await filled();
   check('switching to Compact and back to Full from the middle of the thread leaves messages in view', c1 && c2, `compact ${c1} · full ${c2}`);
+  // the log is not a live region (rows mounted by scrolling would be read out): a message that arrives from someone else
+  // is announced by the thread's status line instead (injected through the app's own store, as api-c22's batching checks do)
+  const said = await p.evaluate(async ({ mid, tid }) => {
+    const mc = await import('/src/api/missionControl.ts');
+    const th = mc.useMC.getState().byMission[mid]?.threads?.[tid];
+    const seq = Math.max(...th.messages.map((m) => m.seq ?? 0)) + 1;
+    const text = `c26 announcer probe ${Date.now()}`;
+    const message = { id: `c26-ann-${seq}`, from: 'gm', to: 'human:x', kind: 'reply', text, agoMin: 0, ts: Date.now(), seq, simulated: false };
+    mc.onMissionControlEvent('conversation.messageCreated', { id: 'c26', seq: null, type: 'conversation.messageCreated', tenantId: 't', missionId: mid, actor: { kind: 'agent', id: 'gm' }, subject: { kind: 'thread', id: tid }, occurredAt: new Date().toISOString(), payload: { threadId: tid, message } });
+    const t0 = Date.now();
+    while (Date.now() - t0 < 3000) {
+      const st = [...document.querySelectorAll('.conv-main .thread > [role=status]')].map((e) => e.textContent).join(' | ');
+      if (st.includes(text)) return { ok: true, st, live: document.querySelector('.conv-main .thread-body')?.getAttribute('aria-live') };
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    return { ok: false, st: [...document.querySelectorAll('.conv-main .thread > [role=status]')].map((e) => e.textContent).join(' | ') };
+  }, { mid, tid });
+  check('a message from someone else is announced by the thread\'s status line (the log itself is aria-live=off)', said.ok && said.live === 'off', `status "${(said.st ?? '').slice(0, 90)}" · log aria-live ${said.live}`);
   // the scroll position holds still while rows are measured (estimates corrected above the viewport)
   const pick = () => body.evaluate((el) => { const box = el.getBoundingClientRect(); const r = [...el.querySelectorAll('[data-mid]')].find((x) => x.getBoundingClientRect().bottom > box.top + 1); return r ? { id: r.getAttribute('data-mid'), top: r.getBoundingClientRect().top - box.top } : null; });
   await body.evaluate((el) => { el.scrollTop = Math.round(el.scrollHeight * 0.37); });
