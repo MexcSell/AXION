@@ -51,6 +51,8 @@ export const ROUTES: Record<string, RouteEntry> = {
   'GET /missions/:id/tasks': { v: C.missionTasks },
   'GET /missions/:id/threads': { v: C.missionThreads },
   'GET /notifications': { v: C.noticesBody },
+  'GET /review-capacity': { v: C.reviewCapacityBody },
+  'GET /review-capacity/people': { v: C.capacityPeopleBody, admin: true },
   'GET /operations/anchors': { v: C.anchors, admin: true },
   'GET /operations/health': { v: C.opsHealth, admin: true },
   'GET /operations/queues': { v: C.queues, admin: true },

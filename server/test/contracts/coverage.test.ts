@@ -21,6 +21,7 @@ import { checkEvent, eventValidator, EVENT_VALIDATORS } from './events.ts';
 import type { EventType } from '../../../shared/contracts/src/index.ts';
 import { ROUTES, routeKey } from './registry.ts';
 import { call, hits, gated, problems, errorShapes, bodies, requests, key, recordServed, writeDump } from './flow.ts';
+import { decided as decidedFx } from '../c65-fixtures.ts';
 import { SWEEP_SKIP, MEMBER_403_ALLOWED } from './allowlists.ts';
 import { UNEXERCISED_ALLOWED } from './exercised.ts';
 import { lenientMutations, unexercised } from './walk.ts';
@@ -225,6 +226,11 @@ describe('API coverage run', () => {
     await call(admin, 'GET', '/approvals/quality', '/approvals/quality');
     await call(mina, 'GET', '/approvals/quality', '/approvals/quality');
     await call(admin, 'GET', '/approvals/quality/approvers', '/approvals/quality/approvers'); // c58: per approver, administrators only
+    // c65: review capacity for everyone, per-person rows for administrators only. Twenty decided items so the percentiles are numbers (they are null below 20).
+    for (let i = 0; i < 20; i++) await decidedFx({ pool: t.pool, mission: m1 }, `c65cov-${i}`, 'release-01', 5 * 3_600_000, (i + 1) * 60_000, 'u-c65-a', i + 1);
+    await call(admin, 'GET', '/review-capacity', '/review-capacity');
+    await call(mina, 'GET', '/review-capacity', '/review-capacity', { query: '?windowDays=7' });
+    await call(admin, 'GET', '/review-capacity/people', '/review-capacity/people');
     await tx(t.app.db, async (c) => consumeApproval(c, { approvalId: ap.id, action: await loadBoundAction(c, 't-1', ap.id), by: 'release-01' }));
     const nid = await tx(t.app.db, (c) => createNotification(c, { tenantId: 't-1', severity: 'info', category: 'system', title: 'Hello', body: 'World', missionId: m2 }));
     const nl = await call(admin, 'GET', '/notifications', '/notifications');
