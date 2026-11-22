@@ -37,10 +37,10 @@ export function span(sec: number): string {
 const LEVELS = [{ key: 'activity', label: 'Activity', icon: Activity }, { key: 'action', label: 'Action', icon: MousePointerClick }, { key: 'evidence', label: 'Evidence', icon: SearchCheck }] as const;
 type Level = (typeof LEVELS)[number]['key'];
 
-function Time({ r }: { r: { ageSec: number; expiresInSec: number | null } }) {
+function Time({ r }: { r: { ageSec: number; expiresInSec: number | null; ageNote?: string | null } }) {
   return r.expiresInSec !== null
     ? <span className="ny-time exp tnum" title={`Expires in ${span(r.expiresInSec)}; waiting ${span(r.ageSec)}`}><Clock3 size={12} aria-hidden />{span(r.expiresInSec)}<span className="vh"> until it expires</span></span>
-    : <span className="ny-time tnum" title={`Waiting ${span(r.ageSec)}`}>{span(r.ageSec)}<span className="vh"> waiting</span></span>;
+    : <span className="ny-time tnum" title={r.ageNote ? `Waiting about ${span(r.ageSec)}. ${r.ageNote}` : `Waiting ${span(r.ageSec)}`}>{r.ageNote && <span aria-hidden>~</span>}{span(r.ageSec)}<span className="vh"> waiting</span></span>;
 }
 
 export function NeedsYou() {
@@ -61,7 +61,7 @@ export function NeedsYou() {
     else if (e.key === 'ArrowUp') n = Math.max(0, i - 1);
     else if (e.key === 'Home') n = 0;
     else if (e.key === 'End') n = rows.length - 1;
-    else if (e.key === 'ArrowRight' || e.key === 'Enter') { if (e.key === 'Enter' || cur) { e.preventDefault(); setLevel('evidence'); return; } }
+    else if (e.key === 'ArrowRight' || e.key === 'Enter') { e.preventDefault(); pick(rows[i].id); setLevel('evidence'); return; } // act on the row that has focus, not the one selected before
     if (n >= 0) { e.preventDefault(); pick(rows[n].id); refs.current.get(rows[n].id)?.focus(); }
   };
 
@@ -75,16 +75,16 @@ export function NeedsYou() {
           : error && !data ? <div className="ov-fill ny-state" role="alert"><span>Could not load the queue. {error}</span><button className="btn sm" onClick={retry}><RefreshCw size={14} />Try again</button></div>
           : rows.length === 0 ? <div className="ov-fill"><EmptyState icon={CheckCircle2} title="Nothing needs you" body="Approvals, stale reviews, waiting tasks, failures without a detection channel, proposals about to expire and lessons to review appear here." /></div>
           : (
-            <ul className="ov-fill ny-scroll ny-rows" aria-label="Needs you, in ranked order">
+            <ul className="ov-fill ny-scroll ny-rows" role="listbox" aria-label="Needs you, in ranked order. Arrow keys move, Enter shows the evidence">
               <AnimatePresence initial={false}>
                 {rows.map((r, i) => {
                   const def = attentionReason(r.reason);
                   const Icon = ICON[r.icon];
                   const on = cur?.id === r.id;
                   return (
-                    <motion.li key={r.id} layout="position" className={cx('ny-li', on && 'on')} style={{ ['--h' as string]: KIND_HUE[r.kind] }}
+                    <motion.li key={r.id} role="presentation" layout="position" className={cx('ny-li', on && 'on')} style={{ ['--h' as string]: KIND_HUE[r.kind] }}
                       initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 24 }} transition={{ duration: .25, delay: Math.min(i, 14) * .025 }}>
-                      <button ref={(el) => { if (el) refs.current.set(r.id, el); else refs.current.delete(r.id); }} type="button" className="ny-row" aria-current={on ? 'true' : undefined}
+                      <button ref={(el) => { if (el) refs.current.set(r.id, el); else refs.current.delete(r.id); }} type="button" role="option" aria-selected={on} className="ny-row" tabIndex={on ? 0 : -1} aria-current={on ? 'true' : undefined}
                         onClick={() => pick(r.id)} onKeyDown={(e) => onKey(e, i)} data-reason={r.reason}>
                         <span className="ny-n tnum" aria-hidden>{i + 1}</span>
                         <span className="ny-ico"><Icon size={14} aria-hidden /></span>
@@ -94,7 +94,7 @@ export function NeedsYou() {
                         {r.count > 1 && <span className="ny-count tnum" title={`${r.count} items folded into this row`}><span aria-hidden>×</span>{r.count}<span className="vh"> items</span></span>}
                         <Time r={r} />
                       </button>
-                      <HelpTrigger k={`attention.reason.${r.reason}`} />
+                      <HelpTrigger k={`attention.reason.${r.reason}`} tabIndex={-1} />
                     </motion.li>
                   );
                 })}
@@ -138,7 +138,7 @@ function Detail({ row, level, setLevel, item, setItem }: { row: AttentionRowDto 
                 ) : (
                   <dl className="ny-facts">
                     <dt>Item</dt><dd>{m.subject}{m.demo && <span className="ny-demo">DEMO</span>}</dd>
-                    <dt>Waiting</dt><dd className="tnum">{span(m.ageSec)}</dd>
+                    <dt>Waiting</dt><dd className="tnum">{m.ageNote ? <>about {span(m.ageSec)} <span className="ny-approx">since creation<HelpTrigger k="attention.waitingFallback" /></span></> : span(m.ageSec)}</dd>
                     <dt>Expires in</dt><dd className="tnum">{m.expiresInSec === null ? 'does not expire' : span(m.expiresInSec)}</dd>
                     {row.groupedBy && <><dt>Folded by</dt><dd>{row.groupedBy}</dd></>}
                   </dl>

@@ -144,6 +144,21 @@ try {
   const evOn = await A.p.getByRole('radio', { name: /Evidence/ }).getAttribute('aria-checked');
   check('keyboard: ArrowDown selects the next row, Enter shows its evidence', second && evOn === 'true');
 
+  // review F2: Enter acts on the row that has focus (not the one selected before), and the list is one Tab stop
+  const whys = await A.p.locator('.ny-li .ny-why').allInnerTexts();
+  await A.p.locator('.ny-row').nth(2).focus();
+  await A.p.keyboard.press('Enter');
+  await A.p.locator('.ny-evidence').waitFor({ timeout: 5000 });
+  const shown = await A.p.locator('.ny-detail-why').innerText();
+  check('keyboard: focus row 3, press Enter: the detail pane shows row 3 (not the row selected before) at the Evidence level', shown === whys[2] && (await A.p.getByRole('radio', { name: /Evidence/ }).getAttribute('aria-checked')) === 'true' && (await A.p.locator('.ny-evidence').count()) === 1, `shown: ${shown} | row: ${whys[2]}`);
+  await A.p.locator('.ny-row').nth(4).focus();
+  await A.p.keyboard.press('ArrowRight');
+  check('keyboard: ArrowRight on row 5 also selects row 5', (await A.p.locator('.ny-detail-why').innerText()) === whys[4]);
+  await A.p.locator('.ny-row[aria-selected="true"]').focus();
+  let tabs = 0, reached = false;
+  for (; tabs < 6 && !reached; ) { await A.p.keyboard.press('Tab'); tabs++; reached = await A.p.evaluate(() => document.activeElement?.getAttribute('role') === 'radio'); }
+  check('keyboard: from the selected row, the level control is at most 3 Tab presses away (not one per row)', reached && tabs <= 3, `${tabs} presses, ${n} rows`);
+
   // ---- live: deciding one R2 approval removes it from its folded row without a reload
   const r2 = qa.rows.find((r) => r.tier === 'R2' && r.count === 2);
   if (r2) {

@@ -21,6 +21,7 @@ const entries: Record<string, HelpEntry> = {
     'Twelve failures of the same mode are one thing to look at, not twelve.',
     'The count on the row is exactly the number of items inside it, and the header shows how many items are folded. Open the row to see every item under Activity. R3 and R4 approvals are never folded: each has its own row.',
     '5 R2 approvals from mission M-126 appear as one row "×5". Under Activity they are listed one by one.'),
+  'attention.waitingFallback': h('Waiting time counted from creation', 'A task has no stored time for when it began waiting for a person, unless a state-change event was recorded. Without one, the wait is counted from when the task was created, so it can be longer than the real wait.', 'The number is a fact only as far as its starting point is. A "~" in the list and "since creation" here mark the ones counted this way.', 'The evidence level repeats it: "Waiting measured from".'),
   'attention.levels': h('Three levels of detail', 'Activity is what the row stands for. Action is what you can do, by the same rule the deciding screen uses. Evidence is the check that would expose a defect, with the stored facts to run it against.',
     'The evidence is a check to run, not a summary that says the item is fine.', undefined, undefined, 'Evidence is two clicks from the list: choose the row, then Evidence.'),
 };

@@ -8,7 +8,7 @@ import { LOADING_HELP, loadHelp, useHelpRegistry } from '@/help/load';
 import { Tip } from './Tip';
 
 /** The universal "?" (spec §9.1). Opens an anchored popover with What / Why / How / Example / Permission. */
-export function HelpTrigger({ k, entry, label, tipSide }: { k?: string; entry?: HelpEntry; label?: string; tipSide?: 'top' | 'bottom' | 'left' | 'right' }) {
+export function HelpTrigger({ k, entry, label, tipSide, tabIndex }: { k?: string; entry?: HelpEntry; label?: string; tipSide?: 'top' | 'bottom' | 'left' | 'right'; /** -1 takes it out of the Tab order where a composite widget offers the same help elsewhere */ tabIndex?: number }) {
   const reg = useHelpRegistry();
   const e = entry ?? (reg ? reg.getHelp(k ?? '') : LOADING_HELP);
   const title = entry || reg ? e.title : 'this topic'; // before the help text loads: not "Help: Help"
@@ -17,7 +17,7 @@ export function HelpTrigger({ k, entry, label, tipSide }: { k?: string; entry?: 
     <P.Root>
       <Tip label={label ?? `Help: ${title}`} side={tipSide}>
         <P.Trigger asChild>
-          <button type="button" className="help-btn" aria-label={`Help: ${title}`} data-help-key={k} onPointerEnter={warm} onFocus={warm} onClick={warm}>?</button>
+          <button type="button" className="help-btn" tabIndex={tabIndex} aria-label={`Help: ${title}`} data-help-key={k} onPointerEnter={warm} onFocus={warm} onClick={warm}>?</button>
         </P.Trigger>
       </Tip>
       <P.Portal>
