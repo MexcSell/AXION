@@ -1,0 +1,15 @@
+import type { HelpEntry } from '../registry';
+
+const h = (title: string, what: string, why?: string, how?: string, example?: string, permission?: string): HelpEntry => ({ title, what, why, how, example, permission });
+
+/** Improvement cycle 36: site grants (api mode). The wording of browser.originGrant itself stays in the core registry (spec). */
+const entries: Record<string, HelpEntry> = {
+  'grants.panel': h('Site grants', 'The exact websites agents of a mission may use, what they may do there, and until when. Each row is one exact origin: scheme, host and port.', 'An agent can only be tricked into a site it is allowed to visit. Exact matching means a look-alike name can never ride on a real grant.', 'Grant a site, watch it count down, revoke it when it is no longer needed. An expired or revoked grant stops working at once.', 'https://status.example.com · read, screenshot · M-132 · 2 hours.', 'Administrators only.'),
+  'grants.add': h('Grant a site', 'Opens a dialog to grant one exact origin to one mission for a limited time. Granting is a risk level R3 action: the policy names an administrator as approver, and you are that approver.', 'Every grant is audited with the policy decision.', 'Type the origin, choose the mission, the allowed actions and the expiry. The form checks the origin as you type, with the same rules the server applies.', undefined, 'Administrators only.'),
+  'grants.origin': h('Exact origin', 'The site, written as https://host with an optional port. Nothing else: no path, no query, no user name, no wildcard, no IP address, no local or internal name.', 'A grant for https://example.com does not cover www.example.com, another port, or a look-alike with a foreign letter. Those need their own grant.', 'Capitals and a trailing slash are tidied for you. Anything unsafe is refused with the reason.', 'https://example.com'),
+  'grants.mission': h('Mission', 'The one mission whose agents may use this site. Agents of another mission are not covered.', undefined, 'Pick a mission from the list.'),
+  'grants.capabilities': h('Allowed actions', 'What agents may do on this origin: read a page, take a screenshot, summarise it, or fill a draft form. Actions that change something outside (submit, send, publish) are never granted ahead of time: each is approved on its own.', 'A standing grant should only cover low-risk, reversible actions.', 'Tick at least one.'),
+  'grants.expiry': h('Expiry', 'When the grant stops working. It is required and cannot be more than 30 days away.', 'A grant that expires by itself cannot be forgotten.', 'Pick a duration, or set an exact date and time.', '2 hours'),
+  'grants.revoke': h('Revoke', 'Ends a grant now. The row stays in the list as revoked, with who revoked it and why. A revoked grant is never edited or brought back; grant the site again if needed.', undefined, 'Click the stop icon, add a reason if you like, and confirm.', undefined, 'Administrators only.'),
+};
+export default entries;
