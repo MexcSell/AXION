@@ -57,7 +57,7 @@ Rewritten 2026-11-22T07:35Z by the controller and again at 17:50Z after the live
 | w54 | c55 thread follow-ups (P2b), e2e3 | implementing |
 | w55 | c56 public suffix list (P4b), e2e4, mig 0042 if needed | implementing |
 | w56 | c57 test hygiene (H12, H13), e2e15 | implementing |
-| — | Research round 2 (phase2/research-r2.md), then a verifier | researching |
+| — | Research round 2: research-r2.md written (10 candidates); verifier checking | verifying |
 | — | Integrator #5: verification pass on the merged tree | running |
 
 No new lane starts after 2026-11-23T13:45Z. The gated Wave 4 items (R1, A1, M2, G1) still run last, as their own droppable batch (Q11).

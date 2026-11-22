@@ -75,7 +75,7 @@ A1 → B1 → C1 → A3 → B3 → C2 → A2 → B2 → C3 → A5 → B4 → C4 
 
 | E1b | Wire verdictV2 into version proposals: bind runs to the holdout dataset id, compute the observed hash from the stored cases (not from the caller), check content_sha256 against the cases, and refuse an INSERT of an already-frozen dataset with no cases (the c32 guard covers only UPDATE). From the c32 review and fix round. | 4 | 3 | 5 | 12 |
 
-| P5b | Audit chain anchor: keep the latest hash outside the DB, or use an HMAC key held outside agent-editable storage, so truncation of the newest rows or a full rehash is detected (c31 limit). | 4 | 3 | 4 | 11 |
+| P5b | **DONE in c49 (HMAC anchor file, live since 2026-11-22T17:44Z).** Audit chain anchor: keep the latest hash outside the DB, or use an HMAC key held outside agent-editable storage, so truncation of the newest rows or a full rehash is detected (c31 limit). | 4 | 3 | 4 | 11 |
 
 | P3a | Approvals UI: hide or disable Approve/Deny for members on R3/R4 requests, with a `?` explaining "needs an administrator" (the server now refuses with 403 POLICY_DENIED, c30). Fold into P3. | 3 | 4 | 5 | 12 |
 

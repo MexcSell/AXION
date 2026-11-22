@@ -119,3 +119,23 @@ live update and report land before 21:45Z.
 - Append-only tables need all four guards plus the `axion.purge_demo` exception.
 - Name every failing test, with its first error line, in the report. Print the load average next to every timing.
 - Show RED before GREEN for each item, and mark each threshold item PASS, FAIL or NOT MET honestly.
+
+## Wave 6: verified ideas from research round 2 (planned 2026-11-22 ~18:40Z)
+
+Inputs:
+- `phase2/research-r2.md` (researcher): 26 sources, 10 candidates.
+- `phase2/research-r2-verified.md` (independent verifier): 22 sources CONFIRMED, 4 CORRECTED, none wrong.
+
+Verdicts: R2-4 is DROPPED (it duplicates pass^k and the six-dimension reliability cell). The rest are KEEP or KEEP WITH CHANGES, and every brief includes the verifier's changes.
+
+| Cycle | Lane | Project | Start |
+|---|---|---|---|
+| c58 | w57 | R2-6 Rule-of-Two configuration profile (flags derived server-side, never self-declared), plus R2-9 approval-quality records and display (admins only, advisory, never changes a decision). One approvals UI change. | now |
+| c59 | w58 | R2-5 origin-bound memory and skill records, on c41's `trust` and `sources`: origin class can't rise, contribution log, active cap, retirement proposals (fixture-only). | now |
+| c60 | w59 | R2-10 failure attribution fields (agent, step, "full trace available", disagreement count), plus R2-8 OTel GenAI mapping table and local OTLP-JSON export of stored records, against a pinned spec version and hash. | now |
+| c61 | — | R2-2 eval instrument audit record, R2-3 dataset validity attestation, R2-1 judge calibration scaffold. | after c53 merges |
+| c62 | — | R2-7 signed decision receipts plus an offline verifier, test key only. | last; owner question Q12 first |
+
+**The one safe lesson from R2-10's sources:** the literature disagrees on whether hierarchy helps (results depend on the task and on capability). So AXION records evidence and holds no "hierarchy is better" belief.
+
+**Q12 (new owner question):** R2-7 would sign policy-decision receipts with a key held outside the database. Who holds that key, where does it live, and how is it rotated? This is the same custody question as the c49 anchor key, which today lives only in the live `server/.env`. Until the owner answers, any signing uses test keys only.
