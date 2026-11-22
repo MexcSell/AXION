@@ -1,21 +1,51 @@
 # Improvement loop state (resume from here)
 
-- Start: 2026-11-21T11:36:18Z · End: 2026-11-22T17:36:18Z (30 h) · Last start allowed: 2026-11-22T16:06:18Z
-- Branch: `improve-30h` (from `main` = `release_1.0.0` = b621fbb). Never push or move the tag without the owner.
-- Live: web dev 127.0.0.1:5190 (serves the working tree), API 127.0.0.1:5191 (real `axion` DB, Stage 6 code, migrations 1–12, restarted 2026-11-21 ~11:05Z; logs server/data/api.log). Nobody signed in yet.
-- Migrations 0001–0012 frozen; 0013 = org_proposals (cycle 1); next new migration 0014.
-- Process: PROCESS.md. Controller: session axion-53. Subagents: implementer (sonnet/opus) + independent reviewer per cycle, max 1 fix round.
+Rewritten 2026-11-22T07:35Z by the controller. The old w2–w18 lane list is history; see LOG.md.
 
-## Current (parallel lanes since 15:55Z; owner: "use all resources, process multiple cycles at the same time")
-- Main tree /home/luca/AXION [improve-30h]: cycles 1–3 done + live (46c1c45). Next: merge lanes as they pass review.
-- Lane w2 /home/luca/AXION-w2 [c04-org-history]: cycle 4 A2+A3 · e2e 5292/5293 · axion_e2e2 · dev 5290 · migration 0014.
-- Lane w3 /home/luca/AXION-w3 [c05-version-proposals]: cycle 5 C2 · e2e 5392/5393 · axion_e2e3 · dev 5390 · migration 0015.
-- Lane w4 /home/luca/AXION-w4 [c06-department-facts]: cycle 6 B3 · e2e 5492/5493 · axion_e2e4 · dev 5490 · migration 0016.
-- Lane .env files point DATABASE_URL at axion_lane_disabled (no real-DB access). Lanes branch from f7c7bca.
-- Lane w5 /home/luca/AXION-w5 [c07-bundle-split]: cycle 7 H2 bundle split · e2e 5592/5593 · axion_e2e5 · dev 5590/preview 5591 · branched from e1ea9bf.
-- Owner 16:30Z: "add 10 more workers; if there is no work, find a new way to update" → lanes w6–w15 (branched from 2ed66e9), rules in LANES.md, heavy runs gated by /home/luca/AXION-lanes/heavy.sh (3 slots; shared Postgres max_connections=100):
-  w6 c08 flaky checks · w7 c09 server minors · w8 c10 DB indexes + scale (0017) · w9 c11 staffing follows org (0019) · w10 c12 throughput trend (0020) · w11 c13 experiment verdict (0021) · w12 c14 security hardening (0022) · w13 c15 contract tests · w14 c16 accessibility · w15 c17 owner guide.
-- 18:30Z: lane w16 c18 profile fit (from improve-30h); lane w17 c19 mentoring plans (from c05 branch, migration 0023); lane w18 c20 org coverage (from c04 branch, 0024).
-- Merge order: c07 (in progress) → c05 → c13 → c04 → c06 (after its fix) → c17 (after c04–c06) → c19 (after c05) → c20 (after c04); then the others as they clear.
-- Integration: review each lane, then merge into improve-30h (controller), full suite on the merged tree, then live restart.
-- Live API 5191: cycles 1–3 (46c1c45), migration 13, restarted 16:10Z.
+## Clocks
+- **30 h loop:** 2026-11-21T11:36:18Z → 2026-11-22T17:36:18Z.
+- **Phase 2 (owner 2026-11-22 ~00:50Z, 28 h, PHASE2.md):** the clock starts when the current integration queue (batches 7–9) is merged. Write the start and end times here at that moment. Phase 2 lanes were started early by controller decision, because integration is serial.
+
+## Branch and live
+- Integration tree `/home/luca/AXION`, branch `improve-30h`, local only. Never push or move the tag without the owner.
+- Live: web dev 5190 serves the working tree. API 5191 runs the real `axion` DB, last restarted on a67d2dd with migrations 1–13 and 15. A live update is due after batches 7–9:
+  1. stop 5191;
+  2. back up and run the restore check;
+  3. migrate (0026 backfill takes ACCESS EXCLUSIVE);
+  4. `npm run audit:verify`;
+  5. restart only from a clean tree.
+
+## Process
+- PROCESS.md, LANES.md and QUEUE.md. Every lane goes brief → implementer → independent reviewer → fix round → re-review → QUEUE batch → integrator (`--no-ff`).
+- `/home/luca/AXION-lanes/new-lane.sh <L> <branch> [base]`. After it runs, edit the lane `.env` to a reused e2e DB (LANES.md).
+- `heavy.sh` has 6 slots plus slot 0, reserved for the integrator (`HEAVY_PRIORITY=1`).
+- Ports 8790 and 9090 belong to other apps.
+
+## Integration queue (integrator #3 working through it)
+- Merged up to c17 (batch 6, c068a6d).
+- Next:
+  - batch 7: c32 → c31 → c30;
+  - batch 8: c36 → c37 → c33 → c35 (plus the required scale-bench digest_version=2 follow-up) → c34;
+  - batch 9: c39 → c38 → c42 → c41 → c40, when cleared.
+- c43 goes after c34 once it clears review. Required follow-ups: fold c34-archive-race into c29-archive-race, and run the batch 8–9 api scripts plus a 4× flows run on the merged tree, because its Modal focus change touches every dialog.
+
+## Lanes in flight
+| Lane | Cycle | Status |
+|---|---|---|
+| w38 | c40 mobile debt | implementer running |
+| w42 | c43 flows hardening (H7) | reported at 281ccb1; reviewer running (writes cycles/c43-review.md) |
+| w43 | c44 page/store perf (Wave 4) | implementer running; DB e2e16; ports 9390–93 |
+| w44 | c45 job leases J1 (Wave 4, records only) | implementer running; DB e2e17; ports 9490–93; migration 0035 |
+| (w45) | c46 six-dimension scorecard M1 | brief written; **start after batch 9 merges**; DB e2e18; ports 9590–93; migration 0036 if needed |
+
+## Next after that
+- H9 contract-test refresh, after batch 8.
+- Backlog follow-ups on their merged bases: E1b, P3a, P3b, P4a, P4b, P5b, O2a, O3a, H8.
+- Gated Wave 4 items (R1, A1, M2, G1) run last as their own droppable batch (Q11).
+
+## Owner questions
+Q1–Q11 are queued for the final report (PHASE2.md, LOG.md).
+
+## Ids already taken
+- **Dialog ids:** up to DL-95. DL-96–97 are reserved for c45 and DL-98–99 for c46.
+- **Migrations:** up to 0034, with 0035 reserved for c45 and 0036 for c46.

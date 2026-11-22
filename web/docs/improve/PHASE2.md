@@ -62,20 +62,26 @@ Each wave's projects are chosen to touch different files, so they can run in par
 | O2 | **Typed delegation brief and scope contract** for every delegation (goal, inputs, acceptance, allowed capabilities), checked by P1 | MCP/A2A ideas, Intelligent AI Delegation (conceptual) | a delegation without a valid brief is refused; scope is a subset of the delegator's |
 | O3 | **Producer ≠ verifier rule**: a task can't be marked verified by its producer, and a version can't be judged by its own model family (self-preference bias) | 2404.13076, Zheng et al. | enforced on the server with tests |
 | E4 | **Experience → playbook with review** (candidate lessons, curated by a person, versioned playbook per role; ACE / ExpeL) and a **skill library record** (Voyager / AWM) | ACE, ExpeL, Voyager, AWM | candidates never become active without review; playbooks are versioned and can be rolled back |
-| M1 | **Six-dimension scorecard** (company and department) with n, window and evidence | spec §16.1 | every cell shows a value with n, or "not enough evidence" |
+| M1 | **Six-dimension scorecard** (company and department) with n, window, evidence and **trend**; no composite number (brief c46, lane after batch 9) | spec §16.1 | every cell shows a value with n, or "not enough evidence" |
 
 ### Wave 4: if time remains
 
-- R1 release and last-good records, with the guardrail-path denial.
-- M2 usage ledger and budget caps (fake meter in tests only).
-- A1 artifact metadata and hashes.
-- G1 model registry and routing policy (fake adapter).
-- J1 job lease state machine.
-- A page-level performance pass on the cost cycle 26 left.
+Ungated, running now:
+- J1 job lease state machine (c45; records only, Stage 5 scope, no worker runs).
+- A page-level performance pass on the cost cycle 26 left (c44).
+
+**Gated by stage (controller ruling, 2026-11-22):** the spec puts the release model and artifacts in Stage 8, and the model
+registry and usage/cost ledger in Stage 9. Each stage ends "STOP. Ask Owner approval", and the Wave 2 "records only" ruling
+was the controller's, not the owner's. So these four run **last**, records only with fake adapters, with no wiring of the
+Results or Models tabs, in their own final batch the owner can drop whole (owner question Q11):
+- R1 release and last-good records, with the guardrail-path denial (Stage 8).
+- A1 artifact metadata and hashes (Stage 8).
+- M2 usage ledger and budget caps, fake meter in tests only (Stage 9).
+- G1 model registry and routing policy, fake adapter (Stage 9).
 
 ## Rules for this phase
 
 - **No invented results.** Every threshold is measured. NOT MET is reported as NOT MET.
 - **Citations:** only the ones verified in `phase2/*-verified.md`. A new source is verified before it is cited.
 - **Logging:** each wave ends with a LOG entry, a LESSONS entry, and a SCORECARD update.
-- **Queued owner questions** are listed at the end of the phase: Q1–Q8 so far, plus any new ones.
+- **Queued owner questions** are listed at the end of the phase: Q1–Q11 so far, plus any new ones. Q11: may Stage 8/9 records-only foundations (R1, A1, M2, G1) be built ahead of those stages' approval, or should they wait?

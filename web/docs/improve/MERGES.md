@@ -442,3 +442,22 @@ FAIL 900 /operations?tab=logs tab=Logs: clipped control button.icon-btn.xs[Dismi
   - No new family.
 
 **Follow-up commits:** `ac1a48c` (e2e message lift). Controller files committed with this entry: BACKLOG.md (H7 gets the 4× throttle result from batch 5f, at the controller's request), LANES.md, LOG.md, QUEUE.md (modified); cycles/c41-review, c41-rereview, c42-rereview, c43-brief (new).
+
+## Batch 6: c17 (owner guide)
+
+- **Merged:** 2026-11-22 ~07:26 UTC. Pre-batch commit `08b2620`.
+- **Merge commit:** `c068a6d` c17-owner-guide (e4bd746), `--no-ff`. **Conflicts:** none.
+- **Server:** tsc OK; vitest 37 files 586/586. **web:** tsc OK.
+- **api-e2e (exit 0):** api-auth-flow 15/15; api-flows 23/23; api-stage6 94/94; api-improve 107/107.
+- **api-c17** (`DATA_MODE=api node scripts/api-c17.mjs`; the script does not set api mode itself): exit 0, 37 PASS, 1 SKIP.
+  - The after-merge checks: versionproposals PASS, departmentfacts PASS, but `SKIP history: runs after merge ([data-org-history] not in this build)`.
+  - Cause: c17 guessed the landmark and the control. c04's History is a radio in the view switch (not a button), and its screen is the revision timeline (`role=list`, `aria-label="Org revisions"`); nothing carries `data-org-history`.
+  - **Follow-up `2247ec6`:** the history page's `afterMerge` (read only by api-c17) points at c04's timeline, and the check clicks the History radio. **api-c17 rerun: exit 0, 39 PASS, 0 SKIP; all three after-merge checks RUN and PASS.**
+- **verify-all:** exit 1, "1 of 10 STEPS FAILED" (flows, 19/21; load ~16). FAIL lines:
+  - `FAIL  u1 · News: post news, it appears for everyone: page.waitForSelector: Timeout 4000ms exceeded.`
+  - `FAIL  u1 · Chat dock: GM answers: locator.click: Timeout 30000ms exceeded.`
+  - Both are named in BACKLOG H7 (under load). c17 touches only help content. `flows.mjs` rerun alone (load 7.3): exit 0, 21/21. Classified as load.
+  - Every other step PASS; dialog smoke 112 checks, 0 failures.
+- **fit-check:** 78/78 ALL FIT (c17 adds the New Features help view). **ov-fit:** 32/32, NO SCROLL ANYWHERE.
+
+**Follow-up commits:** `2247ec6`. Controller files committed with this entry: LANES.md, LOG.md, PHASE2.md, STATE.md (modified); cycles/c43-review, c44–c46 briefs (new).

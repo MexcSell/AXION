@@ -263,3 +263,21 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
 - 2026-11-22T05:41Z · **Integrator:** 5d c27, 5e c28 and 5f c29 merged and green. 5g c26 is hand-merged (38a8c67). Its first merged run failed api-c22/api-c26 because c14's e2e message lift (1000/min) was below what the perf scripts post. Follow-up ac1a48c raises the e2e-only lift to 5000/min, and the controller CONFIRMED it (e2e only, proven cause). The merged onScroll is fine: c22 is interactive in 1.3 s, c26 22/22, and the c25 anchor is 0.1 px (RED 334 px without it). Under 4× throttle the archive step PASSes, while palette and theme FAIL (H7).
 - 2026-11-22T05:43Z · **c41 CLEARED** at f06032b (controller check of fix round 2, with RED recorded: 21 failed first). Default-ignorable characters are refused; members see only kind plus hidden for every source; the same 404 for unknown and invisible tasks; proposeLesson validates internally; an inPlaybook label for restored lessons; proposal events go to admins plus the proposer. Vitest 682/682, api-c41 45/45, flows 23/23. Queued in batch 9.
 - 2026-11-22T05:43Z · **Lane w42 c43 started** (H7 flows hardening, from ac1a48c with c28 and c29). Threshold: flows 10/10 at 4× throttle and 10/10 plain, with no assertion loosened; the c29 and c34 race scripts merged into one. DB axion_e2e15.
+- 2026-11-22T07:27Z · c43 (w42) reported at 281ccb1: flows.mjs 10/10 at 4x throttle and 10/10 plain, verify-all 10/10, api-flows 23/23. Two real app races fixed: palette highlight clamped to the results (Enter after a hover did nothing) and Modal late first-focus no longer steals a focused field (3/10 plain News failures). The archive-race merge is NOT MET (c34 not in the tree; integrator note). Independent reviewer dispatched.
+- 2026-11-22T07:31Z · Wave 4 sorted by stage gate after reading spec §§ Stage 5–9:
+  - R1 and A1 (Stage 8) and M2 and G1 (Stage 9) are moved last, as a droppable records-only batch. Owner question **Q11**.
+  - Started lane w43 **c44 page/store perf** (the floor c26 left; bar ≤ 887 ms long-task total with the c26 method unchanged) and lane w44 **c45 J1 job leases** (migration 0035; fencing tokens, DB time, no worker or timer, read-only ops view).
+  - Wrote the c46 M1 brief: six dimensions, no composite score, trend added. Its lane starts after batch 9, because every indicator needs c32/c33/c38/c39/c41/c42 data.
+  - STATE.md rewritten. LANES.md reservations updated (0035/0036, e2e16–18).
+- 2026-11-22T07:57Z · c43 review: **PASS** (no blockers or majors).
+  - The reviewer reproduced flows 3/3 at 4× and 2/2 plain (21/21 each) and verify-all 10/10.
+  - The Modal check fails 3/3 on the old Modal and passes on the new one.
+  - The palette clamp is consistent across aria, Enter, the arrow keys and scroll.
+  - Minors: the Dividers settle is a 2-rAF heuristic, and the palette fix had no deterministic regression check.
+  - Short fix round dispatched: `c43-palette-hover.mjs` must fail on the old CommandPalette, and Dividers gets an `until`.
+  - c44 implementer re-prompted to finish the cycle (base full burst 1,466/1,417/1,702 ms at load 9–11).
+- 2026-11-22T07:57Z · c45 J1 (w44) reported at 857b560.
+  - Results: 63 job tests; the 20-claimer × 50-job race was checked on the table, including a second generation after reclaim. Fencing, idempotency (8 parallel), DB time (Node clock skewed ±1 day), the trigger matrix, dead letter, cancel and tenants all pass. The full vitest is 649 green, verify-all 10/10 and api-c45 10/10.
+  - Honest note: the work was not strictly test-first. Token mutation turns 23 tests red.
+  - Audit uses the plain helper, because c31 is not in the tree.
+  - Independent reviewer dispatched.
