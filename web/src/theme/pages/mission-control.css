@@ -166,7 +166,14 @@
 .minimap:focus-visible { box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), .8); border-radius: 6px; }
 .mm-block { position: absolute; transform-origin: left center; border-radius: 2px; opacity: .55;
   background: repeating-linear-gradient(180deg, hsl(var(--h) 75% 62% / .75) 0 1.5px, transparent 1.5px 3px);
-  border-left: 2px solid hsl(var(--h) 85% 60%); transition: opacity var(--dur-fast), filter var(--dur-fast); }
+  border-left: 2px solid hsl(var(--h) 85% 60%); transition: opacity var(--dur-fast), filter var(--dur-fast);
+  animation: mm-in .25s ease-out backwards; }
+/* cycle 26: the entrance the motion component played. It ends on the block's own style (Block sets opacity 1 inline, the
+   value motion left behind), and nothing fills forwards: a block whose animation stays in effect keeps a compositing layer,
+   and a long thread has one block per message */
+@keyframes mm-in { from { opacity: 0; transform: scaleX(.3); } }
+.mm-blocks { position: absolute; inset: 0; pointer-events: none; transform-origin: 0 0; will-change: transform; } /* cycle 26: see ThreadMinimap (sb) */
+.mm-chunk { position: absolute; inset: 0; contain: layout style; } /* cycle 26: see BlockChunk */
 .mm-block.right, .mm-block.human { transform-origin: right center; border-left: 0; border-right: 2px solid hsl(var(--h) 85% 60%); }
 .mm-block.human { --h: 38; }
 .mm-block.in-view { opacity: .95; }

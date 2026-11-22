@@ -144,29 +144,37 @@ function summarise(file, marks) {
 /** No behaviour change (rep 1 of each size, after the idle reload): draft kept, pinned to the bottom, minimap, paging anchor. */
 const checks = [];
 const check = (name, ok, detail = '') => { checks.push({ name, ok: !!ok, detail }); console.log(`  ${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ' — ' + detail : ''}`); };
-async function behaviour(n) {
+async function behaviour(n, mid, tid) {
   const body = p.locator('.conv-main .thread-body');
-  const mids = () => p.locator('.conv-main .thread-body [data-mid]').evaluateAll((els) => els.map((e) => e.getAttribute('data-mid')));
+  // cycle 26: the thread is virtualised (only the rows near the viewport are in the DOM). Loaded messages are read from the
+  // app's store; the minimap blocks carry their message's id (data-mm)
+  const loaded = () => p.evaluate(async ({ mid, tid }) => (await import('/src/api/missionControl.ts')).useMC.getState().byMission[mid]?.threads?.[tid]?.messages?.map((m) => m.id) ?? [], { mid, tid });
+  const blockIds = () => p.locator('.conv-main .minimap .mm-block').evaluateAll((els) => els.map((e) => e.getAttribute('data-mm')));
   check(`N=${n}: after the reload the thread is pinned to the bottom`, await until(() => body.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight < 60), 5000));
-  const blocks = async () => [await p.locator('.conv-main .minimap .mm-block').count(), (await mids()).length];
-  check(`N=${n}: the minimap has one block per loaded message`, await until(async () => { const [b, m] = await blocks(); return b === m && m > 0; }, 5000), (await blocks()).join(' blocks / ') + ' rows');
+  const blocks = async () => { const [b, m] = [await blockIds(), await loaded()]; return [b.length, m.length, b.every((x, i) => x === m[i])]; };
+  check(`N=${n}: the minimap has one block per loaded message`, await until(async () => { const [b, m, same] = await blocks(); return b === m && m > 0 && same; }, 5000), (await blocks()).slice(0, 2).join(' blocks / ') + ' loaded');
   const draft = `c22 draft ${Date.now()}`;
   await p.locator('.conv-main .composer textarea').fill(draft);
   await p.reload({ waitUntil: 'domcontentloaded' });
   check(`N=${n}: an unsent draft survives a reload`, await until(async () => (await p.locator('.conv-main .composer textarea').inputValue()) === draft, 15000));
   await p.locator('.conv-main .composer textarea').fill('');
-  await until(async () => (await mids()).length >= 50, 10000);
-  const before = (await mids()).length;
-  const a = await body.evaluate((el) => {
+  await until(async () => (await loaded()).length >= 50, 10000);
+  // cycle 26 fix round: the store can hold the page a moment before the thread has rendered and pinned it; scroll to the
+  // top only once the rows are on screen and pinned (otherwise the pin lands after the jump and no older page is asked for)
+  await until(() => body.evaluate((el) => el.querySelectorAll('[data-mid]').length > 0 && el.scrollHeight - el.scrollTop - el.clientHeight < 60), 5000);
+  const before = (await loaded()).length;
+  const a = await body.evaluate(async (el) => {
+    // cycle 26: the thread is virtualised; the rows at the top render on the frame after the jump (the reader sees them then)
     el.scrollTop = 0;
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     const box = el.getBoundingClientRect();
     const first = [...el.querySelectorAll('[data-mid]')].find((x) => x.getBoundingClientRect().bottom > box.top);
     return { id: first.getAttribute('data-mid'), top: first.getBoundingClientRect().top - box.top };
   });
-  const grew = await until(async () => (await mids()).length > before, 8000);
+  const grew = await until(async () => (await loaded()).length > before, 8000);
   await p.waitForTimeout(400);
   const after = await body.evaluate((el, id) => { const x = el.querySelector(`[data-mid="${id}"]`); return x ? x.getBoundingClientRect().top - el.getBoundingClientRect().top : null; }, a.id);
-  const all = await mids();
+  const all = await blockIds();
   check(`N=${n}: scrolling up loads the next older page, the top message stays put, no duplicates`, grew && after != null && Math.abs(after - a.top) <= 4 && new Set(all).size === all.length, `${before} → ${all.length} rows, shift ${after == null ? '-' : Math.abs(after - a.top).toFixed(1)} px`);
 
   // fix round I1: a row replaced at the same length (my message's local copy → the server's copy) is still watched by the
@@ -178,17 +186,24 @@ async function behaviour(n) {
   const rowOf = (t) => body.evaluate((el, x) => { const r = [...el.querySelectorAll('[data-mid]')].find((w) => w.textContent.includes(x)); return r ? r.getAttribute('data-mid') : null; }, t);
   const replaced = await until(async () => { const id = await rowOf(probe); return !!id && !id.startsWith('local-'); }, 10000);
   await until(async () => { const [bl, m] = await blocks(); return bl === m; }, 3000);
-  const lastBlockH = () => p.evaluate(() => { const bl = [...document.querySelectorAll('.conv-main .minimap .mm-block')]; return bl.length ? parseFloat(bl[bl.length - 1].style.height) : 0; });
+  // cycle 26: block geometry as drawn (the blocks sit in a scaled layer), not their style strings
+  const lastBlockH = () => p.evaluate(() => { const bl = [...document.querySelectorAll('.conv-main .minimap .mm-block')]; return bl.length ? bl[bl.length - 1].getBoundingClientRect().height : 0; });
   const h0 = await lastBlockH();
   await body.evaluate((el, x) => { const r = [...el.querySelectorAll('[data-mid]')].find((w) => w.textContent.includes(x)); (r.querySelector('.bubble-row') ?? r).style.minHeight = '480px'; }, probe);
   const followed = await until(async () => (await lastBlockH()) > h0 * 2, 3000);
   const h1 = await lastBlockH();
+  // every rendered row has its block where the row is (cycle 26: matched by message id; only rendered rows have a DOM
+  // position to compare with)
   const misplaced = await p.evaluate(() => {
-    const rows = [...document.querySelectorAll('.conv-main .thread-body [data-mid]')].map((w) => (w.querySelector('.bubble-row') ?? w).offsetTop);
-    const bl = [...document.querySelectorAll('.conv-main .minimap .mm-block')].map((b) => parseFloat(b.style.top));
-    if (bl.length !== rows.length || !rows.length) return -1;
-    const s = bl[bl.length - 1] / Math.max(rows[rows.length - 1], 1);
-    return bl.filter((t, i) => Math.abs(t - rows[i] * s) > 1.5).length;
+    const layer = document.querySelector('.conv-main .minimap .mm-blocks');
+    if (!layer) return -1;
+    const y0 = layer.getBoundingClientRect().top;
+    const rows = [...document.querySelectorAll('.conv-main .thread-body [data-mid]')].map((w) => [w.getAttribute('data-mid'), (w.querySelector('.bubble-row') ?? w).offsetTop]);
+    const at = new Map([...document.querySelectorAll('.conv-main .minimap .mm-block')].map((b) => [b.getAttribute('data-mm'), b.getBoundingClientRect().top - y0]));
+    if (!rows.length || rows.some(([id]) => !at.has(id))) return -1;
+    const [lastId, lastTop] = rows[rows.length - 1];
+    const s = at.get(lastId) / Math.max(lastTop, 1);
+    return rows.filter(([id, top]) => Math.abs(at.get(id) - top * s) > 1.5).length;
   });
   check(`N=${n}: I1 the minimap follows a row replaced at the same length (sent message → server copy), blocks aligned with rows`, replaced && followed && misplaced === 0, `replaced ${replaced} · last block ${h0.toFixed(1)} → ${h1.toFixed(1)} px · misplaced blocks ${misplaced}`);
 }
@@ -280,7 +295,7 @@ for (const n of SIZES) {
       }
     }
     out.runs.push({ n, rep: tracing ? 'traced' : rep, mid, load: loadBefore, burstMs, afterBurst, idle, trace });
-    if (rep === 1 && idle.interactive != null && process.env.CHECKS !== '0') { try { await behaviour(n); } catch (e) { check(`N=${n}: behaviour checks ran`, false, e.message.split('\n')[0]); } }
+    if (rep === 1 && idle.interactive != null && process.env.CHECKS !== '0') { try { await behaviour(n, mid, tid); } catch (e) { check(`N=${n}: behaviour checks ran`, false, e.message.split('\n')[0]); } }
     if (afterBurst.interactive == null) { console.log(`  (not interactive within the ${CAP} ms cap: reported as >cap; the page is replaced)`); await replacePage(); }
   }
 }

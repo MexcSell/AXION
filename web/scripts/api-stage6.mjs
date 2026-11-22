@@ -236,21 +236,41 @@ try {
   }
   const total = ((await apiA('GET', `/missions/${realId}/threads`)).body.threads ?? []).find((t) => t.id === gmThread.id)?.count;
   await A.p.reload({ waitUntil: 'domcontentloaded' });
-  const mids = () => A.p.locator('.conv-main .thread-body [data-mid]').evaluateAll((els) => els.map((e) => e.getAttribute('data-mid')));
-  check('opening the long thread loads the newest 50', await until(async () => (await mids()).length === 50, 10000), `${(await mids()).length} of ${total}`);
+  // the thread is virtualised since improvement cycle 26: only the rows near the viewport are in the DOM.
+  // The loaded messages, in order: the minimap draws one block per loaded message (data-mm = its id); `reach` below proves
+  // each of them is rendered when the reader scrolls to it, so this is not a count taken on faith
+  const loaded = () => A.p.locator('.conv-main .minimap .mm-block').evaluateAll((els) => els.map((e) => e.getAttribute('data-mm')));
+  /** walk the thread from the top to the bottom: every row rendered on the way, in order, and the rows' aria-posinset / aria-setsize */
+  const reach = () => A.p.locator('.conv-main .thread-body').evaluate(async (el) => {
+    const raf = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    el.scrollTop = 0; await raf(); await raf();
+    const seen = [], set = new Set();
+    const first = el.querySelector('[data-mid]');
+    const top = { id: first?.getAttribute('data-mid'), pos: first?.getAttribute('aria-posinset'), size: first?.getAttribute('aria-setsize') };
+    for (let steps = 0; steps < 2000; steps++) {
+      await raf();
+      for (const r of el.querySelectorAll('[data-mid]')) { const id = r.getAttribute('data-mid'); if (!set.has(id)) { set.add(id); seen.push(id); } }
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 2) break;
+      el.scrollTop += Math.round(el.clientHeight * 0.8);
+    }
+    return { seen, top };
+  });
+  check('opening the long thread loads the newest 50', await until(async () => (await loaded()).length === 50, 10000), `${(await loaded()).length} of ${total}`);
   check('the first page is pinned to the bottom (newest visible)', await A.p.locator('.conv-main .thread-body').evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight < 60));
   let pages = 0, worst = 0;
   for (let round = 0; round < 3; round++) {
-    const before = (await mids()).length;
+    const before = (await loaded()).length;
     if (before >= total) break;
     // scroll to the top; remember the message at the top and its offset
-    const anchor = await A.p.locator('.conv-main .thread-body').evaluate((el) => {
+    const anchor = await A.p.locator('.conv-main .thread-body').evaluate(async (el) => {
+      // cycle 26: the thread is virtualised; the rows at the top render on the frame after the jump (the reader sees them then)
       el.scrollTop = 0;
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       const box = el.getBoundingClientRect();
       const first = [...el.querySelectorAll('[data-mid]')].find((n) => n.getBoundingClientRect().bottom > box.top);
       return { id: first.getAttribute('data-mid'), top: first.getBoundingClientRect().top - box.top };
     });
-    const grew = await until(async () => (await mids()).length > before, 8000);
+    const grew = await until(async () => (await loaded()).length > before, 8000);
     await calm(A.p);
     const after = await A.p.locator('.conv-main .thread-body').evaluate((el, id) => { const n = el.querySelector(`[data-mid="${id}"]`); return n ? n.getBoundingClientRect().top - el.getBoundingClientRect().top : null; }, anchor.id);
     if (grew) pages++;
@@ -258,12 +278,18 @@ try {
     await A.p.locator('.conv-main .thread-body').evaluate((el) => { el.scrollTop += 300; }); // leave the top before the next round
     await calm(A.p);
   }
-  const all = await mids();
+  const all = await loaded();
   check('scrolling up loads older pages', pages >= 2 && all.length === total, `${pages} pages · ${all.length}/${total} messages`);
   check('the message at the top stays in place while a page loads (no jump)', worst <= 4, `worst shift ${worst.toFixed(1)} px`);
   check('no duplicate messages after paging', new Set(all).size === all.length);
-  const blocks = await A.p.locator('.conv-main .minimap .mm-block').count();
-  check('the minimap still works on the long thread (one block per loaded message)', (await A.p.locator('.conv-main .minimap').count()) === 0 ? false : blocks === all.length, `${blocks} blocks`);
+  // cycle 26: was "one DOM row and one minimap block per loaded message". The rows are virtualised now, so the check asserts
+  // the intent: every loaded message is reachable (scrolled to from the top, each one renders, in order, the first one
+  // first), the rows say where they are in the whole thread (aria-posinset / aria-setsize = the thread's length), and the
+  // minimap has one block per message
+  const w = await reach();
+  check('every loaded message is reachable on the long thread: a walk from the top renders each one in order; aria-setsize and the minimap count every message',
+    (await A.p.locator('.conv-main .minimap').count()) > 0 && w.seen.length === all.length && w.seen.every((id, i) => id === all[i]) && w.top.id === all[0] && w.top.pos === '1' && Number(w.top.size) === total,
+    `${w.seen.length} rendered on the walk / ${all.length} minimap blocks / aria-setsize ${w.top.size} · first row posinset ${w.top.pos}`);
 
   // ------------------------------------------------------------ fix round 1: > 50 messages while A's stream is down → no gap after the reconnect
   const API_PID = Number(process.env.API_PID || 0);
@@ -292,18 +318,20 @@ try {
     // I4: the reconnect re-read is a background read, so what arrived while offline is still unread on the server
     const unreadA = ((await apiA('GET', `/missions/${realId}/threads`)).body.threads ?? []).find((t) => t.id === gmThread.id)?.unread ?? 0;
     check('I4: after the reconnect, messages that arrived while offline still count as unread', unreadA >= 60, `unread ${unreadA}`);
-    const shown = (await mids()).map((id) => seqOf.get(id)).filter((x) => x !== undefined).sort((x, y) => x - y);
+    const shown = (await loaded()).map((id) => seqOf.get(id)).filter((x) => x !== undefined).sort((x, y) => x - y);
     const contiguous = shown.every((x, i) => i === 0 || x === shown[i - 1] + 1);
     check('no hole in the thread after the reconnect (loaded messages are contiguous)', shown.length > 0 && contiguous, `${shown.length} shown, seq ${shown[0]}…${shown[shown.length - 1]}`);
-    for (let round = 0; round < 8 && (await mids()).length < seqOf.size; round++) {
-      const n0 = (await mids()).length;
+    for (let round = 0; round < 8 && (await loaded()).length < seqOf.size; round++) {
+      const n0 = (await loaded()).length;
       await A.p.locator('.conv-main .thread-body').evaluate((el) => { el.scrollTop = 0; });
-      await until(async () => (await mids()).length > n0, 6000);
+      await until(async () => (await loaded()).length > n0, 6000);
       await A.p.locator('.conv-main .thread-body').evaluate((el) => { el.scrollTop += 300; });
       await calm(A.p);
     }
-    const after = await mids();
-    check('scrolling up after the reconnect reaches the whole thread, without duplicates', after.length === seqOf.size && new Set(after).size === after.length, `${after.length}/${seqOf.size}`);
+    const after = await loaded();
+    const w2 = await reach(); // cycle 26: and each of them renders when scrolled to
+    check('scrolling up after the reconnect reaches the whole thread, without duplicates', after.length === seqOf.size && new Set(after).size === after.length && w2.seen.length === after.length && w2.seen.every((id, i) => id === after[i]),
+      `${after.length}/${seqOf.size} · ${w2.seen.length} rendered on a walk from the top`);
   } else check('reconnect gap check needs API_PID (run through api-e2e.sh)', false);
 
   // I2: a real mission has no report; the Reports tab is an honest empty state, not the prototype's invented one
