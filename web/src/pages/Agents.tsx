@@ -35,7 +35,8 @@ import { cx } from '@/lib/format';
 import { AgentHierarchy } from '@/features/agents/AgentHierarchy';
 import { GrowthBadge, LevelPips, EvoTrack, GROWTH } from '@/features/agents/Growth';
 import { Departments, Assignments, Policies, Proposals } from '@/features/agents/OrgSections';
-import { ServerDevelopment } from '@/features/agents/VersionProposals';
+import type { ProposalEvaluationDto } from '@contracts';
+import { ServerDevelopment, EvaluationView } from '@/features/agents/VersionProposals';
 import { useVersionProposals } from '@/api/versionProposals';
 import { useMentoringPlans } from '@/api/mentoring';
 
@@ -206,6 +207,12 @@ function AgentTable({ list, onOpen }: { list: Agent[]; onOpen: (id: string) => v
 /* ------------------------------------------------------------------ */
 /* Development: stage ladder + learning / evolving / stable lanes      */
 /* ------------------------------------------------------------------ */
+/** DEMO sample (labelled "Sample" in the card): what verified evidence looks like. Nothing was measured. */
+const DEMO_EVAL: ProposalEvaluationDto = {
+  outcome: 'inconclusive', n: 8, wins: 6, losses: 1, ties: 1, k: 1, delta: 9.4, ci: { low: -2.1, high: 20.9 }, baselineMean: 61.2, candidateMean: 70.6,
+  passHatK: { baseline: [0.5], candidate: [0.75] }, refusals: [], reasons: ['8 cases scored on both versions; the policy needs 10'], notes: [],
+  datasetId: 'holdout-demo', datasetSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9', baseRunId: null, candidateRunId: 'demo',
+};
 function Development() {
   const nav = useNavigate();
   const lanes: { key: Agent['growth']; title: string; sub: string }[] = [
@@ -256,6 +263,7 @@ function Development() {
                     </div>
                     {l.key !== 'stable' && <div className="dev-bar" style={{ marginTop: 7 }}><motion.i initial={{ width: 0 }} animate={{ width: `${a.growthPct}%` }} transition={{ duration: 1 }} /></div>}
                     {l.key === 'evolving' && <div style={{ marginTop: 6 }}><EvoTrack agent={a} /></div>}
+                    {l.key === 'evolving' && a.id === items[0]?.id && <div style={{ marginTop: 6 }} data-demo-eval-sample><EvaluationView sample e={DEMO_EVAL} /></div>}
                     {l.key === 'learning' && <div className="row" style={{ marginTop: 6, gap: 6 }}><button className="btn sm" style={{ position: 'relative', zIndex: 1 }} onClick={() => openDialog('mentoring-session', { agentId: a.id })}><GraduationCap size={13} />Next exercise</button></div>}
                   </div>
                 ))}

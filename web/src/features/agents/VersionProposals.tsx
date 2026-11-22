@@ -3,9 +3,9 @@ import { LiveStatus } from '@/components/ui/LiveStatus';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  GitBranchPlus, Plus, Minus, ArrowRight, Check, X, Undo2, Clock, CheckCircle2, XCircle, Hourglass, AlertOctagon, AlertTriangle, Lock, Sprout, FlaskConical, Cpu, Wrench, Sparkles,
+  GitBranchPlus, Plus, Minus, ArrowRight, Check, X, Undo2, Clock, CheckCircle2, XCircle, Hourglass, AlertOctagon, AlertTriangle, Lock, Sprout, FlaskConical, Cpu, Wrench, Sparkles, ShieldCheck, TrendingDown, CircleHelp,
 } from 'lucide-react';
-import type { VersionDiff, VersionProposalDto, VersionProposalStatus } from '@contracts';
+import type { EvalOutcome, ProposalEvaluationDto, VersionDiff, VersionProposalDto, VersionProposalStatus } from '@contracts';
 import { Panel } from '@/components/ui/Panel';
 import { Segmented } from '@/components/ui/Form';
 import { Chip } from '@/components/ui/Chips';
@@ -22,8 +22,8 @@ import { ServerMentoringList } from '@/features/agents/Mentoring';
 import '@/theme/pages/overview-org-agent.css';
 
 /* Improvement cycle 5 (api mode): agent version proposals. Only stored facts are shown: base → candidate (skills and
-   tools added or removed, the model change), the hypothesis, the author, age and status. No evaluation numbers exist
-   yet, and none are invented: the card says so where a comparison would go. */
+   tools added or removed, the model change), the hypothesis, the author, age and status. c47: when stored runs exist the
+   card shows the server's evaluation (outcome, n, refusals); otherwise it says there is none. Nothing is invented. */
 
 export const VP_STATUS: Record<VersionProposalStatus, { label: string; hue: number; icon: typeof Clock }> = {
   pending: { label: 'Pending', hue: 38, icon: Clock },
@@ -54,6 +54,42 @@ export function VersionDiffView({ d, empty = 'No change' }: { d: VersionDiff; em
   );
 }
 
+export const EVAL_OUTCOME: Record<EvalOutcome, { label: string; hue: number; icon: typeof Clock; hint: string }> = {
+  verified_better: { label: 'Verified better', hue: 145, icon: ShieldCheck, hint: 'Measured better than the active version on a frozen holdout, with no refusal' },
+  inconclusive: { label: 'Inconclusive', hue: 38, icon: CircleHelp, hint: 'The evidence cannot establish a difference. This is not a loss.' },
+  worse: { label: 'Worse', hue: 0, icon: TrendingDown, hint: 'Measured significantly worse than the active version' },
+};
+const pts = (x: number | null) => (x === null ? 'n/a' : `${x > 0 ? '+' : ''}${x.toFixed(1)}`);
+const pct = (x: number | null | undefined) => (x === null || x === undefined ? 'n/a' : `${Math.round(x * 100)}%`);
+
+/** The measured evidence for a candidate: outcome chip, n, the numbers, and every refusal reason. Only server values. */
+export function EvaluationView({ e, sample }: { e: ProposalEvaluationDto; sample?: boolean }) {
+  const O = EVAL_OUTCOME[e.outcome];
+  return (
+    <div className="col" style={{ gap: 6, fontSize: 12, padding: '8px 10px', borderRadius: 10, background: 'var(--panel-3)', border: '1px solid var(--border-soft)' }} data-evaluation={e.outcome} data-evaluation-sample={sample ? '1' : undefined}>
+      <div className="row wrap" style={{ gap: 6 }}>
+        <FlaskConical size={14} className="dim" aria-hidden />
+        <span data-eval-outcome={e.outcome}><Chip hue={O.hue} icon={O.icon} size="sm" solid={e.outcome === 'verified_better'} title={O.hint}>{O.label}</Chip></span>
+        <span className="tnum" data-eval-n={e.n} title="Cases scored on both the active version and the candidate">n = {e.n}</span>
+        {sample && <Chip hue={225} size="sm" title="Demo data: nothing was measured">Sample</Chip>}
+        <span className="spacer" /><HelpTrigger k="agent.version.evaluation" />
+      </div>
+      <div className="row wrap dim tnum" style={{ gap: 10 }}>
+        <span>{e.wins} won · {e.losses} lost · {e.ties} tied</span>
+        <span>mean {pts(e.delta)} pts{e.ci.low !== null && e.ci.high !== null ? ` (95% ${pts(e.ci.low)} to ${pts(e.ci.high)})` : ''}</span>
+        {e.passHatK.baseline[0] !== undefined && <span>pass^1 {pct(e.passHatK.baseline[0])} → {pct(e.passHatK.candidate[0])}</span>}
+        <span className="mono" title={e.datasetSha ?? ''}>holdout {e.datasetId}{e.datasetSha ? ` · ${e.datasetSha.slice(0, 8)}` : ''}</span>
+      </div>
+      {e.refusals.length > 0 && (
+        <ul className="col" style={{ gap: 2, margin: 0, paddingLeft: 16 }} data-eval-refusals aria-label="Why this evaluation is not trusted">
+          {e.refusals.map((r) => <li key={r.code + r.detail} data-refusal={r.code}><b className="mono">{r.code}</b>: {r.detail}</li>)}
+        </ul>
+      )}
+      {e.refusals.length === 0 && e.outcome !== 'verified_better' && e.reasons.length > 0 && <div className="dim" data-eval-reason>{e.reasons[0]}</div>}
+    </div>
+  );
+}
+
 /** Where a comparison would go: there is none, and the card says why. */
 export function NoEvaluation() {
   return (
@@ -66,10 +102,14 @@ export function NoEvaluation() {
 
 export function VersionProposalCard({ p, meId, admin, index, err, setErr, showAgent = true }: { p: VersionProposalDto; meId?: string; admin: boolean; index: number; err?: string; setErr: (m: string | null) => void; showAgent?: boolean }) {
   const [note, setNote] = useState('');
+  const [override, setOverride] = useState('');
   const [busy, setBusy] = useState(false);
   const S = VP_STATUS[p.status];
   const pending = p.status === 'pending';
   const mine = p.createdBy === meId;
+  const worse = p.evaluation?.outcome === 'worse';
+  /** not verified better (no evaluation, inconclusive): promoting needs a written reason; the server enforces it */
+  const needsOverride = !worse && p.evaluation?.outcome !== 'verified_better';
   const a = AGENT_BY_ID[p.agentId];
   const run = async (f: () => ReturnType<typeof withdrawVersionProposal>, done: string) => {
     if (busy) return;
@@ -102,10 +142,11 @@ export function VersionProposalCard({ p, meId, admin, index, err, setErr, showAg
         {pending && <Chip hue={260} icon={Hourglass} size="sm" title={new Date(p.expiresAt).toLocaleString()}>expires in {leftH >= 48 ? `${Math.round(leftH / 24)} d` : `${Math.ceil(leftH)} h`}</Chip>}
       </div>
       <VersionDiffView d={p.diff} />
-      <div style={{ marginTop: 8 }}><NoEvaluation /></div>
+      <div style={{ marginTop: 8 }}>{p.evaluation ? <EvaluationView e={p.evaluation} /> : <NoEvaluation />}</div>
       {p.decidedByName && !pending && (
         <div className="dim" style={{ fontSize: 12, marginTop: 8 }}>{S.label} by {p.decidedByName}{p.decidedAt ? ` · ${ago((Date.now() - new Date(p.decidedAt).getTime()) / 60_000)}` : ''}{p.note ? <> · “{p.note}”</> : null}</div>
       )}
+      {p.overrideReason && <div className="dim" style={{ fontSize: 12, marginTop: 6 }} data-override-shown><b>Promoted without a verified evaluation.</b> Reason: “{p.overrideReason}”</div>}
       {err && <div className="oa-banner" role="alert" style={{ marginTop: 8 }} data-card-error><AlertOctagon size={15} /><span>{err}</span></div>}
       {pending && admin && (mine ? (
         <div className="row" style={{ gap: 8, marginTop: 10 }}>
@@ -114,12 +155,22 @@ export function VersionProposalCard({ p, meId, admin, index, err, setErr, showAg
           <HelpTrigger k="agent.version.withdraw" />
         </div>
       ) : (
-        <div className="row" style={{ gap: 8, marginTop: 10 }}>
+        <div className="col" style={{ gap: 8, marginTop: 10 }}>
+        {needsOverride && (
+          <div className="row" style={{ gap: 8 }}>
+            <input className="input" style={{ flex: 1, minWidth: 0, height: 32 }} value={override} onChange={(e) => setOverride(e.target.value)} maxLength={1000} data-override-reason
+              placeholder="Override reason: not verified better (10+ characters)" aria-label={`Override reason for ${p.title}`} />
+            <span className="dim tnum" style={{ fontSize: 11.5 }} data-override-count>{override.trim().length}/10</span>
+            <HelpTrigger k="agent.version.override" />
+          </div>
+        )}
+        <div className="row" style={{ gap: 8 }}>
           <input className="input" style={{ flex: 1, minWidth: 0, height: 32 }} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" aria-label={`Decision note for ${p.title}`} maxLength={1000} />
-          <button className="btn sm primary" disabled={busy} onClick={() => run(() => decideVersionProposal(p, 'promote', note), `${p.agentName}: candidate promoted`)}
-            title={p.stale ? 'The agent changed since: the server will refuse; reject it or ask for a new one' : undefined}><Check size={13} />Promote</button>
+          <button className="btn sm primary" disabled={busy || worse} onClick={() => run(() => decideVersionProposal(p, 'promote', note, override), `${p.agentName}: candidate promoted`)}
+            title={worse ? 'Measured worse than the active version: it cannot be promoted, only rejected' : p.stale ? 'The agent changed since: the server will refuse; reject it or ask for a new one' : needsOverride ? 'Not verified better: write the override reason first' : undefined}><Check size={13} />Promote</button>
           <button className="btn sm ghost" disabled={busy} onClick={() => run(() => decideVersionProposal(p, 'reject', note), `${p.title}: rejected`)}><X size={13} />Reject</button>
           <HelpTrigger k="agent.version.decide" />
+        </div>
         </div>
       ))}
     </motion.article>

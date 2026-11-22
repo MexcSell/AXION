@@ -128,6 +128,7 @@ try {
       && (await card(B.p).getByText('No evaluation yet. Evaluations run once agents execute.').count()) === 1);
   const devTab = (p) => p.getByRole('tab', { name: /^Development/ }).first();
   check('api mode: the Development sub-tab counts the server\'s pending proposals (1), not fixture growth', await until(async () => /^Development\s*\(?1\)?$/.test((await devTab(B.p).innerText()).replace(/\s+/g, ' ').trim()), 8000), await devTab(B.p).innerText().catch(() => '?'));
+  await card(B.p).locator('[data-override-reason]').fill('No evaluation yet; reviewed by hand (c47 gate).'); // c47: no evaluation, so the override path applies
   await card(B.p).getByRole('button', { name: 'Promote', exact: true }).click();
   const ag1 = await (async () => { let a; await until(async () => { a = (await apiA('GET', `/agents/${X}`)).body.agent; return a.versionLabel !== vN; }, 8000); return a; })();
   const vN1 = ag1.versionLabel;

@@ -26,8 +26,10 @@ async function propose(by: Browser, change: (c: Cfg) => Cfg, extra: Record<strin
   return by.req('POST', `/agents/${id}/version-proposals`, { title: 'Add a skill', hypothesis: 'Fewer review rounds on frontend tasks.', candidate, baseVersionId: a.versionId, ...extra }, key());
 }
 const addSkill = (s: string) => (c: Cfg) => ({ ...c, skills: [...c.skills, s] });
+// c47: a promotion without a verified evaluation needs a written reason; these cycle-5 tests have no evaluation runs, so the
+// override path applies (tests/eval-evidence.test.ts covers the gate itself).
 const decide = (by: Browser, p: { id: string; sha: string }, decision: 'promote' | 'reject', extra: Record<string, unknown> = {}) =>
-  by.req('POST', `/version-proposals/${p.id}/decision`, { decision, sha: p.sha, ...extra });
+  by.req('POST', `/version-proposals/${p.id}/decision`, { decision, sha: p.sha, ...(decision === 'promote' ? { overrideReason: 'No evaluation yet; reviewed by hand.' } : {}), ...extra });
 const pinned = async () => rows(`select id, agent_version_id from agent_instances where agent_id=$1 order by id`, [AG]);
 
 beforeAll(async () => {

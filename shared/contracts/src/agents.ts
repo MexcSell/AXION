@@ -91,8 +91,30 @@ export interface VersionProposalDto {
   createdBy: string; createdByName: string; createdAt: string; expiresAt: string;
   decidedBy: string | null; decidedByName: string | null; decidedAt: string | null; note: string | null;
   promotedVersionId: string | null; promotedVersionLabel: string | null;
-  /** no evaluation runs yet (agents do not execute): always null, never an invented number */
-  evaluation: null;
+  /** c47: computed by the server from stored runs on a frozen holdout dataset; null when the candidate has no finished runs. Never a caller-supplied number. */
+  evaluation: ProposalEvaluationDto | null;
+  /** the administrator's reason for promoting without a verified evaluation (at least 10 characters); null when none was needed */
+  overrideReason: string | null;
+}
+/** `inconclusive` is not a loss: it says the evidence cannot establish a difference (or the evaluation was not honest, see refusals). */
+export type EvalOutcome = 'verified_better' | 'inconclusive' | 'worse';
+export interface EvalRefusalDto { code: string; detail: string }
+export interface ProposalEvaluationDto {
+  outcome: EvalOutcome;
+  /** cases scored on both the base version and the candidate */
+  n: number; wins: number; losses: number; ties: number; k: number;
+  /** mean score gain of the candidate over the base, in points (0..100) */
+  delta: number | null;
+  /** 95% t interval of the paired mean difference */
+  ci: { low: number | null; high: number | null };
+  baselineMean: number | null; candidateMean: number | null;
+  /** index i is pass^(i+1) */
+  passHatK: { baseline: Array<number | null>; candidate: Array<number | null> };
+  /** why the evaluation is not trusted (empty when it is) */
+  refusals: EvalRefusalDto[];
+  /** the verdict's reasons in words, and facts such as cost */
+  reasons: string[]; notes: string[];
+  datasetId: string; datasetSha: string | null; baseRunId: string | null; candidateRunId: string;
 }
 /** Improvement cycle 4: organisation history. Where a revision came from (stored facts only). */
 export type OrgRevisionSource =

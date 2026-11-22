@@ -10,7 +10,8 @@ import { idempotent } from '../idempotency.ts';
 import { emit } from '../events/hooks.ts';
 import { getAgent, lockAgent, lockAndReadAgent, promptHash, switchVersion, type AgentBase } from './service.ts';
 import { attachReliability } from './reliability.ts';
-import type { AgentVersionDto, VersionConfig, VersionDiff, VersionProposalDto } from '../../../shared/contracts/src/index.ts';
+import { loadEvaluations } from '../evolution/proposal-evidence.ts';
+import type { AgentVersionDto, ProposalEvaluationDto, VersionConfig, VersionDiff, VersionProposalDto } from '../../../shared/contracts/src/index.ts';
 
 /**
  * Improvement cycle 5: agent version proposals, promote and rollback under governance (spec §4.11, §10.9, Stage 10;
@@ -22,13 +23,17 @@ import type { AgentVersionDto, VersionConfig, VersionDiff, VersionProposalDto } 
  * (409 PROPOSAL_CHANGED), not expired (409 PROPOSAL_EXPIRED). Promote then adds a new immutable version through the
  * Stage 6 path (addVersion) and makes it active. Rollback adds a new version equal to an earlier one (append-only: no
  * version is deleted or reused). Running instances keep their pinned agent_version_id throughout.
- * Every write and every refused decision is audited. No evaluation numbers exist yet: the DTO says so (evaluation: null).
+ * Every write and every refused decision is audited. c47: the DTO carries an evaluation computed from stored runs only
+ * (evolution/proposal-evidence.ts); promote stays manual: a worse candidate is refused (409 EVAL_WORSE) and one that is not
+ * verified better needs a written overrideReason (409 EVAL_OVERRIDE_REQUIRED), kept in the audit row and on the proposal.
  */
 const Str = z.string().trim();
 const List = z.array(Str.min(1).max(80)).max(50);
 const Config = z.object({ model: Str.min(1).max(120), skills: List, tools: List }).strict();
 const CreateIn = z.object({ title: Str.min(1).max(120), hypothesis: Str.min(1).max(2000), candidate: Config, baseVersionId: z.string().max(64) }).strict();
-const DecisionIn = z.object({ decision: z.enum(['promote', 'reject']), sha: z.string().max(128), note: Str.max(1000).optional() }).strict();
+const DecisionIn = z.object({ decision: z.enum(['promote', 'reject']), sha: z.string().max(128), note: Str.max(1000).optional(), overrideReason: Str.max(1000).optional() }).strict();
+/** c47: promoting without a verified evaluation needs the administrator's reason (trimmed length). */
+export const MIN_OVERRIDE = 10;
 const RollbackIn = z.object({ toVersionId: z.string().max(64), why: Str.min(1).max(1000) }).strict();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TTL_DAYS = 14;
@@ -63,7 +68,7 @@ const SELECT = `select p.*, d.name as agent_name, d.active_version_id, bv.label 
   left join users cu on cu.id = p.created_by
   left join users du on du.id = p.decided_by`;
 const iso = (d: unknown) => (d ? new Date(d as string).toISOString() : null);
-const dto = (r: any): VersionProposalDto => { // eslint-disable-line @typescript-eslint/no-explicit-any
+const dto = (r: any, evaluation: ProposalEvaluationDto | null = null): VersionProposalDto => { // eslint-disable-line @typescript-eslint/no-explicit-any
   const base = cfgOf({ model: r.base_model, skills: r.base_skills, tools: r.base_tools }), candidate = cfgOf(r.candidate);
   return {
     id: r.id, agentId: r.agent_id, agentName: r.agent_name, title: r.title, hypothesis: r.hypothesis,
@@ -72,10 +77,15 @@ const dto = (r: any): VersionProposalDto => { // eslint-disable-line @typescript
     status: r.status, activeVersionId: r.active_version_id, stale: r.status === 'pending' && r.active_version_id !== r.base_version_id,
     createdBy: r.created_by, createdByName: r.created_by_name ?? r.created_by, createdAt: iso(r.created_at)!, expiresAt: iso(r.expires_at)!,
     decidedBy: r.decided_by, decidedByName: r.decided_by ? (r.decided_by_name ?? r.decided_by) : null, decidedAt: iso(r.decided_at), note: r.note,
-    promotedVersionId: r.promoted_version_id, promotedVersionLabel: r.promoted_label ?? null, evaluation: null,
+    promotedVersionId: r.promoted_version_id, promotedVersionLabel: r.promoted_label ?? null, evaluation, overrideReason: r.override_reason ?? null,
   };
 };
-const one = async (c: Tx, tenantId: string, id: string) => dto((await c.query(`${SELECT} where p.id=$1 and p.tenant_id=$2`, [id, tenantId])).rows[0]);
+/** Rows to DTOs with their evaluation, computed from stored runs only (c47). */
+const dtos = async (c: Tx, tenantId: string, rows: any[]): Promise<VersionProposalDto[]> => { // eslint-disable-line @typescript-eslint/no-explicit-any
+  const ev = await loadEvaluations(c, tenantId, rows);
+  return rows.map((r) => dto(r, ev.get(r.id) ?? null));
+};
+const one = async (c: Tx, tenantId: string, id: string) => (await dtos(c, tenantId, (await c.query(`${SELECT} where p.id=$1 and p.tenant_id=$2`, [id, tenantId])).rows))[0];
 
 const decided = (c: Tx, tenantId: string, agentId: string, actor: string, correlationId: string, payload: Record<string, unknown>, actorKind?: 'system') =>
   emit(c, { tenantId, actor, actorKind, correlationId, type: 'agent.versionProposalDecided', subject: agentId, subjectKind: 'agent', payload });
@@ -117,7 +127,7 @@ export default async function versionRoutes(app: FastifyInstance) {
     return tx(app.db, async (c) => {
       await expireDue(c, ctx.tenantId);
       const rows = (await c.query(`${SELECT} where p.tenant_id=$1 order by p.created_at desc, p.id limit 200`, [ctx.tenantId])).rows;
-      return { proposals: rows.map(dto) };
+      return { proposals: await dtos(c, ctx.tenantId, rows) };
     });
   });
 
@@ -128,7 +138,7 @@ export default async function versionRoutes(app: FastifyInstance) {
       if (!(await c.query('select 1 from agent_definitions where id=$1 and tenant_id=$2', [id, ctx.tenantId])).rowCount) throw notFound('No such agent.');
       await expireDue(c, ctx.tenantId);
       const rows = (await c.query(`${SELECT} where p.tenant_id=$1 and p.agent_id=$2 order by p.created_at desc, p.id limit 200`, [ctx.tenantId, id])).rows;
-      return { proposals: rows.map(dto) };
+      return { proposals: await dtos(c, ctx.tenantId, rows) };
     });
   });
 
@@ -162,8 +172,8 @@ export default async function versionRoutes(app: FastifyInstance) {
   });
 
   /** A refusal is audited and the transaction still commits (an expiry included); the error is thrown after commit. */
-  const refuse = async (c: Tx, ctx: Ctx, action: string, id: string, err: ApiError) => {
-    await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action, subject: id, result: 'denied', correlationId: ctx.correlationId, detail: { code: err.code } });
+  const refuse = async (c: Tx, ctx: Ctx, action: string, id: string, err: ApiError, extra: Record<string, unknown> = {}) => {
+    await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action, subject: id, result: 'denied', correlationId: ctx.correlationId, detail: { code: err.code, ...extra } });
     return { err };
   };
 
@@ -193,6 +203,20 @@ export default async function versionRoutes(app: FastifyInstance) {
       // 4. not expired
       if (await expireOne(c, ctx.tenantId, pid)) return refuse(c, ctx, A, pid, new ApiError('PROPOSAL_EXPIRED', 409, 'This proposal expired without a decision. Propose it again from the active version.'));
       const note = b.note || null;
+      // 5. (c47) evidence, not automation: a worse candidate is refused; one without a verified evaluation needs a written reason
+      let ev: ProposalEvaluationDto | null = null;
+      let override: string | null = null;
+      if (b.decision === 'promote') {
+        ev = (await loadEvaluations(c, ctx.tenantId, [p])).get(pid) ?? null;
+        const seen = { evaluation: ev ? { outcome: ev.outcome, n: ev.n, datasetId: ev.datasetId } : null };
+        if (ev?.outcome === 'worse')
+          return refuse(c, ctx, A, pid, new ApiError('EVAL_WORSE', 409, `The evaluation measured this candidate as worse than the active version (${ev.losses} cases lost, ${ev.wins} won). It cannot be promoted; reject it or propose another change.`), seen);
+        if (ev?.outcome !== 'verified_better') {
+          override = (b.overrideReason ?? '').trim();
+          if (override.length < MIN_OVERRIDE)
+            return refuse(c, ctx, A, pid, new ApiError('EVAL_OVERRIDE_REQUIRED', 409, `${ev ? `The evaluation is ${ev.outcome === 'inconclusive' ? 'inconclusive (not a loss)' : ev.outcome}` : 'There is no evaluation for this candidate'}, so it is not verified better. To promote it anyway, write the reason (at least ${MIN_OVERRIDE} characters).`), seen);
+        }
+      }
       if (b.decision === 'reject') {
         const u = await c.query(`update agent_version_proposals set status='rejected', decided_by=$2, decided_at=now(), note=$3 where id=$1 and tenant_id=$4 and status='pending' returning id`, [pid, ctx.user.id, note, ctx.tenantId]);
         if (!u.rowCount) throw new ApiError('PROPOSAL_NOT_PENDING', 409, 'This proposal was decided meanwhile.');
@@ -202,10 +226,10 @@ export default async function versionRoutes(app: FastifyInstance) {
       }
       const v = await switchVersion(c, { agentId: p.agent_id, ...candidate, createdBy: ctx.user.id }); // the Stage 6 version path
       const u = await c.query(
-        `update agent_version_proposals set status='promoted', decided_by=$2, decided_at=now(), note=$3, promoted_version_id=$4 where id=$1 and tenant_id=$5 and status='pending' returning id`,
-        [pid, ctx.user.id, note, v.id, ctx.tenantId]);
+        `update agent_version_proposals set status='promoted', decided_by=$2, decided_at=now(), note=$3, promoted_version_id=$4, override_reason=$6 where id=$1 and tenant_id=$5 and status='pending' returning id`,
+        [pid, ctx.user.id, note, v.id, ctx.tenantId, override]);
       if (!u.rowCount) throw new ApiError('PROPOSAL_NOT_PENDING', 409, 'This proposal was decided meanwhile.'); // rolls the version back
-      await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: A, subject: pid, result: 'ok', correlationId: ctx.correlationId, detail: { decision: 'promote', agentId: p.agent_id, fromVersionId: p.base_version_id, newVersionId: v.id, label: v.label } });
+      await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: A, subject: pid, result: 'ok', correlationId: ctx.correlationId, detail: { decision: 'promote', agentId: p.agent_id, fromVersionId: p.base_version_id, newVersionId: v.id, label: v.label, evaluation: ev ? { outcome: ev.outcome, n: ev.n, datasetId: ev.datasetId, datasetSha: ev.datasetSha } : null, ...(override ? { overrideReason: override } : {}) } });
       await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'agent.versionPromoted', subject: p.agent_id, subjectKind: 'agent', payload: { proposalId: pid, versionId: v.id, label: v.label, previousVersionId: p.base_version_id } });
       await announceVersion(c, ctx, p.agent_id, v, p.base_version_id, configDiff(cfgOf(cur), candidate), { proposalId: pid });
       return { proposal: await one(c, ctx.tenantId, pid) };
