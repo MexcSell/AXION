@@ -31,3 +31,18 @@ alter table eval_runs drop column holdout_key;
 drop function eval_finish_run(text);
 drop function eval_run_state(text);
 drop function eval_run_missing(text);
+create or replace function eval_json_bad(v jsonb) returns boolean language plpgsql immutable as $$
+declare t text := jsonb_typeof(v); n numeric; digits text;
+begin
+  if t = 'object' then
+    return exists (select 1 from jsonb_object_keys(v) k where eval_text_bad(k) or eval_json_bad(v -> k));
+  elsif t = 'array' then
+    return exists (select 1 from jsonb_array_elements(v) e where eval_json_bad(e));
+  elsif t = 'number' then
+    n := (v #>> '{}')::numeric;
+    if n = trunc(n) then return abs(n) > 9007199254740991; end if;
+    digits := ltrim(regexp_replace(abs(trim_scale(n))::text, '[^0-9]', '', 'g'), '0');
+    return abs(n) >= 1e21 or abs(n) < 0.000001 or char_length(digits) > 15;
+  end if;
+  return false;
+end $$;

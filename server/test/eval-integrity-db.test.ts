@@ -246,3 +246,82 @@ describe('item 3: judge labels are validated against the c38 vendor alias table'
     expect(e.refusals).toEqual([]); expect(e.outcome).toBe('verified_better');
   });
 });
+
+// ---- item 4 ---------------------------------------------------------------------------------------------------------------
+import { hashDataset } from '../src/evolution/verdict-v2.ts';
+let n4 = 0;
+async function freeze(cases: Array<{ id: string; input: string; expected?: string }>, client?: pg.PoolClient) {
+  const ds = 'N-' + ++n4;
+  const db = client ?? s.pool;
+  await db.query(`insert into eval_datasets(id, tenant_id, name, split) values ($1,'t-1',$1,'dev')`, [ds]);
+  for (const c of cases) await db.query(`insert into eval_cases(dataset_id, case_id, input, expected) values ($1,$2,$3::jsonb,$4::jsonb)`, [ds, c.id, c.input, c.expected ?? '1']);
+  try { return { frozen: true as const, ds, sha: (await db.query(`select eval_freeze_dataset($1) as sha`, [ds])).rows[0].sha as string }; }
+  catch (e) { return { frozen: false as const, ds, msg: (e as Error).message }; }
+}
+const storedCases = async (ds: string) => (await q(`select case_id as "caseId", input, expected from eval_cases where dataset_id=$1`, [ds])).rows;
+const rnd4 = (a: number) => () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+
+describe('item 4: 16 and 17 digit floats freeze only when JS and SQL render them identically', () => {
+  it.each(['0.30000000000000004', '0.8571428571428571', '123456789012345.5', '0.1', '0.14285714285714285', '[0.1,0.2,0.30000000000000004]', '{"score":0.6666666666666666}', '-0.30000000000000004', '1234567890123456', '0.000001', '999999999999999.9'])('%s freezes and the hash equals hashDataset', async (v) => {
+    const r = await freeze([{ id: 'a', input: v }, { id: 'b', input: '1', expected: v }]);
+    expect(r.frozen, r.frozen ? '' : r.msg).toBe(true);
+    if (r.frozen) expect(r.sha).toBe(hashDataset(await storedCases(r.ds)));
+  });
+  it.each(['0.3000000000000000444', '0.1234567890123456789', '0.30000000000000005', '9007199254740993', '12345678901234567', '1e21', '1e-7', '5e-324', '1e400', '[0.30000000000000004,0.3000000000000000444]'])('%s is refused: JS would print a different number', async (v) => {
+    const r = await freeze([{ id: 'a', input: v }]);
+    expect(r.frozen).toBe(false);
+    if (!r.frozen) expect(r.msg).toMatch(/canonical form/);
+  });
+  it('property: 2000 doubles from random bit patterns, printed the way JS prints them, all freeze and all hash like hashDataset', async () => {
+    const rnd = rnd4(53);
+    const buf = new DataView(new ArrayBuffer(8));
+    const doubles: number[] = [];
+    while (doubles.length < 2000) {
+      buf.setUint32(0, Math.floor(rnd() * 2 ** 32)); buf.setUint32(4, Math.floor(rnd() * 2 ** 32));
+      const x = buf.getFloat64(0);
+      if (Number.isFinite(x) && Math.abs(x) >= 1e-6 && Math.abs(x) < 2 ** 53) doubles.push(x);
+    }
+    // plus every digit count, small and "nice" values, and neighbours of powers of two
+    for (let i = 0; i < 200; i++) doubles.push(rnd() * 10 ** Math.floor(rnd() * 15), 1 / (3 + i), (i + 1) / 7, 2 ** (i % 52) * (1 + Number.EPSILON * (i % 5)));
+    for (let off = 0; off < doubles.length; off += 100) {
+      const chunk = doubles.slice(off, off + 100);
+      const r = await freeze(chunk.map((x, i) => ({ id: 'k' + String(i).padStart(3, '0'), input: JSON.stringify(x) })));
+      expect(r.frozen, r.frozen ? '' : `${r.msg} (values ${chunk.slice(0, 3)}...)`).toBe(true);
+      if (r.frozen) expect(r.sha).toBe(hashDataset(await storedCases(r.ds)));
+    }
+  }, 120_000);
+  it('property: random 15-18 digit decimals are either refused or hash like hashDataset (both sides exercised)', async () => {
+    const rnd = rnd4(54);
+    let frozen = 0, refused = 0;
+    for (let i = 0; i < 300; i++) {
+      const digits = 15 + Math.floor(rnd() * 4);
+      let m = ''; for (let d = 0; d < digits; d++) m += Math.floor(rnd() * 10);
+      const text = '0.' + m.replace(/0+$/, '1');
+      const r = await freeze([{ id: 'a', input: text }]);
+      if (r.frozen) { frozen++; expect(r.sha, text).toBe(hashDataset(await storedCases(r.ds))); } else { refused++; expect(r.msg).toMatch(/canonical form/); }
+    }
+    expect(frozen).toBeGreaterThan(30); expect(refused).toBeGreaterThan(30);
+  }, 120_000);
+  it('the evaluation hash is stable: a fixed dataset keeps the hash the c47 code produced', async () => {
+    const r = await freeze([{ id: 'a', input: '{"t":"x","n":1.5}', expected: '[1,2]' }, { id: 'b', input: '0.25', expected: '"é"' }]);
+    const known = 'ca2fc75e6d297682b9124523bafc1258bda759408aea1d5b9ae65893db644989';
+    expect(r.frozen && r.sha).toBe(known);
+    expect(hashDataset([{ caseId: 'a', input: { n: 1.5, t: 'x' }, expected: [1, 2] }, { caseId: 'b', input: 0.25, expected: 'é' }])).toBe(known);
+  });
+  it('a session setting that changes how the database prints floats cannot make a wrong hash: it refuses or matches', async () => {
+    const c = await s.pool.connect();
+    try {
+      for (const setting of ['-3', '0', '1', '3']) {
+        await c.query(`set extra_float_digits = ${setting}`);
+        const r = await freeze([{ id: 'a', input: '0.30000000000000004' }, { id: 'b', input: '0.1' }], c);
+        if (r.frozen) expect(r.sha, setting).toBe(hashDataset((await c.query(`select case_id as "caseId", input, expected from eval_cases where dataset_id=$1`, [r.ds])).rows));
+        else expect(r.msg).toMatch(/canonical form/);
+      }
+    } finally { await c.query('reset extra_float_digits'); c.release(); }
+  });
+  it('the guard trigger applies the same rule to a raw UPDATE freeze', async () => {
+    await q(`insert into eval_datasets(id, tenant_id, name, split) values ('N-RAW','t-1','n','dev')`);
+    await q(`insert into eval_cases(dataset_id, case_id, input, expected) values ('N-RAW','a','0.3000000000000000444','1')`);
+    await expect(q(`update eval_datasets set frozen_at = now(), content_sha256 = $1 where id='N-RAW'`, ['a'.repeat(64)])).rejects.toThrow(/canonical form|hash/);
+  });
+});

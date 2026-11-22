@@ -98,3 +98,25 @@ begin
   update eval_runs set finished_at = now() where id = rid;
   return (select finished_at from eval_runs where id = rid);
 end $$;
+
+-- 4. numbers. A non-integer is now accepted when JS and SQL render it identically, not only up to 15 digits. jsonb keeps a number's
+--    exact decimal text, JS prints the SHORTEST text that reads back to the same double, and PostgreSQL (12+) prints float8 the same way
+--    (shortest round-trip, with extra_float_digits >= 1, pinned on the function). So the stored decimal prints like JS exactly when it
+--    equals its own double's shortest text: (n::float8)::text::numeric = n. Anything else (a 17-digit decimal that is not the shortest
+--    form of its double, such as 0.3000000000000000444) is refused. Outside [1e-6, 1e21) JS prints exponents, so those stay refused,
+--    and so do integers above 2^53-1. The canonical text and hash of everything already accepted are unchanged.
+create or replace function eval_json_bad(v jsonb) returns boolean language plpgsql immutable set extra_float_digits = 1 as $$
+declare t text := jsonb_typeof(v); n numeric;
+begin
+  if t = 'object' then
+    return exists (select 1 from jsonb_object_keys(v) k where eval_text_bad(k) or eval_json_bad(v -> k));
+  elsif t = 'array' then
+    return exists (select 1 from jsonb_array_elements(v) e where eval_json_bad(e));
+  elsif t = 'number' then
+    n := (v #>> '{}')::numeric;
+    if n = trunc(n) then return abs(n) > 9007199254740991; end if;
+    if abs(n) >= 1e21 or abs(n) < 0.000001 then return true; end if;
+    return (n::float8)::text::numeric <> n;
+  end if;
+  return false;
+end $$;
