@@ -171,3 +171,4 @@ Build order:
 **New owner questions:**
 - **Q13:** may an agent's autonomy level (R3-3) ever be an input to the policy service, or is it display-only?
 - **Q14:** should AXION define a "read private company data" capability? Without one, the Rule of Two's flag (b) covers only live systems and credentials (c58), so an agent reading untrusted pages, reading company records and sending messages doesn't trigger it.
+- **Q15:** c64's restructure guardrails ship switched off (`ORG_COOLDOWN_HOURS`, `ORG_CHURN_BUDGET`, `ORG_CHURN_WINDOW_HOURS`, `ORG_MAX_ESCALATION_LEVELS`; 0 or unset means not enforced). What values should the live company use? A suggested start: a 24 h cooldown, a budget of 6 reporting-line changes per 7 days, and at most 6 escalation levels.
