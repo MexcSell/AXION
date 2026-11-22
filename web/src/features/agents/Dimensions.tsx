@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { Layers, Workflow, Brain, Wrench, Globe2, Users, BookOpen, Dna, ArrowUp, ArrowDown, ArrowRight, EyeOff, Hourglass, type LucideIcon } from 'lucide-react';
 import { DIMENSION_KEYS, type DimensionCell, type DimensionKey, type DimensionWindow } from '@contracts';
@@ -67,7 +68,10 @@ export function Dimensions() {
   const [w, setW] = useState<DimensionWindow>('30d');
   const [dept, setDept] = useState<string | null>(null);
   const [sel, setSel] = useState<string | null>(null);
-  const [view, setView] = useState<'outcomes' | 'process'>('outcomes');
+  // F4: ?view=process opens the Process view (so a link, fit-check, a11y-check and api-mobile can reach it); the switch keeps the URL in step
+  const [sp, setSp] = useSearchParams();
+  const view: 'outcomes' | 'process' = sp.get('view') === 'process' ? 'process' : 'outcomes';
+  const setView = (v: 'outcomes' | 'process') => setSp((p) => { const n = new URLSearchParams(p); if (v === 'process') n.set('view', 'process'); else n.delete('view'); return n; }, { replace: true });
   const live = useDimensions(w, dept);
   const mg = useMetricGuard();
   const procLive = useProcess(w, dept);

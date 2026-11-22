@@ -22,8 +22,9 @@ for (const [key, path] of routes) {
   if (only && !only.split(',').includes(key)) continue;
   // System Operations embeds Agents and Models: check their sub-tabs too (owner update u1)
   const views = (tabs[key] ?? ['']).flatMap((t) => (key === 'operations' && (t === 'Agents' || t === 'Models') ? tabs[t.toLowerCase()].map((x) => [t, x]) : [[t, '']]));
-  for (const [t, sb] of views) {
-    const cur = `${path}?tab=${slug(t)}${sb ? `&sub=${slug(sb)}` : ''}`;
+  if (key === 'operations') views.push(['Agents', 'Dimensions', 'process']); // c69: the Process view of the Dimensions tab
+  for (const [t, sb, vw] of views) {
+    const cur = `${path}?tab=${slug(t)}${sb ? `&sub=${slug(sb)}` : ''}${vw ? `&view=${vw}` : ''}`;
     await p.goto(base + cur, { waitUntil: navWait() }); await settle(p);
     await p.waitForTimeout(600);
     const r = await p.evaluate(() => {

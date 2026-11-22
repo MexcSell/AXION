@@ -105,7 +105,7 @@ try {
   check('the approval time and the cost are "unmeasured" in the API (no source): value null, n null', UNMEASURED.every((k) => get(k).state === 'unmeasured' && get(k).value === null && get(k).n === null));
   check('the open count is shown beside the figure on the rework, first-pass and hand-off cards ("not in the rate")', (await Promise.all(['rework_rate', 'first_pass_acceptance', 'handoff_wait_h'].map(async (k) => /1 open/.test(await p.locator(`[data-pcell="process.${k}"] .proc-open`).innerText()) && /not in the rate/.test(await p.locator(`[data-pcell="process.${k}"] .proc-open`).innerText())))).every(Boolean));
   check('the hand-off card shows the p90 beside the median', /p90 4\.0 h/.test(await p.locator('[data-pcell="process.handoff_wait_h"]').innerText()));
-  check('the rework card shows the cause breakdown with n', await p.locator('[data-pcell="process.rework_rate"] [data-cause="a criterion failed (no failure tag)"]').count() === 1 && /no recorded cause\s*1/.test(await p.locator('[data-pcell="process.rework_rate"] .proc-causes').innerText()));
+  check('the rework card shows the cause breakdown with n', await p.locator('[data-pcell="process.rework_rate"] [data-cause="criterion failed, no tag"]').count() === 1 && /no recorded cause\s*1/.test(await p.locator('[data-pcell="process.rework_rate"] .proc-causes').innerText()));
   check('no total, score or overall number anywhere in the Process view', !/\b(score|overall|composite|total|average)\b/i.test((await p.locator('.proc-grid').innerText()) + (await p.locator('.proc-blank').innerText())));
 
   // ---- 2. help and guard
@@ -172,6 +172,8 @@ try {
   await calm(p);
   const mob = await p.evaluate(() => ({ over: document.documentElement.scrollWidth - innerWidth, cells: [...document.querySelectorAll('.proc-card')].map((c) => Math.round(c.getBoundingClientRect().width)), clip: [...document.querySelectorAll('.proc-card')].filter((c) => c.getBoundingClientRect().right > innerWidth + 1).length }));
   check('390 px: no horizontal scroll and every process card is on screen', mob.over <= 0 && mob.cells.length === 5 && mob.clip === 0, JSON.stringify(mob));
+  const noteBox = await p.evaluate(() => { const n = document.querySelector('.proc-note'); return { over: n.scrollHeight - n.clientHeight, h: n.clientHeight }; });
+  check('F5: at 390 px the footnote is not clipped (scrollHeight <= clientHeight)', noteBox.over <= 1, JSON.stringify(noteBox));
   await p.locator('.proc-grid').scrollIntoViewIfNeeded();
   await p.screenshot({ path: `${SHOTS}/c69-mobile.png` });
   // ---- 6. a keyboard/name check of the card controls (a role-less element must not carry a name). Demo mode is NOT rendered by this script (it needs a local demo sign-in).
@@ -179,6 +181,16 @@ try {
   check('no element with an aria-label lacks a role (cards use group/note/article/button)', names.length === 0, JSON.stringify(names));
   const tabbable = await p.evaluate(() => [...document.querySelectorAll('.proc-card [tabindex="0"], .proc-card button, .proc-bl [tabindex="0"], .proc-bl button')].length);
   check('every card has focusable controls (the value, the guard and the ?)', tabbable >= 5 * 3);
+  // F4/F6: the URL opens the Process view, the switch keeps the URL in step, and arrow keys move through the radio group
+  await p.setViewportSize({ width: 1366, height: 768 });
+  await p.goto(base + '/operations?tab=agents&sub=dimensions&view=process', { waitUntil: 'domcontentloaded' });
+  await settle(p);
+  check('F4: ?view=process opens the Process view directly', await until(async () => (await procReady(p).count()) === 1, 15000));
+  await p.getByRole('radio', { name: 'Process' }).focus();
+  await p.keyboard.press('ArrowLeft');
+  check('F6: ArrowLeft on the switch selects Outcomes, and the URL drops view=process', await until(async () => (await ready(p).count()) === 1 && !/view=process/.test(p.url()) && (await p.getByRole('radio', { name: 'Outcomes' }).getAttribute('aria-checked')) === 'true', 8000));
+  await p.keyboard.press('ArrowRight');
+  check('F6: ArrowRight selects Process again, the focus follows, and the URL has view=process', await until(async () => (await procReady(p).count()) === 1 && /view=process/.test(p.url()) && (await p.evaluate(() => document.activeElement?.getAttribute('role') === 'radio' && document.activeElement.textContent.includes('Process'))), 8000));
   check('no page error or console error', errors.length === 0, errors.slice(0, 3).join(' | '));
 } catch (e) {
   check('script ran to the end', false, String(e?.stack || e).slice(0, 600));

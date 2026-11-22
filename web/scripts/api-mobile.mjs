@@ -96,7 +96,7 @@ const run = async (W, H) => {
     await dialogsAt(path);
     await tabsAt(path);
     // sub-tabs of the Operations tabs
-    if (path === '/operations') { for (const t of ['agents', 'models', 'logs', 'vms', 'usage']) { await go(`/operations?tab=${t}`); record(`${tagW} /operations?tab=${t}`, await p.evaluate(MEASURE)); await shot(p, `/operations?tab=${t}`, `ops_${t}`); await tabsAt(`/operations?tab=${t}`); } }
+    if (path === '/operations') { for (const t of ['agents&sub=dimensions', 'agents&sub=dimensions&view=process', 'agents', 'models', 'logs', 'vms', 'usage']) { await go(`/operations?tab=${t}`); record(`${tagW} /operations?tab=${t}`, await p.evaluate(MEASURE)); await shot(p, `/operations?tab=${t}`, `ops_${t}`); await tabsAt(`/operations?tab=${t}`); } }
     if (path === '/settings') { for (const t of ['users', 'navigation', 'general', 'appearance']) { await go(`/settings?tab=${t}`); record(`${tagW} /settings?tab=${t}`, await p.evaluate(MEASURE)); await dialogsAt(`/settings?tab=${t}`); } }
     if (path === '/notifications') { for (const t of ['pending', 'news', 'all']) { await go(`/notifications?tab=${t}`); record(`${tagW} /notifications?tab=${t}`, await p.evaluate(MEASURE)); await dialogsAt(`/notifications?tab=${t}`); } }
   }
