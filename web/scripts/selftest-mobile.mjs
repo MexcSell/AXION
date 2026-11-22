@@ -13,4 +13,9 @@ t('a static control that fits is clean', (await run(btn(300))).clipped.length ==
 t('an exiting control (data-exiting) is skipped', (await run(btn(340, 'data-exiting="true"'))).clipped.length === 0);
 t('data-exiting="false" does not hide a clipped control', (await run(btn(340, 'data-exiting="false"'))).clipped.length === 1);
 t('a static control clipped on the left FAILs', (await run(btn(-10))).clipped.length === 1);
+// the app side of the contract: ToastCard marks itself data-exiting from useIsPresent (the only producer of the marker the harness skips)
+import { readFileSync } from 'node:fs';
+const toasts = readFileSync(new URL('../src/components/ui/Toasts.tsx', import.meta.url), 'utf8');
+t('ToastCard sets data-exiting from useIsPresent()', /useIsPresent\(\)/.test(toasts) && /data-exiting=\{present \? undefined : 'true'\}/.test(toasts));
+t('no other source sets data-exiting', (await import('node:child_process')).execSync("grep -rl 'data-exiting' ../src || true", { cwd: new URL('.', import.meta.url).pathname }).toString().trim().split('\n').filter(Boolean).every((f) => f.endsWith('Toasts.tsx')));
 await b.close(); process.exit(bad ? 1 : 0);

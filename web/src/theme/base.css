@@ -367,8 +367,9 @@ h1, h2, h3, h4, p { margin: 0; }
   animation: pop-in var(--dur-fast) var(--ease);
 }
 /* help popovers taller than the room Radix measured: the body scrolls, the header and arrow stay put */
-.help-pop { display: flex; flex-direction: column; max-height: var(--radix-popover-content-available-height, 100vh); }
+.help-pop { display: flex; flex-direction: column; max-height: calc(var(--radix-popover-content-available-height, 100vh) + 6px); }
 .help-pop-body { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.help-pop-body:focus-visible { outline: 2px solid var(--accent-2); outline-offset: -2px; border-radius: 10px; }
 .menu {
   z-index: 1000; min-width: 190px; padding: 6px; border-radius: 12px;
   background: var(--panel-solid); border: 1px solid var(--border-strong);

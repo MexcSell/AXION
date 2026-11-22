@@ -29,16 +29,17 @@ for (const [W, H] of SIZES) {
   // 2. help popovers on several pages
   let n = 0, bad = 0;
   for (const path of ['/overview', '/missions', demo ? `/missions/${demo.id}` : '/missions', '/operations', '/settings']) {
-    await go(path); const hb = p.locator('.help-btn'); const cnt = Math.min(await hb.count(), 12);
+    await go(path); const hb = p.locator(process.env.C40_HELP_SEL || '.help-btn'); const cnt = Math.min(await hb.count(), 12);
     for (let i = 0; i < cnt; i++) {
-      await hb.nth(i).evaluate((e) => e.scrollIntoView({ block: 'center', behavior: 'instant' })).catch(() => {}); await hb.nth(i).click({ force: true, timeout: 1500 }).catch(() => {}); await p.waitForTimeout(220);
+      await hb.nth(i).evaluate((e) => e.scrollIntoView({ block: 'center', behavior: 'instant' })).catch(() => {}); await hb.nth(i).click({ force: true, timeout: 1500 }).catch(() => {}); await p.waitForSelector('.help-pop', { timeout: 1500 }).catch(() => {}); await p.waitForTimeout(150);
       const r = await p.evaluate(() => { const e = document.querySelector('.help-pop'); if (!e) return null; const r = e.getBoundingClientRect(); return [Math.round(r.top), Math.round(r.bottom), Math.round(r.left), Math.round(r.right)]; });
       if (r && SHOTS && i === 7 && path === '/overview') await p.screenshot({ path: `${SHOTS}/help-${W}.png` });
       if (r) { n++; if (r[0] < 0 || r[1] > H + 1 || r[2] < 0 || r[3] > W + 1) { bad++; fails.push(`FAIL ${W} ${path}: help popover #${i} at top/bottom/left/right ${r} outside ${W}x${H}`); } }
-      await p.keyboard.press('Escape'); await p.waitForTimeout(120);
+      await p.keyboard.press('Escape'); await p.waitForSelector('.help-pop', { state: 'detached', timeout: 1500 }).catch(() => {});
     }
   }
   console.log(`${W} help popovers measured=${n} outside=${bad}`);
+  if (n < 5) fails.push(`FAIL ${W}: only ${n} help popovers opened (the probe must measure at least 5, otherwise it proves nothing)`);
   // 3. DL-75
   const ag = await api('/agents'); const aid = (ag.agents || ag.items || [])[1]?.id || (ag.agents || ag.items || [])[0]?.id;
   if (aid) { await go(`/agents/${aid}?tab=Evolution`); await p.locator('[data-tab="Evolution"]').first().click({ force: true }).catch(() => {}); await p.waitForTimeout(900); const bt = p.getByRole('button', { name: /Propose a change/ }).first();

@@ -48,3 +48,5 @@
 .mc-file { display: inline-flex; align-items: center; gap: 5px; max-width: 180px; height: 26px; padding: 0 8px 0 4px; border-radius: 8px; font-size: 11.5px; border: 1px solid hsl(var(--h) 70% 60% / .35); color: var(--text-2); }
 .mc-file svg { color: hsl(var(--h) 80% 65%); flex: none; margin-left: 3px; }
 .mc-file img { width: 20px; height: 20px; border-radius: 5px; object-fit: cover; }
+/* c40: on phones the KPI strip is two columns (five tiles and the ? ), so values and labels never overlap */
+@media (max-width: 800px) { .act-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .act-kpis > .help-btn { justify-self: start; } }
