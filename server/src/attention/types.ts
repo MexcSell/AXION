@@ -13,6 +13,8 @@ export interface AttentionItem {
   ageSec: number; expiresInSec: number | null;
   missionId: string | null; demo: boolean;
   route: string;
+  /** whether the viewer may act on it, by the rule of the route that acts (decideRefusal, the review and proposal rules), and why not */
+  canAct: boolean; note: string | null;
   /** stored fields the sentence is built from */
   facts: Record<string, Fact>;
 }

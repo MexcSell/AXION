@@ -3,6 +3,7 @@ import { attentionReason } from '../../../shared/contracts/src/index.ts';
 import { loadItems, type Viewer } from './queue.ts';
 import { whyOf } from './why.ts';
 import { collapseItems } from './collapse.ts';
+import { evidenceOf, actionOf } from './evidence.ts';
 
 type Q = Tx | Db;
 
@@ -17,7 +18,8 @@ export async function buildAttention(c: Q, v: Viewer) {
     id: g.id, reason: g.lead.reason, kind: g.lead.kind, icon: attentionReason(g.lead.reason).icon, tier: g.lead.tier, subject: g.lead.subject,
     why: whyOf(g.lead.reason, { ...g.lead.facts, ageSec: g.ageSec, expiresInSec: g.expiresInSec }, g.count),
     ageSec: g.ageSec, expiresInSec: g.expiresInSec, count: g.count, groupedBy: g.groupedBy, missionId: g.lead.missionId, route: g.lead.route,
-    members: g.members.map((m) => ({ id: m.id, subject: m.subject, ageSec: m.ageSec, expiresInSec: m.expiresInSec, route: m.route, tier: m.tier })),
+    action: actionOf(g.lead.reason, g.lead), evidence: evidenceOf(g.lead.reason, g.lead.facts),
+    members: g.members.map((m) => ({ id: m.id, subject: m.subject, ageSec: m.ageSec, expiresInSec: m.expiresInSec, route: m.route, tier: m.tier, canAct: m.canAct, demo: m.demo, evidence: evidenceOf(m.reason, m.facts) })),
   }));
   return { rows, totals: { items: items.length, rows: rows.length, collapsed: items.length - rows.length } };
 }
