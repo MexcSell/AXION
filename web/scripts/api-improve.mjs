@@ -350,7 +350,7 @@ try {
   // Only the e2e database (axion_e2e, emptied on every API start) is touched, to move one proposal's expiry into the past.
   // (e2eUrl: read and guarded in the c04 step above)
   const g2 = (await apiA('GET', '/organization/graph')).body;
-  const P3 = (await apiA('POST', '/organization/proposals', { title: 'Designer-01 under Ops-01', why: '', baseRevision: g2.revision.seq, edges: g2.edges.map((e) => (e.subordinateId === 'designer-01' ? { ...e, supervisorId: 'ops-01' } : e)) }, { 'idempotency-key': `c01-p3-${Date.now()}` })).body.proposal;
+  const P3 = (await apiA('POST', '/organization/proposals', { title: 'Designer-01 under Ops-01', why: '', baseline: 'No change: keep the current chart.', expectedCost: 'No added cost is expected here.', baseRevision: g2.revision.seq, edges: g2.edges.map((e) => (e.subordinateId === 'designer-01' ? { ...e, supervisorId: 'ops-01' } : e)) }, { 'idempotency-key': `c01-p3-${Date.now()}` })).body.proposal;
   await B.p.getByRole('radio', { name: /^Pending/ }).click();
   await card(B.p, P3.id).waitFor({ timeout: 10000 });
   // Deterministic, no timing luck (cycle 8): any read of the proposals list that B's page makes after the expiry below would
@@ -376,7 +376,7 @@ try {
 
   // ------------------------------------------------------------ fix round: a new agent is a new org revision, so a pending proposal turns stale live
   const g3 = (await apiA('GET', '/organization/graph')).body;
-  const P4 = (await apiA('POST', '/organization/proposals', { title: 'Tester-01 under Ops-01', why: '', baseRevision: g3.revision.seq, edges: g3.edges.map((e) => (e.subordinateId === 'tester-01' ? { ...e, supervisorId: 'ops-01' } : e)) }, { 'idempotency-key': `c01-p4-${Date.now()}` })).body.proposal;
+  const P4 = (await apiA('POST', '/organization/proposals', { title: 'Tester-01 under Ops-01', why: '', baseline: 'No change: keep the current chart.', expectedCost: 'No added cost is expected here.', baseRevision: g3.revision.seq, edges: g3.edges.map((e) => (e.subordinateId === 'tester-01' ? { ...e, supervisorId: 'ops-01' } : e)) }, { 'idempotency-key': `c01-p4-${Date.now()}` })).body.proposal;
   await card(B.p, P4.id).waitFor({ timeout: 10000 });
   check('a fresh proposal is not stale and can be approved', (await card(B.p, P4.id).getByText(/^stale/).count()) === 0 && !(await card(B.p, P4.id).getByRole('button', { name: 'Approve', exact: true }).isDisabled()));
   const na = await apiA('POST', '/agents', { name: 'Archivist-01', role: 'archivist', dept: 'Operations', duty: 'Keeps the archive', model: 'claude-sonnet-5-5' }, { 'idempotency-key': `c01-agent-${Date.now()}` });
