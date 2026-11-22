@@ -65,7 +65,7 @@ export interface GraderRef { name: string; version: string }
 export type Outcome = 'verified_better' | 'not_better' | 'inconclusive';
 export type RefusalCode =
   | 'holdout_missing' | 'not_holdout' | 'not_frozen' | 'hash_mismatch' | 'dev_holdout_reuse' | 'self_judging'
-  | 'evaluator_is_author' | 'unequal_attempts' | 'unpaired_cases' | 'bad_scores' | 'grader_mismatch';
+  | 'evaluator_is_author' | 'unequal_attempts' | 'unpaired_cases' | 'bad_scores' | 'grader_mismatch' | 'grader_unknown';
 
 export interface GradingCount { attempted: number; graded: number }
 export interface VerdictV2 {
@@ -138,13 +138,16 @@ export function verdictV2(input: VerdictV2Input): VerdictV2 {
   }
 
   // c61: two runs are comparable only when the same grader (name and version) scored both, or a re-grade diff links them.
-  // Not recorded on both = equal (every run before c61); recorded on one only = different.
+  // Not recorded on either = unknown (refused); recorded on one only = different.
   if (input.graders) {
     const { baseline: gb, candidate: gc, linked } = input.graders;
-    const same = gb === null && gc === null ? true : gb !== null && gc !== null && gb.name === gc.name && gb.version === gc.version;
-    if (!same && !linked) {
-      const show = (g: GraderRef | null) => (g ? `${g.name} ${g.version}` : 'not recorded');
-      refuse('grader_mismatch', `the two runs were graded by different graders (base: ${show(gb)}, candidate: ${show(gc)}) and no re-grade diff links them; re-grade one run with the other's grader and record the diff`);
+    const show = (g: GraderRef | null) => (g ? `${g.name} ${g.version}` : 'not recorded');
+    if (gb === null && gc === null) {
+      // not recorded on both is UNKNOWN, not "the same grader": a writer that omits the grader must not get past the rule by omission
+      refuse('grader_unknown', 'neither run records its grader, so it cannot be shown that one grader scored both; record the grader (name and version) on each run');
+    } else {
+      const same = gb !== null && gc !== null && gb.name === gc.name && gb.version === gc.version;
+      if (!same && !linked) refuse('grader_mismatch', `the two runs were graded by different graders (base: ${show(gb)}, candidate: ${show(gc)}) and no re-grade diff links them; re-grade one run with the other's grader and record the diff`);
     }
   }
 

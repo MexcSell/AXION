@@ -32,12 +32,13 @@ export interface RunOpts {
   caseIds?: string[];
   /** c53: finish a run that is missing results. The guard refuses that, so only a fixture for the loader's partial_coverage refusal may ask (it switches the run guard off for the one UPDATE, as a superuser could) */
   partialFinish?: boolean;
-  /** c61: the grader that scored the run (name and version); omitted = not recorded (the old fixtures) */
-  grader?: { name: string; version: string };
+  /** c61: the grader that scored the run (name and version); omitted = a default fixture grader (a run with no grader is `unknown` to the verdict since the c61 fix round); null = not recorded */
+  grader?: { name: string; version: string } | null;
   /** c61: case index (0-based, as in `scores`) -> reason code: those cases have NO grade (every attempt ungraded; the score is stored as NULL) */
   ungraded?: Record<number, string>;
 }
-export async function addRun(pool: pg.Pool, o: RunOpts) {
+export async function addRun(pool: pg.Pool, o0: RunOpts) {
+  const o: RunOpts = { ...o0, grader: o0.grader === undefined ? { name: 'fixture-grader', version: '1' } : o0.grader };
   const k = o.k ?? 1;
   await pool.query(
     o.grader

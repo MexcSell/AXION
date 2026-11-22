@@ -68,10 +68,11 @@ describe('R2-2 pure verdict: grader versions', () => {
     expect(verdictV2(base({ graders: { baseline: g('1'), candidate: g('1'), linked: false } })).refusals).toEqual([]);
     expect(verdictV2(base({ graders: { baseline: { name: 'a', version: '1' }, candidate: { name: 'b', version: '1' }, linked: false } })).refusals.map((r) => r.code)).toContain('grader_mismatch');
   });
-  it('one recorded and one not recorded differ; both not recorded are equal (old runs)', () => {
+  it('one recorded and one not recorded differ; a grader missing on BOTH is unknown, not "the same" (review finding 6)', () => {
     expect(verdictV2(base({ graders: { baseline: g('1'), candidate: null, linked: false } })).refusals.map((r) => r.code)).toContain('grader_mismatch');
     expect(verdictV2(base({ graders: { baseline: null, candidate: g('1'), linked: false } })).refusals.map((r) => r.code)).toContain('grader_mismatch');
-    expect(verdictV2(base({ graders: { baseline: null, candidate: null, linked: false } })).refusals).toEqual([]);
+    const v = verdictV2(base({ graders: { baseline: null, candidate: null, linked: false } }));
+    expect(v.refusals.map((r) => r.code)).toContain('grader_unknown'); expect(v.outcome).toBe('inconclusive');
   });
   it('a mismatch is refused in 100% of a 200-case sweep of version pairs', () => {
     let n = 0;
@@ -109,7 +110,7 @@ const load = (p: string) => cx(async (c) => (await loadEvaluations(c, 't-1', [{ 
 const ev = { judge: 'claude-judge', evaluator: 'ev-b' };
 let seq = 0;
 /** a holdout of 12 cases with a base run and a candidate run */
-async function pair(o: { cases?: number; base: Array<number | null>; cand: Array<number | null>; bg?: { name: string; version: string }; cg?: { name: string; version: string }; bUn?: Record<number, string>; cUn?: Record<number, string> }) {
+async function pair(o: { cases?: number; base: Array<number | null>; cand: Array<number | null>; bg?: { name: string; version: string } | null; cg?: { name: string; version: string } | null; bUn?: Record<number, string>; cUn?: Record<number, string> }) {
   const n = ++seq, ds = 'AH' + n, pid = 'AP' + n;
   await makeDataset(s.pool, { id: ds, split: 'holdout', cases: o.cases ?? 12 });
   await prop(pid, 'sha-A' + n);
@@ -207,10 +208,10 @@ describe('R2-2 loader: grader versions', () => {
     const e = await load(p.pid);
     expect(e.outcome).toBe('inconclusive'); expect(e.refusals.map((r) => r.code)).toContain('grader_mismatch');
   });
-  it('runs with no grader recorded (every older run) are not refused for it', async () => {
-    const p = await pair({ base: Array(12).fill(40), cand: Array(12).fill(75) });
+  it('runs with no grader recorded on either side are inconclusive (grader unknown), never verified better', async () => {
+    const p = await pair({ base: Array(12).fill(40), cand: Array(12).fill(75), bg: null, cg: null });
     const e = await load(p.pid);
-    expect(e.refusals.map((r) => r.code)).not.toContain('grader_mismatch');
+    expect(e.outcome).toBe('inconclusive'); expect(e.refusals.map((r) => r.code)).toContain('grader_unknown');
     expect(e.grading.candidate).toMatchObject({ graderName: null, graderVersion: null });
   });
   it('a re-grade diff of the base run to the candidate version links them, and the comparison uses the NEW grades', async () => {
