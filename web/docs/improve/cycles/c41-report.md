@@ -93,3 +93,36 @@ Records only: nothing executes, and no agent reads a playbook yet.
 8. The 10-concurrent test needs the pool not to starve: handlers never query `app.db` inside a transaction. The test lifts the proposals rate limit, as `version-proposals.test.ts` does.
 9. The demo-mode screenshot script (scratchpad `shot-demo.mjs`, output in `/tmp/w39-shots/`) launched its own browser outside `heavy.sh`, against my dev server on 8990. It ran once; nothing committed from it.
 10. Not checked: preview build (port 8991) was not run; `verify-all` runs a production build step and passed.
+
+## Fix round (controller review c41-review.md, verdict CLEAR)
+Tests for each item were written before the code in this round, but the new tests were not run red first (the code followed in the same session); they pass now.
+
+1. **Skill name normalisation.** The schema squashes whitespace and applies NFC. Storage, the version lookup and the lock all use that value, and the lock key folds case in SQL (`lower()`), the same as the unique index. Test: "Foo Bar", "Foo   Bar ", "foo bar" give versions 1, 2, 3 (201 each); NFC and NFD "Café" give versions 1, 2.
+2. **Closed skill structure.**
+   - Steps are `{kind: navigate|observe|fill|click|check|ask_human|note, target?, detail, origin?}`, strict (no extra keys, strings refused, up to 20 steps).
+   - Text fields (name, description, preconditions, target, detail, source note) are squashed, NFC, and limited to letters, marks, digits, space and `. , ; : ! ? ' " ( ) - _ / & % + = @ # * [ ]`. Backtick, `< > { } $ \ | ~ ^`, control, zero-width and bidi characters are refused, as are `://` and `www.`.
+   - A URL is accepted only as `origin` of a navigate step: plain https, lower-case ASCII host with a dot, optional port, no path or userinfo, no IP, no `xn--`/IDN. c36's normaliser is not in this tree, so this is the fail-closed subset.
+   - The keyword filter stays as defence in depth. Source ids are limited to `[A-Za-z0-9._:-]`.
+   - Lesson text uses the same charset rule.
+   - Help rewritten (`skills.panel`, `skills.steps`): quoted data that is never executed; the structure limits what can be stored and is not a security barrier, and the approving person is the check.
+   - Web: the Propose a skill dialog has a step editor (kind, target, detail, origin for navigate); steps render as text with a kind chip, and the origin is shown, never opened.
+3. **Sources.** `mission` and `task` sources are checked at propose time (a task of an invisible mission is 404; `tasks` exists in this tree). `review`, `failure_tag` and `note` have no tables in this tree and are returned with `verified: false`. The UI shows them as dashed amber "unverified <kind>: <id>" chips; checked ones keep the blue chip with "(checked)" in the tooltip.
+4. **Admin-only reads.**
+   - Rollback notes (playbook, History rows), override notes, decision notes and the skill retire note are null for members.
+   - Mission and task source ids (and their notes) in accepted items, diffs, version reads, candidates and skills become `{hidden: true, id: ''}`, shown as a "source hidden" chip. A proposer sees her own candidate's and skill's sources.
+   - The contradiction flag itself stays visible.
+   - Test: A, B, M and K read the playbook, history, diff, version and candidate routes and compare.
+5. **Minors.**
+   - A rollback that would re-activate a lesson the actor proposed or submitted is 403 `SELF_APPROVAL` (audited as denied); the other administrator can do it.
+   - A rollback moves the accepted candidates whose items it removes to `superseded` (once, with `withdrawn_in_version`; the trigger allows only accepted to superseded, and the check constraints were adjusted). The list shows "withdrawn in vN".
+   - "One agent per role" wording fixed in the migration comment, the server header and the help; the panel selector says "Agent".
+6. **Counts after the fixes.**
+   - Server tsc clean, web tsc clean.
+   - Full vitest: 39 files, 658 tests passed (was 637; `playbooks.test.ts` now covers skills structure, sources, member reads and rollback rules).
+   - api-c41 45/45 (two new checks: unverified chip, and the rollback reason hidden from the member).
+   - api-flows 23/23, api-stage6 94/94.
+   - a11y demo: 50 views, 60 dialogs, 0 violations; a11y api: 40 views, 60 dialogs, 0 violations.
+   - fit-check: ALL FIT (77 ok, 0 BAD).
+   - dialog smoke 60 × 2, 0 failures; help keys and dialog ids OK.
+   - verify-all was not re-run as a whole (only fit-check, check-help, check-dialogs, dialog-smoke and a11y).
+   - Every browser run went through heavy.sh. No new screenshots were taken in this round.
