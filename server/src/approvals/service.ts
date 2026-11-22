@@ -1,9 +1,10 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { Tx } from '../db.ts';
 import { emit } from '../events/hooks.ts';
-import { ApiError } from '../errors.ts';
+import { ApiError, notFound } from '../errors.ts';
 import { evaluate } from '../policy/evaluate.ts';
-import type { RiskTier } from '../policy/types.ts';
+import { CURRENT_BASELINE, approverFor } from '../policy/baseline.ts';
+import { isTier, type RiskTier } from '../policy/types.ts';
 
 export type { RiskTier };
 export const RISK_UI: Record<RiskTier, 'low' | 'medium' | 'high' | 'critical'> = { R0: 'low', R1: 'low', R2: 'medium', R3: 'high', R4: 'critical' };
@@ -16,32 +17,63 @@ export function canonical(v: unknown): string {
 }
 export const digestOf = (missionId: string, kind: string, payload: unknown) => createHash('sha256').update(canonical({ missionId, kind, payload })).digest('hex');
 
-export interface ApprovalInput { tenantId: string; missionId: string; agentId: string; kind: string; title: string; detail: string; payload: Record<string, unknown>; expiresInMin: number; id?: string; demo?: boolean; createdAgoMin?: number }
+/**
+ * The one action an approval authorises (binding v2, spec invariant 7). Every field is part of the digest, so changing any
+ * of them is a different action. Optional fields are part of it too: absent and present digest differently.
+ */
+export interface BoundAction { tenantId: string; missionId: string; taskId?: string; kind: string; origin?: string; target?: string; payload: Record<string, unknown>; tier: RiskTier; requestedBy: string; expiresAt: string }
+export const digestV2 = (a: BoundAction) => createHash('sha256').update(canonical({
+  v: 2, tenantId: a.tenantId, missionId: a.missionId, taskId: a.taskId ?? null, kind: a.kind, origin: a.origin ?? null, target: a.target ?? null,
+  payload: a.payload, tier: a.tier, requestedBy: a.requestedBy, expiresAt: a.expiresAt,
+})).digest('hex');
+
+/** The bound action as stored. Executors build theirs from what they are about to run; this is for tests and display. */
+export function boundActionOf(r: any): BoundAction {
+  return { tenantId: r.tenant_id, missionId: r.mission_id, ...(r.task_id ? { taskId: r.task_id } : {}), kind: r.kind, ...(r.origin ? { origin: r.origin } : {}), ...(r.target ? { target: r.target } : {}), payload: r.payload, tier: r.risk, requestedBy: r.requested_by ?? r.agent_id, expiresAt: new Date(r.expires_at).toISOString() };
+}
+/** Always recomputed here from the stored row, by the row's own digest version. A digest from a client is never an input. */
+export const rowDigest = (r: any): string => (r.digest_version ?? 1) === 2 ? digestV2(boundActionOf(r)) : digestOf(r.mission_id, r.kind, r.payload);
+export async function loadBoundAction(c: Tx, tenantId: string, approvalId: string): Promise<BoundAction> {
+  const r = (await c.query('select * from approval_requests where id=$1 and tenant_id=$2', [approvalId, tenantId])).rows[0];
+  if (!r) throw notFound('No such approval.');
+  return boundActionOf(r);
+}
+
+export interface ApprovalInput { tenantId: string; missionId: string; agentId: string; kind: string; title: string; detail: string; payload: Record<string, unknown>; expiresInMin: number; id?: string; demo?: boolean; createdAgoMin?: number; taskId?: string; origin?: string; target?: string; requestedBy?: string }
 
 /**
  * Server-side producer (Stage 5: only the demo seed; real agents arrive in Stage 7).
  * The risk tier is decided by the policy service from the request's kind; no caller supplies one (invariant 10).
  */
 export async function requestApproval(c: Tx, a: ApprovalInput) {
-  const d = evaluate({ kind: a.kind, requester: { id: a.agentId, kind: 'agent', role: 'agent' }, effect: 'read', payload: a.payload, missionId: a.missionId }, [], {}, Date.now());
+  const requestedBy = a.requestedBy ?? a.agentId;
+  const d = evaluate({ kind: a.kind, requester: { id: requestedBy, kind: requestedBy === a.agentId ? 'agent' : 'user', role: requestedBy === a.agentId ? 'agent' : 'member' }, effect: 'read', payload: a.payload, missionId: a.missionId, target: a.target, origin: a.origin }, [], {}, Date.now());
   if (d.outcome === 'deny') throw new ApiError('POLICY_DENIED', 403, `Policy denies this action (${d.reasons.join(', ')}).`);
   const risk = d.tier;
   const id = a.id ?? 'APR-' + randomBytes(5).toString('hex');
-  const digest = digestOf(a.missionId, a.kind, a.payload);
+  // timestamps are fixed here (millisecond precision) so the expiry the digest binds is exactly the stored one
+  const createdAt = new Date(Date.now() - (a.createdAgoMin ?? 0) * 60_000);
+  const expiresAt = new Date(Date.now() + a.expiresInMin * 60_000);
+  const digest = digestV2({ tenantId: a.tenantId, missionId: a.missionId, taskId: a.taskId, kind: a.kind, origin: a.origin, target: a.target, payload: a.payload, tier: risk, requestedBy, expiresAt: expiresAt.toISOString() });
   await c.query(
-    `insert into approval_requests(id, tenant_id, mission_id, agent_id, kind, title, detail, risk, payload, action_digest, demo, created_at, expires_at)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now() - make_interval(mins => $12), now() + make_interval(mins => $13))`,
-    [id, a.tenantId, a.missionId, a.agentId, a.kind, a.title, a.detail, risk, JSON.stringify(a.payload), digest, a.demo ?? false, a.createdAgoMin ?? 0, a.expiresInMin]);
+    `insert into approval_requests(id, tenant_id, mission_id, agent_id, kind, title, detail, risk, payload, action_digest, digest_version, task_id, origin, target, requested_by, demo, created_at, expires_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,2,$11,$12,$13,$14,$15,$16,$17)`,
+    [id, a.tenantId, a.missionId, a.agentId, a.kind, a.title, a.detail, risk, JSON.stringify(a.payload), digest, a.taskId ?? null, a.origin ?? null, a.target ?? null, requestedBy, a.demo ?? false, createdAt, expiresAt]);
   await emit(c, { tenantId: a.tenantId, type: 'approval.requested', subject: a.missionId, missionId: a.missionId, actor: a.agentId, actorKind: 'agent', payload: { approvalId: id, kind: a.kind, risk, policyVersion: d.policyVersion, reasons: d.reasons } });
   return { id, digest };
 }
+
+const kindRule = (k: string) => (CURRENT_BASELINE.kinds as Record<string, { effect: string; why: string }>)[k];
 
 export function approvalDto(r: any, now = Date.now()) {
   const expired = r.state === 'pending' && new Date(r.expires_at).getTime() < now;
   const state = expired ? 'expired' : r.state;
   return {
     id: r.id, missionId: r.mission_id, agentId: r.agent_id, title: r.title, detail: r.detail, kind: r.kind,
-    risk: RISK_UI[r.risk as RiskTier], riskTier: r.risk, digest: r.action_digest, demo: r.demo,
+    risk: RISK_UI[r.risk as RiskTier], riskTier: r.risk, digest: r.action_digest, digestVersion: r.digest_version ?? 1, demo: r.demo,
+    taskId: r.task_id ?? null, origin: r.origin ?? null, target: r.target ?? null, requestedBy: r.requested_by ?? null,
+    effect: kindRule(r.kind)?.effect ?? null, effectWhy: kindRule(r.kind)?.why ?? null, approver: isTier(r.risk) ? approverFor(r.risk) : 'owner',
+    consumed: !!r.consumed_at, consumedAt: r.consumed_at ? new Date(r.consumed_at).getTime() : null,
     status: state === 'approved' || state === 'denied' ? state : 'pending', state,
     expiresMin: Math.max(0, Math.round((new Date(r.expires_at).getTime() - now) / 60000)),
     agoMin: Math.max(0, Math.round((now - new Date(r.created_at).getTime()) / 60000)),
@@ -81,4 +113,26 @@ export async function sweepExpired(c: Tx, tenantId?: string): Promise<string[]> 
   }
   for (const r of rows) await emit(c, { tenantId: r.tenant_id, type: 'approval.decided', subject: r.mission_id, missionId: r.mission_id, payload: { approvalId: r.id, decision: 'expired', by: 'system' } });
   return released;
+}
+
+
+export interface ConsumeInput { approvalId: string; action: BoundAction; /** who is executing (an agent or service id) */ by: string; /** test clock */ now?: number }
+
+/**
+ * Spend an approval: it authorises exactly one execution of exactly this action. Nothing here executes anything; a future
+ * executor calls it right before it acts and acts only when it returns. The row is locked, the digest is recomputed from
+ * the presented action (never taken from a caller), and consumed_at/consumed_by are written once (the trigger enforces it).
+ */
+export async function consumeApproval(c: Tx, i: ConsumeInput): Promise<{ approvalId: string; consumedAt: number }> {
+  const r = (await c.query('select * from approval_requests where id=$1 and tenant_id=$2 for update', [i.approvalId, i.action.tenantId])).rows[0];
+  if (!r) throw notFound('No such approval.');
+  if (r.consumed_at) throw new ApiError('APPROVAL_ALREADY_CONSUMED', 409, 'This approval was already used. The agent must ask again.');
+  if (r.state !== 'approved') throw new ApiError('APPROVAL_NOT_APPROVED', 409, 'This request is not approved.');
+  if (new Date(r.expires_at).getTime() <= (i.now ?? Date.now())) throw new ApiError('APPROVAL_EXPIRED', 409, 'This approval expired. The agent must ask again.');
+  const presented = (r.digest_version ?? 1) === 2 ? digestV2(i.action) : digestOf(i.action.missionId, i.action.kind, i.action.payload);
+  if (presented !== rowDigest(r) || presented !== r.action_digest) throw new ApiError('APPROVAL_DIGEST_MISMATCH', 409, 'The action differs from the one that was approved.');
+  const u = await c.query(`update approval_requests set consumed_at=now(), consumed_by=$2 where id=$1 and consumed_at is null and state='approved' returning consumed_at`, [i.approvalId, i.by]);
+  if (!u.rowCount) throw new ApiError('APPROVAL_ALREADY_CONSUMED', 409, 'This approval was already used. The agent must ask again.');
+  await emit(c, { tenantId: r.tenant_id, type: 'approval.consumed', subject: r.mission_id, missionId: r.mission_id, actor: i.by, actorKind: 'agent', payload: { approvalId: r.id, kind: r.kind, tier: r.risk, by: i.by } });
+  return { approvalId: r.id, consumedAt: new Date(u.rows[0].consumed_at).getTime() };
 }
