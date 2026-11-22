@@ -357,3 +357,25 @@ api), flows and verify-all on the merged tree.
 | **a11y-check, api** | 1 LIVEPROBE in each of two runs at load 16–21, on other pages, both page probes outside the thread (`/agents/coder-01` and the proposals page) still showing the lazy page skeleton "Loading…" after `settle(400)`. **0 violations** at load 8 |
 | **a11y-check, demo** | **0 violations** (50 views, 55 dialogs) |
 | **verify-all** | **ALL 10 STEPS PASSED**, rc 0 |
+
+## Fix round 2 (re-review N1)
+
+N1: `hold()` writes `scrollTop` from script while `onScroll` records the position on every event, so it could cut short a wheel scroll or a smooth scroll (the "N new" pill, minimap click, minimap Home/End) on a mixed-height thread.
+
+**Tests first** (`web/scripts/api-c26.mjs`, in `mixed()`, after a reload before each so the rows above are unmeasured estimates; condition waits only):
+a. wheel up 3,000 px in 30 steps of 100 px must travel at least 2,700 px;
+b. from 3,000 px above the bottom, 3 new messages arrive, the "N new" pill shows, a click on it must end within 2 px of the bottom with the pill gone;
+c. a minimap click at 10 % of its height must land within half a viewport of the target (`10 % of the rail / s - clientHeight / 2`).
+
+**RED (code at ed531d8):** a PASS (3000 of 3000 px), b PASS (distance from the bottom 0 px, pill gone), **c FAIL**: scrollTop 8062 (8219 after settling), target 1002, off by 7060 px (limit 187). A trace after the click showed the smooth scroll running from 11734 down to 8074, then `hold()` writing a +207 px correction (content above grew 12108 → 12275) and the smooth scroll stopped there. So the suspected mechanism was real for a smooth scroll over unmeasured rows; the wheel and the pill, as scripted here, were not cut short (a and b are kept as regression guards; they were green before and after).
+
+**Fix** (`web/src/features/chat/ChatView.tsx`, preferred option): `hold()` no longer writes `scrollTop` while the reader's own scroll is moving. `onScroll` stamps `moving` whenever the position differs from the one the thread itself last wrote (`own`, set by `hold()`, the older-page anchor, the bottom pin and `focusRow`, so their own scroll events do not count as the reader's). `hold()` skips the correction when the last such event is under `SCROLL_IDLE` = 160 ms old and `scrollTop >= 80` (near the top the correction stays on, so an older page landing keeps its row in place). Rows still re-render and `record()` still runs. The first attempt without the `own` marks broke the older-page check (first page shift 355 px, because the anchor restore's own scroll event counted as the reader's); marking the programmatic writes fixed it. The stale comment about `overflow-anchor` (the module comment said it "is left at its default, auto", the code sets `none`) now describes the own anchor.
+
+**GREEN (full run, `REPS=3 FILL=1000`, lane stack 7492/7493, `axion_e2e24`):** rc 0; behaviour checks **22/22**; a PASS (3000 of 3000 px), b PASS (0 px from the bottom, pill gone), c PASS (scrollTop 1024, target 1081, off by 57 px, limit 187). Older pages shifts 0.3 0.5 0.0 0.3 px; walk 242/242, blank 0; scroll-back 0.0 px; keyboard ok; minimap alignment 0 off. Long-task total per rep 988 / 1047 / 908 ms (mean 981), worst 535 / 646 / 249 ms, page errors 0 (machine load 7 to 9 during the run, so these are not comparable with the quieter earlier runs).
+
+**Other runs (same lane ports):** `api-stage6.mjs` **94/94**; `api-c22.mjs SIZES=130,1000 REPS=3` **14/14**, rc 0; web `tsc --noEmit` clean.
+
+**NOT MET / caveats:**
+- `api-mobile.mjs` is not on this branch (it arrived with c24 on `improve-30h`). It was copied in temporarily from the integration tree (not committed) and run against this branch, which lacks c24's `touch.css`; the run reached /settings and /notifications screens with no FAIL line, then my 550 s time limit killed the browser ("Target page, context or browser has been closed"). **api-mobile.mjs: NOT MET (no verdict)**; run it after the merge into `improve-30h`, where c24 and c26 meet.
+- The wheel and the pill checks were green before the fix, so N1 is demonstrated only for the smooth minimap click. The wheel test uses `page.mouse.wheel` in 100 px steps with a wait for each step to land; a real trackpad with inertia was not reproduced.
+- 160 ms is a heuristic window: a smooth scroll that stalls for longer than that (a frame over 160 ms on a loaded machine) would let one correction through.

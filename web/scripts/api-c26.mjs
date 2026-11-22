@@ -454,6 +454,56 @@ async function mixed() {
   await body.evaluate((el) => { el.scrollTop = el.scrollHeight; });
   const bot1 = await aligned();
   check('I2 mixed heights: minimap blocks sit where their rendered rows are (±1.5 px), middle and bottom', mid1.bad === 0 && bot1.bad === 0 && mid1.n > 0, `middle ${mid1.bad}/${mid1.n} off · bottom ${bot1.bad}/${bot1.n} off · scale ${bot1.s}`);
+  // Fix round 2 (N1): user and smooth scrolls over rows that were never measured must not be cut short by the thread's own
+  // scroll anchor (hold() writes scrollTop). A reload empties the measurement cache, so the rows above are estimates.
+  const tops = () => body.evaluate((el) => ({ t: el.scrollTop, h: el.scrollHeight, c: el.clientHeight }));
+  /** scrollTop unchanged for 4 reads 100 ms apart (a condition wait, not a sleep) */
+  const settled = async (cap = 15000) => { let last = -1, n = 0; await until(async () => { const { t } = await tops(); n = t === last ? n + 1 : 0; last = t; return n >= 4; }, cap, 100); return last; };
+  const fresh = async () => {
+    await p.reload({ waitUntil: 'domcontentloaded' });
+    await until(async () => (await held(mid, tid)) >= 50, 15000);
+    await until(async () => { const t = await tops().catch(() => null); return !!t && t.h - t.t - t.c < 4; }, 10000);
+    await settled();
+  };
+  await fresh();
+  // (a) wheel up 3,000 px in 100 px steps over rows never measured: the thread must travel at least 90 % of it
+  {
+    const box = await body.boundingBox();
+    await p.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    const t0 = (await tops()).t;
+    for (let i = 0; i < 30; i++) { await p.mouse.wheel(0, -100); const want = t0 - (i + 1) * 100 * 0.9; await until(async () => (await tops()).t <= Math.max(want, 0) + 100, 1500, 25); }
+    const t1 = await settled();
+    check('N1 mixed heights: a wheel scroll up 3,000 px over unmeasured rows travels at least 90 % of the distance', t0 - t1 >= 2700, `travelled ${Math.round(t0 - t1)} of 3000 px (${((t0 - t1) / 30).toFixed(1)} %)`);
+  }
+  // (b) 3,000 px above the bottom, new messages arrive, the "N new" pill shows; clicking it ends pinned at the bottom
+  await fresh();
+  {
+    await body.evaluate((el) => { el.scrollTop = el.scrollHeight - el.clientHeight - 3000; });
+    await settled();
+    const have = await held(mid, tid);
+    await burst(tid, 3, 'pill');
+    await until(async () => (await held(mid, tid)) >= have + 3, 15000);
+    const pill = p.locator('.conv-main .new-pill');
+    const shown = await until(async () => (await pill.count()) > 0, 10000);
+    if (shown) await pill.click();
+    const pinned = await until(async () => { const t = await tops(); return t.h - t.t - t.c <= 2; }, 8000, 50);
+    await settled();
+    const t = await tops();
+    const gone = await until(async () => (await pill.count()) === 0, 3000, 50);
+    check('N1 mixed heights: the "N new" pill, clicked 3,000 px above the bottom, ends pinned at the bottom (±2 px) and disappears', shown && pinned && t.h - t.t - t.c <= 2 && gone, `pill shown ${shown} · distance from the bottom ${Math.round(t.h - t.t - t.c)} px · pill gone ${gone}`);
+  }
+  // (c) a minimap click at 10 % of its height: the view lands within half a viewport of the target
+  await fresh();
+  {
+    const mm = await p.locator('.conv-main .minimap').boundingBox();
+    const y = mm.y + mm.height * 0.1;
+    await p.mouse.click(mm.x + mm.width / 2, y);
+    if (process.env.DEBUG_MM) { for (let i = 0; i < 15; i++) { console.log('   mm', JSON.stringify(await tops()), JSON.stringify(mm), y); await p.waitForTimeout(100); } }
+    await settled();
+    const t = await tops();
+    const s = Math.min(mm.height / t.h, 0.2), target = (mm.height * 0.1) / s - t.c / 2;
+    check('N1 mixed heights: a minimap click at 10 % of its height lands within half a viewport of the target', Math.abs(t.t - target) <= t.c / 2, `scrollTop ${Math.round(t.t)} · target ${Math.round(target)} · off by ${Math.round(Math.abs(t.t - target))} px (limit ${Math.round(t.c / 2)})`);
+  }
   return { mid, tid };
 }
 

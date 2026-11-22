@@ -27,6 +27,8 @@ import '@/theme/pages/chat.css';
  */
 export const KIND_HUE: Record<MessageKind, number> = { delegation: 190, report: 268, consult: 210, command: 30, reply: 40, question: 38, ack: 150, result: 145, system: 225 };
 
+/** a scroll the reader started counts as moving until this many ms after its last scroll event */
+const SCROLL_IDLE = 160;
 const MINIMAP_KEY = 'axion.thread.minimap';
 const readMinimap = () => { try { return localStorage.getItem(MINIMAP_KEY) !== '0'; } catch { return true; } };
 const writeMinimap = (v: boolean) => { try { localStorage.setItem(MINIMAP_KEY, v ? '1' : '0'); } catch { /* per-viewer convenience only */ } };
@@ -189,9 +191,10 @@ export function ChatComposer({ modes, initialMode, toName, draftKey, disabled, d
  * spacers standing in for the rest, so a live message costs the same in a 50- and a 5,000-message thread.
  * - Heights are measured once per message (one ResizeObserver) and estimated until then (threadWindow.ts). The minimap is
  *   drawn from the same model, so it still shows every message.
- * - Estimates that turn out wrong above the viewport are absorbed by the browser's scroll anchoring (overflow-anchor is
- *   left at its default, auto). An older page that lands at the top keeps the rendered window on the same rows, so the
- *   older-page anchor below still finds the row it remembered and puts it back (as before).
+ * - Estimates that turn out wrong above the viewport are absorbed by the thread's own scroll anchor (overflow-anchor is
+ *   none: the browser's anchoring missed an older page landing). It never writes the scroll position while the reader's own
+ *   scroll is moving (below the top). An older page that lands at the top keeps the rendered window on the same rows, so the
+ *   older-page anchor below still finds the row it remembered and puts it back.
  * - Accessibility: every row is an article with aria-posinset / aria-setsize (its place in the whole thread), so a screen
  *   reader knows where it is and how many there are. One row is in the Tab order (roving tabindex); on a row, ↑ ↓ PgUp PgDn
  *   Home End move to the next, previous, first or last message, which brings any message into the DOM; the row holding
@@ -265,12 +268,19 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
     const r = Array.from(el.querySelectorAll<HTMLElement>('[data-mid]')).find((x) => x.getBoundingClientRect().bottom > box.top + 1);
     vis.current = r ? { id: r.dataset.mid!, top: r.getBoundingClientRect().top - box.top, st: el.scrollTop } : null;
   };
+  // Fix round 2 (N1): a scroll the reader started (wheel, drag, smooth scrollTo from the minimap or the "N new" pill) is
+  // never overwritten: writing scrollTop cancels a smooth scroll and fights a wheel. `own` is the position hold() last
+  // wrote, so the scroll event that write causes is not mistaken for the reader's; `moving` is when the reader's scroll
+  // last moved. Near the top the correction stays on (an older page landing there must keep its row in place).
+  const own = useRef(-1);
+  const moving = useRef(-1e9);
   const hold = () => {
     const el = scroller.current, v = vis.current;
     if (!el) return;
-    if (v && !atBottomRef.current && el.scrollTop === v.st) {
+    const reading = performance.now() - moving.current < SCROLL_IDLE && el.scrollTop >= 80;
+    if (v && !atBottomRef.current && !reading && el.scrollTop === v.st) {
       const r = el.querySelector<HTMLElement>(`[data-mid="${CSS.escape(v.id)}"]`);
-      if (r) { const d = r.getBoundingClientRect().top - el.getBoundingClientRect().top - v.top; if (Math.abs(d) >= .5) el.scrollTop += d; }
+      if (r) { const d = r.getBoundingClientRect().top - el.getBoundingClientRect().top - v.top; if (Math.abs(d) >= .5) { el.scrollTop += d; own.current = el.scrollTop; } }
     }
     record();
   };
@@ -418,14 +428,14 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
     const el = scroller.current, a = anchor.current;
     if (!el || !a) return;
     const n = el.querySelector<HTMLElement>(`[data-mid="${CSS.escape(a.id)}"]`);
-    if (n) el.scrollTop += n.getBoundingClientRect().top - el.getBoundingClientRect().top - a.top;
+    if (n) { el.scrollTop += n.getBoundingClientRect().top - el.getBoundingClientRect().top - a.top; own.current = el.scrollTop; }
     anchor.current = null;
   }, [firstId]);
   useEffect(() => { if (!loadingOlder) anchor.current = null; }, [loadingOlder]); // a failed or empty load leaves nothing to restore
   useEffect(() => { if (typing && atBottom) window.setTimeout(() => scroller.current?.scrollTo({ top: 1e6, behavior: 'smooth' }), 30); }, [typing, atBottom]);
   // a reader pinned to the bottom stays there when measured heights replace estimates above (the browser's scroll
   // anchoring does not move a scroller that sits at its end)
-  useLayoutEffect(() => { const el = scroller.current; if (el && atBottom && geoV) el.scrollTop = el.scrollHeight; }, [geoV]); // eslint-disable-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => { const el = scroller.current; if (el && atBottom && geoV) { el.scrollTop = el.scrollHeight; own.current = el.scrollTop; } }, [geoV]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // keyboard: on a message, ↑ ↓ PgUp PgDn Home End move between messages; the target is scrolled in, mounted and focused
   const pendingFocus = useRef<string | null>(null);
@@ -437,6 +447,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
     setFocusId(m.id); setTabId(m.id);
     if (top < el.scrollTop) el.scrollTop = top - 8;
     else if (bottom > el.scrollTop + el.clientHeight) el.scrollTop = bottom - el.clientHeight + 8;
+    own.current = el.scrollTop;
     moveVp(el);
   };
   useLayoutEffect(() => {
@@ -508,6 +519,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
           }}
           onScroll={(ev) => {
             const el = ev.currentTarget; const b = el.scrollHeight - el.scrollTop - el.clientHeight < 40; setAtBottom(b); if (b) setNewCount(0);
+            if (el.scrollTop !== own.current) moving.current = performance.now();
             atBottomRef.current = b; record(); // the reader's position now: later changes keep this row in place
             const far = Math.abs(el.scrollTop - vpRef.current.top) > DRIFT || el.clientHeight !== vpRef.current.h;
             // at the top: the rows there are rendered first (a jump to the top leaves only a spacer in view until then), so
