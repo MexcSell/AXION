@@ -105,10 +105,16 @@ export interface CapacityCellDto {
   medianQueueSize: number | null;
 }
 export interface CapacityDeptDto extends CapacityCellDto { dept: string }
+/** Little's law as a data-quality check: L (average open) against lambda times W. `fail` = a close record is missing or the two sides differ by more than the stated tolerance. */
+export interface LittleLawDto {
+  status: 'pass' | 'fail' | 'insufficient'; reason: 'ok' | 'missing_close' | 'mismatch' | 'no_arrivals';
+  avgOpen: number | null; lambdaTimesW: number | null; relError: number | null; relTol: number; absTol: number; missingClose: number; openNow: number;
+}
 export interface ReviewCapacityDto {
   windowDays: number; windowStart: string;
   minItems: number; minPeople: number; minPercentileN: number;
   total: CapacityCellDto; departments: CapacityDeptDto[];
+  littles: LittleLawDto;
 }
 
 export interface ApprovalDto {

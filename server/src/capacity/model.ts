@@ -3,6 +3,7 @@
 // Reuses c58's stored decision latency and queue size (approval_decisions.latency_ms, queue_size); it does not recompute them.
 // Every duration and every window bound comes from the database clock (now()) inside SQL.
 import type { Db, Tx } from '../db.ts';
+import { littlesLaw } from './littles.ts';
 import type { CapacityCellDto, CapacityDeptDto, ReviewCapacityDto } from '../../../shared/contracts/src/index.ts';
 
 /** Percentiles are null below this many decided items. */
@@ -31,7 +32,8 @@ export const departmentOfAgent = (dept: string | null | undefined): string => (d
  *  is_open: still needs a person now. missing_close: no close record although the item is not open (a data-quality fault).
  */
 export const ITEMS_SQL = `
-  win as (select now() - make_interval(days => $2::int) as s, now() as e),
+  -- the window is N x 24 hours (hours, not days: make_interval(days) is a calendar interval and shifts by an hour across a DST change)
+  win as (select now() - make_interval(hours => $2::int * 24) as s, now() as e),
   ap as (
     select 'approval'::text as kind, r.id, coalesce(nullif(btrim(ad.dept), ''), '${UNASSIGNED}') as dept, r.agent_id as agent, r.created_at as arrived,
            coalesce(dd.decided_at, case when r.state = 'expired' or (r.state = 'pending' and r.expires_at <= now()) then least(r.expires_at, now()) end) as closed,
@@ -98,10 +100,11 @@ export async function reviewCapacity(db: Db | Tx, tenantId: string, windowDays: 
        from items, win w group by grouping sets ((dept), ()) order by dept nulls last`, [tenantId, windowDays])).rows;
   const total = rows.find((r) => r.is_total === 1);
   const empty: RawCell = { arrivals: 0, open_now: 0, decided_n: 0, people: 0, p50: null, p95: null, medq: null, sum_tis: 0, sum_overlap: 0, missing: 0 };
-  const start = (await db.query(`select (now() - make_interval(days => $1::int)) as s`, [windowDays])).rows[0].s;
+  const start = (await db.query(`select (now() - make_interval(hours => $1::int * 24)) as s`, [windowDays])).rows[0].s;
   const departments: CapacityDeptDto[] = rows.filter((r) => r.is_total !== 1).map((r) => ({ dept: r.dept as string, ...toCell(num(r), windowDays, viewerIsAdmin) }));
   return {
     windowDays, windowStart: new Date(start).toISOString(), minItems: MIN_ITEMS, minPeople: MIN_PEOPLE, minPercentileN: MIN_PERCENTILE_N,
     total: toCell(total ? num(total) : empty, windowDays, viewerIsAdmin), departments,
+    littles: (() => { const t = total ? num(total) : empty; return littlesLaw({ arrivals: t.arrivals, sumTisMs: t.sum_tis, sumOverlapMs: t.sum_overlap, windowMs: windowDays * 86_400_000, missingClose: t.missing, openNow: t.open_now }); })(),
   };
 }
