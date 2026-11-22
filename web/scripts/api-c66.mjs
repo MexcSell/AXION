@@ -118,15 +118,15 @@ try {
   if (DOC) await p.screenshot({ path: `${DOC}-dimensions-dark.png` });
 
   // ---- audit: a person's labels above the bar flag the row
-  const samples = Array.from({ length: 64 }, (_, i) => ({ sampleRef: `s${i}`, metricLabel: true, auditLabel: i >= 14 }));
+  const samples = Array.from({ length: 100 }, (_, i) => ({ sampleRef: `s${i}`, metricLabel: true, auditLabel: i >= 22 }));
   const post = await apiPost(p, '/company/metric-audits', { metricId: 'scorecard.verified_success_rate', samples });
-  check('an administrator records 64 audit labels (14 disagreeing = 21.9%)', post.status === 201 && post.body.audit?.flagged === true && post.body.audit?.divergence === 21.9, JSON.stringify(post.body.audit));
+  check('an administrator records 100 audit labels (22 disagreeing = 22%)', post.status === 201 && post.body.audit?.flagged === true && post.body.audit?.divergence === 22, JSON.stringify(post.body.audit));
   await p.goto(base + '/overview', { waitUntil: 'domcontentloaded' });
   await settle(p);
   await p.locator('[data-scorecard="ready"]').waitFor({ timeout: 20000 });
   await calm(p);
   await hit(p.locator('[data-guard-key="scorecard.verified_success_rate"]'));
-  check('the row now says the audit disagrees, with the share and the bar', await until(async () => (await p.locator('.gm-pop [data-audit-flag]').count()) === 1 && /21\.9%/.test(await p.locator('.gm-pop').innerText()) && /bar: 15%/.test(await p.locator('.gm-pop').innerText()), 8000));
+  check('the row now says the audit disagrees, with the share and the bar', await until(async () => (await p.locator('.gm-pop [data-audit-flag]').count()) === 1 && /22%/.test(await p.locator('.gm-pop').innerText()) && /bar: 15%/.test(await p.locator('.gm-pop').innerText()), 8000));
   await p.screenshot({ path: `${SHOTS}/c66-guard-open-dark.png` });
   if (DOC) await p.screenshot({ path: `${DOC}-guard-open-dark.png` });
   await closeAll(p);

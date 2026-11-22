@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { create } from 'zustand';
-import { guardRows, type MetricGuardDto, type MetricGuardRow, type MetricAuditState } from '@contracts';
+import { AUDIT_BAR, AUDIT_MIN_N, guardRows, type MetricGuardDto, type MetricGuardRow, type MetricAuditState } from '@contracts';
 import { api, ApiFailure } from './client';
 import { isApi } from './mode';
 import { makeScorecardCache } from './scorecardCache';
@@ -21,7 +21,7 @@ const cache = makeScorecardCache<MetricGuardDto>(
 cache.subscribe((byKey) => useStore.setState({ byKey }));
 onScorecardClear.add(() => cache.clear());
 
-const NO_AUDIT: MetricAuditState = { n: 0, disagreements: 0, metricOver: 0, auditOver: 0, divergence: null, bar: 15, minN: 60, state: 'none', flagged: false, lastAuditedAt: null };
+const NO_AUDIT: MetricAuditState = { n: 0, disagreements: 0, metricOver: 0, auditOver: 0, divergence: null, bar: AUDIT_BAR, minN: AUDIT_MIN_N, state: 'none', flagged: false, lastAuditedAt: null };
 const STATIC: MetricGuardRow[] = guardRows().map((g) => ({ ...g, audit: NO_AUDIT }));
 const BY_LABEL = new Map(STATIC.filter((g) => g.kind === 'dimension').map((g) => [g.label, g]));
 

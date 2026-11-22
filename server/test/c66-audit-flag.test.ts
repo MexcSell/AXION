@@ -36,6 +36,10 @@ const SEED = 660001, FRESH = 9_900_001;
 const pct = (x: number) => (x * 100).toFixed(1) + '%';
 
 describe('auditState (pure)', () => {
+  it('the minimum audited sample is 100: the smallest size at which the 95% threshold below holds (review S3)', () => {
+    expect(AUDIT_MIN_N).toBe(100);
+    expect(AUDIT_BAR).toBe(15);
+  });
   const s = (m: boolean, a: boolean, i: number): AuditSample => ({ ref: `r${i}`, metricLabel: m, auditLabel: a });
   it('is null and state none below the minimum sample, however large the disagreement', () => {
     const few = Array.from({ length: AUDIT_MIN_N - 1 }, (_, i) => s(true, false, i));

@@ -47,23 +47,24 @@ describe('POST /company/metric-audits', () => {
   it('shows "not enough audited samples" below the minimum, flags at the bar with the minimum, and the latest label of a sample wins', async () => {
     let g = await guard('scorecard.finished');
     expect(g.audit).toMatchObject({ n: 10, state: 'none', divergence: null, flagged: false, bar: AUDIT_BAR, minN: AUDIT_MIN_N });
-    // 60 samples, 8 disagreeing = 13.3%: not flagged; then a correction makes 9 = 15%: flagged
-    await post(A, { metricId: 'scorecard.finished', samples: samples(50, 6, 'x') });
+    expect(AUDIT_MIN_N).toBe(100);
+    // 100 samples, 14 disagreeing = 14%: not flagged; then a correction makes 15 = 15%: flagged
+    await post(A, { metricId: 'scorecard.finished', samples: samples(90, 12, 'x') });
     g = await guard('scorecard.finished');
-    expect(g.audit).toMatchObject({ n: 60, disagreements: 8, state: 'ok', divergence: 13.3, flagged: false, metricOver: 8, auditOver: 0 });
-    await post(A, { metricId: 'scorecard.finished', samples: [{ sampleRef: 'x7', metricLabel: true, auditLabel: false }] }); // x7 was agreeing, now disagrees
+    expect(g.audit).toMatchObject({ n: 100, disagreements: 14, state: 'ok', divergence: 14, flagged: false, metricOver: 14, auditOver: 0 });
+    await post(A, { metricId: 'scorecard.finished', samples: [{ sampleRef: 'x50', metricLabel: true, auditLabel: false }] }); // x50 was agreeing, now disagrees
     g = await guard('scorecard.finished');
-    expect(g.audit).toMatchObject({ n: 60, disagreements: 9, divergence: 15, flagged: true });
+    expect(g.audit).toMatchObject({ n: 100, disagreements: 15, divergence: 15, flagged: true });
     // an old, uncorrected label is not double counted; a correction back to agreeing un-flags the row
-    await post(A, { metricId: 'scorecard.finished', samples: [{ sampleRef: 'x7', metricLabel: true, auditLabel: true }] });
-    expect((await guard('scorecard.finished')).audit).toMatchObject({ n: 60, disagreements: 8, flagged: false });
+    await post(A, { metricId: 'scorecard.finished', samples: [{ sampleRef: 'x50', metricLabel: true, auditLabel: true }] });
+    expect((await guard('scorecard.finished')).audit).toMatchObject({ n: 100, disagreements: 14, flagged: false });
     expect(g.audit.lastAuditedAt).toMatch(/Z$/);
   });
 
   it('keeps rows apart: another row has no labels, and a member reads the same aggregates (no sample refs leave the server)', async () => {
     expect((await guard('scorecard.started')).audit).toMatchObject({ n: 0, state: 'none', divergence: null, flagged: false, lastAuditedAt: null });
     const m = ((await M.req('GET', '/company/metric-guard')).body.rows as any[]).find((r) => r.id === 'scorecard.finished');
-    expect(m.audit.n).toBe(60);
+    expect(m.audit.n).toBe(100);
     expect(JSON.stringify(m)).not.toMatch(/x\d/);
   });
 
@@ -71,7 +72,7 @@ describe('POST /company/metric-audits', () => {
     const noClock = (_k: string, v: unknown) => (_k === 'from' || _k === 'to' ? undefined : v); // the window ends are the database clock and move
     const snap = async () => JSON.stringify([(await A.req('GET', '/company/scorecard')).body.rows, (await A.req('GET', '/company/dimensions')).body.dimensions], noClock);
     const before = await snap();
-    await post(A, { metricId: 'scorecard.failure_rate', samples: samples(60, 30, 'f') });
+    await post(A, { metricId: 'scorecard.failure_rate', samples: samples(100, 50, 'f') });
     expect((await guard('scorecard.failure_rate')).audit.flagged).toBe(true);
     expect(await snap()).toBe(before);
   });

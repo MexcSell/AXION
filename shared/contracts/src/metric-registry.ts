@@ -171,3 +171,10 @@ export interface MetricAuditState {
 export interface MetricGuardRow extends MetricGuard { audit: MetricAuditState }
 export interface MetricAuditIn { metricId: string; samples: { sampleRef: string; metricLabel: boolean; auditLabel: boolean; note?: string }[] }
 export interface MetricAuditResult { recorded: number; audit: MetricAuditState }
+
+/**
+ * The audit flag's bar and minimum sample (fixed before any trial; see server/src/company/metric-audit.ts). 15% is three times the 5% auditor error the
+ * fixture assumes. 100 is the smallest audit at which the fixture's 95% fire-rate threshold holds (review S3; at 60 it measured 94.8%).
+ */
+export const AUDIT_BAR = 15;
+export const AUDIT_MIN_N = 100;
