@@ -390,3 +390,20 @@ FAIL 900 /operations?tab=logs tab=Logs: clipped control button.icon-btn.xs[Dismi
 - **fit-check:** 77/77 ALL FIT. **ov-fit:** 32/32, NO SCROLL ANYWHERE.
 
 **Follow-up commits:** none. Controller files committed with this entry: BACKLOG.md, LANES.md, LOG.md, QUEUE.md (modified); cycles/c38-review, c38-rereview, c39-review, c41-brief, c42-brief (new).
+
+## Batch 5f: c29 (archive flake)
+
+- **Merged:** 2026-11-22 ~04:31 UTC. Pre-batch commit `7123274`.
+- **Merge commit:** `f85f310` c29-archive-flake (887dd89), `--no-ff`. **Conflicts:** none; flows.mjs auto-merged over c28.
+- **Server:** tsc OK. vitest: first run **2 failed** (`agents.test.ts` "a skills PATCH creates v(n+1)…" 500 instead of 200 at 5 s; `version-proposals.test.ts` hook timeout 30 s and "a rollback waiting on the lock…"). c29 changes no server file, so this is lock and DB contention. The rerun right after (load 6.7) was 37 files 586/586. Second transient vitest red in this run (after c09: 3 failed in 2 files): watch it. **web:** tsc OK.
+- **api-e2e (exit 0):** api-auth-flow 15/15; api-flows 23/23; api-stage6 94/94; api-improve 107/107.
+- **verify-all:** exit 0, "ALL 10 STEPS PASSED", no FAIL lines; flows 21/21; dialog smoke 112 checks, 0 failures.
+- **flows.mjs alone:** exit 0, 21/21.
+- **`FLOWS_CPU_THROTTLE=4 node scripts/flows.mjs`:** exit 1, 19/21. **`PASS  Delete (archive) from the far-right trash icon`** (the required step). Other steps are recorded and not blocking, per the queue (H7). FAIL lines:
+  - `FAIL  Command palette navigates (Ctrl+K): page.waitForURL: Timeout 30000ms exceeded.`
+  - `FAIL  Theme toggle switches html data-theme: locator.click: Timeout 30000ms exceeded.` (follows: the palette stays open over the top bar)
+  - **For the controller:** c28 fixed the palette at normal speed (0/10, 0/5 and flows 21/21 everywhere since), but at 4× CPU throttle the palette step still fails.
+- **c29-archive-race.mjs:** exit 0, archived 14/14.
+- **fit-check:** 77/77 ALL FIT. **ov-fit:** 32/32, NO SCROLL ANYWHERE.
+
+**Follow-up commits:** none. Controller files committed with this entry: BACKLOG.md, LOG.md (modified), cycles/c42-review.md (new).

@@ -88,3 +88,5 @@ A1 → B1 → C1 → A3 → B3 → C2 → A2 → B2 → C3 → A5 → B4 → C4 
 | H9 | Refresh c15 contract tests against the full API after batch 8 (held at batch 5: written before cycles 4–20, with 53 drift fields, 19 uncovered routes and 7 events). Generate the coverage list from the route table so new routes can't go uncovered. | 4 | 3 | 5 | 12 |
 
 | O3a | Task-review hardening (from the c38 re-review). (1) An append-only owner-history table written by a trigger on `tasks`, so prior-actor exclusion is fail-closed and doesn't depend on audit rows. (2) A review only verifies if it is newer than the task's latest attempt (today an old accepted review re-verifies a fail → retry → pass). (3) The o-series match is `o[1-9]` exact plus a separator, and router prefixes that name a different vendor (`anthropic/gpt-4`) → null. | 3 | 4 | 5 | 12 |
+
+| O2a | Require a delegation brief on every human reassignment (c42 leaves it optional because the frozen api-stage6 reassign step sends none). Update that script step first, then make the brief required server-side. | 3 | 4 | 5 | 12 |
