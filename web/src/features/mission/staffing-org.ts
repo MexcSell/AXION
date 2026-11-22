@@ -21,6 +21,13 @@ export const KIND_DEPT: Record<Mission['kind'], string> = {
   'self-update': 'Engineering',
 };
 
+/** KIND_DEPT as prose, kinds grouped by department in table order: the help text uses it, so it cannot drift from the table. */
+export function kindDeptText(): string {
+  const by = new Map<string, string[]>();
+  for (const [k, d] of Object.entries(KIND_DEPT)) by.set(d, [...(by.get(d) ?? []), k]);
+  return [...by].map(([d, ks]) => `${ks.join(', ')}: ${d}`).join('; ');
+}
+
 /** What staffing reads from the organisation: the agents (department, active or retired) and the reporting lines. */
 export interface OrgView {
   revision?: number;

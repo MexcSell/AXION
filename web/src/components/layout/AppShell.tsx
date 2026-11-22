@@ -87,8 +87,11 @@ export function AppShell() {
   useEffect(() => {
     if (!me || !wantsAdminChat) return;
     openChat(channelId.admin(me.id));
-    nav(loc.pathname, { replace: true });
-  }, [me, wantsAdminChat, loc.pathname, openChat, nav]);
+    // drop only ?chat=admin: the rest of the query string (a tab, a filter) and the hash stay
+    const rest = new URLSearchParams(loc.search); rest.delete('chat');
+    const q = rest.toString();
+    nav(loc.pathname + (q ? `?${q}` : '') + loc.hash, { replace: true });
+  }, [me, wantsAdminChat, loc.pathname, loc.search, loc.hash, openChat, nav]);
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => { mainRef.current?.scrollTo({ top: 0 }); setScrolled(false); }, [routeKey]);

@@ -7,7 +7,7 @@ import { hierarchy } from '../src/instances/service.ts';
 import { loadRow, missionDto } from '../src/missions/service.ts';
 import { AGENTS, AGENT_BY_ID } from '../../web/src/data/agents.ts';
 import { staffingPlan, executorFor } from '../../web/src/features/mission/staffing-plan.ts';
-import { KIND_DEPT, departmentHead, departmentHeads, orgStaffing, FORMER_EXECUTOR_WHY, type OrgView } from '../../web/src/features/mission/staffing-org.ts';
+import { KIND_DEPT, kindDeptText, departmentHead, departmentHeads, orgStaffing, FORMER_EXECUTOR_WHY, type OrgView } from '../../web/src/features/mission/staffing-org.ts';
 
 // Improvement cycle 11 (brief web/docs/improve/cycles/c11-brief.md): new real missions are staffed by the active organisation.
 const KINDS = ['website', 'research', 'training', 'data', 'automation', 'structure', 'self-update'] as const;
@@ -26,6 +26,17 @@ const move = (org: OrgView, moves: Record<string, string>): OrgView => ({
 });
 
 describe('kind → department, heads and the staffing plan (pure)', () => {
+  it('c27 (c11 m3): the mission.create help names every kind with its department, generated from KIND_DEPT', () => {
+    // (the help file is read as text: importing it would pull the web-only help registry into the server typecheck)
+    const src = readFileSync(new URL('../../web/src/help/pages/missions.ts', import.meta.url), 'utf8');
+    const line = src.split('\n').find((l) => l.includes("'mission.create'"))!;
+    expect(line).toContain('${kindDeptText()}');
+    expect(line).not.toMatch(/Engineering;|: R&D;|: QA;/); // no hand-copied table
+    for (const k of KINDS) expect(kindDeptText(), k).toContain(k);
+    for (const d of new Set(Object.values(KIND_DEPT))) expect(kindDeptText(), d).toContain(d);
+    expect(kindDeptText()).toBe('website, automation, self-update: Engineering; research, data: R&D; training: QA; structure: Operations');
+  });
+
   it('KIND_DEPT is the department of the fixture executor of every kind', () => {
     for (const k of KINDS) expect(KIND_DEPT[k], k).toBe(AGENT_BY_ID[executorFor(k)].dept);
     expect(Object.keys(KIND_DEPT).sort()).toEqual([...KINDS].sort());
