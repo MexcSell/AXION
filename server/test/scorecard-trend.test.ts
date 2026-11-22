@@ -43,7 +43,7 @@ describe('trendOf rules', () => {
 describe('previous window in the scorecard', () => {
   it('an empty history has no previous values and no trend on any row', () => {
     const out = computeScorecard(empty(), { window: '7d', from: W7.from, to: W7.to, includeDemo: false });
-    for (const r of out.rows) { expect(r.trend).toBeNull(); expect(r.previous.value === null || r.unit === 'missions').toBe(true); }
+    for (const r of out.rows) { expect(r.trend).toBeNull(); expect(r.previous.value === null || r.unit === 'missions' || r.unit === 'tasks').toBe(true); }
     expect(out.previousTo).toBe(new Date(W7.from.getTime() - 1).toISOString());
     expect(out.previousFrom).toBe(new Date(W7.from.getTime() - 7 * D - 1).toISOString());
   });

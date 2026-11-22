@@ -42,6 +42,7 @@ const SINCE_STAGE5_WRITES: [string, string][] = [
   ['POST', '/api/v1/organization/proposals/:id/decision'],
   ['POST', '/api/v1/organization/proposals/:id/withdraw'],
   ['POST', '/api/v1/tasks/:id/:action'],
+  ['POST', '/api/v1/tasks/:id/reviews'], // c38
 ];
 const fill = (url: string) => url.replace(/:(\w+)/g, (_m, k) => (k === 'key' ? 'gm' : k === 'action' ? 'retry' : `x-${k}-1`));
 
@@ -213,7 +214,7 @@ describe('per-session write rate limits', () => {
   // Merge follow-up (c14 review I1): the map is hand-kept, so the route table guards it. Every write route of a limited
   // kind (messages, uploads, and governance writes: proposals of any kind, rollbacks, mentoring plans) must be in
   // LIMITED_ROUTES, and every key of LIMITED_ROUTES must be a real route.
-  const LIMITED_KIND = /\/messages$|proposal|rollback|mentoring|site-grants|failure-tags|\/ledgers\/|\/uploads$/;
+  const LIMITED_KIND = /\/messages$|proposal|rollback|mentoring|site-grants|failure-tags|\/ledgers\/|\/reviews$|\/uploads$/;
   it('route table: every message, upload and governance write route is in LIMITED_ROUTES; every limited route exists', () => {
     const writes = t.app.routeTable.filter((r) => ['POST', 'PUT', 'PATCH', 'DELETE'].includes(r.method) && r.url.startsWith('/api/v1/')).map((r) => `${r.method} ${r.url}`);
     const must = writes.filter((k) => LIMITED_KIND.test(k.split(' ')[1]));
@@ -227,6 +228,7 @@ describe('per-session write rate limits', () => {
       'POST /api/v1/site-grants', 'POST /api/v1/site-grants/:id/revoke',
       'POST /api/v1/failure-tags', 'POST /api/v1/failure-tags/:id/decision',
       'POST /api/v1/missions/:id/ledgers/:kind',
+      'POST /api/v1/tasks/:id/reviews',
     ]));
     expect(must.filter((k) => !(k in LIMITED_ROUTES))).toEqual([]);
     expect(Object.keys(LIMITED_ROUTES).filter((k) => !writes.includes(k))).toEqual([]);

@@ -108,6 +108,8 @@ PASS  task-criteria              no-props
 PASS  task-criteria              props    DL-13   
 PASS  task-reassign              no-props         
 PASS  task-reassign              props    DL-12   
+PASS  task-review                no-props DL-80   
+PASS  task-review                props    DL-80   
 PASS  thread-picker              no-props         
 PASS  thread-picker              props    DL-14   
 PASS  tools-permission           no-props DL-36   

@@ -22,7 +22,7 @@ async function loadInput(app: FastifyInstance, ctx: Awaited<ReturnType<typeof re
       [ctx.tenantId, ctx.user.role === 'admin', ctx.user.id, includeDemo])).rows;
     const ids = missions.map((m) => m.id as string);
     const T = ctx.tenantId;
-    const [runs, transitions, tasks, attempts, decisions, delegations] = ids.length ? await Promise.all([
+    const [runs, transitions, tasks, attempts, decisions, delegations, reviews] = ids.length ? await Promise.all([
       db.query(`select mission_id, min(started_at) as started_at from mission_runs where mission_id = any($1::text[]) group by mission_id`, [ids]),
       db.query(`select mission_id, payload->>'from' as f, payload->>'to' as t, occurred_at from events
                  where tenant_id=$1 and type='mission.stateChanged' and mission_id = any($2::text[]) and occurred_at <= $3 order by id`, [T, ids, to]),
@@ -34,7 +34,8 @@ async function loadInput(app: FastifyInstance, ctx: Awaited<ReturnType<typeof re
                   left join users u on u.id=d.decided_by and u.tenant_id=r.tenant_id
                  where r.tenant_id=$1 and r.mission_id = any($2::text[])`, [T, ids]),
       db.query(`select mission_id, edge_kind, simulated from mission_delegations where mission_id = any($1::text[]) and edge_kind='verifies'`, [ids]),
-    ]).then((rs) => rs.map((r) => r.rows)) : [[], [], [], [], [], []];
+      db.query(`select task_id, mission_id, verdict, reviewer_id, producer_id, principal_id, jsonb_array_length(evidence) as ev, created_at, seq from task_reviews where tenant_id=$1 and mission_id = any($2::text[])`, [T, ids]),
+    ]).then((rs) => rs.map((r) => r.rows)) : [[], [], [], [], [], [], []];
     return {
       missions: missions.map((m) => ({ id: m.id, ownerId: m.owner_id })),
       runs: runs.filter((r) => r.started_at).map((r) => ({ missionId: r.mission_id, startedAt: new Date(r.started_at) })),
@@ -43,6 +44,7 @@ async function loadInput(app: FastifyInstance, ctx: Awaited<ReturnType<typeof re
       attempts: attempts.map((a) => ({ taskId: a.task_id, attemptNo: a.attempt_no, startedAt: a.started_at ? new Date(a.started_at) : null, finishedAt: a.finished_at ? new Date(a.finished_at) : null })),
       decisions: decisions.map((d) => ({ missionId: d.mission_id, decision: d.decision, decidedBy: d.decided_by, human: d.human, at: new Date(d.decided_at) })),
       delegations: delegations.map((d) => ({ missionId: d.mission_id, edgeKind: d.edge_kind, simulated: d.simulated })),
+      reviews: reviews.map((r) => ({ taskId: r.task_id, missionId: r.mission_id, verdict: r.verdict, reviewerId: r.reviewer_id, producerId: r.producer_id, principalId: r.principal_id, evidenceCount: Number(r.ev), at: new Date(r.created_at), seq: Number(r.seq) })),
     };
 }
 

@@ -93,7 +93,7 @@ export const TASK_STATE: Record<TaskState, StatusMeta> = {
   'waiting-agent': { label: 'Waiting on agent', hue: 38, tone: 'warn' },
   'waiting-user':  { label: 'Waiting on you', hue: 30, tone: 'warn' },
   verifying:       { label: 'Verifying', hue: 180, tone: 'info' },
-  passed:          { label: 'Verified', hue: 268, tone: 'violet' },
+  passed:          { label: 'Passed', hue: 268, tone: 'violet' },
   failed:          { label: 'Failed', hue: 350, tone: 'bad' },
   canceled:        { label: 'Canceled', hue: 225, tone: 'neutral' },
 };

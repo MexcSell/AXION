@@ -12,6 +12,7 @@ import { bumpGrants } from './siteGrants';
 import { bumpFailures } from './failures';
 import { bumpLedgers } from './ledgers';
 import { bumpScorecard, clearScorecard } from './scorecard';
+import { bumpTaskReviews } from './taskReviews';
 import { bumpDepartments, clearDepartments } from './departments';
 import { onChannelEvent, refreshLoadedChannels, clearChannels, setChatUser } from './chat';
 import { onMissionControlEvent, refreshLoadedMissionControl, clearMissionControl, setMcUser } from './missionControl';
@@ -53,6 +54,7 @@ export function startSync(): () => void {
   const grants = debounceKeyed(() => bumpGrants(), 150);
   const failures = debounceKeyed(() => bumpFailures(), 150); // improvement cycle 33: failure tags and decisions
   const ledgers = debounceKeyed(() => bumpLedgers(), 150);
+  const taskReviews = debounceKeyed(() => bumpTaskReviews(), 150);
   const scorecard = debounceKeyed(() => bumpScorecard(), 400);
   // improvement cycle 3: each agent's measured reliability follows task outcomes and reassignments (the catalog carries it)
   const reliability = debounceKeyed(() => { void loadAgents().catch(() => undefined); }, 400);
@@ -93,6 +95,8 @@ export function startSync(): () => void {
     if (type.startsWith('grant.')) grants('g'); // c36: site grants
     if (type.startsWith('failure.')) failures('f');
     if (type === 'ledger.updated') ledgers('l'); // cycle 39: mission ledgers
+    // improvement cycle 38: a recorded task review changes the task's review list and the scorecard's review rows
+    if (type === 'task.reviewed') { taskReviews('t'); scorecard('s'); }
     if (type === 'org.revisionApplied') agents('a');
     // improvement cycle 2: the company scorecard follows state changes (and what the viewer can see)
     if (type === 'mission.stateChanged' || type === 'task.stateChanged' || type === 'mission.shared' || type === 'mission.deleted') scorecard('s');
@@ -123,11 +127,11 @@ export function startSync(): () => void {
       set('live');
       // the snapshot is read after the stream's cursor exists, so nothing committed in between is missed
       void loadSnapshot().catch(() => undefined);
-      if (opened++) { agents('a'); instances('i'); proposals('o'); versions('v'); mentoring('m'); grants('g'); failures('f'); ledgers('l'); scorecard('s'); refreshLoadedMissionControl(); void refreshLoadedChannels(); departments('d'); } // a reconnect: re-read what this tab already shows
+      if (opened++) { agents('a'); instances('i'); proposals('o'); versions('v'); mentoring('m'); grants('g'); failures('f'); ledgers('l'); taskReviews('t'); scorecard('s'); refreshLoadedMissionControl(); void refreshLoadedChannels(); departments('d'); } // a reconnect: re-read what this tab already shows
       else if (useAgentsVersion.getState().failed) agents('a'); // the first catalog load failed: try again now the server answers
     });
     for (const t of ['mission.created', 'mission.revised', 'mission.stateChanged', 'mission.shared', 'mission.deleted', 'staffing.progressed', 'approval.requested', 'approval.decided', 'notification.created', 'user.requested', 'user.changed', 'auth.approved',
-      'agent.created', 'agent.updated', 'agent.versionCreated', 'agent.versionProposed', 'agent.versionPromoted', 'agent.rolledBack', 'agent.versionProposalDecided', 'mentoring.planned', 'mentoring.milestoneDone', 'mentoring.closed', 'grant.issued', 'grant.revoked', 'failure.tagged', 'failure.decided', 'ledger.updated', 'org.proposalCreated', 'org.proposalDecided', 'org.revisionApplied', 'conversation.messageCreated', 'conversation.receipt', 'instance.created', 'instance.stateChanged', 'task.delegated', 'task.stateChanged'])
+      'agent.created', 'agent.updated', 'agent.versionCreated', 'agent.versionProposed', 'agent.versionPromoted', 'agent.rolledBack', 'agent.versionProposalDecided', 'mentoring.planned', 'mentoring.milestoneDone', 'mentoring.closed', 'grant.issued', 'grant.revoked', 'failure.tagged', 'failure.decided', 'ledger.updated', 'org.proposalCreated', 'org.proposalDecided', 'org.revisionApplied', 'conversation.messageCreated', 'conversation.receipt', 'instance.created', 'instance.stateChanged', 'task.delegated', 'task.stateChanged', 'task.reviewed'])
       es.addEventListener(t, (ev) => { heard(); onEvent(t, ev as MessageEvent); });
     // the server ends the stream when this session was revoked: re-check, which returns to Connect with the reason
     es.addEventListener('auth', () => {
