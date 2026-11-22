@@ -97,3 +97,19 @@ describe('the mapping table', () => {
     expect(md).toMatch(/no equivalent/i);
   });
 });
+
+// Fix round, ruling S2: the stored spec pages are Apache-2.0 material, so the licence text and the attribution sit next to them.
+describe('the stored spec pages carry their licence', () => {
+  it('has the Apache License 2.0 text and a SOURCE.md that states verbatim, the authors, the licence, the URL and the commit', () => {
+    const lic = readFileSync(join(SPEC_DIR, 'LICENSE'), 'utf8');
+    expect(lic).toMatch(/Apache License\s+Version 2\.0, January 2004/);
+    expect(lic).toMatch(/END OF TERMS AND CONDITIONS/);
+    const src = readFileSync(join(SPEC_DIR, 'SOURCE.md'), 'utf8');
+    expect(src).toMatch(/verbatim/i);
+    expect(src).toContain('The OpenTelemetry Authors');
+    expect(src).toContain('Apache-2.0');
+    expect(src).toContain('LICENSE');
+    expect(src).toContain(OTEL_GENAI_SPEC.repository);
+    expect(src).toContain(OTEL_GENAI_SPEC.commit);
+  });
+});
