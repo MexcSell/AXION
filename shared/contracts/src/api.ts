@@ -110,11 +110,15 @@ export interface LittleLawDto {
   status: 'pass' | 'fail' | 'insufficient'; reason: 'ok' | 'missing_close' | 'mismatch' | 'no_arrivals';
   avgOpen: number | null; lambdaTimesW: number | null; relError: number | null; relTol: number; absTol: number; missingClose: number; openNow: number;
 }
+/** Observed span: one row per supervisor agent in the latest org revision. A measure only; no number is recommended anywhere. */
+export interface SpanRowDto { supervisorId: string; name: string; dept: string; agents: number; openItems: number }
+export interface SpanDto { rows: SpanRowDto[]; note: string }
 export interface ReviewCapacityDto {
   windowDays: number; windowStart: string;
   minItems: number; minPeople: number; minPercentileN: number;
   total: CapacityCellDto; departments: CapacityDeptDto[];
   littles: LittleLawDto;
+  span: SpanDto;
   /** v1 does not measure utilisation: no handling time is recorded and there is no hours-per-week setting. Always null, with the reason. */
   utilisation: { value: null; reason: 'not_measured'; note: string };
 }

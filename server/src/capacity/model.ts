@@ -4,7 +4,7 @@
 // Every duration and every window bound comes from the database clock (now()) inside SQL.
 import type { Db, Tx } from '../db.ts';
 import { littlesLaw } from './littles.ts';
-import type { CapacityCellDto, CapacityDeptDto, ReviewCapacityDto } from '../../../shared/contracts/src/index.ts';
+import type { CapacityCellDto, CapacityDeptDto, ReviewCapacityDto, SpanRowDto } from '../../../shared/contracts/src/index.ts';
 
 /** Percentiles are null below this many decided items. */
 export const MIN_PERCENTILE_N = 20;
@@ -29,6 +29,12 @@ export const DEPARTMENT_RULE = 'The department of the agent that raised the item
  * no operator setting for review hours per week. Showing a number built on guesses would be worse than showing none.
  */
 export const UTILISATION_NOTE = 'Not measured in this version: AXION records how long a request waits for a decision, not how long a person spends handling it (no handling time), and there is no review hours per week setting yet.';
+/**
+ * Observed span: for each supervisor in the latest org revision, how many active agents report to them and how many open items those
+ * agents raised. It is a measure only. No source gives a safe span of control, so none is claimed, and no field here holds a limit.
+ * The rows are agents (not people), listed alphabetically, never by load.
+ */
+export const SPAN_NOTE = 'A measure only, from the latest org chart. No recommended number: no source gives a safe span of control.';
 export const departmentOfAgent = (dept: string | null | undefined): string => (dept && dept.trim() ? dept : UNASSIGNED);
 
 /**
@@ -108,9 +114,19 @@ export async function reviewCapacity(db: Db | Tx, tenantId: string, windowDays: 
   const empty: RawCell = { arrivals: 0, open_now: 0, decided_n: 0, people: 0, p50: null, p95: null, medq: null, sum_tis: 0, sum_overlap: 0, missing: 0 };
   const start = (await db.query(`select (now() - make_interval(hours => $1::int * 24)) as s`, [windowDays])).rows[0].s;
   const departments: CapacityDeptDto[] = rows.filter((r) => r.is_total !== 1).map((r) => ({ dept: r.dept as string, ...toCell(num(r), windowDays, viewerIsAdmin) }));
+  const span: SpanRowDto[] = (await db.query(
+    `with ${ITEMS_SQL},
+     rev as (select id from org_revisions where tenant_id = $1 order by seq desc limit 1)
+     select sup.id as supervisor_id, sup.name, coalesce(nullif(btrim(sup.dept), ''), '${UNASSIGNED}') as dept,
+            count(*) filter (where sub.status = 'active')::int as agents,
+            (select count(*) from items i where i.is_open and i.agent in (select e2.subordinate_id from org_edges e2 where e2.revision_id = (select id from rev) and e2.supervisor_id = sup.id))::int as open_items
+       from org_edges e join agent_definitions sup on sup.id = e.supervisor_id and sup.tenant_id = $1 join agent_definitions sub on sub.id = e.subordinate_id
+      where e.revision_id = (select id from rev) group by sup.id, sup.name, sup.dept order by sup.name, sup.id`, [tenantId, windowDays])).rows
+    .map((r) => ({ supervisorId: r.supervisor_id as string, name: r.name as string, dept: r.dept as string, agents: Number(r.agents), openItems: Number(r.open_items) }));
   return {
     windowDays, windowStart: new Date(start).toISOString(), minItems: MIN_ITEMS, minPeople: MIN_PEOPLE, minPercentileN: MIN_PERCENTILE_N,
     total: toCell(total ? num(total) : empty, windowDays, viewerIsAdmin), departments,
+    span: { rows: span, note: SPAN_NOTE },
     utilisation: { value: null, reason: 'not_measured', note: UTILISATION_NOTE },
     littles: (() => { const t = total ? num(total) : empty; return littlesLaw({ arrivals: t.arrivals, sumTisMs: t.sum_tis, sumOverlapMs: t.sum_overlap, windowMs: windowDays * 86_400_000, missingClose: t.missing, openNow: t.open_now }); })(),
   };
