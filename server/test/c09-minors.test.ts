@@ -142,9 +142,12 @@ describe('7. approvals say who decided', () => {
     const a = await tx(t.app.db, (c) => requestApproval(c, { tenantId: 't-1', missionId: mid, agentId: 'release-01', kind: 'submit_form', title: 'Send', detail: 'd', payload: { v: 2 }, expiresInMin: 60 }));
     const before = (await mina.b.req('GET', '/approvals')).body.approvals.find((x: any) => x.id === a.id);
     expect(before.decidedByName).toBeNull();
-    expect((await mina.b.req('POST', `/approvals/${a.id}/decision`, { decision: 'approved', digest: a.digest }, key())).status).toBe(200);
+    const dec = await mina.b.req('POST', `/approvals/${a.id}/decision`, { decision: 'approved', digest: a.digest }, key());
+    expect(dec.status).toBe(200);
     const after = (await mina.b.req('GET', '/approvals')).body.approvals.find((x: any) => x.id === a.id);
     expect(after.decidedByName).toBe('Mina');
+    expect(dec.body.approval.decidedByName, 'the decision response names the decider too (H10 item 4)').toBe('Mina');
+    expect(dec.body.approval).toEqual(after); // the same row, the same join, as GET /approvals
     void m1;
   });
 });

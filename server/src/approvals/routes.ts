@@ -52,7 +52,9 @@ export default async function approvalRoutes(app: FastifyInstance) {
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'approval.decide', subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { decision: b.decision, mission: a.mission_id } });
       await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'approval.decided', subject: a.mission_id, missionId: a.mission_id, payload: { approvalId: id, decision: b.decision, by: ctx.user.name } });
       const released = await settleMission(c, ctx.tenantId, a.mission_id, ctx.correlationId);
-      return { released, missionId: a.mission_id as string, approval: approvalDto((await c.query('select *, (expires_at < now()) as db_expired from approval_requests where id=$1', [id])).rows[0], Date.now(), ctx.user) };
+      return { released, missionId: a.mission_id as string, approval: approvalDto((await c.query(`select a.*, (a.expires_at < now()) as db_expired, du.name as decided_by_name from approval_requests a
+          left join lateral (select decided_by from approval_decisions d where d.approval_id=a.id order by d.decided_at desc limit 1) dd on true
+          left join users du on du.id=dd.decided_by where a.id=$1`, [id])).rows[0], Date.now(), ctx.user) };
     });
     if ('stale' in out) throw new ApiError('APPROVAL_STALE', 409, out.stale!);
     if (out.released) app.onMissionChanged?.(out.missionId, 'running'); // unfinished staffing continues
