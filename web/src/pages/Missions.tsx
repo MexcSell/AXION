@@ -28,7 +28,7 @@ import { MISSION_FILTERS, slug } from '@/config/nav';
 import { missionTotals, fmtTokens, fmtMin } from '@/data/activity';
 import { AGENT_BY_ID } from '@/data/agents';
 import { getMissionControl } from '@/data/missions';
-import { useMissionControl } from '@/api/missionControl';
+import { useMissionNodes } from '@/api/missionControl';
 import { hasDemoActivity, isApi } from '@/api/mode';
 import { useScorecard, rowOf } from '@/api/scorecard';
 import { MISSION_STATUS, TONE_VAR } from '@/data/roles';
@@ -134,7 +134,7 @@ export default function MissionsPage() {
     return () => window.removeEventListener('axion:mission-gone', on);
   }, [wantedId, nav]);
 
-  useMissionControl(m?.id, ['hierarchy']); // api mode: the selected mission's server data (Stage 6)
+  useMissionNodes(m?.id, ['hierarchy']); // api mode: the selected mission's server data (Stage 6)
   const mc = m ? getMissionControl(m) : null;
   const agentParam = sp.get('agent');
   const agentId = m && mc ? (agentParam && mc.nodes.some((n) => n.agentId === agentParam) ? agentParam : m.leadId) : '';
@@ -475,7 +475,7 @@ function MissionHeader({ m }: { m: Mission }) {
   const demoAct = hasDemoActivity(m);
   const NOT_MEASURED = 'Activity is not measured yet: tokens, time, CPU and RAM are recorded once agents execute (Stage 9/10).';
   // Review Focus 3: the version the lead's instance is pinned to, not the agent's current version
-  useMissionControl(m.id, ['hierarchy']);
+  useMissionNodes(m.id, ['hierarchy']);
   const leadVersion = getMissionControl(m).nodes.find((n) => n.agentId === m.leadId)?.versionLabel ?? lead?.version;
   const fold = <IconButton size="sm" icon={min ? ChevronsUpDown : ChevronsDownUp} label={min ? 'Expand mission header' : 'Minimize mission header'} onClick={() => setMin(!min)} aria-expanded={!min} className="mw-header-fold" />;
   if (min) return (

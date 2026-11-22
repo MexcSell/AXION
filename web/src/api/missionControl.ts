@@ -165,6 +165,17 @@ export function useMissionControl(missionId: string | undefined, parts: Part[] =
   useEffect(() => { if (isApi() && missionId) ensure(missionId, pk.split(',') as Part[]); }, [missionId, pk]);
   return entry;
 }
+/**
+ * c44: for views that only need the hierarchy (the page shell and the mission header): subscribes to the nodes alone, so a
+ * thread write (every live message replaces the entry object) does not re-render them. Loads the same parts as
+ * useMissionControl; getMissionControl(m) still reads the full state when the view renders.
+ */
+export function useMissionNodes(missionId: string | undefined, parts: Part[] = ['hierarchy']): MissionNode[] | undefined {
+  const nodes = useMC((s) => (missionId ? s.byMission[missionId]?.nodes : undefined));
+  const pk = parts.join(',');
+  useEffect(() => { if (isApi() && missionId) ensure(missionId, pk.split(',') as Part[]); }, [missionId, pk]);
+  return nodes;
+}
 /** The same for views that read several missions (agent profile, live instances); returns a value that changes with any of them. */
 export function useMissionControls(missionIds: string[], parts: Part[] = ALL): Record<string, McEntry> {
   const all = useMC((s) => s.byMission);
@@ -290,13 +301,29 @@ export function onMissionControlEvent(type: string, e: DomainEvent) {
   if (!mid) return;
   if (type === 'conversation.messageCreated' || type === 'conversation.receipt') {
     queued.push({ type, mid, e });
-    if (!flushTimer) flushTimer = window.setTimeout(flushMissionControlEvents, FLUSH_MS);
+    const delay = flushDelay(); // called for every event: it tracks the gap between events
+    if (!flushTimer) flushTimer = window.setTimeout(flushMissionControlEvents, delay);
   } else if (type.startsWith('instance.') || type.startsWith('task.')) {
     refreshSoon(mid, ['hierarchy', 'tasks', 'threads']);
   }
 }
 
 const FLUSH_MS = 60;
+/**
+ * c44: the flush interval adapts to load, between FLUSH_MS and FLUSH_MAX_MS. While events stream in back to back (the gap to
+ * the previous event is under STREAM_GAP_MS) and the last batch was big, the next flush waits longer so more events share
+ * one store write and one render. An event that arrives after a pause (a lone message right after a burst) or after a small
+ * batch is flushed after FLUSH_MS as usual.
+ */
+const FLUSH_MAX_MS = 400;
+const STREAM_GAP_MS = 100;
+let lastBatch = 0;
+let lastEventAt = 0;
+const flushDelay = () => {
+  const now = Date.now(), streaming = now - lastEventAt < STREAM_GAP_MS;
+  lastEventAt = now;
+  return streaming && lastBatch >= 8 ? Math.min(FLUSH_MAX_MS, FLUSH_MS + lastBatch * 12) : FLUSH_MS;
+};
 let queued: { type: string; mid: string; e: DomainEvent }[] = [];
 let flushTimer = 0;
 function dropQueued(mid?: string) {
@@ -310,6 +337,7 @@ export function flushMissionControlEvents() {
   if (!queued.length) return;
   const batch = queued;
   queued = [];
+  lastBatch = batch.length;
   const before = useMC.getState().byMission;
   let byMission = before;
   const refresh = new Set<string>();
