@@ -73,3 +73,39 @@ Screenshots: `web/docs/improve/cycles/c47-screens/c47-development-1366x768.png` 
 - Advisory-lock note from the controller: this lane adds no `pg_advisory*` calls (freeze and case serialisation use row locks, `FOR UPDATE` and `FOR SHARE`). `eval-evidence.test.ts` uses `AG = 'knowledge-01'` because `version-proposals.test.ts` deliberately holds coder-01's database-global advisory lock, and parallel files timed out on it (500, "lock timeout"). The integrator is making those keys schema-scoped. The only edit to `version-proposals.test.ts` is the `decide` helper.
 - On a 1366x768 screen the page does not scroll, but the proposal list scrolls inside its panel when there are several cards.
 - Judge family and evaluator are recorded by whoever writes the run. No route exists to write runs yet (E1c).
+
+## Fix round (review c47-review.md, PASS-WITH-FIXES)
+
+RED to GREEN for each item. The DB items were run RED against the first 0037 and the new tests, then GREEN. The server items were RED on the new tests before the code (15 failing), GREEN after.
+
+- **M1, freeze fails closed (RED: 15 failed, including the property test finding a real hash mismatch; GREEN: 49/49 in `eval-evidence-db.test.ts`).**
+  - `eval_dataset_sha` now raises, so freeze, the guard trigger and the verify path all refuse, for:
+    - integers above 2^53-1;
+    - non-integers with more than 15 significant digits, below 1e-6 or from 1e21 up (this covers exponent and non-finite forms);
+    - any key or case id with a code point from U+E000 up. I took the refuse option rather than proving a UTF-16 ordering equal.
+  - The old, wrong comment in the migration and the "fails closed" wording of the first report are replaced.
+  - Committed tests: every shape the reviewer listed (13 risky shapes, 7 friendly ones), plus a seeded property test of 300 generated datasets. Each one is either refused or its stored hash equals `hashDataset(stored cases)`. The run froze 31 and refused 269, so both sides are exercised.
+  - The conservative rule also refuses a 16-digit integer-valued decimal and `0.30000000000000004` (17 digits). Both match in JS but are not worth proving.
+- **M3, `evaluationSha`.**
+  - It is exposed on the DTO. It hashes `[candidateRunId, baseRunId, datasetId, datasetSha, outcome, runCount, refusal codes]`, and uses a fixed sentinel when there is no evaluation (two such proposals share it).
+  - A promote must carry it, otherwise 409 `EVALUATION_CHANGED`. The check runs after expiry and before the gate (so it also comes before `EVAL_WORSE`), and is audited as denied.
+  - The UI sends the one it displayed. A reject does not need it.
+  - Tests: a run added after review gives 409, then promotes after review again. A wrong or missing sha gives 409 even for a worse candidate.
+  - The audit row of a promote now records `evaluationSha`, `baseRunId` and `candidateRunId`.
+- **M2, worse.**
+  - `worse` now also fires, at n >= the policy minimum with no refusal, when the 95% interval of the paired mean is entirely below 0, or when the verdict is significant and not better with a negative mean.
+  - Tests (each also checks that an override cannot promote it): 7 small wins and 5 large losses give `worse` through the interval; 13 small wins and 3 big losses give `worse` through the significant negative mean. A positive-mean candidate with the same sign counts is not worse.
+- **Re-run shopping.**
+  - A second candidate run on the same holdout (finished or not) gives refusal `holdout_rerun` with "freeze a fresh holdout dataset". So does a candidate with finished runs on two holdout datasets. The DTO lists `runCount`, and the card shows a "N runs" chip.
+  - `dev_holdout_reuse` was kept and made a real signal. It fires when a dev dataset the candidate ran on shares a case input with the evidence holdout. A disjoint dev dataset does not trigger it, and test fixtures now give each dataset its own inputs.
+- **Lows.**
+  - The base run is held to the same rules: new refusals `base_evaluator_is_author` and `base_self_judging`.
+  - The `.catch` in `eval-model.test.ts` now only swallows "already frozen".
+  - `version-proposals.test.ts` keeps an explicit promote-without-override to 409 `EVAL_OVERRIDE_REQUIRED` test.
+  - Not changed (L4): `modelFamily` stays label-based. E1c, which adds the write route, must validate judge labels.
+- **UI.**
+  - The evidence block is one line: chip, n, wins/losses and the mean gain. The interval, pass^1, dataset hash and the full refusal list sit behind "Details", and the summary line names the refusal codes. The hypothesis is clamped to one line, and the diff shares the chips row.
+  - `api-c47` has a new check, 26/26 in all. With an evaluation on the card, the override field, Promote and Reject are fully inside the panel's visible area at 1366x768 without scrolling.
+  - Screenshots in `c47-screens/`, dark and light: `c47-pending-dark-1366x768.png`, `c47-pending-light-1366x768.png`, `c47-decided-override-dark-1366x768.png`, `c47-decided-override-light-1366x768.png`. The last two show a decided proposal with its override reason. The mislabelled earlier shots were removed.
+- **Re-runs.** Server and web tsc are clean. Full vitest: 51 files, 1542 tests, all pass (66 new tests became 106). `api-c05` 31/31, `api-stage6` 94/94, `api-c47` 26/26. verify-all: ALL 10 STEPS PASSED.
+- **Advisory locks.** Still none added by this lane.

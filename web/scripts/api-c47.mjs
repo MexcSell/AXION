@@ -120,12 +120,23 @@ try {
   await B.p.keyboard.press('Escape');
   check('the override field has its own ?', (await card(1).locator('[data-help-key="agent.version.override"]').count()) === 1);
 
+  // ---- the action (override field + Promote) is visible without scrolling the panel
+  const inView = (loc) => loc.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    let a = el.parentElement;
+    while (a && a !== document.documentElement) { const o = getComputedStyle(a).overflowY; if ((o === 'auto' || o === 'scroll' || o === 'hidden') && a.scrollHeight > a.clientHeight + 1) break; a = a.parentElement; }
+    const c = a && a !== document.documentElement ? a.getBoundingClientRect() : { top: 0, bottom: innerHeight };
+    return r.top >= c.top - 1 && r.bottom <= c.bottom + 1 && r.bottom <= innerHeight;
+  });
+  await settled(B.p);
+  check('with an evaluation on the card, its override field and Promote are visible without scrolling the panel',
+    await inView(card(2).locator('[data-override-reason]')) && await inView(card(2).getByRole('button', { name: 'Promote', exact: true })) && await inView(card(2).getByRole('button', { name: 'Reject', exact: true })));
   // ---- fits 1366x768: the page itself never scrolls, nothing sideways
   await settled(B.p);
   const fit = await B.p.evaluate(() => ({ page: document.documentElement.scrollHeight - innerHeight, side: document.documentElement.scrollWidth - innerWidth, w: innerWidth, h: innerHeight }));
   check('fits 1366x768: no page scroll and no sideways scroll', fit.w === 1366 && fit.h === 768 && fit.page <= 0 && fit.side <= 0, JSON.stringify(fit));
-  await B.p.screenshot({ path: `${SHOTS}/c47-development-1366x768.png` });
-  if (DOC) await B.p.screenshot({ path: `${DOC}/c47-development-1366x768.png` });
+  await B.p.screenshot({ path: `${SHOTS}/c47-pending-dark-1366x768.png` });
+  if (DOC) await B.p.screenshot({ path: `${DOC}/c47-pending-dark-1366x768.png` });
 
   // ---- the gate in the UI
   await card(1).getByRole('button', { name: 'Promote', exact: true }).click();
@@ -148,18 +159,28 @@ try {
   check('its audit row records the verified outcome and the dataset hash', au0.length === 1 && au0[0].detail.evaluation.outcome === 'verified_better' && /^[0-9a-f]{64}$/.test(au0[0].detail.evaluation.datasetSha) && au0[0].detail.overrideReason === undefined);
 
   // ---- API: worse is refused even with an override; a caller cannot set the evidence
-  const w = await apiB('POST', `/version-proposals/${P[3].id}/decision`, { decision: 'promote', sha: P[3].sha, overrideReason: 'I disagree with the measurement.' });
+  const cur = ((await apiB('GET', '/version-proposals')).body.proposals ?? []);
+  const evSha = (i) => cur.find((p) => p.id === P[i].id).evaluationSha;
+  const w = await apiB('POST', `/version-proposals/${P[3].id}/decision`, { decision: 'promote', sha: P[3].sha, evaluationSha: evSha(3), overrideReason: 'I disagree with the measurement.' });
   check('API: promoting a worse candidate is 409 EVAL_WORSE even with an override', w.status === 409 && w.body.code === 'EVAL_WORSE');
-  const fake = await apiB('POST', `/version-proposals/${P[2].id}/decision`, { decision: 'promote', sha: P[2].sha, overrideReason: 'a fake hash is no reason', observedSha256: 'f'.repeat(64) });
+  const fake = await apiB('POST', `/version-proposals/${P[2].id}/decision`, { decision: 'promote', sha: P[2].sha, evaluationSha: evSha(2), overrideReason: 'a fake hash is no reason', observedSha256: 'f'.repeat(64) });
   check('API: a fake hash in the request is refused (400)', fake.status === 400);
   const still = ((await apiB('GET', '/version-proposals')).body.proposals ?? []);
   check('API: the evaluations did not change and the other two are still pending', still.find((p) => p.id === P[3].id)?.evaluation.outcome === 'worse' && still.find((p) => p.id === P[2].id)?.evaluation.outcome === 'inconclusive' && still.filter((p) => p.status === 'pending').length === 2);
-  await B.p.reload({ waitUntil: 'domcontentloaded' });
-  await B.p.getByText('All', { exact: true }).click();
-  check('after a reload the override reason is still on the promoted card', await until(async () => (await card(1).locator('[data-override-shown]').count()) === 1, 12000));
-  await settled(B.p);
-  await B.p.screenshot({ path: `${SHOTS}/c47-decided-1366x768.png` });
-  if (DOC) await B.p.screenshot({ path: `${DOC}/c47-decided-1366x768.png` });
+  const shot = async (name) => { await settled(B.p); await B.p.screenshot({ path: `${SHOTS}/${name}.png` }); if (DOC) await B.p.screenshot({ path: `${DOC}/${name}.png` }); };
+  const themed = async (mode) => {
+    await B.p.evaluate((m) => localStorage.setItem('axion.settings.v1', JSON.stringify({ state: { themeMode: m }, version: 0 })), mode);
+    await B.p.reload({ waitUntil: 'domcontentloaded' });
+    await B.p.locator('[data-version-proposals="ready"]').waitFor({ timeout: 15000 });
+  };
+  for (const mode of ['dark', 'light']) {
+    await themed(mode);
+    if (mode === 'light') await shot('c47-pending-light-1366x768');
+    await B.p.getByText('Decided', { exact: true }).click();
+    check(`${mode}: after a reload the override reason is still on the promoted card`, await until(async () => (await card(1).locator('[data-override-shown]').count()) === 1, 12000));
+    await card(1).scrollIntoViewIfNeeded();
+    await shot(`c47-decided-override-${mode}-1366x768`);
+  }
   check('no page errors or console errors', errors.length === 0, errors.join(' | '));
 } catch (e) {
   check('script ran to the end', false, String(e?.stack ?? e).split('\n').slice(0, 4).join(' / '));

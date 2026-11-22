@@ -62,30 +62,41 @@ export const EVAL_OUTCOME: Record<EvalOutcome, { label: string; hue: number; ico
 const pts = (x: number | null) => (x === null ? 'n/a' : `${x > 0 ? '+' : ''}${x.toFixed(1)}`);
 const pct = (x: number | null | undefined) => (x === null || x === undefined ? 'n/a' : `${Math.round(x * 100)}%`);
 
-/** The measured evidence for a candidate: outcome chip, n, the numbers, and every refusal reason. Only server values. */
+/** The measured evidence for a candidate, compact: outcome chip, n, wins/losses and the mean gain on one line; the interval,
+    pass^1, dataset and every refusal reason sit behind "Details" (the reasons are named on the summary line). Only server values. */
 export function EvaluationView({ e, sample }: { e: ProposalEvaluationDto; sample?: boolean }) {
   const O = EVAL_OUTCOME[e.outcome];
+  const codes = e.refusals.map((r) => r.code);
   return (
-    <div className="col" style={{ gap: 6, fontSize: 12, padding: '8px 10px', borderRadius: 10, background: 'var(--panel-3)', border: '1px solid var(--border-soft)' }} data-evaluation={e.outcome} data-evaluation-sample={sample ? '1' : undefined}>
+    <div className="col" style={{ gap: 3, fontSize: 12, padding: '6px 10px', borderRadius: 10, background: 'var(--panel-3)', border: '1px solid var(--border-soft)' }} data-evaluation={e.outcome} data-evaluation-sample={sample ? '1' : undefined}>
       <div className="row wrap" style={{ gap: 6 }}>
         <FlaskConical size={14} className="dim" aria-hidden />
         <span data-eval-outcome={e.outcome}><Chip hue={O.hue} icon={O.icon} size="sm" solid={e.outcome === 'verified_better'} title={O.hint}>{O.label}</Chip></span>
         <span className="tnum" data-eval-n={e.n} title="Cases scored on both the active version and the candidate">n = {e.n}</span>
+        <span className="dim tnum">{e.wins} won · {e.losses} lost · mean {pts(e.delta)} pts</span>
+        {e.runCount > 1 && <Chip hue={38} size="sm" title="More than one run on this holdout">{e.runCount} runs</Chip>}
         {sample && <Chip hue={225} size="sm" title="Demo data: nothing was measured">Sample</Chip>}
         <span className="spacer" /><HelpTrigger k="agent.version.evaluation" />
       </div>
-      <div className="row wrap dim tnum" style={{ gap: 10 }}>
-        <span>{e.wins} won · {e.losses} lost · {e.ties} tied</span>
-        <span>mean {pts(e.delta)} pts{e.ci.low !== null && e.ci.high !== null ? ` (95% ${pts(e.ci.low)} to ${pts(e.ci.high)})` : ''}</span>
-        {e.passHatK.baseline[0] !== undefined && <span>pass^1 {pct(e.passHatK.baseline[0])} → {pct(e.passHatK.candidate[0])}</span>}
-        <span className="mono" title={e.datasetSha ?? ''}>holdout {e.datasetId}{e.datasetSha ? ` · ${e.datasetSha.slice(0, 8)}` : ''}</span>
-      </div>
-      {e.refusals.length > 0 && (
-        <ul className="col" style={{ gap: 2, margin: 0, paddingLeft: 16 }} data-eval-refusals aria-label="Why this evaluation is not trusted">
-          {e.refusals.map((r) => <li key={r.code + r.detail} data-refusal={r.code}><b className="mono">{r.code}</b>: {r.detail}</li>)}
-        </ul>
-      )}
-      {e.refusals.length === 0 && e.outcome !== 'verified_better' && e.reasons.length > 0 && <div className="dim" data-eval-reason>{e.reasons[0]}</div>}
+      <details data-eval-details>
+        <summary className="dim" style={{ cursor: 'pointer', fontSize: 11.5 }} data-eval-summary>
+          {codes.length ? <>Not trusted: <span className="mono">{codes.slice(0, 2).join(', ')}{codes.length > 2 ? ` +${codes.length - 2}` : ''}</span></> : e.outcome === 'verified_better' ? 'Details' : (e.reasons[0] ?? 'Details')}
+        </summary>
+        <div className="col" style={{ gap: 3, marginTop: 4 }}>
+          <div className="row wrap dim tnum" style={{ gap: 10 }}>
+            <span>{e.ties} tied</span>
+            <span>{e.ci.low !== null && e.ci.high !== null ? `95% interval ${pts(e.ci.low)} to ${pts(e.ci.high)}` : 'no interval'}</span>
+            {e.passHatK.baseline[0] !== undefined && <span>pass^1 {pct(e.passHatK.baseline[0])} → {pct(e.passHatK.candidate[0])}</span>}
+            <span className="mono" title={e.datasetSha ?? ''}>holdout {e.datasetId}{e.datasetSha ? ` · ${e.datasetSha.slice(0, 8)}` : ''}</span>
+          </div>
+          {e.refusals.length > 0 && (
+            <ul className="col" style={{ gap: 2, margin: 0, paddingLeft: 16 }} data-eval-refusals aria-label="Why this evaluation is not trusted">
+              {e.refusals.map((r) => <li key={r.code + r.detail} data-refusal={r.code}><b className="mono">{r.code}</b>: {r.detail}</li>)}
+            </ul>
+          )}
+          {e.refusals.length === 0 && e.reasons.length > 0 && e.outcome !== 'verified_better' && <div className="dim" data-eval-reason>{e.reasons.join(' ')}</div>}
+        </div>
+      </details>
     </div>
   );
 }
@@ -133,16 +144,16 @@ export function VersionProposalCard({ p, meId, admin, index, err, setErr, showAg
         </div>
         <Chip hue={S.hue} icon={S.icon} size="sm" solid={pending} className={cx(pending && 'oa-pulse')}>{S.label}</Chip>
       </div>
-      <p className="muted" style={{ fontSize: 12.5, margin: '8px 0 0' }} data-hypothesis><span className="dim">Hypothesis: </span>{p.hypothesis}</p>
-      <div className="row wrap" style={{ gap: 6, margin: '8px 0' }}>
+      <p className="muted" style={{ fontSize: 12.5, margin: '6px 0 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} data-hypothesis title={p.hypothesis}><span className="dim">Hypothesis: </span>{p.hypothesis}</p>
+      <div className="row wrap" style={{ gap: 6, margin: '6px 0' }}>
         <Chip hue={225} size="sm" className="mono" title="The active version when this was proposed">{p.baseVersionLabel}</Chip>
         <ArrowRight size={12} className="dim" aria-hidden />
         {p.promotedVersionLabel ? <Chip hue={145} icon={CheckCircle2} size="sm" className="mono" title="The version this promotion created">{p.promotedVersionLabel}</Chip> : <Chip hue={290} size="sm" title="Becomes the next version when promoted">candidate</Chip>}
         {p.stale && <Chip hue={0} icon={AlertTriangle} size="sm" title="The agent changed since: this proposal can only be rejected or withdrawn">stale: base is no longer active</Chip>}
         {pending && <Chip hue={260} icon={Hourglass} size="sm" title={new Date(p.expiresAt).toLocaleString()}>expires in {leftH >= 48 ? `${Math.round(leftH / 24)} d` : `${Math.ceil(leftH)} h`}</Chip>}
+        <VersionDiffView d={p.diff} />
       </div>
-      <VersionDiffView d={p.diff} />
-      <div style={{ marginTop: 8 }}>{p.evaluation ? <EvaluationView e={p.evaluation} /> : <NoEvaluation />}</div>
+      <div>{p.evaluation ? <EvaluationView e={p.evaluation} /> : <NoEvaluation />}</div>
       {p.decidedByName && !pending && (
         <div className="dim" style={{ fontSize: 12, marginTop: 8 }}>{S.label} by {p.decidedByName}{p.decidedAt ? ` · ${ago((Date.now() - new Date(p.decidedAt).getTime()) / 60_000)}` : ''}{p.note ? <> · “{p.note}”</> : null}</div>
       )}

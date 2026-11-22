@@ -48,7 +48,7 @@ export async function createVersionProposal(agentId: string, body: VersionPropos
 }
 /** overrideReason: the written reason to promote without a verified evaluation (the server decides whether it is needed). */
 export async function decideVersionProposal(p: VersionProposalDto, decision: 'promote' | 'reject', note: string, overrideReason = ''): Promise<Write<VersionProposalDto>> {
-  try { const r = await api<{ proposal: VersionProposalDto }>('POST', `/version-proposals/${p.id}/decision`, { decision, sha: p.sha, ...(note.trim() ? { note: note.trim() } : {}), ...(decision === 'promote' && overrideReason.trim() ? { overrideReason: overrideReason.trim() } : {}) }); after(); return { ok: true, value: r.proposal }; }
+  try { const r = await api<{ proposal: VersionProposalDto }>('POST', `/version-proposals/${p.id}/decision`, { decision, sha: p.sha, ...(note.trim() ? { note: note.trim() } : {}), ...(decision === 'promote' ? { evaluationSha: p.evaluationSha } : {}), ...(decision === 'promote' && overrideReason.trim() ? { overrideReason: overrideReason.trim() } : {}) }); after(); return { ok: true, value: r.proposal }; }
   catch (e) { bumpVersionProposals(); return fail(e); } // e.g. stale or expired: show the current state too
 }
 export async function withdrawVersionProposal(p: VersionProposalDto): Promise<Write<VersionProposalDto>> {

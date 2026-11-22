@@ -211,7 +211,7 @@ function AgentTable({ list, onOpen }: { list: Agent[]; onOpen: (id: string) => v
 const DEMO_EVAL: ProposalEvaluationDto = {
   outcome: 'inconclusive', n: 8, wins: 6, losses: 1, ties: 1, k: 1, delta: 9.4, ci: { low: -2.1, high: 20.9 }, baselineMean: 61.2, candidateMean: 70.6,
   passHatK: { baseline: [0.5], candidate: [0.75] }, refusals: [], reasons: ['8 cases scored on both versions; the policy needs 10'], notes: [],
-  datasetId: 'holdout-demo', datasetSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9', baseRunId: null, candidateRunId: 'demo',
+  datasetId: 'holdout-demo', datasetSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9', baseRunId: null, candidateRunId: 'demo', runCount: 1,
 };
 function Development() {
   const nav = useNavigate();
