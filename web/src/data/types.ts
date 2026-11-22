@@ -203,6 +203,8 @@ export interface Approval {
   expiresMin: number;
   agoMin: number;
   status: 'pending' | 'approved' | 'denied';
+  /** api mode: name of the user who decided it (server) */
+  decidedByName?: string | null;
 }
 
 export interface TimelineEvent {

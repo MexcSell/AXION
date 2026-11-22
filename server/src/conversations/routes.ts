@@ -6,17 +6,11 @@ import { ApiError, notFound } from '../errors.ts';
 import { requireUser } from '../auth/session.ts';
 import { idempotent } from '../idempotency.ts';
 import { getVisibleRow } from '../missions/service.ts';
-import { HUMAN_POST_KINDS, MAX_BODY } from '../../../shared/contracts/src/conversations.ts';
+import { assertReplyInThread, invalid, parsePost } from './post.ts';
 import { addReceipt, appendMessage, ensureThread, getThreadFor, loadAttachments, missionThreads, readPage } from './service.ts';
 import { ensureHonestNote } from './honest.ts';
 
 declare module 'fastify' { interface FastifyInstance { onMessagePosted?: (messageId: string) => void } }
-
-const invalid = (fieldErrors: Record<string, string>) => new ApiError('VALIDATION', 422, 'Some fields are not valid.', { fieldErrors });
-const PostIn = z.object({
-  kind: z.string(), text: z.string().max(MAX_BODY, `at most ${MAX_BODY} characters`).default(''), to: z.string().min(1).max(200),
-  replyTo: z.string().max(100).optional(), uploadIds: z.array(z.string().max(40)).max(10).default([]),
-}); // unknown keys (from, author, simulated, ...) are dropped: authorship comes from the session
 
 export default async function conversationRoutes(app: FastifyInstance) {
   app.get('/missions/:id/threads', async (req) => {
@@ -53,12 +47,8 @@ export default async function conversationRoutes(app: FastifyInstance) {
   app.post('/threads/:id/messages', async (req, reply) => {
     const ctx = await requireUser(req);
     const { id } = req.params as { id: string };
-    const p = PostIn.safeParse(req.body ?? {});
-    if (!p.success) throw invalid(Object.fromEntries(p.error.issues.map((i) => [i.path.join('.') || '_', i.message])));
-    const b = p.data;
-    if (!(HUMAN_POST_KINDS as readonly string[]).includes(b.kind)) throw invalid({ kind: 'people can only send a command or a reply' });
-    const text = b.text.trim();
-    if (!text && !b.uploadIds.length) throw invalid({ text: 'write a message or attach a file' });
+    const b = parsePost(req.body, { withTo: true });
+    const text = b.text;
     let fresh = false;
     const out = await idempotent(app.db, req, ctx, async (c) => {
       fresh = false;
@@ -69,6 +59,7 @@ export default async function conversationRoutes(app: FastifyInstance) {
       const parts = (await c.query(`select p.id, i.agent_id from (values ($1::text), ($2::text)) p(id) left join agent_instances i on i.id=p.id`, [th.a, th.b])).rows;
       const target = parts.find((x) => x.id !== 'human' && (x.id === b.to || x.agent_id === b.to));
       if (!target) throw invalid({ to: 'must be an agent in this conversation' });
+      await assertReplyInThread(c, th.id, b.replyTo);
       const atts = await loadAttachments(c, ctx, b.uploadIds);
       const msg = await appendMessage(c, { thread: th, authorKind: 'human', authorId: ctx.user.id, recipient: target.id, kind: b.kind, body: text, replyTo: b.replyTo ?? null,
         simulated: false, attachments: atts, correlationId: ctx.correlationId, status: th.demo ? undefined : 'queued' });

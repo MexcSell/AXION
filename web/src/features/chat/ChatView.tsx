@@ -89,7 +89,7 @@ export const ChatBubble = memo(function ChatBubble({ m, right, compact, missionI
         {m.kind === 'question' && missionId && (
           <div className="row warn" style={{ gap: 5, fontSize: 11.5, marginTop: 4 }}>
             <ShieldAlert size={12} />Waiting for your reply · {m.replyTo ?? m.id}
-            <button className="btn sm" style={{ marginLeft: 'auto', height: 24 }} onClick={() => openDialog('send-command', { missionId, agentId: m.from, mode: 'reply', replyTo: m.replyTo ?? m.id, question: m.text })}>Reply…</button>
+            <button className="btn sm" style={{ marginLeft: 'auto', height: 24 }} onClick={() => openDialog('send-command', { missionId, agentId: m.from, mode: 'reply', replyTo: m.id, question: m.text })}>Reply…</button>
           </div>
         )}
       </div>

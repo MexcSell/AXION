@@ -1,6 +1,6 @@
 import { useEffect, useMemo, type ReactNode } from 'react';
 import { isApi } from '@/api/mode';
-import { useChannels, openChannel, loadOlderChannel, markChannelRead, sendChannelMessage } from '@/api/chat';
+import { useChannels, openChannel, loadOlderChannel, markChannelRead, flushChannelMark, sendChannelMessage } from '@/api/chat';
 import { useUI } from '@/store/ui';
 import { Crown, ShieldCheck } from 'lucide-react';
 import { Chip } from '@/components/ui/Chips';
@@ -32,6 +32,7 @@ export function ChannelChat({ channel, title, modes, compact, className, headRig
   const msgs = useMemo(() => (srv && !ch?.messages ? [] : [...greeting(channel, channelUser?.name ?? listName ?? meName, srv), ...stored]), [channel, stored, channelUser?.name, listName, meName, srv, ch?.messages]);
   useEffect(() => { if (srv && !ch && me) void openChannel(channel); }, [srv, ch, me, channel]);
   useEffect(() => { if (!me) return; if (srv) markChannelRead(channel); else markRead(me.id, channel); }, [me, srv, channel, stored.length, markRead]);
+  useEffect(() => () => { if (srv) flushChannelMark(channel); }, [srv, channel]); // closing the channel sends its pending read mark
   if (!me) return null;
 
   const agent = info.agentId ? AGENT_BY_ID[info.agentId] : undefined;

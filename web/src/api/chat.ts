@@ -134,6 +134,16 @@ function setUnread(id: string, n: number) {
 }
 const lastRead = new Map<string, number>();
 const readTimers = new Map<string, number>();
+/** The channel closed: send its pending trailing read mark now (once), so the server still records the newest message as read. */
+export function flushChannelMark(id: string) {
+  const x = readTimers.get(id);
+  if (!x) return;
+  window.clearTimeout(x); readTimers.delete(id);
+  const path = channelPath(id, meId);
+  if (!path || !useChannels.getState().by[id]?.messages) return;
+  lastRead.set(id, Date.now());
+  void api('GET', `${path}/messages?limit=1`).catch(() => undefined);
+}
 /** The channel is on screen and shows its newest messages: clear its unread count here and on the server (one cheap read, throttled). */
 export function markChannelRead(id: string) {
   const path = channelPath(id, meId);

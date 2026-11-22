@@ -24,3 +24,6 @@ export type EventType =
   | 'mentoring.planned' | 'mentoring.milestoneDone' | 'mentoring.closed'
   | 'org.proposalCreated' | 'org.proposalDecided' | 'org.revisionApplied'
   | 'user.requested' | 'user.changed' | 'auth.approved';
+
+/** `task.delegated`: one payload shape for both subjects (an instance joining under its manager, or a task reassigned). */
+export interface TaskDelegatedPayload { taskId?: string; fromInstance: string; toInstance: string; kind: 'delegated'; simulated?: boolean; by?: string }

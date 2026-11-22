@@ -1,18 +1,15 @@
 import type { FastifyInstance } from 'fastify';
-import { z } from 'zod';
 import type { Tx, Db } from '../db.ts';
 import { audit } from '../audit.ts';
 import { ApiError, notFound } from '../errors.ts';
 import { requireUser, type Ctx } from '../auth/session.ts';
 import { idempotent } from '../idempotency.ts';
 import { createNotification } from '../notifications/routes.ts';
-import { HONEST_NOTE_GM, HUMAN_POST_KINDS, MAX_BODY, honestNoteAgent } from '../../../shared/contracts/src/conversations.ts';
+import { HONEST_NOTE_GM, honestNoteAgent } from '../../../shared/contracts/src/conversations.ts';
 import { addReceipt, appendMessage, ensureDirectThread, findDirectThread, listChannels, loadAttachments, parseChannelKey, readPage, type ChannelKey } from './service.ts';
 import { ensureHonestNote } from './honest.ts';
+import { assertReplyInThread, invalid, parsePost } from './post.ts';
 
-const invalid = (fieldErrors: Record<string, string>) => new ApiError('VALIDATION', 422, 'Some fields are not valid.', { fieldErrors });
-// unknown keys (from, to, author, simulated, ...) are dropped: the author is the session user, the recipient follows from the channel
-const PostIn = z.object({ kind: z.string(), text: z.string().max(MAX_BODY, `at most ${MAX_BODY} characters`).default(''), replyTo: z.string().max(100).optional(), uploadIds: z.array(z.string().max(40)).max(10).default([]) });
 
 /**
  * Which channel a request means. A member's channel is always their own (the owner is the session user). Only an administrator may
@@ -50,15 +47,12 @@ export default async function directRoutes(app: FastifyInstance) {
 
   const write = async (req: any, reply: any, rawKey: string, userId?: string) => {
     const ctx = await requireUser(req);
-    const p = PostIn.safeParse(req.body ?? {});
-    if (!p.success) throw invalid(Object.fromEntries(p.error.issues.map((i) => [i.path.join('.') || '_', i.message])));
-    const b = p.data;
-    if (!(HUMAN_POST_KINDS as readonly string[]).includes(b.kind)) throw invalid({ kind: 'people can only send a command or a reply' });
-    const text = b.text.trim();
-    if (!text && !b.uploadIds.length) throw invalid({ text: 'write a message or attach a file' });
+    const b = parsePost(req.body, { withTo: false });
+    const text = b.text;
     const out = await idempotent(app.db, req, ctx, async (c) => {
       const r = await resolve(c, ctx, rawKey, userId);
       const th = await ensureDirectThread(c, ctx.tenantId, r.ownerId, r.key);
+      await assertReplyInThread(c, th.id, b.replyTo);
       const atts = await loadAttachments(c, ctx, b.uploadIds);
       const toOwner = r.ownerId !== ctx.user.id; // an administrator answering in a user's admin line
       const recipient = r.key.kind === 'gm' ? 'gm' : r.key.kind === 'agent' ? r.key.agentId! : toOwner ? `human:${r.ownerId}` : 'admins';

@@ -177,7 +177,7 @@ function ProfileTab({ a }: { a: Agent }) {
           <dt>Role</dt><dd><RoleChip role={a.role} size="sm" /></dd>
           <dt>Department</dt><dd>{a.dept}</dd>
           <dt>Manager</dt><dd>{mgr ? <button className="oa-link-btn" onClick={() => nav(`/agents/${mgr.id}`)}>{mgr.name}</button> : 'Owner'}</dd>
-          <dt>Owner</dt><dd>Luca (Owner)</dd>
+          <dt>Owner</dt><dd>{isApi() ? 'Administrators' : 'Luca (Owner)'}</dd>
           <dt>Active version</dt><dd className="mono">{a.version} <span className="dim">(pinned for new instances)</span></dd>
           <dt>Status</dt><dd><AgentStatusChip status={a.status} size="sm" /></dd>
           <dt>Model route</dt><dd className="mono">{a.model}</dd>

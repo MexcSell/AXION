@@ -49,7 +49,7 @@ export async function joinMission(c: Tx, i: NewInstance & { managerAgentId: stri
   await emit(c, { tenantId: i.tenantId, type: 'instance.created', subjectKind: 'instance', subject: to, missionId: i.missionId, actor: i.managerAgentId, actorKind: 'agent',
     payload: { instanceId: to, agentId: i.agentId, managerInstanceId: from, simulated: i.simulated } });
   await emit(c, { tenantId: i.tenantId, type: 'task.delegated', subjectKind: 'instance', subject: to, missionId: i.missionId, actor: i.managerAgentId, actorKind: 'agent',
-    payload: { from, to, kind: 'delegated', simulated: i.simulated } });
+    payload: { fromInstance: from, toInstance: to, kind: 'delegated', simulated: i.simulated } });
   return true;
 }
 
@@ -101,11 +101,19 @@ export async function taskById(c: Tx | Db, id: string) {
   return r ? taskDto(r) : undefined;
 }
 
-export async function listInstances(c: Tx | Db, ctx: { tenantId: string; user: { id: string; role: string } }, agentId?: string) {
+export const INSTANCE_PAGE = 500, INSTANCE_MAX = 2000;
+/** One page of visible instances, newest first (by seq). `before` is the `nextBefore` of the previous page; `truncated` says more rows exist. */
+export async function listInstancesPage(c: Tx | Db, ctx: { tenantId: string; user: { id: string; role: string } }, agentId?: string, opts: { limit?: number; before?: number } = {}) {
+  const limit = Math.min(opts.limit ?? INSTANCE_PAGE, INSTANCE_MAX);
   const rows = (await c.query(`select i.*, v.label as version_label from agent_instances i join agent_versions v on v.id=i.agent_version_id join missions m on m.id=i.mission_id
-      where m.tenant_id=$1 and m.deleted_at is null and ${VISIBLE_SQL('$2', '$3')} and ($4::text is null or i.agent_id=$4)
-      order by i.created_at desc, i.seq desc limit 500`, [ctx.tenantId, ctx.user.role === 'admin', ctx.user.id, agentId ?? null])).rows;
-  return rows.map(instanceDto);
+      where m.tenant_id=$1 and m.deleted_at is null and ${VISIBLE_SQL('$2', '$3')} and ($4::text is null or i.agent_id=$4) and ($5::bigint is null or i.seq < $5)
+      order by i.seq desc limit $6`, [ctx.tenantId, ctx.user.role === 'admin', ctx.user.id, agentId ?? null, opts.before ?? null, limit + 1])).rows;
+  const truncated = rows.length > limit;
+  const page = rows.slice(0, limit);
+  return { instances: page.map(instanceDto), truncated, ...(truncated ? { nextBefore: String(page[page.length - 1].seq) } : {}) };
+}
+export async function listInstances(c: Tx | Db, ctx: { tenantId: string; user: { id: string; role: string } }, agentId?: string) {
+  return (await listInstancesPage(c, ctx, agentId)).instances;
 }
 
 export async function getInstance(c: Tx | Db, ctx: { tenantId: string; user: { id: string; role: string } }, id: string) {

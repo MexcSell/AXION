@@ -90,13 +90,13 @@ export const bumpInstances = () => useInstTick.setState((s) => ({ n: s.n + 1 }))
 
 interface Read<T> { data: T | null; error: string | null; retry: () => void }
 /** GET `path`, again when any of `deps` changes. A failed read keeps the last data and says so (never shown as empty). */
-function useRead<T>(path: string | null, pick: (r: any) => T, deps: unknown[]): Read<T> { // eslint-disable-line @typescript-eslint/no-explicit-any
+function useRead<T>(path: string | null, pick: (r: any) => T, deps: unknown[], load: (p: string) => Promise<unknown> = (p) => api<unknown>('GET', p)): Read<T> { // eslint-disable-line @typescript-eslint/no-explicit-any
   const [st, setSt] = useState<{ path: string | null; data: T | null; error: string | null }>({ path, data: null, error: null });
   const [manual, setManual] = useState(0);
   useEffect(() => {
     if (!path || !isApiMode()) return;
     let live = true;
-    api<unknown>('GET', path).then((r) => { if (live) setSt({ path, data: pick(r), error: null }); })
+    load(path).then((r) => { if (live) setSt({ path, data: pick(r), error: null }); })
       .catch((e) => { if (live) setSt((x) => ({ path, data: x.path === path ? x.data : null, error: e instanceof ApiFailure ? e.message : 'Something went wrong.' })); });
     return () => { live = false; };
   }, [path, manual, ...deps]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -104,10 +104,22 @@ function useRead<T>(path: string | null, pick: (r: any) => T, deps: unknown[]): 
 }
 const isApiMode = () => isApi();
 
+/** GET /agent-instances, following `nextBefore` until the server says nothing is cut (so counts never silently stop at one page). */
+async function fetchAllInstances(path: string): Promise<{ instances: InstanceRow[] }> {
+  const all: InstanceRow[] = []; let before: string | undefined;
+  for (let i = 0; i < 100; i++) {
+    const sep = path.includes('?') ? '&' : '?';
+    const r = await api<{ instances: InstanceRow[]; truncated?: boolean; nextBefore?: string }>('GET', before ? `${path}${sep}before=${encodeURIComponent(before)}` : path);
+    all.push(...r.instances);
+    if (!r.truncated || !r.nextBefore) break;
+    before = r.nextBefore;
+  }
+  return { instances: all };
+}
 /** Agent instances visible to me (GET /agent-instances), one agent or all. */
 export function useAgentInstances(agentId?: string): Read<InstanceRow[]> {
   const tick = useInstTick((s) => s.n);
-  return useRead<InstanceRow[]>(`/agent-instances${agentId ? `?agentId=${encodeURIComponent(agentId)}` : ''}`, (r) => r.instances, [tick]);
+  return useRead<InstanceRow[]>(`/agent-instances${agentId ? `?agentId=${encodeURIComponent(agentId)}` : ''}`, (r) => r.instances, [tick], fetchAllInstances);
 }
 /** An agent's immutable versions, newest last (GET /agents/:id). */
 export function useAgentVersions(agentId: string): Read<AgentVersionDto[]> {

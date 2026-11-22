@@ -17,7 +17,9 @@ export default async function approvalRoutes(app: FastifyInstance) {
     released.forEach((id) => app.onMissionChanged?.(id, 'running'));
     // expired requests are history: they can't be decided any more, so they leave the list
     const rows = (await app.db.query(
-      `select a.* from approval_requests a join missions m on m.id=a.mission_id
+      `select a.*, du.name as decided_by_name from approval_requests a join missions m on m.id=a.mission_id
+        left join lateral (select decided_by from approval_decisions d where d.approval_id=a.id order by d.decided_at desc limit 1) dd on true
+        left join users du on du.id=dd.decided_by
         where a.tenant_id=$1 and m.deleted_at is null and ${VISIBLE_SQL('$2', '$3')} and a.state <> 'expired' and not (a.state='pending' and a.expires_at <= now())
         order by a.created_at desc`,
       [ctx.tenantId, ctx.user.role === 'admin', ctx.user.id])).rows;
