@@ -21,7 +21,7 @@ export default async function approvalRoutes(app: FastifyInstance) {
         left join lateral (select decided_by from approval_decisions d where d.approval_id=a.id order by d.decided_at desc limit 1) dd on true
         left join users du on du.id=dd.decided_by
         where a.tenant_id=$1 and m.deleted_at is null and ${VISIBLE_SQL('$2', '$3')} and a.state <> 'expired' and not (a.state='pending' and a.expires_at <= now())
-        order by a.created_at desc`,
+        order by a.created_at desc, a.id desc`,
       [ctx.tenantId, ctx.user.role === 'admin', ctx.user.id])).rows;
     return { approvals: rows.map((r) => approvalDto(r, Date.now(), ctx.user)) };
   });
