@@ -552,3 +552,33 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
 - 2026-11-22T13:06Z · Batch 11 merging: c48 (8274a8d, plus tooltip fix 8e2f894), c47 (94806cf), c49 (af6bed5, plus b06554e). Started two lanes from b06554e:
   - **c51 O3a+O2a** (w50, e2e16, migration 0039): append-only owner history (fail-closed prior-actor exclusion), review freshness against the latest attempt, exact vendor matching, and a required delegation brief on reassignment.
   - **c52 H10** (w51, e2e17): SQL `lower()` for the skill lock key, `taskReviews.cancel` on sign-out, a narrowed c04 History check, the decision response's `decidedByName`, and a diagnosis of the 3 vitest failures after c09.
+- 2026-11-22T13:38Z · Batch 11 merged at ec6d8b3. vitest 1962. Notes:
+  - c48 tooltip fix 8e2f894 (HelpTrigger `tipSide`); api-c48 31/0 ×3 with the script unchanged.
+  - c49: merged from cleared tip 7b17bf6, because its branch ref was stale (the lane committed on a detached HEAD). Test fix b06554e.
+  - Live note: `audit:verify` exits 1 (ANCHOR_MISSING) until the anchor env is set and a first anchor is written.
+- 2026-11-22T13:38Z · c51 (w50) reported at 03489f7, migration 0039.
+  - Implemented: owner-history table and triggers (fail-closed), freshness, vendor rules, BRIEF_REQUIRED.
+  - Tests: 78 new (41 RED first), vitest 2040, stage6 94/94 with the brief added, api-c42, c38 and c06 green.
+  - Not run by the lane: api-improve.
+  - Behaviour change: members can no longer reassign, because they can't write a root brief.
+  - Reviewer dispatched.
+- 2026-11-22T13:47Z · **c52 CLEARED** at 078b41c (controller check: the new lock helper is parameterised and schema-scoped, and the decider join is a lateral latest decision).
+  - Items 1, 2 and 4 RED→GREEN. Item 3 narrowed with no RED (preventive).
+  - Item 5 **NOT MET**: the 3 post-c09 failures don't reproduce 3/3 at b18c5a2 and their names were never recorded. The working hypothesis is the global-lock class (fixed in 4eca9db).
+  - Lesson: always record failing test names in MERGES.md.
+  - Queued as batch 13, with the c50 allowlist removal.
+- 2026-11-22T13:47Z · c51 review: **PASS-WITH-FIXES**.
+  - Owner-history triggers cover every path; the purge exception is transaction-local; the backfill is idempotent; down/up is clean; fail-closed in POST and GET; freshness uses SQL time; about 70 vendor inputs, none with a wrong family.
+  - Re-run: vitest 2040, stage6, c42, c38, c06 and improve 107/107.
+  - Behaviour change accepted (controller ruling): reassign is now admin or mission owner only, following c42's root-brief rule.
+  - Fix round:
+    - F1: the Reassign button is honest for non-owner members;
+    - the latest history row must match the current owner;
+    - the instances.test wipe re-enables in `finally`;
+    - the o-series deviation is recorded.
+- 2026-11-22T14:15Z · **c51 CLEARED** at a9a41a6 (controller check of the fix round).
+  - The Reassign button is disabled with a reason for non-owner members. api-c51 11/11, RED first.
+  - The newest history row must equal the current owner (fail closed).
+  - Results: vitest 2042, stage6, c42 and improve green, verify-all 10/10.
+  - Minor: `independence()` takes `current?` as optional, so a future caller that omits it fails open. The only caller always sets it; noted in H10.
+  - Queued in batch 13 after c52, with the BRIEF_REQUIRED follow-up for c50's flow.
