@@ -12,7 +12,7 @@ import {
   type PolicyKindDto, type ProgressBody, type Provenance, type ReviewActor, type ReviewerAgreement, type RubricItem, type ScorecardRow, type SiteGrantDto, type SkillDto,
   type SkillStep, type SourceRef, type TaskBody, type TaskDto, type TaskReviewDto, type TaskReviewsDto, type ThreadDto, type ThreadPartnerDto, type ThroughputDto,
   type UploadDto, type VersionConfig, type VersionDiff, type VersionProposalDto, type AgentReliability, type QueueSummaryDto, type AnchorStatusDto, type AnchorTenantDto, ANCHOR_STATUS_NAMES, JOB_STATUS_NAMES,
-  type MetricGuardDto, type MetricGuard, type MetricGuardRow, type MetricAuditState, type MetricAuditResult, QUALITY_DIMENSION_IDS, type ProposalEvaluationDto, type EvalRefusalDto, type CompanyDimensionsDto, type DimensionRowDto, type DimensionCell, DIMENSION_KEYS, DIMENSION_WINDOWS,
+  type MetricGuardDto, type MetricGuard, type MetricGuardRow, type MetricAuditState, type MetricAuditResult, QUALITY_DIMENSION_IDS, type ProposalEvaluationDto, type EvalRefusalDto, type CompanyDimensionsDto, type DimensionRowDto, type DimensionCell, DIMENSION_KEYS, DIMENSION_WINDOWS, type ProcessDto, type ProcessCell, PROCESS_WINDOWS,
 } from '../../../shared/contracts/src/index.ts';
 
 export const errorEnvelope: V<ErrorEnvelope> = obj<ErrorEnvelope>({ code: oneOf(ERROR_CODES), message: str, correlationId: str, retryable: bool, fieldErrors: opt(dict(str)) });
@@ -350,6 +350,16 @@ const dimensionCell: V<DimensionCell> = obj<DimensionCell>({
 const dimensionRow: V<DimensionRowDto> = obj<DimensionRowDto>({ key: oneOf(DIMENSION_KEYS), label: str, cells: arr(dimensionCell) });
 export const dimensions: V<CompanyDimensionsDto> = obj<CompanyDimensionsDto>({
   window: oneOf(DIMENSION_WINDOWS), from: iso, to: iso, previousFrom: iso, previousTo: iso, department: nullable(str), departments: arr(str), dimensions: arr(dimensionRow),
+});
+
+// ---- process metrics (c69)
+const processCell: V<ProcessCell> = obj<ProcessCell>({
+  key: str, label: str, value: nullable(num), unit: oneOf(['%', 'h', 'count'] as const), n: nullable(int), minN: int, from: nullable(iso), to: nullable(iso), evidence: str,
+  state: oneOf(['ok', 'none', 'unmeasured'] as const), previous: obj<ProcessCell['previous']>({ value: nullable(num), n: int }), trend: nullable(oneOf(['up', 'down', 'flat'] as const)),
+  open: nullable(obj<NonNullable<ProcessCell['open']>>({ n: int, what: str })), p90: nullable(num), breakdown: arr(obj<ProcessCell['breakdown'][number]>({ label: str, n: int })),
+});
+export const processDto: V<ProcessDto> = obj<ProcessDto>({
+  window: oneOf(PROCESS_WINDOWS), from: iso, to: iso, previousFrom: iso, previousTo: iso, department: nullable(str), departments: arr(str), cells: arr(processCell),
 });
 
 // ---- metric guard (c66)

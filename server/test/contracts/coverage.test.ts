@@ -335,6 +335,37 @@ describe('API coverage run', () => {
     const dim = (await call(admin, 'GET', '/company/dimensions', '/company/dimensions', { query: '?window=30d' })).body;
     await call(admin, 'GET', '/company/dimensions', '/company/dimensions', { query: `?window=7d&department=${encodeURIComponent(dim.departments[0])}` });
     await call(mina, 'GET', '/company/dimensions', '/company/dimensions');
+    // ---- c69: process metrics. Raw rows on a mission of their own give every nullable field a non-null value somewhere (a trend, a p90, an open count, a breakdown)
+    {
+      const q = (sql: string, p: unknown[] = []) => t.pool.query(sql, p);
+      const ag = 'coder-01', inst = 'M-c69:coder-01';
+      await q(`insert into missions(id, tenant_id, owner_id, shared, status, demo) values ('M-c69',$1,$2,true,'running',false)`, [tenant, A.adminId]);
+      await q(`insert into mission_revisions(mission_id, revision, title, kind, priority, text, created_by) values ('M-c69',1,'M-c69','data','normal','x',$1)`, [A.adminId]);
+      await q(`insert into agent_instances(id, tenant_id, mission_id, agent_id, agent_version_id, simulated) select $1,$2,'M-c69',d.id,d.active_version_id,false from agent_definitions d where d.id=$3`, [inst, tenant, ag]);
+      const rv = async (id: string, verdict: string, days: number, rubric = '[{"criterion":"c","result":"pass"}]') => {
+        await q(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent, owner_instance_id) values ($1,$2,'M-c69','T','passed',$3,$4)`, [id, tenant, ag, inst]);
+        await q(`insert into task_attempts(task_id, attempt_no, started_at, finished_at, result) values ($1,1, now() - interval '70 days', now() - interval '69 days','passed')`, [id]);
+        await q(`insert into task_reviews(id, tenant_id, mission_id, task_id, attempt_id, reviewer_id, reviewer_kind, reviewer_model_family, producer_id, producer_kind, producer_model_family, principal_id, rubric, verdict, evidence, created_at)
+          values ($1,$2,'M-c69',$3,(select id from task_attempts where task_id=$3 limit 1),'rev-x','agent','fam-b',$4,'agent','fam-a','owner-x',$5,$6,$7, now() - ($8 || ' days')::interval)`,
+          ['TR-' + id, tenant, id, inst, rubric, verdict, verdict === 'accepted' ? '[{"kind":"note","id":"n"}]' : '[]', String(days)]);
+      };
+      for (const [k, v, d, r] of [['a', 'accepted', 5], ['b', 'accepted', 6], ['c', 'changes_requested', 7, '[{"criterion":"c","result":"fail"}]'], ['d', 'rejected', 8]] as const) await rv(`T-c69-${k}`, v, d, r);
+      for (const k of ['p', 'q', 'r']) await rv(`T-c69-${k}`, 'accepted', 45); // previous window: 3 accepted, so 0% before and 50% now: a trend
+      await q(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent, owner_instance_id) values ('T-c69-open',$1,'M-c69','T','passed',$2,$3)`, [tenant, ag, inst]);
+      // churn: 20 tasks first assigned now; ten of them handed to another agent (the history trigger records each change)
+      for (let i = 0; i < 20; i++) await q(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent, owner_instance_id) values ($1,$2,'M-c69','T','running',$3,$4)`, [`T-c69-c${i}`, tenant, ag, inst]);
+      await q(`update tasks set owner_agent='gm', owner_instance_id=null where id ~ '^T-c69-c[0-9]+$' and substr(id, 8)::int < 10`);
+      // hand-offs: three delegations to a task, each started 1, 2 and 4 hours later; one more with no attempt; and two briefs with the same goal
+      for (let i = 0; i < 4; i++) {
+        await q(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent, owner_instance_id) values ($1,$2,'M-c69','T','ready',$3,$4)`, [`T-c69-h${i}`, tenant, ag, inst]);
+        await q(`insert into mission_delegations(mission_id, from_instance, to_instance, edge_kind, task_id, at) values ('M-c69',$1,$1,'delegated',$2, now() - interval '3 days')`, [inst, `T-c69-h${i}`]);
+        if (i < 3) await q(`insert into task_attempts(task_id, attempt_no, started_at) values ($1,1, now() - interval '3 days' + ($2 || ' hours')::interval)`, [`T-c69-h${i}`, String([1, 2, 4][i])]);
+      }
+      for (const [bi, g] of ['Write it', 'write  IT', 'Check it'].entries()) await q(`insert into delegation_briefs(tenant_id, mission_id, from_id, from_kind, to_instance, to_agent, brief, sha256, depth, created_by) values ($1,'M-c69','u','user',$2,$3,$4::jsonb,$5,1,'u')`, [tenant, inst, ag, JSON.stringify({ goal: g }), String(bi + 1).padEnd(64, '0')]);
+      await call(admin, 'GET', '/company/process', '/company/process');
+      await call(admin, 'GET', '/company/process', '/company/process', { query: '?window=90d&department=Engineering' });
+      await call(mina, 'GET', '/company/process', '/company/process', { query: '?window=7d' });
+    }
     await call(admin, 'GET', '/company/metric-guard', '/company/metric-guard');
     await call(admin, 'POST', '/company/metric-audits', '/company/metric-audits', { status: 201, body: { metricId: 'scorecard.finished', samples: Array.from({ length: 100 }, (_, i) => ({ sampleRef: `m${i}`, metricLabel: true, auditLabel: i >= 20 })) } });
     await call(mina, 'GET', '/company/metric-guard', '/company/metric-guard');

@@ -36,6 +36,7 @@ import { backfillMissionControl } from './instances/backfill.ts';
 import companyRoutes from './company/routes.ts';
 import departmentRoutes from './company/departments-routes.ts';
 import dimensionRoutes from './company/dimensions-routes.ts';
+import processRoutes from './company/process-routes.ts';
 import metricGuardRoutes from './company/metric-guard-routes.ts';
 import policyRoutes from './policy/routes.ts';
 import grantRoutes from './grants/routes.ts';
@@ -115,6 +116,7 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   await app.register(companyRoutes, { prefix: '/api/v1' });
   await app.register(departmentRoutes, { prefix: '/api/v1' });
   await app.register(dimensionRoutes, { prefix: '/api/v1' });
+  await app.register(processRoutes, { prefix: '/api/v1' });
   await app.register(metricGuardRoutes, { prefix: '/api/v1' });
   await app.register(policyRoutes, { prefix: '/api/v1' });
   await app.register(grantRoutes, { prefix: '/api/v1' });

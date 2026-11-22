@@ -28,6 +28,7 @@ export const ROUTES: Record<string, RouteEntry> = {
   'GET /company/dimensions': { v: C.dimensions },
   'GET /company/failure-modes': { v: C.failureModes },
   'GET /company/metric-guard': { v: C.metricGuard },
+  'GET /company/process': { v: C.processDto },
   'GET /company/scorecard': { v: C.scorecard },
   'GET /company/throughput': { v: C.throughput },
   'GET /departments': { v: C.departments },
