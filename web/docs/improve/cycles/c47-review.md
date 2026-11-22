@@ -69,3 +69,41 @@ Reasons: (1) the reviewer's decision (and any override text) is made against wha
 
 ## Known flake note
 No advisory-lock 5 s 500s occurred in the full vitest run here.
+
+---
+
+# Re-review of the fix round (tip 15b1bd2)
+
+## Verdict: CLEARED
+
+No blocking issue. Lane left at `15b1bd2`, clean tree. Follow-ups below are non-blocking.
+
+## Re-run
+- Server tsc clean. Full vitest 51 files, 1542 tests pass. `api-c47` 26/26, `api-c05` 31/31, `api-stage6` 94/94, no page errors.
+
+## M1 (freeze fail-closed): resolved
+I re-ran my property test (about 50 shapes, each frozen then compared with `hashDataset(stored rows)`). There is no MISMATCH-and-frozen case any more. Every value that the old code hashed wrongly is now refused: integers above 2^53-1, 1e21, 1e-7, 1e400, 1e-400, 1.5e300, 5e-324, 20-digit integers, decimals with more than 15 digits, any key or case_id with a code point from U+E000 (astral, U+FFEE, U+E000). The friendly shapes still match: nested objects, arrays, null/bool, -0, 1.10, 1e5, 100.0e0, 0.000001, unicode escapes, control characters, astral characters inside values, CJK keys and case ids, multi-case ordering of `a`, `B`, `_`, `é`, `中`. The check is in `eval_dataset_sha`, so freeze, the guard trigger and the verify path all refuse. Down/up/down/up is covered by the existing test at `eval-evidence-db.test.ts:31` and passes; the down migration drops the two new helpers with `if exists`. Editing 0037 in place is acceptable only because it is not merged anywhere yet: a database already at the old 0037 would not get the new functions (lane e2e DBs are rebuilt).
+- False refusals that will bite real use (low, non-blocking): any 16 or 17 digit float is refused, and JS-computed ratios usually have that many digits (`0.8571428571428571`, `0.30000000000000004`, `123456789012345.5` are refused), so an `expected` score computed in code cannot be frozen. Emoji (astral) in a key or case_id is refused. The refusal message names the cause. Recommendation: document it where datasets are authored (E1c) and store such values as strings or rounded to 15 digits; a later cycle can widen the rule by proving the double round-trip (`x::float8::numeric = x`).
+
+## M3 (evaluationSha): resolved
+- Contents: candidate run id, base run id, dataset id and hash, outcome, run count, sorted refusal codes; sentinel when there is no evaluation. Everything the gate reads (outcome, refusal presence, the evaluation's existence) is covered. Runs are immutable once finished and results cannot be added after, so ids identify the evidence completely. A new finished dev run, a new base run, a re-run (finished or not) and a first run all change it.
+- Order in `versions.ts`: SELF_APPROVAL, status, AGENT_CHANGED, PROPOSAL_CHANGED, expiry, then EVALUATION_CHANGED, then EVAL_WORSE, then EVAL_OVERRIDE_REQUIRED. A missing sha is also refused. Reject is exempt (the check sits inside `if promote`). Refusals are audited with the sha seen; a successful promote audits sha and both run ids.
+- Fetching a fresh sha right before promoting is fine: the sha and the evidence come from the same DTO. The UI sends `p.evaluationSha` of the card object it renders (`api/versionProposals.ts:51`); the list refreshes only on agent events or after a failed decision, and then replaces evidence and sha together, so nothing is refreshed silently without re-rendering. Small gap (low): a typed override reason stays in the field when evidence changes underneath; the user still has to click again, so acceptable.
+
+## M2 (worse rules): resolved
+The new rule requires `n >= minCases` and no refusal, then `worse` if the verdict is significant and not better with `losses > wins` or a negative mean, or if the 95% interval upper bound is below 0. It cannot fire on a better candidate: `verified_better` needs a lower bound above 0, and an upper bound below 0 or a negative mean excludes it, and the verified branch is taken first anyway. Edge cases: a zero mean (also after the 0.1 rounding, where -0.04 becomes -0.0) is not `< 0`; all ties give an interval of [0,0], not worse; n = 10 is allowed and a 0 to 10 sign test is significant; n = 9 stays inconclusive; a positive mean with the same win/loss counts is not worse (tested). A constant negative difference (zero variance) is worse, which is correct.
+
+## holdout_rerun and dev_holdout_reuse
+- `holdout_rerun` counts all runs of the proposal on the dataset, finished or not, so a runner that crashes mid-run and starts a new run is refused and must use a fresh holdout dataset. That blocks an honest retry (low-medium; E1c must resume or finish the same run, or the report should say a crashed run burns the holdout). Honest first runs that finish are never blocked.
+- Re-run shopping by re-proposing the same candidate is NOT closed (plausible, confirmed by reading `versions.ts:159` and the loader): runs are keyed on the proposal id, and `DUPLICATE_PROPOSAL` only blocks a candidate that is still pending. After a withdraw, reject or expiry, a new proposal with the same config has a run count of 0, so the same holdout can be run again. The same dataset is also reusable for a tuned variant B after A's result was seen. A follow-up is warranted (before E1c exposes a write route): count runs per (tenant, agent, candidate_sha, holdout dataset) across proposals, and ideally mark a holdout as used once per agent. Not a blocker now because no route writes runs.
+- `dev_holdout_reuse` is now real (shared case input between a dev dataset the candidate ran on and the holdout). It can false-positive when an honest dev and holdout set share a generic input (for example a trivial `1` or `{}` prompt), which flags the candidate permanently; it also needs the candidate to have a finished dev run. Acceptable; mention in dataset-authoring guidance.
+
+## Base run rules and UI
+- Base run now needs a non-author evaluator and a judge of another family (`base_evaluator_is_author`, `base_self_judging`); the tests cover both. Remaining (low): base runs are not re-run protected: only the latest finished run of the base version on the dataset counts, so someone who is not the author can re-run the base until it reads poorly. Same follow-up as above (apply the run count to base runs).
+- Screens (dark and light, pending and decided): the evidence block is one line with a clear outcome chip and "Details", refusal codes named in the summary. At 1366x768 the override field, Note, Promote and Reject are fully visible in the pending card (dark pending shot). The disabled Promote on the worse card is visibly muted. The decided shots show the override reason ("Promoted without a verified evaluation. Reason: ...") and the verified chip. Page does not scroll. Matches the owner's polish standard.
+
+## Non-blocking follow-ups
+1. Cross-proposal re-run shopping (same candidate_sha, same holdout, per agent).
+2. Run count on the base side.
+3. 16/17-digit floats and astral keys refused at freeze: document, or widen with a proven round-trip.
+4. A crashed run burns a holdout: E1c must finish or resume runs.

@@ -598,3 +598,22 @@ FAIL 900 /operations?tab=logs tab=Logs: clipped control button.icon-btn.xs[Dismi
 - **8b follow-ups after batch 9:** batch 9's api scripts above (all PASS under c43's Modal first-focus guard). **`FLOWS_CPU_THROTTLE=4 node scripts/flows.mjs`: exit 0, 21/21**, so the palette and theme steps that failed under 4× throttle in batch 5f now pass. `c29-archive-race.mjs`: archived 14/14, 0 changes after.
 
 **Follow-up commits in batch 9:** `2abfbed`, `4eca9db` (locks, approved), `4766aae`. Controller files committed with this entry: LOG.md, QUEUE.md (modified); cycles/c47–c49 reviews (new). BACKLOG.md, LESSONS.md and cycles/c40-review.md went in with `b23b8a8`.
+
+## Batch 10 (Phase 2 · Wave 4): c44, c45
+
+- Pre-batch commit `7a139d8` (c44 had been merged once by integrator #3 and reset away; redone cleanly).
+- **`b80c2d1` c44-page-perf (0abda0c).** Web only. No conflicts (ChatView.tsx, missionControl.ts, Missions.tsx auto-merged).
+  - Server tsc OK; vitest 1676/1676; web tsc OK.
+  - **api-c26 22/22** (I2 mixed heights: older-page shifts 0.3 0.0 0.2 0.0 px, limit ±8; wheel/pill/minimap checks PASS). **api-c44 3/3** (a lone message 150 ms after a burst is stored in 105-113 ms). **api-c22 `SIZES=130,1000 REPS=3`: 14/14**, 0 page errors. **api-stage6 94/94.** **flows 21/21.**
+  - **c26 worst long task, merged tree** (`REPS=3 FILL=1000 CHECKS=0`, informational, load average 5-10 from other lanes): burst-window worst per rep **156 / 146 / 186 ms** (total 454 / 346 / 907 ms); whole-trace worst 201 / 146 / 186 ms. With checks on (load about 5-6): 167 / 446 / 227 ms. Before c44 on the merged tree it was 1.0-1.1 s (one run).
+- **`8798e82` c45-job-leases (17b6390).** Migration 0035, records only. No conflicts (Operations.tsx auto-merged; no raw `pg_advisory` calls).
+  - Server tsc OK; vitest 1752/1752 (includes `audit-chain.test.ts` and jobs.test.ts); web tsc OK.
+  - **api-c45 11/11.** `npm run audit:verify` on the e2e DB (explicit URL): "audit chain OK for t-1: 6 rows". Note: api-c45 writes no `job.*` audit rows into the e2e DB, so that run proves the chain is intact, while the job audits are covered by the vitest suite.
+
+**Batch checks on `8798e82`:**
+- **api-e2e (exit 0):** api-auth-flow 15/15; api-flows 23/23; api-stage6 94/94; api-improve 107/107; api-c44 and api-c45 PASS (0 FAIL lines).
+- **a11y-check (api):** 41 views, 64 dialogs, 0 violations. **a11y-check (demo):** 51 views, 64 dialogs, 0 violations.
+- **verify-all:** first run **rc=143** (the dialog-smoke step was killed by SIGTERM, cause not found; every step before it passed, no FAIL lines). Re-run alone: exit 0, "ALL 10 STEPS PASSED", dialog smoke 64 dialogs, 128 checks, 0 failures, no FAIL lines. Ledger unchanged.
+- **fit-check:** ALL FIT. **ov-fit:** NO SCROLL ANYWHERE.
+
+Controller files committed with this entry: BACKLOG.md, LANES.md, LOG.md, QUEUE.md, STATE.md, cycles/c46-brief.md, c47-review.md, c50-brief.md.

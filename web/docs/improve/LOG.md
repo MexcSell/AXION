@@ -451,3 +451,84 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
     - Compact evidence UI, with the override and Promote visible at 1366×768.
   - Results: vitest 1542, api-c47 26/26, c05 and stage6 green, verify-all 10/10.
   - Scoped re-review dispatched.
+- 2026-11-22T11:39Z · **c47 CLEARED** at 15b1bd2 (re-review).
+  - The property test finds no mismatch-and-frozen case. `evaluationSha` covers everything the gate reads. The worse rules never fire on a better candidate.
+  - Queued in batch 11 after c48.
+  - Follow-ups go to backlog **E1c**: re-run shopping across re-proposals must be closed before any run-write route exists, resume crashed runs, validate judge labels, handle 16–17-digit floats and emoji keys, and fix `dev_holdout_reuse` false positives.
+- 2026-11-22T11:39Z · Batch 9 merged except c40, which is in its fix round.
+  - Merged: c39, c38, the locks fix 4eca9db (schema-scoped helper plus guard test), c42 and c41. Merges log is at 7a139d8.
+  - Started lane w45 **c46 M1 six-dimension scorecard** from 7a139d8 (e2e18, ports 9590–93).
+- 2026-11-22T11:40Z · Integrator #3 handed back after batch 9 (HEAD 7a139d8; full record in MERGES.md). Controller rulings on its open points:
+  1. **Test changes accepted.**
+     - 4766aae: c38 adds 2 scorecard rows, so 10 rows is the intent.
+     - 2abfbed: c31's NOT NULL chain needs the `audit()` route.
+     - 2247ec6: c17's check now finds c04's real screen.
+     - 28842ce: the regenerated dialog ledger adds c36's missing DL-90 lines. Commit it when it only adds lines for merged dialogs; still restore it when a run would remove or rewrite lines.
+  2. **4eca9db's wider scope is accepted** (the migration lock becomes the schema-scoped 'migrate' key; c36's site-grant lock). Only one migrator ever runs, with the API stopped.
+  3. **c41 skill lock:** it lower-cases in JS, while the SQL uniqueness uses `lower()`. For non-ASCII names a missed serialisation surfaces as a unique-violation error, not a duplicate. Backlog H10.
+  4. **c26 worst long task** (1.0–1.1 s on the merged tree, one run): c44's merge re-measures it. Backlog P2b.
+  5. **c40's base is 4ff1b40,** before batches 6–9. Its merge requires a fresh `DATA_MODE=api` api-mobile with 0 FAIL on the merged tree. New FAIL lines from the batch 6–9 dialogs and drawer are fixed in a merge follow-up or a c40b; they are not grandfathered.
+  6. c38's `taskReviews.cancel()` on sign-out goes to H10. c15 stays held; H9 replaces it.
+  7. The live update stays with the controller, after batch 11.
+- 2026-11-22T11:40Z · Started lane w49 **c50 H9 contract coverage**, replacing the held c15 (from 7a139d8, e2e15 reused, ports 9990–93).
+  - The route list comes from the Fastify route table and the event list from the contracts, so a new route or event without a check fails on the day it's added.
+  - Drift is fixed at its cause, never by loosening.
+- 2026-11-22T11:42Z · Integrator #3 stood down. Its c44 merge (bd64f37) was reset back to 7a139d8, and the tree is clean except for the controller docs. **Integrator #4** dispatched for batch 10 (c44 → c45), batch 11 (c48 → c47 → c49 when cleared) and c40 when cleared, with #3's notes passed on.
+- 2026-11-22T11:43Z · **c49 CLEARED** at 7b17bf6 (controller check of the last security round).
+  - Guard: refuses query strings in the target URL.
+  - AUDIT_ANCHOR_DOMAIN is required.
+  - Rotate: needs the key, domain and `--confirm` (plus `--force` on a healthy file). The audit events are written first in one transaction, then the rename, then the new file, whose first line signs `rotatedFrom`; failures restore the old file. Verify and the tile show "restarted on …", and the actor is the OS user.
+  - Results: 76 anchor tests, vitest 1512, api-c49 14/14, verify-all 10/10.
+  - Queued at the end of batch 11.
+  - **Live update needs:** AUDIT_ANCHOR_KEY, AUDIT_ANCHOR_DOMAIN and AUDIT_ANCHOR_FILE in the live server/.env, then `audit:anchor` and `audit:verify`, and the anchor file copied off-host (to tell the owner).
+- 2026-11-22T11:56Z · c50 H9 (w49) reported at 45d984c.
+  - Coverage: 108 routes from `app.routeTable`, 106 checked with a real 2xx call and validation, plus 2 reasoned exclusions (SSE, file bytes). The 30 admin routes are probed as a member for 403. All 45 event types have validators, cross-checked against the emitted literals.
+  - RED proofs: a dummy route and a dummy event each fail the suite.
+  - Drift: the server emitted `approval.consumed` but contracts lacked it; fixed on the contract side.
+  - Vitest 1690.
+  - Concern: the admin flag is hand-set.
+  - Reviewer dispatched, including what entries batch 10–11 branches will need.
+- 2026-11-22T12:03Z · c50 review: **PASS-WITH-FIXES**.
+  - Inventory sound, no no-op entries, admin flags agree with a member sweep plus a static check. Vitest 1690.
+  - Findings:
+    - medium: mission and agent validators are open and not tsc-bound to the DTOs;
+    - low: non-vacuity only at the root; `gated` doesn't pin FORBIDDEN; `hits` uses hand-typed keys; empty-array gaps; one computed emit.
+  - Fix round dispatched: strict typing, recursive non-vacuity, dynamic member sweep, typed `EventType` on emit and append.
+  - Merge impact recorded for the integrator: registry and validator entries for c45 queues, c47 evaluation/evaluationSha/overrideReason, c48 canDecide/decideBlockedReason and c49 anchors.
+- 2026-11-22T12:14Z · **c50 CLEARED** at 539eda5 (controller check of the fix round).
+  - Changes:
+    - validators tsc-bound to the DTOs;
+    - recursive non-vacuity (> 2000 mutations), with the remaining always-empty arrays given reasons;
+    - dynamic member sweep with FORBIDDEN pinned;
+    - an onResponse hook ties hits to the real routes;
+    - `EventType` typed on emit and append.
+  - Results: vitest 1691; RED proof for each item.
+  - New finding (decision response lacks decidedByName) goes to H10.
+  - Queued as batch 12, with the required registry follow-up for c45, c47, c48 and c49.
+- 2026-11-22T12:20Z · **c40 CLEARED** at db34c42 (controller check of the fix round plus a screenshot look).
+  - Fixes, each RED→GREEN: keyboard-scrollable help body (region role and label only when it overflows), api-c40 must open ≥ 5 popovers per size, Activity KPI 2-column grid at ≤ 800 px, 2 px clamp fixed, selftest 7/7.
+  - Results: api-mode api-mobile 678 states with 0 FAIL, fit, a11y both modes, verify-all 10/10.
+  - Queued as batch 11b. A fresh api-mobile run on the merged tree is required, and an odd 5th KPI tile spans both columns as a polish follow-up.
+- 2026-11-22T12:25Z · c46 M1 (w45) reported at c905b51, no migration.
+  - Built: 18 cells over six dimensions with no aggregate field, from `GET /company/dimensions` and dialog DL-98, opened from Overview and Departments.
+  - Tests: 46, vitest 1722, api-c46 23/23, verify-all 10/10, demo a11y 0 violations.
+  - Departures from the brief:
+    - the verdict cell is always n = 0;
+    - Environmental uses a judged MAST mapping (FM-1.4, FM-2.1);
+    - review independence is redefined;
+    - skills per role is replaced by accepted playbook items per agent;
+    - admin-only sources show n = 0 to members.
+  - Reviewer dispatched.
+- 2026-11-22T12:35Z · c46 review: **PASS-WITH-FIXES**.
+  - The core is honest: no composite, DEMO and simulated rows excluded at the source, the same VISIBLE_SQL, MIN_N, and an equal previous window.
+  - Re-run: vitest 1722, api-c46 23/23, api a11y 0 violations.
+  - Findings:
+    - F1: the Environmental mapping is wrong (FM-1.4 and FM-2.1 are context and agent failures, and MAST has no environment mode).
+    - F2: hidden and unmeasured cells read "n = 0".
+    - F3: no single snapshot, and current state is used for past windows.
+    - F4–F6: scope wording, the grants window, approval-time exclusions.
+    - F7: UI polish (arrow wrap, small-n emphasis, evidence not reachable by touch).
+  - Fix round dispatched.
+  - Follow-ups:
+    - **c46b**: source `verdict_outcomes` from c47's stored runs after merge;
+    - move the dialog to a PageFrame tab.

@@ -25,20 +25,22 @@ Rewritten 2026-11-22T07:35Z by the controller. The old w2–w18 lane list is his
 - Merged up to c17 (batch 6, c068a6d).
 - Next:
   - batches 7, 8 and 8b (c43) MERGED (tip 09dd6cb; events lock schema-scoped 9e958f3; live 5190 Vite restarted ~09:16Z after a stale watcher);
-  - batch 9: c39 → c38 → c42 → c41 → c40 (when cleared): in progress;
+  - batch 9: c39, c38, locks fix 4eca9db, c42, c41 MERGED (7a139d8); c40 after its fix round;
+  - batch 11: c48 → c47 → c49 (all CLEARED);
+  - batch 12: c50 (CLEARED; registry follow-up for batch 10–11 routes);
   - batch 10: c44 → c45.
 
 ## Lanes in flight
 | Lane | Cycle | Status |
 |---|---|---|
-| w38 | c40 mobile debt | reported at 38306f5; reviewer running |
+| w38 | c40 mobile debt | CLEARED at db34c42, batch 11b |
 | w42 | c43 flows hardening (H7) | MERGED (2aba0a0, 09dd6cb) |
 | w43 | c44 page/store perf | CLEARED-AS-PARTIAL at 0abda0c, queued batch 10 |
 | w44 | c45 job leases J1 | CLEARED at 17b6390, queued batch 10 |
-| (w45) | c46 six-dimension scorecard M1 | brief written; **start after batch 9 merges**; DB e2e18; ports 9590–93; migration 0036 if needed |
-| w46 | c47 E1b eval evidence | implementer running; e2e2; 9690–93; migration 0037 |
-| w47 | c48 P3a approvals UI | implementer running; e2e3; 9790–93 |
-| w48 | c49 P5b audit anchor (+P5c measurement) | implementer running; e2e4; 9890–93; migration 0038 if needed |
+| w45 | c46 six-dimension scorecard M1 | implementer running from 7a139d8; e2e18; 9590–93 |
+| w46 | c47 E1b eval evidence | CLEARED at 15b1bd2, batch 11 |
+| w47 | c48 P3a approvals UI | CLEARED at d29339a, batch 11 |
+| w48 | c49 P5b audit anchor | CLEARED at 7b17bf6, batch 11 |
 
 ## Next after that
 - H9 contract-test refresh, after batch 8.

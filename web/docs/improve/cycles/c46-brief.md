@@ -1,6 +1,6 @@
 # c46 brief: six-dimension scorecard (Wave 3 · M1)
 
-**Lane:** w45, branched from improve-30h **after batch 9 merges**. It needs the data from c32 eval, c33 failure tags, c38 task reviews, c39 ledgers, c41 playbooks and c42 delegation briefs. Ports are 9590–9593. E2E DB **axion_e2e18**. Migration **0036**, only if needed; prefer none, since this is a read model.
+**Lane:** w45, branched from improve-30h at 7a139d8 (batch 9 merged except c40, which is UI only; schema-scoped advisory-lock helper in: use it for any lock). It needs the data from c32 eval, c33 failure tags, c38 task reviews, c39 ledgers, c41 playbooks and c42 delegation briefs. Ports are 9590–9593. E2E DB **axion_e2e18**. Migration **0036**, only if needed; prefer none, since this is a read model.
 **Source:** spec §16.1: six dimensions (Cognitive, Capability, Environmental, Collective, Knowledge, Evolutionary) "at company and department levels with sample sizes, evidence and trend, not one unexplained intelligence number". Also spec §11 invariant 9 (every metric shows its window and n; unknown stays unknown) and PHASE2 M1.
 
 ## Hypothesis
