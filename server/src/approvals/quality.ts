@@ -41,7 +41,7 @@ const cell = (r: { n: number | string; approved: number | string; med: number | 
 };
 const CELL_SQL = `count(*)::int as n, count(*) filter (where d.decision='approved')::int as approved,
   percentile_cont(0.5) within group (order by d.latency_ms) as med, count(*) filter (where d.fast_bulk)::int as fast`;
-const WHERE = `r.tenant_id = $1 and d.latency_ms is not null and d.decided_at > now() - make_interval(days => $2::int)`;
+const WHERE = `r.tenant_id = $1 and r.demo = false and d.latency_ms is not null and d.decided_at > now() - make_interval(days => $2::int)`;
 
 /** Aggregate for everyone: counts and medians over the whole tenant, no names. */
 export async function aggregateQuality(db: Db | Tx, tenantId: string, windowDays: number) {

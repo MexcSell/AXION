@@ -80,6 +80,16 @@ describe('c58 item 4a: decision records (latency from the database clock, queue 
   });
 });
 
+describe('c58 fix F6: demo rows are not statistics', () => {
+  it('decisions on demo requests are left out of the aggregate and the per-approver table', async () => {
+    for (let i = 0; i < 6; i++) await seed((await ask('submit_form', { demo: true })).id, A.adminId, 'approved', 5000);
+    expect((await A.admin.req('GET', '/approvals/quality')).body.quality).toMatchObject({ n: 0, enough: false });
+    expect((await A.admin.req('GET', '/approvals/quality/approvers')).body.approvers).toEqual([]);
+    await seed((await ask()).id, A.adminId, 'approved', 5000);
+    expect((await A.admin.req('GET', '/approvals/quality')).body.quality).toMatchObject({ n: 1 });
+  });
+});
+
 describe('c58 item 4b: the statistics (n and window; below 5, "not enough evidence"; admins see approvers, everyone else aggregates)', () => {
   it('below 5 decisions: not enough evidence, no numbers; at 5: numbers', async () => {
     const ids = [] as string[];
