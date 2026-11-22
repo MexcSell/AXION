@@ -23,7 +23,6 @@ const expect = async (cond, msg) => { if (!(await cond)) throw new Error(msg); }
 // out does not throw; it lets the unchanged assertion after it read the state and FAIL with its own message.
 const until = (fn, arg, timeout = 15000) => p.waitForFunction(fn, arg, { timeout }).catch(() => undefined);
 const appears = (loc, timeout = 15000) => loc.first().waitFor({ state: 'visible', timeout }).catch(() => undefined);
-const gone = (loc, timeout = 15000) => loc.first().waitFor({ state: 'detached', timeout }).catch(() => undefined);
 const frames = () => p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 
 await p.goto(base + '/missions', { waitUntil: 'networkidle' });
