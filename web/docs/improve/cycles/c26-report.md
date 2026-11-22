@@ -197,8 +197,8 @@ the base (a67d2dd, a scratch copy served on 7491):
 | Pair | Before / after | Difference |
 |---|---|---|
 | Demo M-126 conversation | `demo-conv-before.png` / `demo-conv-after.png` | 413 of 463,360 pixels: the first minimap block about 1 px lower (model offset) and the robot avatar's blink |
-| Api thread of 302 messages, pinned | `api-thread-before.png` / `api-thread-after.png` | Same look |
-| Api thread of 302 messages, scrolled to the middle | `api-thread-before-mid.png` / `api-thread-after-mid.png` | Same look; the message order differs only because the burst was posted 10 at a time |
+| Api thread of 302 messages, pinned | `api-thread-before.png` / `api-thread-after.png` | **Corrected in the fix round.** The first-round claim "same look" held for the thread body only: the minimap blocks of rows never rendered were 8 px slivers (review I1). The after shots were regenerated on the fix-round code; the minimap is a full-width column again |
+| Api thread of 302 messages, scrolled to the middle | `api-thread-before-mid.png` / `api-thread-after-mid.png` | As above (regenerated). The message order differs only because the burst was posted 10 at a time |
 
 ## 9. Concerns
 - **Threshold NOT MET** (total and worst). The floor run shows the remaining cost is page- and store-level. Candidates for a
@@ -225,3 +225,135 @@ the base (a67d2dd, a scratch copy served on 7491):
   scroll anchoring keeps the visible rows in place meanwhile. Pinned readers are re-pinned explicitly, because anchoring does
   not move a scroller that sits at its end.
 - **api-c09 was not run:** it is not in the base.
+
+## Fix round (review c26-review.md)
+The timing threshold stays **NOT MET**. The fix round changes no timing claim.
+
+App code is final at 48e9731; the last commit, 048c19f, is test-only.
+
+| Commit | What |
+|---|---|
+| afd2015 | I1 fix and the I1/I2 checks |
+| 48e9731 | I2 fix: the thread's own scroll anchor; a tall focused message shows its start |
+| cb8020f | Scroll-back check on the mixed thread |
+| 048c19f | api-c22 condition wait |
+
+### I1: minimap blocks of rows never rendered (fixed)
+**Model (`threadWindow.ts`).** Rows not measured yet now take their estimates from the measured rows of the same message
+kind:
+- the height (spacer and block) and the block width are each the mean of the first 30 measured rows of that kind;
+- before a kind has any measured row, they fall back to the mean of all measured rows, then to the old first guess;
+- the means are then held, so the spacers and the minimap do not churn;
+- they are learned again when the thread's width changes (text re-wraps). The cache clears, the estimates restart, and the
+  rows on screen are measured again at once (`relearn`, `ChatView` ResizeObserver).
+
+**New check (api-c26 `widths`).** On a long thread with the reader at the bottom, every minimap block of a row not on
+screen must be within ±25 % of the mean measured width of its kind. The same check runs after the thread gets narrower
+(viewport 1600 → 1480, thread 366 → 274 px), and the mean must be over 4 px, so a hidden minimap cannot pass.
+
+| Run | Reader at the bottom | After the thread got narrower |
+|---|---|---|
+| **RED** (82eef4a app code, 1,002 messages) | 936 of 986 off-screen blocks outside ±25 %: 8.2 px against a 23.5 px mean | 986 of 988 outside |
+| **GREEN** (48e9731, 1,202 messages) | 0 of 1,186 outside, all 23.5 px | 0 of 1,189 outside, all 26.7 px |
+
+**Report §8 corrected.** "Same look" was true for the demo pair only. The api after-shots were regenerated on the
+fix-round code, and the minimap is a full-width column again.
+
+### I2: mixed heights (a bug found and fixed)
+**New api-c26 `mixed()` pass.** A fresh thread of 240 messages, rotating through:
+- one line;
+- a 90-word paragraph;
+- a 20-line message;
+- three lines;
+- a 30-word line;
+- an 8-line list;
+- a PNG attachment on every 6th message (uploaded through `/uploads`).
+
+It asserts:
+1. after a reload, the reader is pinned and stays pinned for 3 s;
+2. each older page keeps the visible message in place (±8 px). The page request is **held until the test has recorded the
+   message**, which answers review Minor 5's timing window;
+3. a top-to-bottom walk renders all 242 messages in order, never with a blank viewport;
+4. scrolling up 1,200 px and back puts the same message at the same place (±3 px);
+5. Home, End, Home and ↓×25 each focus the right message and show it in the viewport;
+6. minimap blocks match the rendered rows within 1.5 px, in the middle and at the bottom.
+
+**What it found.**
+- **First older page jumped (RED on 82eef4a).** The message moved 74.8, 188, 589.8 and 100 px in four runs; later pages
+  stayed under 1 px.
+  - The app restored the anchor correctly; that was confirmed by instrumentation that was not committed.
+  - The scroll event from that restore then mounted rows above with real heights far from the estimates. The browser's scroll
+    anchoring did not compensate a scroll set by code that was followed at once by rows mounting above.
+  - **Fix:** the thread keeps its own anchor, and `overflow-anchor` is now `none` on `.thread-body`. The first visible row and
+    its offset are recorded on every scroll and after every change. After each commit, and in the ResizeObserver when a
+    rendered row changes size, the scroll position follows that row, provided nobody scrolled in between (the recorded
+    `scrollTop` is unchanged) and the reader is not pinned to the bottom.
+- **End left a tall message's top out of view (RED on 82eef4a).** The last message is 20 lines plus an image, taller than
+  the 374 px view, and `scrollIntoView({ block: 'nearest' })` showed its bottom. **Fix:** a focused message taller than the
+  view now shows its start.
+- **GREEN on 48e9731:** older pages 0.3 / 0.1 / 0.4 / 0.4 px; walk 242/242 with 0 blank viewports; scroll-back 0.0 px;
+  keyboard all four ok; minimap 0 of 11 and 0 of 5 blocks off; pinned 0 px throughout.
+
+### I3: merging with c25 (now on improve-30h, aaa18f6). Not done here, as instructed
+**`web/src/features/chat/ChatView.tsx`**
+- **c25's changes:**
+  - `requestOlder` is split into `captureAnchor(el)` plus `requestOlder` (improve-30h lines 225–234);
+  - the `onScroll` one-liner gains `if (loadingOlder && anchor.current) captureAnchor(el);` (improve-30h line 261);
+  - the bubble's **Reply…** passes `replyTo: m.id` (line 92). That is a separate fix and should merge cleanly.
+- **c26's changes:** `requestOlder` is at c26 line 410, and the whole `onScroll` handler is rewritten (c26 lines 509–517):
+  `record()`, `far`, `flushSync(moveVp)` before `requestOlder`, and `moveVp` otherwise.
+- **How to combine:** keep c25's `captureAnchor` helper. In c26's handler, put c25's re-capture **after the window has
+  followed the scroll**, so the anchor is a row the reader can see:
+
+      const el = ev.currentTarget; const b = …; setAtBottom(b); if (b) setNewCount(0);
+      atBottomRef.current = b; record();
+      const far = Math.abs(el.scrollTop - vpRef.current.top) > DRIFT || el.clientHeight !== vpRef.current.h;
+      const atTop = el.scrollTop < 80;
+      if (far && (atTop || (loadingOlder && anchor.current))) flushSync(() => moveVp(el)); // render the rows first
+      else if (far) moveVp(el);
+      if (loadingOlder && anchor.current) captureAnchor(el); // c25: a slow page; the anchor follows the reader
+      if (atTop) requestOlder(el);                           // c26 + c25: requestOlder calls captureAnchor
+
+- **Interaction with c26's own anchor:** c26's `hold()` does not conflict with c25's restore. The restore effect sets
+  `scrollTop`, and `hold()` then sees a changed `scrollTop` and only records.
+
+**`web/scripts/api-stage6.mjs` paging loop**
+- **c25's changes:**
+  - `await calm(A.p)` replaces `waitForTimeout(400)` after the page grows (improve-30h line 254) and `waitForTimeout(200)`
+    after "leave the top" (line 259, and line 303 in the gap section);
+  - adds `import { calm } from './_session.mjs'`.
+- **c26's changes to the same loop (c26 lines 260–276 and 318–326):**
+  - counts use `loaded()`, not `mids()`;
+  - the anchor is captured after two animation frames;
+  - adds the `reach()` walk.
+- **How to combine:** take c26's version of those lines and replace its two remaining `waitForTimeout(400/200)` calls
+  (c26 lines 271, 276, 326) with `await calm(A.p)`.
+
+**After the merge:** run api-stage6, api-c22, api-c26, api-c09 (now on improve-30h), api-improve, a11y-check (demo and
+api), flows and verify-all on the merged tree.
+
+### Review minor items
+- **Minor 1 (documented, not changed).** The user's own messages and receipt changes ("queued" → "acknowledged") are no
+  longer announced: the log is `aria-live=off`, and the status line skips own and pending messages. Failed sends still raise
+  a toast.
+- **Minor 2 (open).** There is no announcer fallback when the previous last message is gone, and a repeat of identical
+  text is not re-read.
+- **Minors 3 and 4 (open).** Screen-reader browse mode and Safari, which has no CSS scroll anchoring, are untested. c26 no
+  longer relies on the browser's anchoring: the thread keeps its own anchor.
+- **Minor 5 (fixed in the mixed pass).** The page request is held until the anchor is recorded. The stage6 and c22 loops
+  keep the two-frame capture.
+
+### Runs on the fix-round code (all through heavy.sh, lane stack 7492/7493, dev 7490)
+| Check | Result |
+|---|---|
+| **api-c26**, FILL 1,000, 3 reps | 19/19 behaviour checks (10 earlier + announcer + I1 ×2 + I2 ×6), page errors 0 |
+| api-c26 timing (load fell from about 45 to 10 during the run) | whole trace 1,575 / 1,121 / 1,252 ms (mean 1,316), worst 814 / 429 / 594 ms: **NOT MET** (≤ 30 % of 2,958 = 887 ms; ≤ 200 ms) |
+| api-c26 SHOT run (FILL 300, regenerating the after shots) | 13/13 |
+| **api-stage6** | 92/94 in the first run (load ~16): the two failures were the designer-01 Edit version step, the known flake recorded in c01 and c22. **94/94** on re-run |
+| **api-c22** | First run 13/14 (load ~16): N=1,000 "scrolling up loads the next older page" stayed 50 → 50 |
+| api-c22, the 50 → 50 failure | Suspected cause: the store held the reloaded page before the thread had rendered and pinned it, so the jump to the top came before the pin. Unproven: the failure did not recur, so I could not confirm the race. Hardened with a condition wait (048c19f) |
+| api-c22 re-runs | **10/10** (REPS 1) and **14/14** (REPS 3); reload → interactive 1.6–1.8 s (130) and 1.7–2.1 s (1,000) |
+| **api-improve** | **107/107** |
+| **a11y-check, api** | 1 LIVEPROBE in each of two runs at load 16–21, on other pages, both page probes outside the thread (`/agents/coder-01` and the proposals page) still showing the lazy page skeleton "Loading…" after `settle(400)`. **0 violations** at load 8 |
+| **a11y-check, demo** | **0 violations** (50 views, 55 dialogs) |
+| **verify-all** | **ALL 10 STEPS PASSED**, rc 0 |
