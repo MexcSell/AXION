@@ -67,7 +67,7 @@ Re-run after the fixes: server tsc and web tsc clean; full vitest 50 files, 1502
 verify-all after the fixes: ALL 10 STEPS PASSED.
 
 ### Re-review follow-ups (last round)
-Test-first. RED: with the previous source restored, 10 of the new tests failed (required domain, every rotate rule, the CLI rotate, the guard's query-string rule); GREEN: `audit-anchor.test.ts` 76/76 (two more route tests added after the RED run), full vitest 50 files / 1514 tests expected from the final run below.
+Test-first. RED: with the previous source restored, 10 of the new tests failed (required domain, every rotate rule, the CLI rotate, the guard's query-string rule); GREEN: `audit-anchor.test.ts` 76/76 (two more route tests added after the RED run), full vitest 50 files / 1512 tests pass (final run), `audit-anchor.test.ts` 76/76 after the two extra route tests, api-c49 14/14, verify-all ALL 10 STEPS PASSED.
 
 | item | change |
 |---|---|
