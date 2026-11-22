@@ -8,6 +8,7 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
 - Q5 (from cycle 5): should direct edits of an agent's model, skills or tools (Stage 6 Edit) require a version proposal and a second admin, as promotions do? Default: no; direct edits stay single-admin, audited and versioned.
 - Q6 (from cycle 6): when several members of a department report to the GM, which one is the department "head"? The current rule is the one with the most members under it, then the lowest id, and the card shows a "1 of N → GM" chip. Default: keep it.
 - Q7 (from cycle 11): when a new mission is staffed from the org chart, should recruits who report to the GM sit under the GM in the mission, or under the mission's executor? Default (D1): under the executor, because the GM isn't counted as an in-mission supervisor.
+- Q8 (from cycle 26): long threads are virtualised; the message log no longer announces rows as they scroll into view, and a status line announces messages from others. Keyboard: ↑ ↓ PgUp PgDn Home End move between messages. This needs a check with a real screen reader (NVDA, VoiceOver) in browse mode, which this environment cannot do. Default: merged after fixes; owner to verify manually.
 
 ## Cycles
 
@@ -207,3 +208,8 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
 ### Cycle 28: command palette race (lane w26)
 - A REAL user bug: the lazily mounted palette opened already visible, and its on-open reset wiped a fast first keystroke, so Enter ran "Add mission" (whose dialog then blocked the theme toggle). Fix: reset the query only after close; Enter waits for the help registry. Repro 5/5 → 0/5; flows 0/21 under load. Also fixed: sign-out cancels the version-proposals refresh; "Loading history…" and "Loading plans…" wrapped in LiveStatus. verify-all 10/10; stage6 94/94. Review running.
 - New lane w27 (c29): the "Delete (archive)" flows failure (5/21 under load): root cause, possible demo-store race.
+- c28 fix round (1cbdc78, 072a1ea): a waiting Enter is cancelled on close and acts only while the palette is open (deterministic check RED 0/2 → GREEN 2/2); verify-all 10/10. Controller verified. Cleared (batch 5e).
+
+### Cycle 26: thread virtualisation (lane w24)
+- Implementer (505a248 to cec94bd): only visible rows (+ overscan) are rendered; cost independent of thread length (50 msgs 1,513 ms, 1,000 msgs 1,385 ms). Timing threshold NOT MET (47% of before vs ≤30%; worst task ~0.5 s vs ≤200 ms; residual cost is page-level). All functional checks pass; stage6 and c22 checks rewritten to test intent (forced defects RED).
+- Review (opus): MERGE AFTER FIXES. I1: off-screen minimap blocks drawn as slivers. I2: no mixed-height fixture. I3: merge after c25 (same scroll-handler lines). Q8 queued. Fix round dispatched.

@@ -274,3 +274,31 @@ Integrator log: one entry per merge request. Times are UTC.
 - **fit-check:** 77/77 ALL FIT. **ov-fit:** 32/32, NO SCROLL ANYWHERE.
 
 **Follow-up commits:** none (the c15 tightening moves with c15). Controller files committed with this entry: LOG.md (modified), cycles/c28-review.md, c29-brief.md (new).
+
+## Batch 5b: c25, c08
+
+- **Merged:** 2026-11-22 ~01:00–01:02 UTC. Pre-batch commit `e00352a`.
+- **Merge commits (`--no-ff`):**
+  - `aaa18f6` c25-test-hygiene (1d0fd4a): condition waits, shared e2e DB guard, narrower invented-number and decision-button checks, flows Hierarchy fix, stale-anchor fix.
+  - `04e6a7d` c08-flaky-checks (60ee4b7): loadAgents keeps only the newest load (overtaken callers wait for it), expiry step gates B's reads, Conversations condition wait.
+- **Conflicts:**
+  - c25 `web/scripts/api-improve.mjs`:
+    - The e2e DB guard is now read once, in the c04 step, through c25's `requireE2eDatabase()`; the expiry step keeps HEAD's "read and guarded above" comment.
+    - The proposal-card check takes c25's `inventedNumbers()` with HEAD's count of five proposals (c04's rollback is the fifth).
+  - c25 `web/src/features/chat/ChatView.tsx` thread body: c23's conditional live-region role and empty-state role, c22's `presenceAffectsLayout={false}`, plus c25's anchor capture while an older page loads.
+  - c08 `web/scripts/api-improve.mjs` expiry step: kept HEAD (no re-declared guard). c08's gate (`holdReads`/`openGate`) merged cleanly; flows.mjs keeps c25's Hierarchy condition waits and gains c08's Conversations wait.
+- **Per-merge checks:** server tsc OK; vitest 37 files 583/583 after each. web tsc OK after each. `selftest-guards.mjs` 34/34 after c25.
+- **Observation (not changed):** c04's History check (api-improve.mjs:305) still bans the words coverage/latency/tokens/estimate. c25 narrowed only the proposal-card check, and c20's History text avoids the word. It is worth narrowing the same way in a later lane.
+
+**Batch checks on `04e6a7d`:**
+- **api-e2e (exit 1):** api-auth-flow 15/15; api-flows 23/23; api-stage6 94/94; api-c08 6/6; **api-improve 106/107**.
+  - FAIL line: `FAIL nothing invented: no percentage and no number beside coverage, latency or tokens on the proposal cards — 52s | 49s | 54s | 56s`
+  - Cause: c25's new number-before-unit rule (`\d+\s*s\b`) matches the cards' real relative time. `ago()` (lib/format.ts, unchanged since init) prints "NNs ago" for 30–60 s. On the merged tree the cards are 49–56 s old when read (c04's extra steps run first); on c25's branch they were not. This is a false positive in the guard, not an invented figure.
+  - **Follow-up `f8a5ff5`:** a unit followed by "ago" is not flagged. selftest-guards gains two allowed cases (RED before the change: 2 FAIL) and two flagged ones; 38/38 after. **api-improve rerun: 107/107**, the check PASS.
+- **verify-all:** exit 1, "1 of 10 STEPS FAILED" (auth flow (u1)). **flows 21/21, no console errors**: c25's Hierarchy fix holds.
+  - FAIL line: `FAIL v1 → v2 migration loads the old missions — 0 rows` (auth-flow.mjs: a fixed 800 ms wait, then the rows are counted). The queue's known list names the v1 → v2 step. Load was ~62 during the run.
+  - `auth-flow.mjs` rerun alone (load 11.6): exit 0, 17/17, migration 12 rows. Classified as load; recorded.
+  - Every other step PASS: build, crawl 77 views, deep crawl, u1 flows, dialog smoke 112/0, dialog ids, help keys, fs guard.
+- **fit-check:** 77/77 ALL FIT. **ov-fit:** 32/32, NO SCROLL ANYWHERE.
+
+**Follow-up commits:** `f8a5ff5`. Controller files committed with this entry: LOG.md, QUEUE.md (modified; the new batch 5e).
