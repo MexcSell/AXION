@@ -20,7 +20,8 @@ async function setup(guard: Record<string, number>) {
   const dry = async (...mv: [string, string][]) => A.req('POST', '/organization/proposals?dryRun=1', await body(...mv));
   const approve = async (p: { id: string; sha: string }) => B.req('POST', `/organization/proposals/${p.id}/decision`, { decision: 'approve', sha: p.sha });
   const q = (sql: string, p: unknown[] = []) => t.pool.query(sql, p);
-  return { t, A, B, propose, dry, approve, q };
+  const rev = async () => (await graph()).revision.seq;
+  return { t, A, B, propose, dry, approve, q, rev };
 }
 
 describe('cooldown after an approved org revision', () => {
@@ -61,13 +62,71 @@ describe('cooldown after an approved org revision', () => {
     expect(outside.body.proposal.result.churn.cooldownEndsInMinutes).toBeNull();
   });
 
-  it('a rollback proposal is never held by the cooldown (undoing a change must stay possible)', async () => {
+  it('only the undo of the last applied change is exempt: a rollback to the revision just before the current one, when a normal proposal made the current one', async () => {
     const p = (await s.propose(['writer-01', 'ops-01'])).body.proposal; // pending, base unchanged
     expect(p.id).toBeTruthy();
-    expect((await s.approve(p)).status).toBe(200); // applied now: a fresh cooldown
+    expect((await s.approve(p)).status).toBe(200); // applied now: a fresh cooldown (c64 fix round, S1: the earlier test rolled back to revision 1, two back)
     expect((await s.propose(['designer-01', 'ops-01'])).body.code).toBe('ORG_COOLDOWN');
-    const rb = await s.A.req('POST', '/organization/revisions/1/rollback-proposal', {}, key());
+    const seq = (await s.rev());
+    const rb = await s.A.req('POST', `/organization/revisions/${seq - 1}/rollback-proposal`, {}, key());
     expect(rb.status, JSON.stringify(rb.body)).toBe(201);
+    expect((await s.approve(rb.body.proposal)).status).toBe(200);
+  });
+
+  it('a rollback to any other revision is held by the cooldown (here two revisions back)', async () => {
+    await s.q(`update org_proposals set decided_at = now() - interval '48 hours'`);
+    const p = (await s.propose(['designer-01', 'ops-01'])).body.proposal;
+    expect((await s.approve(p)).status).toBe(200);
+    const seq = await s.rev();
+    const rb = await s.A.req('POST', `/organization/revisions/${seq - 2}/rollback-proposal`, {}, key());
+    expect(rb.status).toBe(409);
+    expect(rb.body.code).toBe('ORG_COOLDOWN');
+  });
+
+  it('flip-flop: after the one allowed undo, rolling forward and undoing again are refused (cooldown 24 h, a rollback is not free churn)', async () => {
+    await s.q(`update org_proposals set decided_at = now() - interval '48 hours'`);
+    const p = (await s.propose(['analyst-01', 'ops-01'])).body.proposal;
+    expect((await s.approve(p)).status).toBe(200);
+    const cur = await s.rev(); // normal change at `cur`; the chart before it is `cur - 1`
+    const undo = await s.A.req('POST', `/organization/revisions/${cur - 1}/rollback-proposal`, {}, key());
+    expect(undo.status, JSON.stringify(undo.body)).toBe(201);
+    expect((await s.approve(undo.body.proposal)).status).toBe(200);
+    // current = the undo (applied by a rollback). Roll forward to the change it undid: not exempt.
+    const fwd = await s.A.req('POST', `/organization/revisions/${cur}/rollback-proposal`, {}, key());
+    expect(fwd.status).toBe(409);
+    expect(fwd.body.code).toBe('ORG_COOLDOWN');
+  });
+
+  it('the cooldown and the budget are checked again when the proposal is approved', async () => {
+    await s.q(`update org_proposals set decided_at = now() - interval '48 hours'`);
+    const cfg = s.t.app.cfg as { orgGuardrails?: Record<string, number> };
+    const was = cfg.orgGuardrails; cfg.orgGuardrails = {}; // nothing enforced while the proposals are made
+    try {
+      const g0 = (await s.A.req('GET', '/organization/graph')).body as { edges: Edge[] };
+      const flip = (sub: string): [string, string] => [sub, g0.edges.find((e) => e.subordinateId === sub)!.supervisorId === 'ops-01' ? 'gm' : 'ops-01']; // a move that really changes a line
+      const p = (await s.propose(flip('coder-01'))).body.proposal;
+      expect(p.linesChanged).toBe(1);
+      expect((await s.approve(p)).status).toBe(200);
+      const a = await s.propose(flip('writer-01')); // a normal proposal, made unenforced ...
+      expect(a.status).toBe(201);
+      expect(a.body.proposal.linesChanged).toBeGreaterThan(0);
+      cfg.orgGuardrails = { cooldownHours: 24 }; // ... then the operator turns the cooldown on
+      const r = await s.approve(a.body.proposal);
+      expect(r.status).toBe(409);
+      expect(r.body.code).toBe('ORG_COOLDOWN');
+      const used = (await s.q(`select coalesce(sum(lines_changed),0)::int n from org_proposals where status='applied' and decided_at > now() - interval '48 hours'`)).rows[0].n;
+      cfg.orgGuardrails = { churnBudget: used, churnWindowHours: 48 }; // the budget is already used up by the approved changes in the window
+      const r2 = await s.approve(a.body.proposal);
+      expect(r2.status).toBe(422);
+      expect(r2.body.code).toBe('ORG_CHURN_BUDGET');
+      // the undo of the last change stays exempt at approval too
+      const seq = await s.rev();
+      cfg.orgGuardrails = {};
+      const rb = await s.A.req('POST', `/organization/revisions/${seq - 1}/rollback-proposal`, {}, key());
+      expect(rb.status).toBe(201);
+      cfg.orgGuardrails = { cooldownHours: 24, churnBudget: 1, churnWindowHours: 48 };
+      expect((await s.approve(rb.body.proposal)).status).toBe(200);
+    } finally { cfg.orgGuardrails = was; }
   });
 });
 

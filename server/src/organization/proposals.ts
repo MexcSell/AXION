@@ -59,7 +59,7 @@ export function payloadSha(p: { title: string; why: string; baseRevision: number
   return createHash('sha256').update(JSON.stringify([p.title, p.why, p.baseRevision, edges, ...extra])).digest('hex');
 }
 
-interface DryOpts { triggers?: readonly RestructureTrigger[]; settings?: OrgGuardrailSettings; /** c64 item 3: the cooldown and the churn budget gate NEW proposals only (not a rollback, not the check at approval) */ gate?: boolean }
+interface DryOpts { triggers?: readonly RestructureTrigger[]; settings?: OrgGuardrailSettings; /** c64 item 3: the cooldown and the churn budget gate NEW proposals only (the one exempt rollback is the undo of the last change; the check at approval repeats it) */ gate?: boolean }
 async function dryRun(c: Tx | Db, tenantId: string, edges: EdgeIn[], currentId: number | null, o: DryOpts = {}): Promise<OrgDryRun> {
   const triggers = o.triggers ?? []; const settings = o.settings ?? {};
   const agents = (await c.query('select d.id, d.status, d.dept, d.role, v.model from agent_definitions d left join agent_versions v on v.id = d.active_version_id where d.tenant_id=$1', [tenantId])).rows;
@@ -103,6 +103,16 @@ export async function expireDue(c: Tx, tenantId: string) {
 }
 
 const staleBase = (seq: number, base: number) => new ApiError('ORG_CHANGED', 409, `The organisation changed meanwhile (revision ${seq} is active, this was made on ${base}). Start again from the current chart.`);
+/**
+ * The one rollback that is exempt from the cooldown and the churn budget: the undo of the last applied change. That is a rollback
+ * whose target is the revision immediately before the current one, where the current one was applied by a normal (non-rollback)
+ * proposal. A roll-forward, an undo of an undo, or a rollback to any older revision is not exempt (it is restructuring, and it counts).
+ */
+export async function undoesLastChange(c: Tx | Db, tenantId: string, curSeq: number, rollbackTo: number): Promise<boolean> {
+  const prev = (await c.query('select coalesce(max(seq), 0)::int as s from org_revisions where tenant_id=$1 and seq < $2', [tenantId, curSeq])).rows[0].s as number;
+  if (prev !== rollbackTo) return false;
+  return !!(await c.query(`select 1 from org_proposals where tenant_id=$1 and status='applied' and applied_revision=$2 and rollback_to is null`, [tenantId, curSeq])).rowCount;
+}
 /** Serialises proposal creation per tenant (re-entrant within one transaction). */
 export const lockProposals = (c: Tx, tenantId: string) => advisoryXactLock(c, 'org-prop:' + tenantId);
 
@@ -121,14 +131,15 @@ export async function createProposal(c: Tx, ctx: Ctx, b: { title: string; why: s
   const sha = payloadSha({ title: b.title, why: b.why, baseRevision: b.baseRevision, edges, triggers, baseline: b.baseline, expectedCost: b.expectedCost });
   if ((await c.query(`select 1 from org_proposals where tenant_id=$1 and payload_sha=$2 and status='pending'`, [ctx.tenantId, sha])).rowCount)
     throw new ApiError('DUPLICATE_PROPOSAL', 409, 'The same proposal is already waiting for a decision.');
-  const gate = opts.rollbackTo === undefined; // a rollback (undoing a change) is never held back
+  // c64 fix round (S1): only the undo of the last applied change is exempt; every other rollback follows the cooldown and the budget
+  const gate = !(opts.rollbackTo !== undefined && await undoesLastChange(c, ctx.tenantId, cur.seq, opts.rollbackTo));
   const result = await dryRun(c, ctx.tenantId, b.edges, cur.id, { triggers, settings: opts.settings, gate });
   if (gate && result.churn?.cooldownEndsInMinutes != null) throw new ApiError('ORG_COOLDOWN', 409, cooldownMessage(result.churn));
   if (gate && result.churn?.overBudget) throw new ApiError('ORG_CHURN_BUDGET', 422, budgetMessage(result.churn));
   const id = 'OP-' + randomBytes(16).toString('hex').toUpperCase(); // 128-bit
   await c.query(
-    `insert into org_proposals(id, tenant_id, title, why, base_revision, edges, payload_sha, created_by, result, triggers, baseline, expected_cost, lines_changed) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-    [id, ctx.tenantId, b.title, b.why, b.baseRevision, JSON.stringify(edges), sha, ctx.user.id, JSON.stringify(result), JSON.stringify(triggers), b.baseline ?? '', b.expectedCost ?? '', result.churn?.linesChanged ?? 0]);
+    `insert into org_proposals(id, tenant_id, title, why, base_revision, edges, payload_sha, created_by, result, triggers, baseline, expected_cost, lines_changed, rollback_to) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [id, ctx.tenantId, b.title, b.why, b.baseRevision, JSON.stringify(edges), sha, ctx.user.id, JSON.stringify(result), JSON.stringify(triggers), b.baseline ?? '', b.expectedCost ?? '', result.churn?.linesChanged ?? 0, opts.rollbackTo ?? null]);
   const rb = opts.rollbackTo !== undefined ? { rollbackTo: opts.rollbackTo } : {};
   const detail = { baseRevision: b.baseRevision, added: result.added.length, removed: result.removed.length, errors: result.errors.length, warnings: result.warnings.length, ...rb };
   await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'org.proposal.create', subject: id, result: 'ok', correlationId: ctx.correlationId, detail });
@@ -198,7 +209,11 @@ export default async function proposalRoutes(app: FastifyInstance) {
       }
       const cur = await latest(c, ctx.tenantId);
       if (cur.seq !== p.base_revision) return refuse(c, ctx, A, id, new ApiError('ORG_CHANGED', 409, `The organisation changed since this proposal was made (revision ${cur.seq} is active, it was made on ${p.base_revision}). It can only be rejected or withdrawn.`));
-      const check = await dryRun(c, ctx.tenantId, fromStored(edges), cur.id, { settings: app.cfg.orgGuardrails });
+      // the cooldown and the budget are checked again now (the settings or the window may have changed since it was made); only the undo of the last change is exempt
+      const exempt = p.rollback_to !== null && await undoesLastChange(c, ctx.tenantId, cur.seq, p.rollback_to);
+      const check = await dryRun(c, ctx.tenantId, fromStored(edges), cur.id, { settings: app.cfg.orgGuardrails, gate: !exempt });
+      const held = check.errors.find((e) => e.code === 'COOLDOWN' || e.code === 'CHURN_BUDGET');
+      if (held) return refuse(c, ctx, A, id, new ApiError(held.code === 'COOLDOWN' ? 'ORG_COOLDOWN' : 'ORG_CHURN_BUDGET', held.code === 'COOLDOWN' ? 409 : 422, held.message));
       if (!check.ok) return refuse(c, ctx, A, id, new ApiError('ORG_INVALID', 422, `This proposal cannot be applied: ${check.errors[0].message}`));
       const rev = await createOrgRevision(c, { tenantId: ctx.tenantId, edges: fromStored(edges), expectSeq: p.base_revision, note: `Proposal ${id}: ${p.title}`, createdBy: ctx.user.id }); // validates the chart again
       const u = await c.query(
