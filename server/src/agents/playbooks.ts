@@ -116,11 +116,14 @@ const shapeSource = (s: SourceRef, seeAll: boolean): SourceRef => {
 };
 /** What a person may read of an item: members get no override note and no source ids or notes. */
 const itemView = (i: PlaybookItem, admin: boolean): PlaybookItem => ({ ...i, sources: i.sources.map((x) => shapeSource(x, admin)), overrideNote: admin ? i.overrideNote : null });
-const playbookDto = (r: any, agent: { id: string; name: string; role: string }, admin: boolean): PlaybookDto => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
+const playbookDto = (r: any, agent: { id: string; name: string; role: string }, admin: boolean, cap: number): PlaybookDto => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
   agentId: agent.id, agentName: agent.name, role: agent.role, version: r ? r.version : 0, items: r ? (r.items_x as PlaybookItem[]).map((i) => itemView(i, admin)) : [],
   kind: r?.kind ?? null, createdBy: r?.created_by ?? null, createdByName: r ? (r.created_by_name ?? r.created_by) : null, createdAt: r ? iso(r.created_at) : null,
-  rollbackTo: r?.rollback_to ?? null, note: admin ? (r?.note ?? null) : null,
+  rollbackTo: r?.rollback_to ?? null, note: admin ? (r?.note ?? null) : null, activeCap: cap,
 });
+/** c59: the cap on active items per playbook (per role: one active agent holds a role). An operator setting, never a route; a bad value falls back to 25. */
+export const DEFAULT_ACTIVE_CAP = 25;
+export const activeCapOf = (cfg: { playbookActiveCap?: number }): number => (Number.isInteger(cfg.playbookActiveCap) && cfg.playbookActiveCap! >= 1 && cfg.playbookActiveCap! <= 200 ? cfg.playbookActiveCap! : DEFAULT_ACTIVE_CAP);
 const agentOf = async (c: Tx, tenantId: string, id: string) => {
   const a = (await c.query('select id, name, role from agent_definitions where id=$1 and tenant_id=$2', [id, tenantId])).rows[0] as { id: string; name: string; role: string } | undefined;
   if (!a) throw notFound('No such agent.');
@@ -272,7 +275,7 @@ export default async function playbookRoutes(app: FastifyInstance) {
         `select p.version, p.kind, jsonb_array_length(p.items)::int as n, p.created_by, coalesce(u.name, p.created_by) as by_name, p.created_at, p.rollback_to, p.note, p.lesson_id
            from playbooks p left join users u on u.id = p.created_by where p.tenant_id=$1 and p.agent_id=$2 order by p.version desc limit 200`, [ctx.tenantId, id])).rows;
       const history: PlaybookVersionRow[] = versions.map((v) => ({ version: v.version, kind: v.kind, items: v.n, createdBy: v.created_by, createdByName: v.by_name, createdAt: iso(v.created_at)!, rollbackTo: v.rollback_to, note: ctx.user.role === 'admin' ? v.note : null, lessonId: v.lesson_id }));
-      return { playbook: playbookDto(cur, agent, ctx.user.role === 'admin'), versions: history };
+      return { playbook: playbookDto(cur, agent, ctx.user.role === 'admin', activeCapOf(app.cfg)), versions: history };
     });
   });
 
@@ -283,7 +286,7 @@ export default async function playbookRoutes(app: FastifyInstance) {
       const agent = await agentOf(c, ctx.tenantId, id);
       const row = /^\d{1,7}$/.test(v) ? await versionRow(c, ctx.tenantId, id, Number(v)) : undefined;
       if (!row) throw notFound('No such playbook version.');
-      return { playbook: playbookDto(row, agent, ctx.user.role === 'admin') };
+      return { playbook: playbookDto(row, agent, ctx.user.role === 'admin', activeCapOf(app.cfg)) };
     });
   });
 
@@ -367,6 +370,9 @@ export default async function playbookRoutes(app: FastifyInstance) {
       const items = (cur?.items ?? []) as PlaybookItem[];
       if (items.some((i) => squash(i.text).toLowerCase() === squash(l.text).toLowerCase()))
         return refuse(c, ctx, A, lid, new ApiError('DUPLICATE_PROPOSAL', 409, 'The playbook already holds this lesson. Reject this candidate.'));
+      const cap = activeCapOf(app.cfg);
+      if (items.length + 1 > cap)
+        return refuse(c, ctx, A, lid, new ApiError('ACTIVE_CAP_REACHED', 409, `The playbook for ${agent.role} already holds ${items.length} active items and the cap is ${cap}. Roll back or replace an item first.`));
       const clash = findConflicts(l.text, items);
       if (clash.length && !b.overrideNote)
         return refuse(c, ctx, A, lid, new ApiError('CONFLICT', 409, `This lesson seems to contradict ${clash.length === 1 ? 'an item' : clash.length + ' items'} already in the playbook. Accept it only with an override note that says why both can stand.`, { fieldErrors: { overrideNote: 'An override note is required: this contradicts an existing item.' } }));
@@ -403,7 +409,7 @@ export default async function playbookRoutes(app: FastifyInstance) {
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: A, subject: lid, result: 'ok', correlationId: ctx.correlationId, detail: { decision: 'accept', agentId: l.agent_id, version, fromVersion: curVersion, contradicts: item.contradicts, overrideNote: item.overrideNote, note, superseded: dup } });
       await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'playbook.lessonDecided', subject: l.agent_id, subjectKind: 'agent', payload: { lessonId: lid, status: 'accepted', version } });
       await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'playbook.versionCreated', subject: l.agent_id, subjectKind: 'agent', payload: { version, lessonId: lid } });
-      return { lesson: (await candidates(c, ctx, 'c.id=$2', [lid]))[0], playbook: playbookDto(await versionRow(c, ctx.tenantId, l.agent_id, version), agent, true) };
+      return { lesson: (await candidates(c, ctx, 'c.id=$2', [lid]))[0], playbook: playbookDto(await versionRow(c, ctx.tenantId, l.agent_id, version), agent, true, activeCapOf(app.cfg)) };
     });
     if ('err' in out) throw out.err;
     return out;
@@ -424,6 +430,10 @@ export default async function playbookRoutes(app: FastifyInstance) {
       const target = b.toVersion < cur.version ? await versionRow(c, ctx.tenantId, id, b.toVersion) : undefined;
       if (!target) return refuse(c, ctx, A, id, notFound('No such playbook version.'));
       if (JSON.stringify(target.items) === JSON.stringify(cur.items)) return refuse(c, ctx, A, id, new ApiError('SAME_CONFIG', 422, `Version ${cur.version} already holds the same items as version ${target.version}.`));
+      const cap = activeCapOf(app.cfg);
+      const tgtN = (target.items as PlaybookItem[]).length;
+      if (tgtN > cap && tgtN > (cur.items as PlaybookItem[]).length) // only activating MORE than the cap allows is refused; going down is always allowed
+        return refuse(c, ctx, A, id, new ApiError('ACTIVE_CAP_REACHED', 409, `Version ${target.version} holds ${tgtN} active items and the cap for ${agent.role} is ${cap}.`));
       // decider != proposer holds for a rollback too: it must not put back a lesson the actor proposed
       const curIds = new Set((cur.items as PlaybookItem[]).map((i) => i.lessonId)), tgtIds = new Set((target.items as PlaybookItem[]).map((i) => i.lessonId));
       const back = [...tgtIds].filter((x) => !curIds.has(x)), gone = [...curIds].filter((x) => !tgtIds.has(x));
@@ -448,7 +458,7 @@ export default async function playbookRoutes(app: FastifyInstance) {
       for (const r of back) await logContribution(c, { tenantId: ctx.tenantId, kind: 'lesson', recordId: r, action: 'restored', actor: ctx.user.id, actorKind: 'human', version, note: b.why });
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: A, subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { why: b.why, fromVersion: cur.version, toVersion: target.version, newVersion: version, withdrawn: gone, restored: back } });
       await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'playbook.versionCreated', subject: id, subjectKind: 'agent', payload: { version, rollbackTo: target.version } }); // the reason stays in the audit row
-      return { playbook: playbookDto(await versionRow(c, ctx.tenantId, id, version), agent, true), versions: version };
+      return { playbook: playbookDto(await versionRow(c, ctx.tenantId, id, version), agent, true, activeCapOf(app.cfg)), versions: version };
     });
     if ('err' in out) throw out.err;
     return out;

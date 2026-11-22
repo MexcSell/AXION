@@ -23,6 +23,8 @@ export interface Config {
   allowedOrigins?: string[];
   /** per-session write rate limits (tests make them small); defaults in ratelimit.ts */
   writeLimits?: Partial<Record<import('./ratelimit.ts').WriteBucket, import('./ratelimit.ts').WriteLimit>>;
+  /** c59: most active items one agent's playbook may hold. An operator setting only (never a route): whole number 1..200, default 25. */
+  playbookActiveCap?: number;
 }
 
 export const VERSION = '0.5.0';
@@ -38,5 +40,6 @@ export function configFromEnv(): Config {
     uploadDir: process.env.UPLOAD_DIR || undefined,
     demoSeed: process.env.DEMO_SEED === '1',
     allowedOrigins: (process.env.ALLOWED_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean),
+    playbookActiveCap: process.env.PLAYBOOK_ACTIVE_CAP ? Number(process.env.PLAYBOOK_ACTIVE_CAP) : undefined,
   };
 }

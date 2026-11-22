@@ -279,7 +279,7 @@ const playbookItem: V<PlaybookItem> = obj<PlaybookItem>({
 });
 const playbook: V<PlaybookDto> = obj<PlaybookDto>({
   agentId: str, agentName: str, role: str, version: int, items: arr(playbookItem), kind: nullable(oneOf(['accept', 'rollback'] as const)), createdBy: nullable(str), createdByName: nullable(str),
-  createdAt: nullable(iso), rollbackTo: nullable(int), note: nullable(str),
+  createdAt: nullable(iso), rollbackTo: nullable(int), note: nullable(str), activeCap: int,
 });
 const playbookRow: V<PlaybookVersionRow> = obj<PlaybookVersionRow>({
   version: int, kind: oneOf(['accept', 'rollback'] as const), items: int, createdBy: str, createdByName: str, createdAt: iso, rollbackTo: nullable(int), note: nullable(str), lessonId: nullable(str),
