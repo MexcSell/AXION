@@ -81,7 +81,7 @@ export async function loadEvaluations(c: Tx, tenantId: string, proposals: Eviden
     // c53: runs of ANY proposal with the same agent and candidate config on this dataset count (withdraw and re-propose buys nothing)
     const runCount = Number((await c.query(
       `select count(*)::int n from eval_runs r join agent_version_proposals q on q.id = r.subject_proposal_id
-        where r.tenant_id=$1 and r.dataset_id=$2 and (q.agent_id, q.candidate_sha) = (select agent_id, candidate_sha from agent_version_proposals where id=$3)`,
+        where r.tenant_id=$1 and r.dataset_id=$2 and (q.agent_id, eval_canon_config(q.candidate)) = (select agent_id, eval_canon_config(candidate) from agent_version_proposals where id=$3)`,
       [tenantId, cand.dataset_id, p.id])).rows[0].n);
     const holdoutSets = new Set(mine.filter((r) => r.split === 'holdout').map((r) => r.dataset_id));
     const base = (await c.query(

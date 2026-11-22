@@ -3,15 +3,25 @@
 --    sha, holdout dataset) and one base run per (tenant, base version, holdout dataset). Withdrawing and re-proposing the same
 --    config, or re-running the base, cannot buy a fresh run. Enforced here (trigger + unique index), so any writer is bound.
 
+-- the candidate config in canonical form: model lower-cased and trimmed; skills and tools trimmed, de-duplicated and sorted
+-- (the application treats both as sets). The key is built from this, never from candidate_sha, so another order, case or a
+-- re-spelt sha cannot buy a fresh run.
+create function eval_canon_config(c jsonb) returns text language sql immutable as $$
+  select jsonb_build_object(
+    'model', lower(btrim(coalesce(c ->> 'model', ''))),
+    'skills', coalesce((select jsonb_agg(x order by x) from (select distinct btrim(e) x from jsonb_array_elements_text(case when jsonb_typeof(c -> 'skills') = 'array' then c -> 'skills' else '[]'::jsonb end) e) q), '[]'::jsonb),
+    'tools', coalesce((select jsonb_agg(x order by x) from (select distinct btrim(e) x from jsonb_array_elements_text(case when jsonb_typeof(c -> 'tools') = 'array' then c -> 'tools' else '[]'::jsonb end) e) q), '[]'::jsonb))::text
+$$;
+
 alter table eval_runs add column holdout_key text;
 -- backfill (the append-only guard is switched off for this one statement): the first run per key gets it, later duplicates stay NULL
 alter table eval_runs disable trigger eval_runs_guard;
 update eval_runs r set holdout_key = k.key
   from (select r2.id,
                case when r2.subject_proposal_id is not null
-                    then jsonb_build_array('candidate', r2.tenant_id, p.agent_id, p.candidate_sha, r2.dataset_id)::text
+                    then jsonb_build_array('candidate', r2.tenant_id, p.agent_id, eval_canon_config(p.candidate), r2.dataset_id)::text
                     else jsonb_build_array('base', r2.tenant_id, r2.subject_version_id, r2.dataset_id)::text end as key,
-               row_number() over (partition by r2.tenant_id, r2.dataset_id, coalesce(p.agent_id, ''), coalesce(p.candidate_sha, ''), coalesce(r2.subject_version_id::text, '') order by r2.started_at, r2.id) as rn
+               row_number() over (partition by r2.tenant_id, r2.dataset_id, coalesce(p.agent_id, ''), coalesce(eval_canon_config(p.candidate), ''), coalesce(r2.subject_version_id::text, '') order by r2.started_at, r2.id) as rn
           from eval_runs r2
           join eval_datasets d on d.id = r2.dataset_id and d.split = 'holdout'
           left join agent_version_proposals p on p.id = r2.subject_proposal_id) k
@@ -20,7 +30,7 @@ alter table eval_runs enable trigger eval_runs_guard;
 create unique index eval_runs_holdout_once on eval_runs(holdout_key) where holdout_key is not null;
 
 create or replace function eval_runs_guard() returns trigger language plpgsql as $$
-declare fz timestamptz; tn text; vt text; sp text; ag text; sha text; key text; other eval_runs;
+declare fz timestamptz; tn text; vt text; sp text; ag text; cfg text; key text; other eval_runs;
 begin
   if tg_op = 'INSERT' then
     select frozen_at, tenant_id, split into fz, tn, sp from eval_datasets where id = new.dataset_id;
@@ -31,9 +41,9 @@ begin
       if vt is distinct from new.tenant_id then raise exception 'eval run tenant differs from the tenant of its subject version'; end if;
       key := jsonb_build_array('base', new.tenant_id, new.subject_version_id, new.dataset_id)::text;
     else
-      select tenant_id, agent_id, candidate_sha into vt, ag, sha from agent_version_proposals where id = new.subject_proposal_id;
+      select tenant_id, agent_id, eval_canon_config(candidate) into vt, ag, cfg from agent_version_proposals where id = new.subject_proposal_id;
       if vt is distinct from new.tenant_id then raise exception 'eval run tenant differs from the tenant of its subject proposal'; end if;
-      key := jsonb_build_array('candidate', new.tenant_id, ag, sha, new.dataset_id)::text;
+      key := jsonb_build_array('candidate', new.tenant_id, ag, cfg, new.dataset_id)::text;
     end if;
     -- the key is derived here, never taken from the caller; only holdout datasets are counted
     new.holdout_key := null;

@@ -46,3 +46,4 @@ begin
   end if;
   return false;
 end $$;
+drop function eval_canon_config(jsonb);

@@ -50,7 +50,7 @@ export async function existingRun(c: Tx, o: { tenantId: string; datasetId: strin
   const r = (await c.query(
     o.proposalId
       ? `select r.id from eval_runs r join agent_version_proposals p on p.id = r.subject_proposal_id join agent_version_proposals me on me.id = $3
-          where r.tenant_id=$1 and r.dataset_id=$2 and (p.agent_id, p.candidate_sha) = (me.agent_id, me.candidate_sha) and r.holdout_key is not null limit 1`
+          where r.tenant_id=$1 and r.dataset_id=$2 and (p.agent_id, eval_canon_config(p.candidate)) = (me.agent_id, eval_canon_config(me.candidate)) and r.holdout_key is not null limit 1`
       : `select r.id from eval_runs r where r.tenant_id=$1 and r.dataset_id=$2 and r.subject_version_id=$3 and r.holdout_key is not null limit 1`,
     [o.tenantId, o.datasetId, o.proposalId ?? o.versionId])).rows[0] as { id: string } | undefined;
   return r ? { id: r.id, state: (await runState(c, r.id))! } : null;

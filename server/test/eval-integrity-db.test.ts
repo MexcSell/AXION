@@ -10,7 +10,9 @@ let s: Awaited<ReturnType<typeof makeSchema>>;
 let v1 = '', v2 = '';
 const q = (sql: string, p: unknown[] = []) => s.pool.query(sql, p);
 const prop = (id: string, agent: string, base: string, sha: string, status = 'pending', tenant = 't-1') =>
-  q(`insert into agent_version_proposals(id, tenant_id, agent_id, base_version_id, base_sha, candidate, candidate_sha, title, created_by, status) values ($1,$2,$3,$4,'h','{"model":"qwen-72b","skills":[],"tools":[]}',$5,'t','u',$6)`, [id, tenant, agent, base, sha, status]);
+  q(`insert into agent_version_proposals(id, tenant_id, agent_id, base_version_id, base_sha, candidate, candidate_sha, title, created_by, status) values ($1,$2,$3,$4,'h',$7::jsonb,$5,'t','u',$6)`, [id, tenant, agent, base, sha, status, JSON.stringify({ model: 'qwen-72b', skills: [sha], tools: [] })]);
+const propC = (id: string, agent: string, base: string, sha: string, candidate: unknown) =>
+  q(`insert into agent_version_proposals(id, tenant_id, agent_id, base_version_id, base_sha, candidate, candidate_sha, title, created_by) values ($1,'t-1',$2,$3,'h',$4::jsonb,$5,'t','u')`, [id, agent, base, JSON.stringify(candidate), sha]);
 const run = (id: string, ds: string, o: { version?: string; proposal?: string; tenant?: string; k?: number } = {}) =>
   q(`insert into eval_runs(id, tenant_id, dataset_id, subject_version_id, subject_proposal_id, k, judge_model_family, evaluator_id) values ($1,$2,$3,$4,$5,$6,'claude-judge','ev')`, [id, o.tenant ?? 't-1', ds, o.version ?? null, o.proposal ?? null, o.k ?? 1]);
 
@@ -376,3 +378,22 @@ describe('item 5: dev_holdout_reuse needs real overlap, not a generic shared inp
     expect(r.codes).not.toContain('dev_holdout_reuse'); expect(r.outcome).toBe('verified_better');
   });
 });
+
+
+// ---- fix round (review c53-review.md) -------------------------------------------------------------------------------------
+describe('F1: the holdout key comes from the canonical config, not from the sha text', () => {
+  beforeAll(async () => {
+    await makeDataset(s.pool, { id: 'H-F1', split: 'holdout', cases: 3 });
+    await propC('F1-A', 'a-1', v1, 'f1a', { model: 'claude-sonnet-4', skills: ['a', 'b'], tools: ['t'] });
+    await propC('F1-B', 'a-1', v1, 'f1b', { model: 'claude-sonnet-4', skills: ['b', 'a'], tools: ['t'] });          // the same set, other order
+    await propC('F1-C', 'a-1', v1, 'f1c', { model: 'Claude-Sonnet-4 ', skills: ['a', 'b', 'a'], tools: ['t'] });    // model case, spaces, a duplicate
+    await propC('F1-D', 'a-1', v1, 'F1A', { model: 'claude-sonnet-4', skills: ['a', 'b'], tools: ['t'] });         // sha in another case (raw writer)
+    await propC('F1-E', 'a-1', v1, 'f1e', { model: 'claude-sonnet-4', skills: ['a', 'b', 'c'], tools: ['t'] });    // really different
+    await run('F1-R1', 'H-F1', { proposal: 'F1-A' });
+  });
+  it('the same skills in another order get the same key', async () => { await expect(run('F1-R2', 'H-F1', { proposal: 'F1-B' })).rejects.toThrow(/holdout_rerun/); });
+  it('a model name in another case (or with spaces) and a repeated skill get the same key', async () => { await expect(run('F1-R3', 'H-F1', { proposal: 'F1-C' })).rejects.toThrow(/holdout_rerun/); });
+  it('a sha spelt in another case cannot make a new key', async () => { await expect(run('F1-R4', 'H-F1', { proposal: 'F1-D' })).rejects.toThrow(/holdout_rerun/); });
+  it('a different config is still its own key', async () => { await run('F1-R5', 'H-F1', { proposal: 'F1-E' }); });
+});
+
