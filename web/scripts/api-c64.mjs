@@ -41,6 +41,10 @@ try {
   check('c64 the dry run lists both picked triggers with counts computed by the server', await until(async () => (await dlg.locator('[data-dialog-dry-run="done"] [data-trigger]').count()) === 2, 8000));
   check('c64 the contract checks show two passes', await until(async () => (await dlg.locator('[data-contract][data-ok="1"]').count()) === 2, 8000));
   check('c64 the churn status shows 1 line changed and says no budget or cooldown is set', /1 line changed/.test(await dlg.locator('[data-churn-lines]').innerText()) && (await dlg.locator('[data-churn-none]').count()) === 1);
+  check('c64 fix round (S4) the dialog also shows the two triggers not picked, marked', (await dlg.locator('[data-trigger-other]').count()) === 2 && (await dlg.locator('[data-trigger]').count()) === 2);
+  check('c64 fix round (S3) point-in-time triggers say "now", windowed ones "last 30 days"', await (async () => { const sc = await dlg.locator('[data-scope]').evaluateAll((els) => els.map((e) => [e.closest('[data-trigger],[data-trigger-other]').getAttribute('data-trigger') ?? e.closest('[data-trigger],[data-trigger-other]').getAttribute('data-trigger-other'), e.textContent])); const m = Object.fromEntries(sc); return m.load_imbalance === 'now' && m.coverage_gap === 'now' && m.repeated_reassigns === 'last 30 days' && m.failure_concentration === 'last 30 days'; })());
+  check('c64 fix round (S5) the evidence and the churn status carry an "as of" time', (await dlg.locator('[data-as-of="evidence"]').count()) === 1 && (await dlg.locator('[data-as-of="churn"]').count()) === 1);
+  check('c64 fix round (S6) with the settings off the status says "not enforced"', /not enforced/.test(await dlg.locator('[data-churn-off="both"]').innerText()));
   check('c64 Submit is disabled with a hint until the baseline and the expected cost are written', await dlg.getByRole('button', { name: 'Submit proposal' }).isDisabled() && /baseline/i.test(await dlg.locator('[data-submit-hint]').innerText()));
   await dlg.getByLabel('Baseline', { exact: true }).fill('short');
   check('c64 five characters are not enough', await dlg.getByRole('button', { name: 'Submit proposal' }).isDisabled());
@@ -67,7 +71,7 @@ try {
   const card = p.locator(`[data-proposal="${P1.id}"]`);
   check('c64 the approval view shows the baseline and the expected cost', await until(async () => /No change: keep Coder-01/.test(await card.locator('[data-baseline]').innerText()) && /One more hop/.test(await card.locator('[data-cost]').innerText())));
   check('c64 the approval view shows evidence for both triggers, two passed contracts and the churn status',
-    (await card.locator('[data-trigger]').count()) === 2 && (await card.locator('[data-contract][data-ok="1"]').count()) === 2 && (await card.locator('[data-churn]').count()) === 1);
+    (await card.locator('[data-trigger]').count()) === 2 && (await card.locator('[data-trigger-other]').count()) === 2 && (await card.locator('[data-as-of="evidence"]').count()) === 1 && (await card.locator('[data-contract][data-ok="1"]').count()) === 2 && (await card.locator('[data-churn]').count()) === 1);
   const f1 = await fits(p);
   check('c64 Proposals fits one screen at 1366x768 with the new blocks', f1.over <= 2 && f1.side <= 0, JSON.stringify(f1));
   await p.screenshot({ path: `${SHOTS}/c64-card.png` });

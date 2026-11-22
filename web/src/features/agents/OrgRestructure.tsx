@@ -1,5 +1,5 @@
-import { Scale, Layers, Repeat, Target, CheckCircle2, AlertOctagon, Gauge, Timer, CircleSlash, ClipboardCheck, Coins, SearchX, SearchCheck } from 'lucide-react';
-import type { OrgChurn, OrgContractCheck, OrgEvidence, RestructureTrigger } from '@contracts';
+import { Undo2, Scale, Layers, Repeat, Target, CheckCircle2, AlertOctagon, Gauge, Timer, CircleSlash, ClipboardCheck, Coins, SearchX, SearchCheck } from 'lucide-react';
+import type { OrgChurn, OrgContractCheck, OrgEvidence, RestructureTrigger, TriggerEvidence } from '@contracts';
 import { Chip } from '@/components/ui/Chips';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 
@@ -14,23 +14,31 @@ export const TRIGGERS: { key: RestructureTrigger; label: string; icon: typeof Sc
 ];
 const LABEL = Object.fromEntries(TRIGGERS.map((t) => [t.key, t])) as Record<RestructureTrigger, (typeof TRIGGERS)[number]>;
 
-/** "No recorded trigger" is a valid, honest answer: it is said out loud. */
-export function EvidenceBlock({ ev, compact }: { ev: OrgEvidence; compact?: boolean }) {
+const SCOPE = (t: { scope: 'now' | 'window' }, days: number) => (t.scope === 'now' ? 'now' : `last ${days} days`);
+const stamp = (iso?: string | null) => (iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : 'now');
+
+/** All four triggers are shown with their counts; the ones the proposer picked are marked, so the counts can't be cherry-picked.
+    "No recorded trigger" (none picked) is a valid, honest answer: it is said out loud. `asOf` = when the server computed the counts. */
+export function EvidenceBlock({ ev, compact, asOf }: { ev: OrgEvidence; compact?: boolean; asOf?: string | null }) {
+  const row = (t: TriggerEvidence, picked: boolean) => {
+    const L = LABEL[t.kind];
+    return (
+      <div key={t.kind} className={'oa-rs-row' + (picked ? '' : ' unpicked') + (compact ? ' compact' : '')} title={picked ? undefined : t.facts.map((f) => `${f.label}: ${f.value}`).join('\n')} {...(picked ? { 'data-trigger': t.kind } : { 'data-trigger-other': t.kind })} data-supported={t.supported ? '1' : '0'}>
+        <L.icon size={13} aria-hidden />
+        <b>{L.label}</b>
+        {picked ? <Chip hue={225} size="sm" title="The proposer picked this trigger as a reason for the change">picked</Chip> : <span className="dim" style={{ fontSize: 11 }}>not picked</span>}
+        <Chip hue={t.supported ? 145 : 38} size="sm" title={t.supported ? 'The recorded counts back this trigger' : 'The recorded counts do not back this trigger'}>{t.supported ? 'backed by the counts' : 'not backed by the counts'}</Chip>
+        <span className="dim" style={{ fontSize: 11 }} data-scope={t.scope}>{SCOPE(t, ev.windowDays)}</span>
+        <span className={'dim oa-rs-facts' + (compact ? ' inl' : '')} title={t.facts.map((f) => `${f.label}: ${f.value}`).join('\n')}>{t.facts.map((f) => `${f.label} ${f.value}`).join(' · ')}</span>
+      </div>
+    );
+  };
   return (
     <div className="oa-rs" data-evidence={ev.triggers.length}>
-      <div className="row" style={{ gap: 6, fontSize: 11.5 }}><SearchCheck size={12} aria-hidden /><b>Evidence</b><span className="dim">last {ev.windowDays} days, real work only</span><HelpTrigger k="org.proposal.evidence" /></div>
+      <div className="row" style={{ gap: 6, fontSize: 11.5 }}><SearchCheck size={12} aria-hidden /><b>Evidence</b><span className="dim">real work only</span><span className="dim" data-as-of="evidence">as of {stamp(asOf)}</span><HelpTrigger k="org.proposal.evidence" /></div>
       {ev.triggers.length === 0 && <div className="oa-issue warn" data-evidence-none><SearchX size={13} aria-hidden /><span>No recorded trigger: this proposal does not say what motivated it.</span></div>}
-      {ev.triggers.map((t) => {
-        const L = LABEL[t.kind];
-        return (
-          <div key={t.kind} className="oa-rs-row" data-trigger={t.kind} data-supported={t.supported ? '1' : '0'}>
-            <L.icon size={13} aria-hidden />
-            <b>{L.label}</b>
-            <Chip hue={t.supported ? 145 : 38} size="sm" title={t.supported ? 'The recorded counts back this trigger' : 'The recorded counts do not back this trigger'}>{t.supported ? 'backed by the counts' : 'not backed by the counts'}</Chip>
-            <span className={'dim oa-rs-facts' + (compact ? ' one' : '')} title={t.facts.map((f) => `${f.label}: ${f.value}`).join('\n')}>{t.facts.map((f) => `${f.label} ${f.value}`).join(' · ')}</span>
-          </div>
-        );
-      })}
+      {ev.triggers.map((t) => row(t, true))}
+      {(ev.others ?? []).map((t) => row(t, false))}
     </div>
   );
 }
@@ -49,17 +57,22 @@ export function ContractChecks({ checks }: { checks: OrgContractCheck[] }) {
   );
 }
 
-export function ChurnStatus({ churn }: { churn: OrgChurn }) {
-  const none = churn.budget === null && churn.cooldownHours === null;
+export function ChurnStatus({ churn, asOf }: { churn: OrgChurn; asOf?: string | null }) {
+  const left = churn.cooldownEndsInMinutes;
   return (
     <div className="oa-rs" data-churn>
       <div className="row wrap" style={{ gap: 6 }}>
         <Chip hue={225} icon={Gauge} size="sm" title="Reporting lines this proposal adds, removes or re-points"><span data-churn-lines>{churn.linesChanged} {churn.linesChanged === 1 ? 'line' : 'lines'} changed</span></Chip>
-        {churn.budget !== null && <Chip hue={churn.overBudget ? 0 : 145} icon={churn.overBudget ? AlertOctagon : CheckCircle2} size="sm" title="Lines changed by approved proposals in the window, this one included, against the operator's budget"><span data-churn-budget>{churn.usedInWindow + churn.linesChanged} of {churn.budget} in {churn.windowHours} h</span></Chip>}
-        {churn.cooldownHours !== null && (churn.cooldownEndsInMinutes === null
+        {churn.exempt && <Chip hue={145} icon={Undo2} size="sm" title="Only the undo of the last applied change is not held by the cooldown or the budget. Every other rollback is."><span data-churn-exempt>undo of the last change: not held by cooldown or budget</span></Chip>}
+        {churn.budget !== null && <Chip hue={churn.overBudget && !churn.exempt ? 0 : 145} icon={churn.overBudget && !churn.exempt ? AlertOctagon : CheckCircle2} size="sm" title="Lines changed by approved proposals in the window, this one included, against the operator's budget"><span data-churn-budget>{churn.usedInWindow + churn.linesChanged} of {churn.budget} in {churn.windowHours} h</span></Chip>}
+        {churn.budget === null && churn.cooldownHours === null && <Chip hue={225} icon={CircleSlash} size="sm" title="The operator has set no churn budget and no cooldown"><span data-churn-off="both">budget and cooldown: not enforced</span></Chip>}
+        {churn.budget === null && churn.cooldownHours !== null && <Chip hue={225} icon={CircleSlash} size="sm" title="The operator has set no churn budget"><span data-churn-off="budget">budget: not enforced</span></Chip>}
+        {churn.cooldownHours === null && churn.budget !== null && <Chip hue={225} icon={CircleSlash} size="sm" title="The operator has set no cooldown"><span data-churn-off="cooldown">cooldown: not enforced</span></Chip>}
+        {churn.cooldownHours !== null && !churn.exempt && (left === null
           ? <Chip hue={145} icon={Timer} size="sm" title="No organisation change was approved inside the operator's cooldown"><span data-churn-cooldown="clear">cooldown {churn.cooldownHours} h: clear</span></Chip>
-          : <Chip hue={38} icon={Timer} size="sm"><span data-churn-cooldown="active">cooldown: {churn.cooldownEndsInMinutes >= 120 ? `${Math.ceil(churn.cooldownEndsInMinutes / 60)} h` : `${churn.cooldownEndsInMinutes} min`} left</span></Chip>)}
-        {none && <Chip hue={225} icon={CircleSlash} size="sm" title="The operator has set no churn budget and no cooldown"><span data-churn-none>no budget or cooldown set</span></Chip>}
+          : <Chip hue={38} icon={Timer} size="sm"><span data-churn-cooldown="active">cooldown: {left >= 120 ? `${Math.ceil(left / 60)} h` : `${left} min`} left</span></Chip>)}
+        {churn.budget === null && churn.cooldownHours === null && <span hidden data-churn-none />}
+        <span className="dim" style={{ fontSize: 11 }} data-as-of="churn">as of {stamp(asOf)}</span>
         <HelpTrigger k="org.proposal.churn" />
       </div>
     </div>

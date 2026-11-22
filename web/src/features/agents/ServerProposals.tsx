@@ -38,7 +38,7 @@ const STATUS: Record<OrgProposalStatus, { label: string; hue: number; icon: type
 const CONTRACT_CODES = new Set(['TEAM_REVIEWERS', 'ESCALATION_TOO_DEEP']);
 
 /** The server's dry run: errors (red), warnings (amber), and the reporting lines added and removed as "A → B". */
-export function DryRunView({ r, max = 6, compact }: { r: OrgDryRun; max?: number; compact?: boolean }) {
+export function DryRunView({ r, max = 6, compact, asOf }: { r: OrgDryRun; max?: number; compact?: boolean; asOf?: string | null }) {
   const lines = [...r.added.map((e) => ({ e, kind: 'add' as const })), ...r.removed.map((e) => ({ e, kind: 'rm' as const }))];
   return (
     <div className="oa-dry" data-dry-run={r.ok ? 'ok' : 'errors'}>
@@ -51,8 +51,8 @@ export function DryRunView({ r, max = 6, compact }: { r: OrgDryRun; max?: number
       {r.warnings.map((x, i) => <div key={'w' + i} className="oa-issue warn" data-issue={x.code}><AlertTriangle size={13} aria-hidden /><span>{x.message}</span></div>)}
       {r.coverage && <CoverageChanges changes={r.coverage.changes} />}
       {r.contracts && <ContractChecks checks={r.contracts} />}
-      {r.churn && <ChurnStatus churn={r.churn} />}
-      {r.evidence && <EvidenceBlock ev={r.evidence} compact={compact} />}
+      {r.churn && <ChurnStatus churn={r.churn} asOf={asOf} />}
+      {r.evidence && <EvidenceBlock ev={r.evidence} compact={compact} asOf={asOf} />}
       {lines.length > 0 && (
         <div className="oa-lines">
           {lines.slice(0, max).map(({ e, kind }) => <Line key={kind + e.subordinateId + e.supervisorId} e={e} kind={kind} />)}
@@ -101,7 +101,7 @@ function ProposalCard({ p, active, meId, admin, index, err, setErr, highlight }:
         {pending && <Chip hue={260} icon={Hourglass} size="sm" title={new Date(p.expiresAt).toLocaleString()}>expires in {leftH >= 48 ? `${Math.round(leftH / 24)} d` : `${Math.ceil(leftH)} h`}</Chip>}
       </div>
       <Statements baseline={p.baseline} cost={p.expectedCost} />
-      <DryRunView r={p.result} />
+      <DryRunView r={p.result} asOf={p.createdAt} />
       {p.decidedByName && p.status !== 'pending' && (
         <div className="dim" style={{ fontSize: 12, marginTop: 8 }}>{S.label} by {p.decidedByName}{p.decidedAt ? ` · ${ago((Date.now() - new Date(p.decidedAt).getTime()) / 60_000)}` : ''}{p.decisionNote ? <> · “{p.decisionNote}”</> : null}</div>
       )}

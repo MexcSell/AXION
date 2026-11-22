@@ -147,8 +147,8 @@ function OrgProposalNew({ close }: DialogComponentProps) {
         </div>
       </div>
       <div className="oa-rs-form" data-restructure-form>
-        <Field label="Baseline" htmlFor="op-baseline" hint={`${baseline.trim().length}/${MIN} characters minimum. What is it compared with?`}><textarea id="op-baseline" className="textarea" rows={2} style={{ minHeight: 48 }} maxLength={1000} value={baseline} onChange={(e) => setBaseline(e.target.value)} placeholder="No change: keep today’s lines, because…" /></Field>
-        <Field label="Expected added cost" htmlFor="op-cost" hint={`${cost.trim().length}/${MIN} characters minimum. Extra hops, coordination.`}><textarea id="op-cost" className="textarea" rows={2} style={{ minHeight: 48 }} maxLength={1000} value={cost} onChange={(e) => setCost(e.target.value)} placeholder="One more hop for escalations from…" /></Field>
+        <Field label="Baseline" htmlFor="op-baseline" hint={`${baseline.trim().length}/${MIN} characters minimum. What is it compared with?`}><textarea id="op-baseline" className="textarea" rows={2} style={{ minHeight: 40 }} maxLength={1000} value={baseline} onChange={(e) => setBaseline(e.target.value)} placeholder="No change: keep today’s lines, because…" /></Field>
+        <Field label="Expected added cost" htmlFor="op-cost" hint={`${cost.trim().length}/${MIN} characters minimum. Extra hops, coordination.`}><textarea id="op-cost" className="textarea" rows={2} style={{ minHeight: 40 }} maxLength={1000} value={cost} onChange={(e) => setCost(e.target.value)} placeholder="One more hop for escalations from…" /></Field>
       </div>
     </Modal>
   );
