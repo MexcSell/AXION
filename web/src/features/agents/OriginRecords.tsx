@@ -13,7 +13,7 @@ import { ago } from '@/lib/format';
    fixture-only retirement proposals. Records only: nothing executes, and no agent reads a playbook or a skill yet. */
 
 const CLASS: Record<OriginClass, { label: string; hue: number; icon: typeof User; why: string }> = {
-  human: { label: 'human', hue: 145, icon: User, why: 'Typed by a person.' },
+  human: { label: 'human', hue: 145, icon: User, why: 'Entered by a signed-in person. Text an agent wrote that a person typed in by hand cannot be detected.' },
   agent: { label: 'agent', hue: 265, icon: Bot, why: 'Written by an agent, or a summary that rests on agent-written items.' },
   tool: { label: 'tool', hue: 38, icon: Wrench, why: 'Came from tool output, or a summary that rests on tool output.' },
 };
@@ -24,9 +24,10 @@ export function OriginChip({ cls, channel }: { cls: OriginClass; channel: Origin
   const C = CLASS[cls];
   return (
     <span className="row" style={{ gap: 3 }} data-origin={cls} data-origin-channel={channel}>
-      <Chip hue={C.hue} icon={C.icon} size="sm" title={`Origin: ${C.why} Channel: ${CHANNEL[channel]}. A derived record is never above its weakest source; review never raises the origin.`}>
+      <Chip hue={C.hue} icon={C.icon} size="sm" title={`Origin: ${C.why} Channel: ${CHANNEL[channel]}. A record built from other lessons or skills is never above its weakest one; review never raises the origin. The rule follows recorded links only.`}>
         {C.label}{channel === 'derived' ? ' · derived' : ''}
       </Chip>
+      <HelpTrigger k="playbook.origin" />
     </span>
   );
 }
@@ -36,7 +37,7 @@ export function CapChip({ count, cap }: { count: number; cap: number }) {
   const full = count >= cap;
   return (
     <span className="row" style={{ gap: 4 }} data-cap={cap} data-active-count={count} data-at-cap={full ? '1' : '0'}>
-      <Chip hue={full ? 0 : 225} icon={Gauge} size="sm" solid={full} title="Active items in this playbook against the cap for the role">active {count} of {cap}</Chip>
+      <Chip hue={full ? 0 : 225} icon={Gauge} size="sm" solid={full} title="Active items in this agent playbook against the cap for it">active {count} of {cap}</Chip>
       <HelpTrigger k="playbook.cap" />
     </span>
   );
@@ -65,7 +66,7 @@ export function ContribLog({ kind, id, label }: { kind: 'lessons' | 'skills'; id
         : <ol className="col" style={{ gap: 2, margin: 0, paddingLeft: 16, fontSize: 11.5 }} aria-label={`Contribution log of ${label}`} data-contrib-log={id}>
           {r.data.map((c) => (
             <li key={c.seq} data-contrib={c.action}>
-              <b>{c.actorName}</b>{c.actorKind === 'system' ? ' (system)' : c.actorKind === 'agent' ? ' (agent)' : ''} {ACTION[c.action]}{c.version ? ` · v${c.version}` : ''} · <span className="dim">{since(c.at)}</span>
+              <b>{c.actorName}</b>{c.actorKind === 'system' ? ' (system)' : c.actorKind === 'agent' ? ' (agent)' : ''}{c.filedByName ? ` (filed by ${c.filedByName})` : ''} {ACTION[c.action]}{c.version ? ` · v${c.version}` : ''} · <span className="dim">{since(c.at)}</span>
               {c.sources.length > 0 && <span className="dim"> · {c.sources.length} source{c.sources.length === 1 ? '' : 's'}</span>}
               {c.note && <span className="dim"> · “{c.note}”</span>}
             </li>))}
