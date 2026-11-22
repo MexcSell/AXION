@@ -64,7 +64,7 @@ export function ApprovalFacts({ a }: { a: Approval }) {
 /** The three words-for-flags. Order and wording are the mapping the help entry explains. */
 const FLAG_ROWS = [
   { key: 'untrustedInput', Icon: Globe2, yes: 'Reads content nobody vetted', no: 'Reads no untrusted content' },
-  { key: 'sensitiveAccess', Icon: Database, yes: 'Reaches live systems or sensitive data', no: 'Reaches no sensitive system' },
+  { key: 'sensitiveAccess', Icon: Database, yes: 'Can reach live systems or credentials', no: 'Reaches no live system or credential' },
   { key: 'canChangeState', Icon: Send, yes: 'Can change things or contact the outside', no: 'Changes nothing outside' },
 ] as const;
 

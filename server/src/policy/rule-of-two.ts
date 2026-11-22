@@ -30,17 +30,22 @@ export interface DerivedFlags extends RuleOfTwoFlags { because: { untrustedInput
  * THE MAPPING (one table; the report and the UI help repeat it).
  *  untrustedInput  (a): a capability or action with an origin (it reads a web page), a live site grant, or a mission with uploaded files.
  *  sensitiveAccess (b): a capability or action kind whose baseline effect is infra or critical (live systems, credentials, permissions,
- *                       releases, production), or a kind the baseline does not know (fails closed).
+ *                       releases, production), or a kind the baseline does not know (fails closed). Today NO kind reads another mission's or the
+ *                       tenant's data or secrets except through those kinds, so (b) does not model "can read private company data" (review F1);
+ *                       when such a capability exists, it must set (b) here. SENSITIVE_KINDS is pinned by a test so a new kind forces that decision.
  *  canChangeState  (c): a capability or action kind whose baseline effect is external, infra or critical, or an unknown kind (fails closed).
  * Effects come from the c30 baseline table, so a kind that moves tier there moves its flags here: there is no second table of kinds.
  */
 export const FLAG_SOURCES = Object.freeze({
   untrustedInput: 'a capability or action with an origin, a live site grant, or uploaded files',
-  sensitiveAccess: 'a capability or action kind with effect infra or critical (or an unknown kind)',
+  sensitiveAccess: 'a capability or action kind that reaches live systems, credentials, permissions or production (effect infra or critical), or an unknown kind. It does not cover reading company data: no kind reads outside its mission today',
   canChangeState: 'a capability or action kind with effect external, infra or critical (or an unknown kind)',
 });
 const SENSITIVE_EFFECTS: readonly string[] = ['infra', 'critical'];
 const CHANGING_EFFECTS: readonly string[] = ['external', 'infra', 'critical'];
+
+/** The baseline kinds that set (b) today. Pinned in test/c58-sensitive.test.ts. */
+export const SENSITIVE_KINDS: readonly string[] = Object.entries(CURRENT_BASELINE.kinds).filter(([, r]) => SENSITIVE_EFFECTS.includes(r.effect)).map(([k]) => k);
 
 const ruleOf = (kind: string) => (typeof kind === 'string' && Object.prototype.hasOwnProperty.call(CURRENT_BASELINE.kinds, kind) ? CURRENT_BASELINE.kinds[kind] : undefined);
 

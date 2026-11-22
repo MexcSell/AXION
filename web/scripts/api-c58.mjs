@@ -87,7 +87,7 @@ try {
   const dlg = await showDialog(A.p, 'dark', true);
   const note = dlg.locator('[data-testid="approval-rule-of-two"]');
   const txt = await note.innerText();
-  check('dialog: flags in plain words, fired state named', (await note.getAttribute('data-fired')) === 'yes' && /Reads content nobody vetted/.test(txt) && /Reaches live systems or sensitive data/.test(txt) && /Can change things or contact the outside/.test(txt) && /person must decide/.test(txt), txt.replace(/\s+/g, ' ').slice(0, 160));
+  check('dialog: flags in plain words, fired state named', (await note.getAttribute('data-fired')) === 'yes' && /Reads content nobody vetted/.test(txt) && /Can reach live systems or credentials/.test(txt) && /Can change things or contact the outside/.test(txt) && /person must decide/.test(txt), txt.replace(/\s+/g, ' ').slice(0, 160));
   check('dialog: three flags, all on', (await note.locator('[data-on="yes"]').count()) === 3);
   check('dialog: a flag hover/title names its source', /site grant for https:\/\/example\.com/.test((await note.locator('[data-flag="untrustedInput"]').getAttribute('title')) ?? ''));
   await note.locator('[data-help-key="approval.ruleOfTwo"]').click();
