@@ -17,6 +17,8 @@ export interface EvaluationPolicyV2 {
   readonly tieBand: number;
   /** an attempt passes when its score is at least this */
   readonly passScore: number;
+  /** c61: each run must have at least this fraction of its attempts GRADED, or the verdict is inconclusive (never "worse") */
+  readonly minGradedFraction: number;
   readonly source: string;
 }
 
@@ -27,10 +29,13 @@ export const EVALUATION_POLICY_V2: EvaluationPolicyV2 = Object.freeze({
   margin: 5,
   tieBand: 0.5,
   passScore: 70,
+  minGradedFraction: 0.8,
   source: 'built-in',
 });
 
-export interface Attempt { score: number | null; costUnits: number }
+/** `ungraded` (c61): a reason code means the grader produced NO grade for this attempt. That is not a failure: it is left out of every
+    number. A null score without a reason stays what it was in c47/c53: an attempt that failed, graded as 0 and not passing. */
+export interface Attempt { score: number | null; costUnits: number; ungraded?: string | null }
 export interface CaseRuns { caseId: string; attempts: Attempt[] }
 
 export interface HoldoutRef {
@@ -52,13 +57,17 @@ export interface VerdictV2Input {
   evaluatorId: string;
   candidateModelFamily: string;
   judgeModelFamily: string;
+  /** c61: who graded each run. Omitted = not checked (the pure callers of c47). `linked`: a valid re-grade diff joins the two versions. */
+  graders?: { baseline: GraderRef | null; candidate: GraderRef | null; linked: boolean };
 }
+export interface GraderRef { name: string; version: string }
 
 export type Outcome = 'verified_better' | 'not_better' | 'inconclusive';
 export type RefusalCode =
   | 'holdout_missing' | 'not_holdout' | 'not_frozen' | 'hash_mismatch' | 'dev_holdout_reuse' | 'self_judging'
-  | 'evaluator_is_author' | 'unequal_attempts' | 'unpaired_cases' | 'bad_scores';
+  | 'evaluator_is_author' | 'unequal_attempts' | 'unpaired_cases' | 'bad_scores' | 'grader_mismatch';
 
+export interface GradingCount { attempted: number; graded: number }
 export interface VerdictV2 {
   outcome: Outcome;
   reasons: string[];
@@ -67,6 +76,8 @@ export interface VerdictV2 {
   refusals: Array<{ code: RefusalCode; detail: string }>;
   cases: number;
   k: number;
+  /** c61: the graded fraction of each run, stated beside every pass rate. Ungraded attempts are left out of the numbers below. */
+  grading: { baseline: GradingCount; candidate: GradingCount; excludedCases: number; sufficient: boolean; minFraction: number };
   baselineMean: number | null;
   candidateMean: number | null;
   delta: number | null;
@@ -76,7 +87,7 @@ export interface VerdictV2 {
   /** index i is pass^(i+1) for i < k */
   passHatK: { baseline: Array<number | null>; candidate: Array<number | null> };
   cost: { baselinePerCase: number | null; candidatePerCase: number | null; deltaPct: number | null };
-  policy: { version: 2; alpha: number; minCases: number; margin: number; tieBand: number; passScore: number; source: string };
+  policy: { version: 2; alpha: number; minCases: number; margin: number; tieBand: number; passScore: number; minGradedFraction: number; source: string };
 }
 
 const r1 = (x: number) => Math.round(x * 10) / 10;
@@ -124,6 +135,17 @@ export function verdictV2(input: VerdictV2Input): VerdictV2 {
     refuse('evaluator_is_author', 'the evaluator is missing or is the author of the candidate; someone else must evaluate it');
   }
 
+  // c61: two runs are comparable only when the same grader (name and version) scored both, or a re-grade diff links them.
+  // Not recorded on both = equal (every run before c61); recorded on one only = different.
+  if (input.graders) {
+    const { baseline: gb, candidate: gc, linked } = input.graders;
+    const same = gb === null && gc === null ? true : gb !== null && gc !== null && gb.name === gc.name && gb.version === gc.version;
+    if (!same && !linked) {
+      const show = (g: GraderRef | null) => (g ? `${g.name} ${g.version}` : 'not recorded');
+      refuse('grader_mismatch', `the two runs were graded by different graders (base: ${show(gb)}, candidate: ${show(gc)}) and no re-grade diff links them; re-grade one run with the other's grader and record the diff`);
+    }
+  }
+
   // index per case
   const idx = (rows: CaseRuns[]) => new Map(rows.map((r) => [r.caseId, r.attempts] as const));
   const B = idx(input.baseline);
@@ -149,11 +171,23 @@ export function verdictV2(input: VerdictV2Input): VerdictV2 {
   if (unequal) refuse('unequal_attempts', 'a case has a different number of attempts on the two versions (or none)');
   if (bad) refuse('bad_scores', `${plural(bad, 'attempt')} with a score outside 0..100 or a bad cost`);
 
+  // c61: ungraded attempts are no grade, not a failure. Count them per run, then leave out every case that has one on either side.
+  const count = (rows: CaseRuns[]): GradingCount => {
+    const all = rows.flatMap((r) => r.attempts);
+    return { attempted: all.length, graded: all.filter((a) => !a.ungraded).length };
+  };
+  const gB = count(input.baseline), gC = count(input.candidate);
+  const frac = (g: GradingCount) => (g.attempted ? g.graded / g.attempted : 1);
+  const sufficient = frac(gB) >= P.minGradedFraction && frac(gC) >= P.minGradedFraction;
+  const gradable = shared.filter((id) => [...B.get(id)!, ...C.get(id)!].every((a) => !a.ungraded));
+  const excludedCases = shared.length - gradable.length;
+  const grading = { baseline: gB, candidate: gC, excludedCases, sufficient, minFraction: P.minGradedFraction };
+
   // numbers (a failed attempt, score null, counts as 0 and as not passing)
   const sc = (x: Attempt) => x.score ?? 0;
   const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
   const caseMean = (a: Attempt[]) => mean(a.map(sc));
-  const pairs = shared.map((id) => [caseMean(B.get(id)!), caseMean(C.get(id)!)] as const);
+  const pairs = gradable.map((id) => [caseMean(B.get(id)!), caseMean(C.get(id)!)] as const);
   const n = pairs.length;
   const diffs = pairs.map(([x, y]) => y - x);
   const wins = diffs.filter((d) => d > P.tieBand).length;
@@ -165,7 +199,7 @@ export function verdictV2(input: VerdictV2Input): VerdictV2 {
   const cm = n ? mean(pairs.map((p) => p[1])) : null;
   const delta = bm !== null && cm !== null ? cm - bm : null;
 
-  const passes = (m: Map<string, Attempt[]>) => shared.map((id) => m.get(id)!.map((a) => a.score !== null && a.score >= P.passScore));
+  const passes = (m: Map<string, Attempt[]>) => gradable.map((id) => m.get(id)!.map((a) => a.score !== null && a.score >= P.passScore));
   const hat = (m: Map<string, Attempt[]>) => {
     const rows = passes(m);
     return Array.from({ length: k }, (_, i) => { const v = passHatK(rows, i + 1); return v === null ? null : r4(v); });
@@ -181,7 +215,10 @@ export function verdictV2(input: VerdictV2Input): VerdictV2 {
   // outcome
   let outcome: Outcome = 'inconclusive';
   if (refusals.length === 0) {
-    if (n < P.minCases) {
+    if (!sufficient) {
+      const f = (g: GradingCount) => `${g.graded} of ${g.attempted}`;
+      reasons.push(`too few attempts were graded (base ${f(gB)}, candidate ${f(gC)}; the policy needs ${Math.round(P.minGradedFraction * 100)}% of each run); an ungraded attempt is not a failure, so no verdict is drawn`);
+    } else if (n < P.minCases) {
       reasons.push(`${plural(n, 'case')} scored on both versions; the policy needs ${P.minCases}`);
     } else if (sign.p >= P.alpha) {
       reasons.push(
@@ -199,6 +236,7 @@ export function verdictV2(input: VerdictV2Input): VerdictV2 {
       outcome = 'verified_better';
     }
   }
+  if (excludedCases > 0) notes.push(`${plural(excludedCases, 'case')} left out because an attempt was ungraded (not counted as a failure)`);
   if (outcome === 'verified_better' && costPct !== null && costPct > 0) {
     notes.push(`better but costlier by ${r1(costPct)}%`.replace(/\.0%/, '%'));
   } else if (costPct !== null && costPct > 0) {
@@ -212,6 +250,7 @@ export function verdictV2(input: VerdictV2Input): VerdictV2 {
     refusals,
     cases: n,
     k,
+    grading,
     baselineMean: bm === null ? null : r1(bm),
     candidateMean: cm === null ? null : r1(cm),
     delta: delta === null ? null : r1(delta),
@@ -220,6 +259,6 @@ export function verdictV2(input: VerdictV2Input): VerdictV2 {
     passAt1: { baseline: bh[0] ?? null, candidate: ch[0] ?? null },
     passHatK: { baseline: bh, candidate: ch },
     cost: { baselinePerCase: bc, candidatePerCase: cc, deltaPct: costPct === null ? null : r1(costPct) },
-    policy: { version: 2, alpha: P.alpha, minCases: P.minCases, margin: P.margin, tieBand: P.tieBand, passScore: P.passScore, source: P.source },
+    policy: { version: 2, alpha: P.alpha, minCases: P.minCases, margin: P.margin, tieBand: P.tieBand, passScore: P.passScore, minGradedFraction: P.minGradedFraction, source: P.source },
   };
 }

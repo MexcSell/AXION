@@ -56,7 +56,9 @@ export async function existingRun(c: Tx, o: { tenantId: string; datasetId: strin
   return r ? { id: r.id, state: (await runState(c, r.id))! } : null;
 }
 
-export interface StartRunInput { id: string; tenantId: string; datasetId: string; proposalId?: string; versionId?: string; k: number; judgeLabel: string; evaluatorId: string }
+export interface StartRunInput { id: string; tenantId: string; datasetId: string; proposalId?: string; versionId?: string; k: number; judgeLabel: string; evaluatorId: string;
+  /** c61: who grades the run. Both parts or none (none = not recorded, which makes the run incomparable with a graded one) */
+  grader?: { name: string; version: string } }
 /**
  * The writer-side check for a new run record: the judge label must resolve (judgeFamily) and the evaluator must be named. The holdout
  * rules (one run per subject, frozen dataset, tenant) are enforced by the database on the INSERT. Not a route: nothing calls this yet.
@@ -65,10 +67,11 @@ export async function startRun(c: Tx, o: StartRunInput): Promise<void> {
   if (!!o.proposalId === !!o.versionId) throw new Error('name exactly one subject: a proposal or a version');
   judgeFamily(o.judgeLabel);
   if (!o.evaluatorId?.trim()) throw new Error('the evaluator is missing; name who evaluates the run');
+  if (o.grader && (!o.grader.name?.trim() || !o.grader.version?.trim())) throw new Error('the grader needs a name and a version');
   try {
     await c.query(
-    `insert into eval_runs(id, tenant_id, dataset_id, subject_version_id, subject_proposal_id, k, judge_model_family, evaluator_id) values ($1,$2,$3,$4,$5,$6,$7,$8)`,
-    [o.id, o.tenantId, o.datasetId, o.versionId ?? null, o.proposalId ?? null, o.k, o.judgeLabel.trim(), o.evaluatorId.trim()]);
+    `insert into eval_runs(id, tenant_id, dataset_id, subject_version_id, subject_proposal_id, k, judge_model_family, evaluator_id, grader_name, grader_version) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    [o.id, o.tenantId, o.datasetId, o.versionId ?? null, o.proposalId ?? null, o.k, o.judgeLabel.trim(), o.evaluatorId.trim(), o.grader?.name.trim() ?? null, o.grader?.version.trim() ?? null]);
   } catch (e) { throw mapRunInsertError(e); }
 }
 /** The loser of a race for the same holdout slot fails on the unique index (23505) before any trigger can name it: map it to the named refusal. */
@@ -79,4 +82,57 @@ export class HoldoutRerunError extends Error {
 export function mapRunInsertError(e: unknown): unknown {
   const x = e as { code?: string; constraint?: string };
   return x?.code === '23505' && x.constraint === 'eval_runs_holdout_once' ? new HoldoutRerunError() : e;
+}
+
+/**
+ * c61 (R2-2): the REASONS a grader may give for producing no grade. An ungraded attempt is not a failed one: the verdict leaves it out
+ * and reports the graded fraction beside every pass rate.
+ */
+export const UNGRADED_REASONS = ['grader_timeout', 'grader_error', 'unparseable_output', 'no_reference', 'infrastructure_error', 'excluded_by_rule'] as const;
+
+/** Episodes attempted, graded and the ungraded reasons of a run, counted from its stored results (never kept as counters). */
+export async function runAudit(c: Tx, runId: string): Promise<{ attempted: number; graded: number; ungradedReasons: Record<string, number> }> {
+  const r = (await c.query(`select attempted, graded, ungraded_reasons from eval_run_audit($1)`, [runId])).rows[0];
+  return { attempted: r.attempted, graded: r.graded, ungradedReasons: r.ungraded_reasons };
+}
+
+export interface RegradeInput {
+  id: string; tenantId: string; runId: string; to: { name: string; version: string }; by: string;
+  /** the NEW grade of each (case, attempt); the old grade is read from the stored result by the database and checked against it */
+  cases: Array<{ caseId: string; attempt: number; newScore: number | null; ungradedReason?: string }>;
+}
+/**
+ * The re-grade diff record: finished run R (graded by the version it recorded) was graded again by `to`, with the old and the new
+ * grade of every (case, attempt). The database refuses a diff from a version the run did not record and a false old grade. A diff
+ * links two runs of different graders only when it reaches the other run's version and covers every result of its run (read side).
+ */
+export async function recordRegrade(c: Tx, o: RegradeInput): Promise<void> {
+  const run = (await c.query(`select grader_name, grader_version from eval_runs where id=$1 and tenant_id=$2`, [o.runId, o.tenantId])).rows[0] as { grader_name: string | null; grader_version: string | null } | undefined;
+  if (!run) throw new Error(`no such eval run ${o.runId}`);
+  if (!run.grader_name || !run.grader_version) throw new Error(`eval run ${o.runId} has no recorded grader, so there is nothing to re-grade from`);
+  if (!o.by?.trim()) throw new Error('name who recorded the re-grade');
+  await c.query(`insert into eval_regrades(id, tenant_id, run_id, from_grader_name, from_grader_version, to_grader_name, to_grader_version, created_by) values ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [o.id, o.tenantId, o.runId, run.grader_name, run.grader_version, o.to.name.trim(), o.to.version.trim(), o.by.trim()]);
+  for (const x of o.cases) {
+    await c.query(
+      `insert into eval_regrade_cases(regrade_id, case_id, attempt, old_score, new_score, new_ungraded_reason)
+       select $1, $2, $3, r.score, $4, $5 from eval_results r where r.run_id = $6 and r.case_id = $2 and r.attempt = $3`, [o.id, x.caseId, x.attempt, x.newScore, x.ungradedReason ?? null, o.runId]);
+    // the insert above selects the stored old grade; a (case, attempt) the run does not have inserts nothing, which is refused here
+  }
+  const n = Number((await c.query(`select count(*)::int n from eval_regrade_cases where regrade_id=$1`, [o.id])).rows[0].n);
+  if (n !== o.cases.length) throw new Error(`the run has no result for ${o.cases.length - n} of the (case, attempt) pairs named in the re-grade`);
+}
+
+/**
+ * Fixture-only (usage is not recorded until Stage 9): the cost of a trace taken from ROOT spans only. A span with a parent is already
+ * included in its root's cost, so counting it again would count one call twice. An unknown parent is an error, never a guess.
+ */
+export function rootSpanCost(trace: { steps: Array<{ id: string; parent: string | null; cost: number }> }): number {
+  const ids = new Set(trace.steps.map((s) => s.id));
+  let sum = 0;
+  for (const s of trace.steps) {
+    if (s.parent !== null && !ids.has(s.parent)) throw new Error(`span ${s.id} names a parent (${s.parent}) that is not in the trace`);
+    if (s.parent === null) sum += s.cost;
+  }
+  return sum;
 }

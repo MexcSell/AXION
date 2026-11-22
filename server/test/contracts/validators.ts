@@ -12,7 +12,7 @@ import {
   type PolicyKindDto, type ProgressBody, type Provenance, type ReviewActor, type ReviewerAgreement, type RubricItem, type ScorecardRow, type SiteGrantDto, type SkillDto,
   type SkillStep, type SourceRef, type TaskBody, type TaskDto, type TaskReviewDto, type TaskReviewsDto, type ThreadDto, type ThreadPartnerDto, type ThroughputDto,
   type UploadDto, type VersionConfig, type VersionDiff, type VersionProposalDto, type AgentReliability, type QueueSummaryDto, type AnchorStatusDto, type AnchorTenantDto, ANCHOR_STATUS_NAMES, JOB_STATUS_NAMES,
-  type ProposalEvaluationDto, type EvalRefusalDto, type CompanyDimensionsDto, type DimensionRowDto, type DimensionCell, DIMENSION_KEYS, DIMENSION_WINDOWS,
+  type ProposalEvaluationDto, type EvalRefusalDto, type GradingDto, type CompanyDimensionsDto, type DimensionRowDto, type DimensionCell, DIMENSION_KEYS, DIMENSION_WINDOWS,
 } from '../../../shared/contracts/src/index.ts';
 
 export const errorEnvelope: V<ErrorEnvelope> = obj<ErrorEnvelope>({ code: oneOf(ERROR_CODES), message: str, correlationId: str, retryable: bool, fieldErrors: opt(dict(str)) });
@@ -197,11 +197,13 @@ const versionConfig: V<VersionConfig> = obj<VersionConfig>({ model: str, skills:
 const versionDiff: V<VersionDiff> = obj<VersionDiff>({ skillsAdded: arr(str), skillsRemoved: arr(str), toolsAdded: arr(str), toolsRemoved: arr(str), model: nullable(obj({ from: str, to: str })), changed: bool });
 const nullOnly = nul;
 const evalRefusal: V<EvalRefusalDto> = obj<EvalRefusalDto>({ code: str, detail: str });
+const grading: V<GradingDto> = obj<GradingDto>({ attempted: int, graded: int, graderName: nullable(str), graderVersion: nullable(str) });
 const proposalEvaluation: V<ProposalEvaluationDto> = obj<ProposalEvaluationDto>({
   outcome: oneOf(['verified_better', 'inconclusive', 'worse'] as const), n: int, wins: int, losses: int, ties: int, k: int,
   delta: nullable(num), ci: obj<ProposalEvaluationDto['ci']>({ low: nullable(num), high: nullable(num) }), baselineMean: nullable(num), candidateMean: nullable(num),
   passHatK: obj<ProposalEvaluationDto['passHatK']>({ baseline: arr(nullable(num)), candidate: arr(nullable(num)) }),
   refusals: arr(evalRefusal), reasons: arr(str), notes: arr(str),
+  grading: obj<ProposalEvaluationDto['grading']>({ baseline: nullable(grading), candidate: grading, excludedCases: int, sufficient: bool, minFraction: num, regradeId: nullable(str) }),
   datasetId: str, datasetSha: nullable(str), baseRunId: nullable(str), candidateRunId: str, runCount: int,
 });
 const versionProposal: V<VersionProposalDto> = obj<VersionProposalDto>({

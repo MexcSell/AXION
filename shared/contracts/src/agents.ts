@@ -102,6 +102,8 @@ export interface VersionProposalDto {
 }
 /** `inconclusive` is not a loss: it says the evidence cannot establish a difference (or the evaluation was not honest, see refusals). */
 export type EvalOutcome = 'verified_better' | 'inconclusive' | 'worse';
+/** attempts of a run, how many carry a grade, and the grader (name and version) that graded them; null = not recorded (runs before c61) */
+export interface GradingDto { attempted: number; graded: number; graderName: string | null; graderVersion: string | null }
 export interface EvalRefusalDto { code: string; detail: string }
 export interface ProposalEvaluationDto {
   outcome: EvalOutcome;
@@ -119,6 +121,12 @@ export interface ProposalEvaluationDto {
   /** the verdict's reasons in words, and facts such as cost */
   reasons: string[]; notes: string[];
   datasetId: string; datasetSha: string | null; baseRunId: string | null; candidateRunId: string;
+  /**
+   * c61 (R2-2): who graded each run and how much of it was graded. Shown beside every pass rate. An ungraded attempt is no grade, not a
+   * failure: with too few graded (`sufficient` false) the outcome is `inconclusive`, never `worse`. `regradeId` is the re-grade diff
+   * that links two runs graded by different grader versions (its NEW grades are the ones compared); null when none was needed.
+   */
+  grading: { baseline: GradingDto | null; candidate: GradingDto; excludedCases: number; sufficient: boolean; minFraction: number; regradeId: string | null };
   /** runs recorded for this candidate on that dataset (finished or not): more than one is refused as re-run shopping */
   runCount: number;
 }

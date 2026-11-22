@@ -22,16 +22,26 @@ export interface RunOpts {
   caseIds?: string[];
   /** c53: finish a run that is missing results. The guard refuses that, so only a fixture for the loader's partial_coverage refusal may ask (it switches the run guard off for the one UPDATE, as a superuser could) */
   partialFinish?: boolean;
+  /** c61: the grader that scored the run (name and version); omitted = not recorded (the old fixtures) */
+  grader?: { name: string; version: string };
+  /** c61: case index (0-based, as in `scores`) -> reason code: those cases have NO grade (every attempt ungraded; the score is stored as NULL) */
+  ungraded?: Record<number, string>;
 }
 export async function addRun(pool: pg.Pool, o: RunOpts) {
   const k = o.k ?? 1;
   await pool.query(
-    `insert into eval_runs(id, tenant_id, dataset_id, subject_version_id, subject_proposal_id, k, judge_model_family, evaluator_id) values ($1,$2,$3,$4,$5,$6,$7,$8)`,
-    [o.id, o.tenant ?? 't-1', o.datasetId, o.versionId ?? null, o.proposalId ?? null, k, o.judge === undefined ? 'claude-judge' : o.judge, o.evaluator === undefined ? 'evaluator-user' : o.evaluator]);
+    o.grader
+      ? `insert into eval_runs(id, tenant_id, dataset_id, subject_version_id, subject_proposal_id, k, judge_model_family, evaluator_id, grader_name, grader_version) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`
+      : `insert into eval_runs(id, tenant_id, dataset_id, subject_version_id, subject_proposal_id, k, judge_model_family, evaluator_id) values ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [o.id, o.tenant ?? 't-1', o.datasetId, o.versionId ?? null, o.proposalId ?? null, k, o.judge === undefined ? 'claude-judge' : o.judge, o.evaluator === undefined ? 'evaluator-user' : o.evaluator, ...(o.grader ? [o.grader.name, o.grader.version] : [])]);
   for (const [i, s] of o.scores.entries()) {
     const cid = o.caseIds?.[i] ?? 'c' + String(i + 1).padStart(2, '0');
     const per = Array.isArray(s) ? s : Array.from({ length: k }, () => s);
-    for (const [a, sc] of per.entries()) await pool.query(`insert into eval_results(run_id, case_id, attempt, score, cost_units, trace) values ($1,$2,$3,$4,$5,'{"steps":[]}')`, [o.id, cid, a + 1, sc, o.cost ?? 1]);
+    const why = o.ungraded?.[i] ?? null;
+    for (const [a, sc] of per.entries()) await pool.query(
+      why ? `insert into eval_results(run_id, case_id, attempt, score, cost_units, trace, ungraded_reason) values ($1,$2,$3,$4,$5,'{"steps":[]}',$6)`
+          : `insert into eval_results(run_id, case_id, attempt, score, cost_units, trace) values ($1,$2,$3,$4,$5,'{"steps":[]}')`,
+      [o.id, cid, a + 1, why ? null : sc, o.cost ?? 1, ...(why ? [why] : [])]);
   }
   if (o.finish === false) return;
   if (!o.partialFinish) { await pool.query(`update eval_runs set finished_at = now() where id=$1`, [o.id]); return; }

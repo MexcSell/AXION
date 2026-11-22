@@ -88,6 +88,9 @@ export function EvaluationView({ e, sample }: { e: ProposalEvaluationDto; sample
             <span>{e.ties} tied</span>
             <span>{e.ci.low !== null && e.ci.high !== null ? `95% interval ${pts(e.ci.low)} to ${pts(e.ci.high)}` : 'no interval'}</span>
             {e.passHatK.baseline[0] !== undefined && <span>pass^1 {pct(e.passHatK.baseline[0])} → {pct(e.passHatK.candidate[0])}</span>}
+            <span data-eval-graded title={`Graded attempts of each run. An ungraded attempt is not a failure${e.grading.candidate.graderName ? ` · grader ${e.grading.candidate.graderName} ${e.grading.candidate.graderVersion}` : ' · grader not recorded'}`}>
+              graded {e.grading.baseline ? `${e.grading.baseline.graded}/${e.grading.baseline.attempted}` : 'n/a'} → {e.grading.candidate.graded}/{e.grading.candidate.attempted}
+            </span>
             <span className="mono" title={e.datasetSha ?? ''}>holdout {e.datasetId}{e.datasetSha ? ` · ${e.datasetSha.slice(0, 8)}` : ''}</span>
           </div>
           {e.refusals.length > 0 && (
