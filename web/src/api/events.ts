@@ -158,7 +158,7 @@ export function startSync(): () => void {
   return () => {
     closed = true; es?.close(); window.clearTimeout(staleTimer); window.clearTimeout(fallback); window.clearInterval(watchdog);
     mission.cancel(); approvals.cancel(); notices.cancel(); people.cancel(); agents.cancel(); instances.cancel(); proposals.cancel(); versions.cancel(); mentoring.cancel(); grants.cancel(); failures.cancel(); ledgers.cancel(); scorecard.cancel(); reliability.cancel(); departments.cancel(); // no refresh fires after sign-out
-    playbooks.cancel(); // c41
+    playbooks.cancel(); taskReviews.cancel(); // c41, c52
     set('off');
   };
 }
