@@ -179,4 +179,7 @@
 .appr-facts { gap: 5px; margin: 2px 0 0; }
 .appr-fact { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; line-height: 1.2; padding: 2px 7px; border-radius: 999px; background: rgba(var(--accent-2-rgb), .1); border: 1px solid var(--border-soft); color: var(--text-dim); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .appr-fact svg { flex: none; }
-.nt-appr button:disabled, .approval-mini button:disabled, .modal button:disabled { opacity: .5; cursor: not-allowed; }
+.nt-appr button:disabled, .approval-mini button:disabled, .modal button:disabled, .is-gated { opacity: .5; cursor: not-allowed; }
+.appr-gate-text { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--text-dim); max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.appr-gate-text svg { flex: none; }
+.oa-appr .appr-gate { flex: none; }

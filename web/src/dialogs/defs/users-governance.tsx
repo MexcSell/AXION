@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { ImagePlus, ShieldAlert, Bell, X, CheckCircle2, XCircle, Fingerprint, Clock } from 'lucide-react';
 import type { DialogComponentProps } from '@/dialogs/DialogHost';
-import { ApprovalFacts, GateHelp, useGated } from '@/features/approvals/ApprovalBinding';
+import { ApprovalFacts, GateNote, useGate } from '@/features/approvals/ApprovalBinding';
 import { Modal } from '@/components/ui/Modal';
 import { Field, Segmented } from '@/components/ui/Form';
 import { Chip } from '@/components/ui/Chips';
@@ -21,7 +21,7 @@ function ApprovalDecision({ close, props }: DialogComponentProps<{ approvalId?: 
   const [img, setImg] = useState<{ name: string; url: string } | null>(null);
   const [tried, setTried] = useState(false);
   const file = useRef<HTMLInputElement>(null);
-  const gated = useGated(a ?? { risk: 'low' });
+  const gate = useGate(a ?? {});
   if (!a) {
     return <Modal title="Approval not found" icon={ShieldAlert} help="ug.dialog.approval" dialogId="DL-48" onClose={close} footer={<button className="btn" onClick={close}>Close</button>}><p className="muted">This approval no longer exists or was resolved.</p></Modal>;
   }
@@ -46,9 +46,9 @@ function ApprovalDecision({ close, props }: DialogComponentProps<{ approvalId?: 
       footer={done ? <button className="btn" onClick={close}>Close</button> : <>
         <button className="btn" onClick={close}>Cancel</button>
         <span className="spacer" />
-        {gated && <GateHelp />}
-        <button className="btn danger" disabled={gated} onClick={() => go('denied')}><XCircle size={15} />Deny</button>
-        <button className="btn good" disabled={gated} data-autofocus={gated ? undefined : true} onClick={() => go('approved')}><CheckCircle2 size={15} />Approve</button>
+        {gate.blocked && <GateNote id={gate.id} text={gate.text} />}
+        <button type="button" {...gate.bind(() => go('denied'), 'btn danger')}><XCircle size={15} />Deny</button>
+        <button type="button" data-autofocus={gate.blocked ? undefined : true} {...gate.bind(() => go('approved'), 'btn good')}><CheckCircle2 size={15} />Approve</button>
       </>}>
       <div className="col" style={{ gap: 14 }}>
         <div className="ug-bound" style={{ ['--h' as string]: r.hue }}>

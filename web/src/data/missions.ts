@@ -345,6 +345,8 @@ export function buildMissionControl(m: Mission): MissionControlData {
     title: m.kind === 'automation' ? (i === 0 ? 'Grant origin status.example.com' : 'Submit CSP header fix to staging') : m.kind === 'structure' ? 'Publish homepage preview v2.1 to production' : 'Approve release candidate v1.4 for staging',
     detail: m.kind === 'automation' ? 'Read-only navigation for 2 hours, mission M-132 only. No form submissions.' : 'Exact revision sha256:9f1c…a24e. Canary 10% for 30 min, automatic rollback on error-rate > 1%.',
     risk: m.kind === 'automation' && i > 0 ? 'medium' : 'high', /* same tiers as the server policy: release and origin-grant R3 (high), browser-action R2 (medium) */ kind: m.kind === 'automation' ? (i === 0 ? 'origin-grant' : 'browser-action') : 'release', expiresMin: 90 - i * 30, agoMin: m.lastEventAgoMin + i * 4, status: 'pending',
+    /* DEMO fixture: the demo account is an administrator and no fixture request is its own, so every fixture is decidable. In api mode the server sets these two fields from its policy path. */
+    canDecide: true, decideBlockedReason: null,
   }));
 
   const evTypes: TimelineEvent['type'][] = ['create', 'delegate', 'delegate', 'browser', 'model', 'message', 'artifact', 'verify', 'report', 'approval'];
