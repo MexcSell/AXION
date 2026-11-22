@@ -429,3 +429,23 @@ describe('F3: a run cannot be finished incomplete, whatever path finishes it', (
   });
 });
 
+describe('F4: dev_holdout_reuse counts distinct shared inputs and exempts only repeated (generic) ones', () => {
+  const short = (n: number, off = 0) => Array.from({ length: n }, (_, i) => JSON.stringify(`${i + 11 + off}*7`));
+  it('30 distinct short arithmetic prompts copied to the holdout are flagged', async () => {
+    const r = await reuseScenario(short(30), short(30)); expect(r.codes).toContain('dev_holdout_reuse');
+  });
+  it('8 distinct short sentiment inputs copied to the holdout are flagged', async () => {
+    const w = ['great product', 'awful', 'fine', 'love it', 'hate it', 'meh', 'superb', 'broken'].map((x) => JSON.stringify(x));
+    const r = await reuseScenario(w, w); expect(r.codes).toContain('dev_holdout_reuse');
+  });
+  it('9 of 100 long holdout inputs copied from dev are flagged (an absolute floor for large holdouts)', async () => {
+    const r = await reuseScenario([...longs(9), ...longs(91, 1000)], [...longs(9), ...longs(91, 2000)]); expect(r.codes).toContain('dev_holdout_reuse');
+  });
+  it('a generic input repeated across cases is one input and stays unflagged', async () => {
+    const r = await reuseScenario(Array.from({ length: 12 }, () => '"What is 2+2?"'), Array.from({ length: 12 }, () => '"What is 2+2?"')); expect(r.codes).not.toContain('dev_holdout_reuse');
+  });
+  it('a repeated generic input mixed with a few distinct unshared ones stays unflagged', async () => {
+    const r = await reuseScenario(['"ok"', '"ok"', '"ok"', ...longs(9, 300)], ['"ok"', '"ok"', '"ok"', ...longs(9, 400)]); expect(r.codes).not.toContain('dev_holdout_reuse');
+  });
+});
+

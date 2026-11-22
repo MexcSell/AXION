@@ -21,15 +21,15 @@ export function modelFamily(model: string): string {
 }
 
 /**
- * c53: when does a dev dataset "share cases" with the holdout? A holdout case counts as shared when its input also appears in a dev
- * dataset the candidate ran on AND the input is not generic (a canonical JSON text shorter than GENERIC_INPUT_MIN_LEN chars, such as
- * 1, {}, null or "ok", appears in unrelated datasets by chance). The datasets are linked when at least MIN_REUSE_OVERLAP cases
- * (and at least REUSE_OVERLAP_SHARE of the holdout) are shared, capped at the holdout's size so a one-case holdout can still be hit.
- * Case ids are not compared, so a copy under renumbered ids is still caught.
+ * c53: when does a dev dataset "share cases" with the holdout? Count DISTINCT holdout inputs that also appear in a dev dataset the
+ * candidate ran on. An input that repeats across cases (in the holdout, or in that dev dataset) is generic (`1`, `{}`, "What is
+ * 2+2?" asked twelve times) and is not counted; a short input that is unique to its case IS counted, so a wholesale copy of short
+ * prompts is caught. The datasets are linked when at least max(MIN_REUSE_OVERLAP, min(10% of the holdout, REUSE_OVERLAP_CAP))
+ * inputs are shared (capped at the holdout's size), so a leak of 9 cases in a 100-case holdout still counts. Case ids are not compared.
  */
-export const GENERIC_INPUT_MIN_LEN = 20;
 export const MIN_REUSE_OVERLAP = 2;
 export const REUSE_OVERLAP_SHARE = 0.1;
+export const REUSE_OVERLAP_CAP = 5;
 
 export interface EvidenceSubject { id: string; created_by: string; base_version_id: string; candidate: unknown }
 
@@ -74,9 +74,11 @@ export async function loadEvaluations(c: Tx, tenantId: string, proposals: Eviden
     // a dev dataset the candidate ran on that shares cases with the holdout means the holdout leaks into tuning (c53: real overlap only)
     if (cand.split === 'holdout' && devIds.length) {
       const o = (await c.query(
-        `select count(*) filter (where length(h.input::text) >= $3 and exists (select 1 from eval_cases d where d.dataset_id = any($2) and d.input = h.input))::int as shared, count(*)::int as total
-           from eval_cases h where h.dataset_id=$1`, [cand.dataset_id, devIds, GENERIC_INPUT_MIN_LEN])).rows[0] as { shared: number; total: number };
-      if (o.total && o.shared >= Math.min(o.total, Math.max(MIN_REUSE_OVERLAP, Math.ceil(o.total * REUSE_OVERLAP_SHARE)))) tuned.push(cand.dataset_id);
+        `with h as (select input, count(*) n from eval_cases where dataset_id=$1 group by input),
+              d as (select input, max(n) n from (select input, count(*) n from eval_cases where dataset_id = any($2) group by dataset_id, input) x group by input)
+         select (select count(*) from h join d using (input) where h.n = 1 and d.n = 1)::int as shared, (select count(*) from eval_cases where dataset_id=$1)::int as total`,
+        [cand.dataset_id, devIds])).rows[0] as { shared: number; total: number };
+      if (o.total && o.shared >= Math.min(o.total, Math.max(MIN_REUSE_OVERLAP, Math.min(REUSE_OVERLAP_CAP, Math.ceil(o.total * REUSE_OVERLAP_SHARE))))) tuned.push(cand.dataset_id);
     }
     // c53: runs of ANY proposal with the same agent and candidate config on this dataset count (withdraw and re-propose buys nothing)
     const runCount = Number((await c.query(
