@@ -1,17 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { ScrollText, Plus, X, ShieldAlert, Info, Loader2, Save, RefreshCw, GitMerge } from 'lucide-react';
-import { FACT_GROUPS, FACT_LABEL, LEDGER_LIMITS, STEP_STATUSES, type Fact, type FactGroup, type LedgerDto, type LedgerKind, type ProgressBody, type Step, type TaskBody } from '@contracts';
+import { diffLedgers, FACT_GROUPS, FACT_LABEL, type LedgerChange, LEDGER_LIMITS, STEP_STATUSES, type Fact, type FactGroup, type LedgerDto, type LedgerKind, type ProgressBody, type Step, type TaskBody } from '@contracts';
 import { Modal } from '@/components/ui/Modal';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { Field, Switch } from '@/components/ui/Form';
 import { isApi } from '@/api/mode';
-import { latestLedger, saveLedger } from '@/api/ledgers';
+import { fetchLedgerBody, latestLedger, saveLedger } from '@/api/ledgers';
 import { toast } from '@/store/ui';
 import type { DialogComponentProps } from '@/dialogs/DialogHost';
 import '@/theme/pages/c39-ledgers.css';
 
-/* DL-78: edit a mission ledger (cycle 39). A save is a new version made from the version you loaded (baseVersion). If someone
+/* DL-91: edit a mission ledger (cycle 39). A save is a new version made from the version you loaded (baseVersion). If someone
    saved meanwhile the server answers 409 and this dialog offers to load their version or to keep yours on top of it. */
 const L = LEDGER_LIMITS;
 const toLines = (fs: Fact[]) => fs.map((f) => (f.source ? `${f.text} | ${f.source}` : f.text)).join('\n');
@@ -45,6 +45,7 @@ function LedgerEdit({ close, props }: DialogComponentProps<{ missionId?: string;
   const [fields, setFields] = useState<Record<string, string>>({});
   const [conflict, setConflict] = useState<LedgerDto | null | 'gone'>(null);
   const [rebased, setRebased] = useState(false);
+  const [theirChanges, setTheirChanges] = useState<LedgerChange[] | null>(null);
   const adopt = (l: LedgerDto | null) => {
     if (kind === 'task') { const f = l ? taskForm(l.body as TaskBody) : emptyTask(); setTask(f); setOrig(JSON.stringify(taskBody(f))); }
     else { const f = l ? progForm(l.body as ProgressBody) : emptyProg(); setProg(f); setOrig(JSON.stringify(progBody(f))); }
@@ -67,7 +68,16 @@ function LedgerEdit({ close, props }: DialogComponentProps<{ missionId?: string;
     const r = await saveLedger(missionId, kind, base, body);
     setBusy(false);
     if (r.ok) { toast({ tone: 'success', title: `${kind === 'task' ? 'Task' : 'Progress'} ledger saved`, body: `Version ${r.value.version} is now the current one.` }); close(); return; }
-    if (r.code === 'LEDGER_CONFLICT') { const l = await latestLedger(missionId); setConflict(l ? l[kind] : 'gone'); setRebased(false); return; }
+    if (r.code === 'LEDGER_CONFLICT') {
+      const l = await latestLedger(missionId);
+      const their = l ? l[kind] : null;
+      setConflict(their ?? 'gone'); setRebased(false); setTheirChanges(null);
+      // what the other session changed since the version I started from
+      const mine = base > 0 ? await fetchLedgerBody(missionId, kind, base) : null;
+      const none = kind === 'task' ? { facts: { given: [], to_look_up: [], to_derive: [], guesses: [] }, steps: [] } : { satisfied: false, looping: false, progressing: false, notes: '', stall: 0 };
+      if (their) setTheirChanges(diffLedgers(kind, (mine?.body ?? none) as never, their.body as never));
+      return;
+    }
     setSrvErr(r.message); setFields(r.fieldErrors ?? {});
   };
   const loadTheirs = () => { if (conflict && conflict !== 'gone') adopt(conflict); setConflict(null); setRebased(false); };
@@ -80,7 +90,7 @@ function LedgerEdit({ close, props }: DialogComponentProps<{ missionId?: string;
   });
   const title = kind === 'task' ? 'Edit the task ledger' : 'Check in on progress';
   return (
-    <Modal title={title} icon={ScrollText} help="ledger.edit" dialogId="DL-78" size="lg" onClose={close}
+    <Modal title={title} icon={ScrollText} help="ledger.edit" dialogId="DL-91" size="lg" onClose={close}
       sub={kind === 'task' ? 'Facts the team holds and the plan. Saving makes a new version; older versions stay.' : 'Is the request satisfied, is the team looping, is it moving, and who acts next. The stall counter is worked out by the server.'}
       footer={<><button className="btn" onClick={close}>Cancel</button><button className="btn primary" disabled={!!err || busy} title={err || undefined} onClick={submit}>{busy ? <Loader2 size={14} className="spin" /> : <Save size={14} />}Save version {base + 1}</button></>}>
       <div className="ld-ed" data-ledger-editor={kind}>
@@ -88,6 +98,12 @@ function LedgerEdit({ close, props }: DialogComponentProps<{ missionId?: string;
         {conflict && (
           <div className="oa-banner ld-conflict" role="alert" data-ledger-conflict>
             <div className="row"><ShieldAlert size={15} /><span>{theirs ? <>Someone saved <b>version {theirs.version}</b> ({theirs.authorName}) while you were editing.</> : 'The ledger changed while you were editing.'}</span></div>
+            {theirChanges && theirChanges.length > 0 && (
+              <ul className="ld-conf-diff" data-ledger-conflict-diff aria-label="What the other session changed">
+                {theirChanges.slice(0, 8).map((c, i) => <li key={i} data-change={c.change}><b>{c.label}</b> {c.change === 'changed' ? <>{c.from || 'empty'} to {c.to || 'empty'}</> : c.change === 'added' ? <>added: {c.to}</> : <>removed: {c.from}</>}</li>)}
+                {theirChanges.length > 8 && <li className="dim">and {theirChanges.length - 8} more</li>}
+              </ul>
+            )}
             {!rebased && <div className="row">
               <button className="btn sm" onClick={loadTheirs}><RefreshCw size={13} />Load their version (drop my edit)</button>
               <button className="btn sm" onClick={keepMine}><GitMerge size={13} />Save mine as the next version</button>

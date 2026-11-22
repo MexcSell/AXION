@@ -18,6 +18,7 @@ export type FactGroup = (typeof FACT_GROUPS)[number];
 /** Bounds, shared by the server schema and the editor. */
 export const LEDGER_LIMITS = Object.freeze({
   factText: 400, factSource: 200, factsPerGroup: 30, steps: 30, stepText: 400, stepOwner: 64, stepId: 24,
+  /** whole serialized body, UTF-8 bytes: below the database CHECK (64 kB on the stored jsonb) */ bodyBytes: 49_152, versionsPerKind: 500, pageSize: 100,
   nextSpeaker: 64, nextInstruction: 600, notes: 2000,
 });
 
@@ -38,9 +39,12 @@ export type LedgerBody = TaskBody | ProgressBody;
 export interface LedgerVersionDto { version: number; authorId: string; authorName: string; authorKind: 'human' | 'agent' | 'system'; createdAt: string; demo: boolean }
 export interface LedgerDto<B = LedgerBody> extends LedgerVersionDto { id: string; missionId: string; kind: LedgerKind; body: B }
 export interface StallResult { stalled: boolean; counter: number; reason: 'no-progress' | 'looping' | null }
+export interface LedgerVersionPageDto { versions: LedgerVersionDto[]; next: number | null }
 export interface LedgersDto {
   ledgers: { task: LedgerDto<TaskBody> | null; progress: LedgerDto<ProgressBody> | null };
   versions: { task: LedgerVersionDto[]; progress: LedgerVersionDto[] };
+  /** cursor for the next older page (pass as ?before=) per kind, or null when the list is complete */
+  moreVersions: { task: number | null; progress: number | null };
   stall: StallResult; policy: typeof STALL_POLICY; canEdit: boolean; demo: boolean;
 }
 

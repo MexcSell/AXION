@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { create } from 'zustand';
-import { demoLedgers, stallCheck, STALL_POLICY, type LedgerDto, type LedgerKind, type LedgersDto, type LedgerVersionDto, type ProgressBody, type TaskBody } from '@contracts';
+import { demoLedgers, type LedgerVersionPageDto, stallCheck, STALL_POLICY, type LedgerDto, type LedgerKind, type LedgersDto, type LedgerVersionDto, type ProgressBody, type TaskBody } from '@contracts';
 import type { Mission } from '@/data/types';
 import { api, ApiFailure } from './client';
 import { isApi } from './mode';
@@ -25,7 +25,7 @@ function demoDto(m: Mission): LedgersDto {
   const last = <B,>(k: LedgerKind) => (of(k).slice(-1)[0] ?? null) as LedgerDto<B> | null;
   return {
     ledgers: { task: last<TaskBody>('task'), progress: last<ProgressBody>('progress') },
-    versions: { task: of('task').map(meta).reverse(), progress: of('progress').map(meta).reverse() },
+    versions: { task: of('task').map(meta).reverse(), progress: of('progress').map(meta).reverse() }, moreVersions: { task: null, progress: null },
     stall: stallCheck(of('progress').map((d) => d.body as ProgressBody)), policy: STALL_POLICY, canEdit: false, demo: true,
   };
 }
@@ -61,4 +61,13 @@ export async function saveLedger(missionId: string, kind: LedgerKind, baseVersio
 /** The latest stored ledger of a kind (for the editor's conflict handling). */
 export async function latestLedger(missionId: string): Promise<{ task: LedgerDto | null; progress: LedgerDto | null } | null> {
   try { return (await api<LedgersDto>('GET', `/missions/${encodeURIComponent(missionId)}/ledgers`)).ledgers; } catch { return null; }
+}
+
+/** The next older page of version metadata (api mode), or null on failure. */
+export async function fetchVersionsPage(missionId: string, kind: LedgerKind, before: number): Promise<LedgerVersionPageDto | null> {
+  try { return await api<LedgerVersionPageDto>('GET', `/missions/${encodeURIComponent(missionId)}/ledgers/${kind}/versions?before=${before}&limit=100`); } catch { return null; }
+}
+/** One stored version by mission id (for the editor's conflict diff). */
+export async function fetchLedgerBody(missionId: string, kind: LedgerKind, version: number): Promise<LedgerDto | null> {
+  try { return (await api<{ ledger: LedgerDto }>('GET', `/missions/${encodeURIComponent(missionId)}/ledgers/${kind}/${version}`)).ledger; } catch { return null; }
 }

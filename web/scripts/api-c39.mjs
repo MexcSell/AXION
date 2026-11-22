@@ -121,6 +121,7 @@ try {
   await A.p.getByRole('button', { name: /^Save version 3/ }).click();
   check('A (second session) sees the conflict UI naming version 3, and nothing was saved',
     await until(async () => (await A.p.locator('[data-ledger-conflict]').count()) === 1 && /version 3/.test(await A.p.locator('[data-ledger-conflict]').innerText()), 8000) && (await ledgers()).versions.task.length === 3);
+  check('the conflict banner shows what the other session changed (Bea\'s added fact)', (await A.p.locator('[data-ledger-conflict-diff]').count()) === 1 && /Bea: vendor B is out/.test(await A.p.locator('[data-ledger-conflict-diff]').innerText()));
   await A.p.screenshot({ path: `${SHOTS}/improve-c39-conflict-dark.png` });
   await A.p.getByRole('button', { name: /Save mine as the next version/ }).click();
   check('saving mine as the next version: Save now says version 4', await until(async () => !(await A.p.getByRole('button', { name: /^Save version 4/ }).isDisabled()), 5000));

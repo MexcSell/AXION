@@ -8,7 +8,7 @@ import { Segmented } from '@/components/ui/Form';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Tip } from '@/components/ui/Tip';
 import { openDialog } from '@/store/ui';
-import { fetchLedgerVersion, useLedgers } from '@/api/ledgers';
+import { fetchLedgerVersion, fetchVersionsPage, useLedgers } from '@/api/ledgers';
 import type { Mission } from '@/data/types';
 import { agoFromTs, cx } from '@/lib/format';
 import '@/theme/pages/c39-ledgers.css';
@@ -91,7 +91,21 @@ function Verb({ c }: { c: LedgerChange }) {
 
 function History({ m, data }: { m: Mission; data: LedgersDto }) {
   const [kind, setKind] = useState<LedgerKind>('task');
-  const list: LedgerVersionDto[] = data.versions[kind];
+  // older pages are fetched on request (keyset, 100 at a time) and merged under the newest page
+  const [older, setOlder] = useState<{ key: string; list: LedgerVersionDto[]; cursor: number | null | undefined }>({ key: '', list: [], cursor: undefined });
+  const okey = `${m.id}|${kind}`;
+  const extra = older.key === okey ? older : { key: okey, list: [] as LedgerVersionDto[], cursor: undefined };
+  const first = data.versions[kind];
+  const list: LedgerVersionDto[] = [...first, ...extra.list.filter((v) => !first.some((x) => x.version === v.version))].sort((a, b) => b.version - a.version);
+  const cursor = extra.cursor === undefined ? data.moreVersions[kind] : extra.cursor;
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadMore = async () => {
+    if (!cursor || loadingMore) return;
+    setLoadingMore(true);
+    const pg = await fetchVersionsPage(m.id, kind, cursor);
+    setLoadingMore(false);
+    if (pg) setOlder({ key: okey, list: [...extra.list, ...pg.versions], cursor: pg.next });
+  };
   const latest = list[0]?.version ?? 0;
   const [to, setTo] = useState(0);
   const [from, setFrom] = useState(0);
@@ -128,6 +142,7 @@ function History({ m, data }: { m: Mission; data: LedgersDto }) {
               <b>v{v.version}</b><span>{v.authorName}</span><em>{when(v.createdAt)}</em>{v.demo && <DemoTag title="DEMO sample version" />}
             </button></li>
           ))}
+          {cursor && <li><button type="button" onClick={loadMore} disabled={loadingMore} data-load-older>{loadingMore ? <Loader2 size={12} className="spin" aria-hidden /> : <RefreshCw size={12} aria-hidden />}<span>Load older versions</span></button></li>}
           {list.length === 0 && <li className="dim ld-none">no versions yet</li>}
         </ul>
         <div className="ld-diff" data-ledger-diff aria-live="polite">

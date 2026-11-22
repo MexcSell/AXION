@@ -29,7 +29,7 @@ or **2** looping check-ins in a row. A satisfied latest entry ends a stall. In A
 - DEMO: `seedDemo` adds sample ledgers (`demo=true`, author `system`, "DEMO sample" text) to demo missions only; stuck demo missions get a 3-entry stalled history.
 - UI: new **Ledger** tab on the mission workspace (icon ScrollText): facts in four groups, plan steps with status chips, progress strip (three flags, stall badge, next speaker, instruction, notes),
   History with kind switch, From/To selectors, version list and a diff; DEMO tag; `?` help on every block; Edit and Check in buttons (disabled for people who cannot edit, with a tooltip).
-  Edit dialog `ledger-edit` (DL-78): facts one per line (` | source`), step rows, flags and notes; Save is off until something changes; **409 handling**:
+  Edit dialog `ledger-edit` (DL-91): facts one per line (` | source`), step rows, flags and notes; Save is off until something changes; **409 handling**:
   "Load their version (drop my edit)" or "Save mine as the next version" (it replaces their changes in the new version; theirs stays in History; it is not a merge, and the dialog says so).
   Escape and Cancel close it. Demo mode shows the sample read only. Live: `ledger.updated` re-reads (api/events.ts).
 
@@ -52,7 +52,7 @@ or **2** looping check-ins in a row. A satisfied latest entry ends a stall. In A
 | Server tsc and vitest green; web tsc | PASS | 607 tests; both tsc clean |
 | api-flows and api-stage6 | PASS | api-flows 23/23, api-stage6 94/94 (same run as api-c39), no page errors |
 | a11y clean | PASS | demo: 51 views, 57 dialogs, 0 violations; api: 41 views, 57 dialogs, 0 violations |
-| Dialog ledger | PASS | dialog smoke 57 dialogs x 2 = 114 checks, 0 failures (`ledger-edit` DL-78 added to `web/docs/dialog-ledger.txt`); dialog ids and help keys all defined |
+| Dialog ledger | PASS | dialog smoke 57 dialogs x 2 = 114 checks, 0 failures (`ledger-edit` DL-91 added to `web/docs/dialog-ledger.txt`); dialog ids and help keys all defined |
 | fit-check ALL FIT | PASS | 78 views `ok`, `ALL FIT` (Ledger tab: mainOver 0, one screen) at 1672x941 |
 | verify-all | 9 of 10 steps PASS; `flows` FAILED once | see concerns: 2 timeouts under machine load (load average about 11), passed 21/21 with 0 FAIL when rerun alone; crawl 78 views and deep crawl NO PROBLEMS, auth flow, u1 flows, dialog smoke, dialog ids, help keys, fs-guard PASS |
 
@@ -81,3 +81,14 @@ Counts of the word FAIL: api e2e log 0; a11y demo 0; a11y api 0; fit-check 0; ve
 6. **Stall counter window**: the server counts over the last 50 progress entries (counter caps at 50).
 7. **demo missions seeded in an existing database** get no ledger until `seedDemo` creates new missions (idempotent seed skips existing missions); the e2e and fresh demo seeds are fine. Existing DEMO rows would need `demo:clear` then `demo:seed`.
 8. The final CSS tweak (3 px padding on the step list so the first row is not clipped) came after the a11y and fit runs; api-c39 was re-run afterwards (31/31). It is padding inside a dialog scroll box only.
+
+## Fix round (review c39-review.md: I1, I2, M1 to M4, dialog id)
+Test-first: the new tests (size, pagination and cap, lock order, own bucket) failed before the changes (4 of 27 red), then went green.
+- **I1**: both body schemas refine the total serialized size in UTF-8 bytes (`LEDGER_LIMITS.bodyBytes` = 49,152, below the 64 kB database CHECK). Over the limit: 400 with `fieldErrors.body` ("Ledger is too large ..."). Test: a maximal body of 3-byte characters (120 facts) gets 400; a 45,000-byte multi-byte body is saved and its `pg_column_size` is under 65,536.
+- **I2**: the version lists select metadata only (no `body`) and are keyset pages, newest first, at most 100. `GET /missions/:id/ledgers` returns the first page plus `moreVersions` cursors; new `GET /missions/:id/ledgers/:kind/versions?before=&limit=` returns `{versions, next}` (limit clamped to 100, bad `before` is 400, invisible mission 404). The History panel has "Load older versions". Cap of 500 versions per kind: 409 `LEDGER_VERSION_CAP` with a clear message; the cap is per kind. Test: 500 rows, pages of 100 walked to exactly 500..1 without gaps or duplicates, then the 501st write is refused.
+- **M1**: the conflict banner lists what the other session changed (diff of the version I started from against theirs, first 8 lines) before the buttons. api-c39 checks it.
+- **M2/M3**: envelope and body are validated before the transaction; inside it visibility is checked first, then permission, and only then the mission row lock (status re-read under the lock). Test: a malformed body (400), a non-manager (403) and an invisible mission (404) never take the lock, and a writer still succeeds.
+- **M4**: ledger writes have their own `ledgers` bucket (30 per minute, same as proposals); the route-table test still requires the route in `LIMITED_ROUTES`. Test: after the ledger budget is exhausted (429) a version-proposal write is not 429.
+- **Dialog id**: renumbered DL-78 to **DL-91** (DL-78 is c33's, DL-90 is c36's; no DL-91 in w31, w34 or this tree). `web/docs/dialog-ledger.txt` regenerated by the dialog smoke.
+
+Counts: server tsc clean; web tsc clean; full vitest **38 files, 610 tests passed** (27 in c39-ledgers.test.ts); api-c39 **32/32** and api-flows **23/23**, no page errors, 0 FAIL; dialog smoke 57 dialogs x 2 = 114 checks, 0 failures (`ledger-edit` DL-91). Dev server (port 8794) stopped by port.

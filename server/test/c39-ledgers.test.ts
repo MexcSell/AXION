@@ -82,7 +82,7 @@ const taskBody = (text = 'Budget is 5k') => ({ facts: { given: [{ text }], to_lo
 const progBody = (o: Record<string, unknown> = {}) => ({ satisfied: false, looping: false, progressing: true, notes: '', ...o });
 
 beforeAll(async () => {
-  t = await makeTestApp({ staffingStepMs: 3_600_000, conversationSimMs: 3_600_000, writeLimits: { messages: { max: 1000, windowMs: 60_000 }, proposals: { max: 1000, windowMs: 60_000 }, uploads: { max: 1000, windowMs: 60_000 } } });
+  t = await makeTestApp({ staffingStepMs: 3_600_000, conversationSimMs: 3_600_000, writeLimits: { messages: { max: 1000, windowMs: 60_000 }, proposals: { max: 1000, windowMs: 60_000 }, uploads: { max: 1000, windowMs: 60_000 }, ledgers: { max: 1000, windowMs: 60_000 } } });
   const w = await withAdmin(t.app);
   A = w.admin; adminId = w.adminId;
   M = (await w.member('Mia')).b;
@@ -265,8 +265,8 @@ describe('demo samples and clearDemo', () => {
 });
 
 describe('rate limit', () => {
-  it('ledger writes share the proposals budget (429 after the limit, nothing stored for the refused ones)', async () => {
-    const w = await makeTestApp({ staffingStepMs: 3_600_000, writeLimits: { messages: { max: 100, windowMs: 60_000 }, proposals: { max: 3, windowMs: 60_000 }, uploads: { max: 100, windowMs: 60_000 } } });
+  it('ledger writes have their own bucket: 429 after the limit, nothing stored for the refused ones, and proposals are not starved', async () => {
+    const w = await makeTestApp({ staffingStepMs: 3_600_000, writeLimits: { messages: { max: 100, windowMs: 60_000 }, proposals: { max: 100, windowMs: 60_000 }, uploads: { max: 100, windowMs: 60_000 }, ledgers: { max: 3, windowMs: 60_000 } } });
     try {
       const B = await withAdmin(w.app);
       const id = (await B.admin.req('POST', '/missions', { text: 'Rate limited ledger.', files: [], shared: false }, { 'idempotency-key': 'rl-1' })).body.mission.id;
@@ -274,6 +274,61 @@ describe('rate limit', () => {
       for (let i = 0; i < 5; i++) st.push((await post(B.admin, id, 'progress', i, progBody())).status);
       expect(st).toEqual([201, 201, 201, 429, 429]);
       expect((await w.pool.query(`select count(*)::int n from mission_ledgers where mission_id=$1`, [id])).rows[0].n).toBe(3);
+      expect((await B.admin.req('POST', '/agents/no-such-agent/version-proposals', {})).status).not.toBe(429);
     } finally { await w.close(); }
+  });
+});
+
+describe('fix round: size, pagination, cap, lock order', () => {
+  const grp = (n: number, chars: number) => Array.from({ length: n }, (_, i) => ({ text: '€'.repeat(chars) + i }));
+  const multi = (n: number, chars: number) => ({ facts: { given: grp(n, chars), to_look_up: grp(n, chars), to_derive: grp(n, chars), guesses: grp(n, chars) }, steps: [] });
+  it('I1: a maximal multi-byte body is 400 with a path (never 500); one just under the cap is saved', async () => {
+    const id = (await O.req('POST', '/missions', { text: 'Size limits of ledger bodies.', files: [], shared: true }, key())).body.mission.id;
+    const big = { facts: { given: Array.from({ length: 30 }, (_, i) => ({ text: '€'.repeat(399) + i % 10, source: '€'.repeat(199) })), to_look_up: Array.from({ length: 30 }, () => ({ text: '€'.repeat(400) })), to_derive: Array.from({ length: 30 }, () => ({ text: '€'.repeat(400) })), guesses: Array.from({ length: 30 }, () => ({ text: '€'.repeat(400) })) }, steps: [] };
+    const r = await post(O, id, 'task', 0, big);
+    expect(r.status).toBe(400);
+    expect(Object.keys(r.body.fieldErrors)).toContain('body');
+    expect(r.body.fieldErrors.body).toMatch(/too large/i);
+    const ok = await post(O, id, 'task', 0, multi(10, 374)); // about 45,000 bytes of 3-byte characters
+    expect(ok.status).toBe(201);
+    expect((await rows(`select pg_column_size(body)::int n from mission_ledgers where mission_id=$1`, [id]))[0].n).toBeLessThan(65536);
+  });
+
+  it('I2: version lists are keyset pages (newest first, at most 100) without bodies; 500 versions per kind is the cap', async () => {
+    const id = (await O.req('POST', '/missions', { text: 'Many ledger versions.', files: [], shared: true }, key())).body.mission.id;
+    const tenant = (await rows(`select tenant_id from missions where id=$1`, [id]))[0].tenant_id;
+    await t.pool.query(`insert into mission_ledgers(tenant_id, mission_id, kind, version, body, author_id, author_kind)
+      select $1, $2, 'progress', v, '{"satisfied":false,"looping":false,"progressing":true,"notes":"","stall":0}'::jsonb, 'u', 'human' from generate_series(1, 500) v`, [tenant, id]);
+    const g = (await M.req('GET', `/missions/${id}/ledgers`)).body;
+    expect(g.versions.progress).toHaveLength(100);
+    expect(g.versions.progress[0].version).toBe(500);
+    expect(g.versions.progress[99].version).toBe(401);
+    expect(g.versions.progress[0].body).toBeUndefined();
+    expect(g.moreVersions).toEqual({ task: null, progress: 401 });
+    const seen: number[] = g.versions.progress.map((v: any) => v.version);
+    let cursor: number | null = g.moreVersions.progress;
+    while (cursor) {
+      const pg = (await M.req('GET', `/missions/${id}/ledgers/progress/versions?before=${cursor}&limit=100`)).body;
+      expect(pg.versions.length).toBeLessThanOrEqual(100);
+      seen.push(...pg.versions.map((v: any) => v.version));
+      cursor = pg.next;
+    }
+    expect(seen).toEqual(Array.from({ length: 500 }, (_, i) => 500 - i));
+    expect((await M.req('GET', `/missions/${id}/ledgers/progress/versions?limit=1000`)).body.versions.length).toBeLessThanOrEqual(100);
+    expect((await M.req('GET', `/missions/${id}/ledgers/progress/versions?before=abc`)).status).toBe(400);
+    expect((await M.req('GET', `/missions/${pId}/ledgers/progress/versions`)).status).toBe(404);
+    const capped = await post(O, id, 'progress', 500, progBody());
+    expect(capped.status).toBe(409);
+    expect(capped.body.code).toBe('LEDGER_VERSION_CAP');
+    expect(capped.body.message).toMatch(/500/);
+    expect((await post(O, id, 'task', 0, taskBody())).status).toBe(201); // the cap is per kind
+  });
+
+  it('M2/M3: a malformed request and a refused caller never block a writer (validation first, lock after the permission check)', async () => {
+    const id = (await O.req('POST', '/missions', { text: 'Lock order for ledgers.', files: [], shared: true }, key())).body.mission.id;
+    expect((await post(M, id, 'task', 0, { nonsense: true })).status).toBe(400); // validated before any lock or permission work
+    expect((await post(M, id, 'task', 0, taskBody())).status).toBe(403);
+    expect((await post(M, pId, 'task', 0, taskBody())).status).toBe(404);
+    expect((await post(O, id, 'task', 0, taskBody())).status).toBe(201);
   });
 });
