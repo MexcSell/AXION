@@ -52,6 +52,7 @@ const SINCE_STAGE5_WRITES: [string, string][] = [
   ['POST', '/api/v1/skills'],
   ['POST', '/api/v1/skills/:sid/approve'],
   ['POST', '/api/v1/skills/:sid/retire'],
+  ['POST', '/api/v1/skills/:sid/retirement-dismiss'], // c59
 ];
 const fill = (url: string) => url.replace(/:(\w+)/g, (_m, k) => (k === 'key' ? 'gm' : k === 'action' ? 'retry' : `x-${k}-1`));
 
@@ -239,6 +240,7 @@ describe('per-session write rate limits', () => {
       'POST /api/v1/missions/:id/ledgers/:kind',
       'POST /api/v1/tasks/:id/reviews',
       'POST /api/v1/agents/:id/lessons', 'POST /api/v1/lessons/:lid/decision', 'POST /api/v1/agents/:id/playbook/rollback', 'POST /api/v1/skills', 'POST /api/v1/skills/:sid/approve', 'POST /api/v1/skills/:sid/retire',
+      'POST /api/v1/skills/:sid/retirement-dismiss',
     ]));
     expect(must.filter((k) => !(k in LIMITED_ROUTES))).toEqual([]);
     expect(Object.keys(LIMITED_ROUTES).filter((k) => !writes.includes(k))).toEqual([]);
