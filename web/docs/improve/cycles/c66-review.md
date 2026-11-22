@@ -69,3 +69,31 @@ Required in the fix round:
 2. S2: stop flagging `verified_success_rate`, `completed_unverified`, `kpi.success.api` through an edge kind the agent site cannot write (split the field or add a gate), and correct report concern 3.
 3. S1: state the scan's limits (literal bare-table SQL only; helper calls not seen) in the header and report; widen the regex forms; add the caller scan for the exported write helpers. Optional but recommended for M1/M3/M4: UI sentences (audit labels are typed by an administrator; demo tiles and /departments are not covered; "no agent executes today" in the popover body), counter-metric wording fixes, a 24 px hit area for the compact guard.
 At merge: classify c63's new route and `patterns.ts` writer in the inventory; no OTel mapping row for `metric_audit_labels`.
+
+---
+
+## Re-review (fix round), 138b201..35bb4a9
+
+Ran: `vitest run test/c66 test/contracts` (9 files, 56 tests pass); my probe strings through `scanWrites`/`scanCallers` in a throw-away test (deleted after). api-c66, mobile and fit were not re-run by me (lane reports 26/26; my first-round runs covered the unchanged parts). Ports 11490-11493 free. Note: I briefly checked out the detached commit in the lane to run the probe and restored branch `c66-metric-guard` (HEAD 35bb4a9, clean).
+
+### S1: DONE, residual limits (minor)
+- Earlier probes now all found: `public.task_reviews`, `"tasks"`, `update only`, `merge into`, `truncate`, `copy`; `${tbl}` is reported as `file|${templated}` (fails closed). Also found: `WITH ... insert into`, `insert into x as y`, `update x set .. from y`, `delete from x using y`, mixed case, tab/newline, `"public"."tasks"`, a `${T}` constant in a template literal (fails closed).
+- Still missed (all stated or unrealistic, none present in `server/src`): a SQL comment between keywords (`insert /* c */ into tasks`, `insert -- c\n into tasks`), string concatenation (`'insert into ' + T`), `public . tasks` with spaces, SQL in `.sql` files (the walk is `.ts` only; the only runtime `.sql` read is `migrate.ts`, which runs migrations, stated as a limit). Minor: add comment-stripping or state "comments inside SQL" in the limits.
+- Caller scan: regex is `import [type] { ... name ... } from`. Probes: found plain, multi-line and aliased imports, and `import type`. NOT found: `export { h } from`, `export * from`, `import * as s` + `s.h()`, dynamic `await import()`. A grep of `server/src` shows none of these forms for the helper modules today. So a fake new caller using a named import fails the test (RED proof in the lane test, I confirmed by probe: `new.ts` is reported). Minor: the limit "namespace imports, re-exports and dynamic imports are not seen" is not in the stated limits; add it.
+- Helper list: 16 helpers; the ones I checked against the site table (`joinMission`, `insertDelegation`, `insertInstance`, `createTag`, `decideTag`, `recordReview`, `createBrief`, `requestApproval`, `settleMission`, `createOrgRevision`, `switchVersion`, `proposeLesson`) cover every exported-function site. Wrapped helpers: `attachSimBrief` is listed. Residual: `joinMission` and `insertDelegation` are in the same file, so changing `joinMission` to pass `'verifies'` is invisible to the caller scan (an edit inside `instances/service.ts` is covered only by the gate note and review). Minor, worth one line in the limits.
+- Limits stated in the test header and report: yes (literal SQL, no triggers or cascades, table level, helper arguments, typed kinds).
+
+### S2: DONE
+- `mission_delegations.edge` split into `delegated_edge` (site `instanceService`/`joinMission`, kinds agent+system, gate "writes only delegated edges...") and `verifies_edge` (new site `delegationHelper`, kinds human+system, no agent). `verified_success_rate`, `completed_unverified` and `kpi.success.api` now list `verifies_edge`; `collective.briefed_delegations` lists `delegated_edge` (still gameable through briefs). Consistent with my first-round evidence (`joinMission` hardcodes `'delegated'`, scorecard reads `edge_kind='verifies'`).
+- Snapshot lost exactly those three ids; 14 - 3 = 11 gameable rows; pinned by snapshot and explicit count, test green.
+
+### S3: DONE
+- `AUDIT_BAR` and `AUDIT_MIN_N = 100` live in shared contracts; server re-exports; help text imports both constants. grep for a stray 60 finds only: a comment (history), the grid test's `[30, 60, 100, 200]` (intentional), and `c66-contracts.test.ts:32` fixture literal `minN: 60` (cosmetic, set it to 100 or use the constant).
+- Trials: the threshold tests pass at n=100, 5% error on seeds 660001 and 9900001 (the test asserts >=95% and <=5%); the report quotes 97.8/0.1 and 98.9/0.0, same model and seeds as before. Grid is kept honestly: all cells retained, the n=60 rows labelled "measured before the change, now below the minimum", the 92.3% (no auditor noise) and 8.2% (10% error) cells still stated.
+
+### Minors: DONE
+- Popover body: "That is what the code permits: no agent executes today, so none has." Audit section note: labels and which samples are entered by an administrator, metric label typed, "a flag is only as good as the sampling". Function names replaced by plain phrases (`PLAIN` map; unknown functions fall back to "a service"). Help `permission` adds the not-covered note for demo-only tiles and `/departments`.
+- Hit area: `@media (pointer: coarse), (max-width: 720px)` sets 24x24 with negative margins so no height is added; lane reports row still 18 px at 390 px and api-c66 26/26 (not re-run by me).
+
+### Verdict: CLEAR
+All three should-fix items are resolved and verified. Remaining items are minor and need no re-review: add comment-between-keywords and namespace/re-export/dynamic-import to the stated scan limits, note that edits inside `instances/service.ts` are not caught by the caller scan, set `minN: 100` in the `c66-contracts.test.ts` fixture. Merge-time to-dos from the first review stand (classify c63's new route and `failures/patterns.ts`; no OTel mapping row for `metric_audit_labels`).
