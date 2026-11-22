@@ -11,7 +11,7 @@ const SAMPLE: Record<string, S[]> = {
   environmental: [{ label: 'Website navigation outcomes', unit: '%', value: null, n: null, state: 'unmeasured' }, { label: 'Model availability incidents', unit: 'count', value: null, n: null, state: 'unmeasured' }],
   collective: [{ label: 'Delegations with a brief', unit: '%', value: 83, n: 12, trend: 'up', prev: 50 }, { label: 'Agent reviews across model families', unit: '%', value: 40, n: 10 }, { label: 'Median approval decision time', unit: 'h', value: 2.4, n: 6, trend: 'down', prev: 3.1 }],
   knowledge: [{ label: 'Lessons proposed', unit: 'count', value: 5, n: 5, scope: 'company' }, { label: 'Lessons accepted', unit: '%', value: 75, n: 4, scope: 'company' }, { label: 'Accepted lessons rolled back', unit: '%', value: null, n: 2, scope: 'company' }],
-  evolutionary: [{ label: 'Version proposals promoted', unit: 'count', value: 3, n: 3 }, { label: 'Agent versions rolled back', unit: 'count', value: null, n: 1 }, { label: 'Evaluation verdicts (win / inconclusive / loss)', unit: 'count', value: 3, n: 3 }, { label: 'Org revisions applied', unit: 'count', value: null, n: 2 }],
+  evolutionary: [{ label: 'Version proposals promoted', unit: 'count', value: 3, n: 3 }, { label: 'Agent versions rolled back', unit: 'count', value: null, n: 1 }, { label: 'Evaluation verdicts', unit: 'count', value: 3, n: 3 }, { label: 'Org revisions applied', unit: 'count', value: null, n: 2 }],
 };
 export function demoDimensions(window: DimensionWindow, department: string | null): CompanyDimensionsDto {
   const to = new Date(), from = new Date(to.getTime() - ({ '7d': 7, '30d': 30, '90d': 90 }[window]) * 86_400_000);

@@ -254,7 +254,7 @@ const SPECS: { dim: DimensionKey; spec: Spec; measure: Measurer | typeof UNMEASU
     const n = input.rollbacks.filter((p) => c.agentIn(p.agentId) && c.inWin(p.at)).length;
     return count(n, `${plural(n, 'rollback')} of an agent to an earlier configuration in the window`, `${plural(n, 'rollback')}`);
   } },
-  { dim: 'evolutionary', spec: { key: 'evolutionary.verdict_outcomes', label: 'Evaluation verdicts (win / inconclusive / loss)', unit: 'count', minN: MIN_N, scope: 'company' }, measure: (input, c) => {
+  { dim: 'evolutionary', spec: { key: 'evolutionary.verdict_outcomes', label: 'Evaluation verdicts', unit: 'count', minN: MIN_N, scope: 'company' }, measure: (input, c) => {
     // c54: recomputed from stored runs at read time (verdictV2, the same call the proposal card uses); the count is evaluated proposals, never a score
     const vs = input.verdicts.filter((v) => c.agentIn(v.agentId) && c.inWin(v.at));
     const by = (o: string) => vs.filter((v) => v.outcome === o).length;
