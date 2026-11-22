@@ -38,7 +38,10 @@ const ids = (k: number) => Array.from({ length: k }, (_, i) => i);
 /** base scores b[i], candidate scores c[i], on dataset ds, with honest defaults (different judge family, evaluator = B). */
 async function evidence(p: { id: string; baseId: string }, ds: string, b: RunOpts['scores'], c: RunOpts['scores'], o: { judge?: string | null; evaluator?: string | null; cand?: Partial<Parameters<typeof addRun>[1]>; base?: Partial<Parameters<typeof addRun>[1]> } = {}) {
   const tag = 'R' + ++seq;
-  await addRun(t.pool, { id: tag + 'b', datasetId: ds, versionId: p.baseId, scores: b, judge: o.judge, evaluator: o.evaluator ?? bId, ...o.base });
+  if (!(await t.pool.query(`select 1 from eval_datasets where id=$1`, [ds])).rowCount) await makeDataset(t.pool, { id: ds, split: 'holdout', cases: b.length });
+  // c53: a holdout takes one base run per base version (the DB refuses a second), so a later proposal on the same dataset reuses it
+  const haveBase = (await t.pool.query(`select 1 from eval_runs where subject_version_id=$1 and dataset_id=$2`, [p.baseId, ds])).rowCount;
+  if (!haveBase) await addRun(t.pool, { id: tag + 'b', datasetId: ds, versionId: p.baseId, scores: b, judge: o.judge, evaluator: o.evaluator ?? bId, ...o.base });
   await addRun(t.pool, { id: tag + 'c', datasetId: ds, proposalId: p.id, scores: c, judge: o.judge, evaluator: o.evaluator ?? bId, ...o.cand });
 }
 const BETTER = { b: ids(12).map(() => 40), c: ids(12).map((i) => 70 + (i % 3)) };
@@ -108,7 +111,7 @@ describe('verified evidence', () => {
   });
   it('k > 1 reports pass^k per attempt count', async () => {
     const p = await propose();
-    await evidence(p, 'HO', ids(12).map(() => [40, 40]), ids(12).map(() => [80, 90]), { base: { k: 2 }, cand: { k: 2 } });
+    await evidence(p, 'HO-K2', ids(12).map(() => [40, 40]), ids(12).map(() => [80, 90]), { base: { k: 2 }, cand: { k: 2 } });
     const e = (await get(A, p.id)).evaluation;
     expect(e.k).toBe(2); expect(e.passHatK.candidate).toEqual([1, 1]); expect(e.passHatK.baseline).toEqual([0, 0]);
   });
@@ -122,13 +125,13 @@ describe('verified evidence', () => {
   });
   it('no significant difference is inconclusive, not worse', async () => {
     const p = await propose();
-    await evidence(p, 'HO', ids(12).map(() => 50), ids(12).map((i) => (i % 2 ? 60 : 40)));
+    await evidence(p, 'HO-MID', ids(12).map(() => 50), ids(12).map((i) => (i % 2 ? 60 : 40)));
     const e = (await get(A, p.id)).evaluation;
     expect(e.outcome).toBe('inconclusive'); expect(e.refusals).toEqual([]);
   });
   it('a significant loss is worse', async () => {
     const p = await propose();
-    await evidence(p, 'HO', BETTER.c, BETTER.b);
+    await evidence(p, 'HO-LOSS', BETTER.c, BETTER.b);
     const e = (await get(A, p.id)).evaluation;
     expect(e.outcome).toBe('worse'); expect(e.losses).toBe(12); expect(e.delta).toBeLessThan(0);
   });
@@ -211,7 +214,7 @@ describe('refusals: each dishonest setup is inconclusive with its own reason', (
   });
   it('different numbers of attempts on the two versions', async () => {
     const p = await propose();
-    await evidence(p, 'HO', ids(12).map(() => [40, 40]), BETTER.c, { base: { k: 2 } });
+    await evidence(p, 'HO-K2B', ids(12).map(() => [40, 40]), BETTER.c, { base: { k: 2 } });
     expect(codes((await get(A, p.id)).evaluation)).toContain('unequal_attempts');
   });
   it('the candidate was tuned on a dev dataset and the holdout run is also on it: dev/holdout reuse', async () => {
@@ -230,11 +233,18 @@ describe('refusals: each dishonest setup is inconclusive with its own reason', (
 
 describe('re-run shopping and honest baselines (fix round)', () => {
   const codes = (e: any) => e.refusals.map((r: any) => r.code);
+  // c53: the database now refuses a second run on a holdout (holdout_rerun), so these two tests assert that first, then switch the
+  // run guard off (as a superuser could) to check the loader still refuses what the database would have stopped: defence in depth.
+  const withoutRunGuard = async (fn: () => Promise<void>) => {
+    await t.pool.query(`alter table eval_runs disable trigger eval_runs_guard`);
+    try { await fn(); } finally { await t.pool.query(`alter table eval_runs enable trigger eval_runs_guard`); }
+  };
   it('a second candidate run on the same holdout can never be verified better: holdout_rerun, run count listed', async () => {
     await makeDataset(t.pool, { id: 'HO-RR', split: 'holdout', cases: 12 });
     const p = await propose();
     await evidence(p, 'HO-RR', BETTER.b, ids(12).map(() => 10)); // a bad first run
-    await addRun(t.pool, { id: 'RR-late' + seq, datasetId: 'HO-RR', proposalId: p.id, scores: BETTER.c, evaluator: bId }); // a good second one
+    await expect(addRun(t.pool, { id: 'RR-late' + seq, datasetId: 'HO-RR', proposalId: p.id, scores: BETTER.c, evaluator: bId })).rejects.toThrow(/holdout_rerun/);
+    await withoutRunGuard(() => addRun(t.pool, { id: 'RR-late' + seq, datasetId: 'HO-RR', proposalId: p.id, scores: BETTER.c, evaluator: bId })); // a good second one
     const e = (await get(A, p.id)).evaluation;
     expect(e.outcome).toBe('inconclusive'); expect(codes(e)).toContain('holdout_rerun'); expect(e.runCount).toBe(2);
     expect(e.refusals.find((r: any) => r.code === 'holdout_rerun').detail).toMatch(/fresh holdout/);
@@ -243,7 +253,8 @@ describe('re-run shopping and honest baselines (fix round)', () => {
     await makeDataset(t.pool, { id: 'HO-RR2', split: 'holdout', cases: 12 });
     const p = await propose();
     await evidence(p, 'HO-RR2', BETTER.b, BETTER.c);
-    await addRun(t.pool, { id: 'RR2-open' + seq, datasetId: 'HO-RR2', proposalId: p.id, scores: [50], finish: false });
+    await expect(addRun(t.pool, { id: 'RR2-open' + seq, datasetId: 'HO-RR2', proposalId: p.id, scores: [50], finish: false })).rejects.toThrow(/holdout_rerun/);
+    await withoutRunGuard(() => addRun(t.pool, { id: 'RR2-open' + seq, datasetId: 'HO-RR2', proposalId: p.id, scores: [50], finish: false }));
     expect(codes((await get(A, p.id)).evaluation)).toContain('holdout_rerun');
   });
   it('finished runs on two different holdout datasets are also refused (pick-the-best-set shopping)', async () => {
@@ -430,7 +441,7 @@ describe('the promotion gate', () => {
   });
   it('an inconclusive evaluation also needs the override, and the audit row records the outcome', async () => {
     const p = await propose();
-    await evidence(p, 'HO', ids(12).map(() => 50), ids(12).map((i) => (i % 2 ? 60 : 40)));
+    await evidence(p, 'HO-MID', ids(12).map(() => 50), ids(12).map((i) => (i % 2 ? 60 : 40)));
     const r1 = await decide(p.id, p.sha);
     expect(r1.body.code).toBe('EVAL_OVERRIDE_REQUIRED'); expect(r1.body.message).toMatch(/inconclusive/);
     const r2 = await decide(p.id, p.sha, { overrideReason: 'Accepting the risk, see ticket 12.' });

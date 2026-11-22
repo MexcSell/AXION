@@ -62,7 +62,11 @@ export async function loadEvaluations(c: Tx, tenantId: string, proposals: Eviden
     // a dev dataset the candidate ran on that shares a case with the holdout means the holdout leaks into tuning
     if (cand.split === 'holdout' && devIds.length &&
         (await c.query(`select 1 from eval_cases h join eval_cases d on d.input = h.input where h.dataset_id=$1 and d.dataset_id = any($2) limit 1`, [cand.dataset_id, devIds])).rowCount) tuned.push(cand.dataset_id);
-    const runCount = all.filter((r) => r.dataset_id === cand.dataset_id).length;
+    // c53: runs of ANY proposal with the same agent and candidate config on this dataset count (withdraw and re-propose buys nothing)
+    const runCount = Number((await c.query(
+      `select count(*)::int n from eval_runs r join agent_version_proposals q on q.id = r.subject_proposal_id
+        where r.tenant_id=$1 and r.dataset_id=$2 and (q.agent_id, q.candidate_sha) = (select agent_id, candidate_sha from agent_version_proposals where id=$3)`,
+      [tenantId, cand.dataset_id, p.id])).rows[0].n);
     const holdoutSets = new Set(mine.filter((r) => r.split === 'holdout').map((r) => r.dataset_id));
     const base = (await c.query(
       `select id, k, judge_model_family, evaluator_id from eval_runs where tenant_id=$1 and subject_version_id=$2 and dataset_id=$3 and finished_at is not null order by started_at desc, id desc limit 1`,

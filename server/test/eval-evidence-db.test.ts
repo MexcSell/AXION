@@ -241,7 +241,8 @@ describe('the subject of a run', () => {
     await expect(q(`insert into eval_runs(id, tenant_id, dataset_id, subject_proposal_id, k) values ('SR-7','t-1','R-UN','VP-1',1)`)).rejects.toThrow(/frozen/);
   });
   it('judge family and evaluator are stored on the run; fixtures write results for a proposal run', async () => {
-    await addRun(s.pool, { id: 'SR-8', datasetId: ds, proposalId: 'VP-1', scores: [90, 80, 70], judge: 'claude-judge', evaluator: 'ev-1' });
+    await makeDataset(s.pool, { id: 'R-DS8', cases: 3 }); // c53: VP-1 already has its one run on R-DS (SR-2)
+    await addRun(s.pool, { id: 'SR-8', datasetId: 'R-DS8', proposalId: 'VP-1', scores: [90, 80, 70], judge: 'claude-judge', evaluator: 'ev-1' });
     const r = (await q(`select judge_model_family j, evaluator_id e, finished_at from eval_runs where id='SR-8'`)).rows[0];
     expect(r.j).toBe('claude-judge'); expect(r.e).toBe('ev-1'); expect(r.finished_at).not.toBeNull();
   });
