@@ -64,12 +64,16 @@ await step('Delete (archive) from the far-right trash icon', async () => {
   await row.hover(); await row.locator('.del-btn').click();
   await p.waitForSelector('[data-dialog="DL-03"]');
   await p.locator('[data-dialog="DL-03"] .modal-foot .btn.danger').click();
-  await p.waitForTimeout(600);
-  // the open mission stays visible but pinned (outside the filter); any other archived row disappears
+  // the open mission stays visible but pinned (outside the filter); any other archived row disappears.
+  // Condition wait, not a fixed sleep: the exit animation and the render lag behind the store on a loaded machine.
   const left = p.locator('.mission-row', { hasText: 'pricing page v2' });
-  await expect((await left.count()) === 0 || (await left.locator('.mw-pin').count()) === 1, 'still in All tab after archive (and not pinned)');
+  await p.waitForFunction(() => {
+    const rows = [...document.querySelectorAll('.mission-row')].filter((r) => r.textContent.includes('pricing page v2'));
+    return rows.length === 0 || (rows.length === 1 && rows[0].querySelector('.mw-pin'));
+  }, null, { timeout: 15000 }).catch(() => { throw new Error('still in All tab after archive (and not pinned)'); });
   await p.goto(base + '/missions?filter=archived', { waitUntil: 'networkidle' });
-  await expect(p.locator('.mission-row', { hasText: 'pricing page v2' }).count(), 'not in Archived');
+  // networkidle can fire before React has painted the list (CPU-starved page): wait for the row, never count() at once
+  await left.first().waitFor({ timeout: 15000 }).catch(() => { throw new Error('not in Archived'); });
 });
 
 await step('Approve a pending decision updates the approvals count', async () => {
