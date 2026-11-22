@@ -75,3 +75,48 @@ No change in `shared/` or `web/src` (diff --stat empty). `EvalRefusalDto` is `{ 
 3. F3: enforce completeness on finishing in the guard, or state in the report/comment that finishing is not exclusive. (Either is acceptable; the claim must match the code.)
 4. F4: fix `dev_holdout_reuse` so a full copy of short inputs is flagged (count distinct shared inputs; exempt only repeated generic values); add the three probe cases as tests.
 Recommended: F5 (named code on the race loser), the evidence() reuse assertion, F6 notes into BACKLOG (content-hash key, one use per agent).
+
+---
+
+# Re-review (fix round), fbbebce..2d23cca
+
+Method: scratch worktree of 2d23cca (removed), my earlier probes re-run plus new ones, heavy.sh. Touched suites on the tip: eval-integrity-db, eval-evidence, eval-evidence-db, eval-model, version-proposals, verdict-v2: 7 files, 263 tests, all passed (including my probe file).
+
+## Verdict: CLEAR
+All four required fixes (F1 to F4) and F5 are closed. Remaining items are minor and recorded below.
+
+## F1 (closed) canonical key
+Both earlier probes now refuse with `holdout_rerun` naming R1: skills reordered, model `Claude-Sonnet-4`, a sha spelt `SHAX`. Further attempts to break `eval_canon_config`, all refused as the same config: model with surrounding spaces, duplicate skills, candidate key order, extra unknown key, `tools` missing, `tools: null`, skills with surrounding spaces. `skills: null`, missing and `[null]` canonicalise identically. A genuinely different skill set gets its own slot (OK).
+Not collapsed (minor, raw-writer only): model with a leading tab or NBSP, an empty-string skill, `skills` given as a string, and NFC vs NFD spellings of a skill. The API path cannot produce these (`normalizeConfig` uses JS `trim()` and drops empties before the row is written), but SQL `btrim` trims only spaces, so the SQL canonical form is narrower than the application's. Suggest `regexp_replace(x, '^\s+|\s+$', '', 'g')` and dropping empty skills. Skill case is kept distinct (matches the app, which does not lower-case skills). Dataset copy under another id is still the known F6 gap.
+
+## F2 (closed) proposal immutability
+`candidate_sha` and `candidate` updates are refused (`immutable`). Status change and a no-op `candidate = candidate` update work. Updating `id` and deleting a proposal that has a run are blocked by the FK. TRUNCATE of the proposals table fails (`cannot truncate a table referenced in a foreign key constraint`, FK from eval_runs), and a proposal without runs can still be deleted, as before. So skipping a DELETE/TRUNCATE guard is acceptable: nothing keyed to a run can disappear, and the key is built from the run's proposal row, which is now immutable. (A proposal with no runs holds no slot.) The `purge_demo` order (runs first, then proposals) is unchanged.
+
+## F3 (closed)
+Plain `UPDATE eval_runs SET finished_at` on a run with 2 missing results: refused `run_incomplete`; `eval_finish_run` also refused; after both results are recorded (one a NULL-score failed attempt) the plain UPDATE succeeds; re-finishing and finishing together with `k = 2` are refused as append-only. api-c47 still finishes runs with an UPDATE (`api-c47.mjs:60`); the lane reports it 26/26, so its runs are complete (not rerun by me).
+
+## F4 (closed, one minor)
+My probes through the lane's exact SQL and threshold:
+- 30 short arithmetic prompts copied: shared 30/30, flagged. 8 short sentiment inputs: flagged. 9 of 100 long: flagged.
+- 1 of 12: not flagged; 2 of 12: flagged. 4 of 100: not flagged; 5 of 100 would be.
+- `"What is 2+2?"` x12 in both, and `1`/`{}` repeated: not flagged.
+All c47 true-positive tests unchanged and passing (eval-evidence 56, verdict-v2).
+Threshold max(2, min(5, ceil(10%))): sound as a rule of thumb. It is a count rule, so a large holdout needs only 5 distinct shared inputs; 5 of 1000 flagged in my probe. That is strict (a chance overlap of five common short prompts makes a candidate permanently inconclusive, with the override path as the remedy), but fails safe, and the lane documents it as a judgement call.
+Minor: the repeat exemption can be used to hide a leak. A holdout with each of 12 long inputs twice (24 cases), with dev the same: shared 0, not flagged; likewise dev with each input twice. Exact-match detection is already evaded by any trivial edit, so this is not a regression of the guarantee, but consider exempting a repeated input only when it is short (for example canonical length < 20), or counting repeated long inputs as shared.
+
+## F5 (closed)
+Two transactions through `startRun` on the same canonical config (the loser a reordered/duplicated variant, different proposal): the loser got `HoldoutRerunError`, `code = 'holdout_rerun'`. The mapping lives in `startRun`/`mapRunInsertError`; a raw INSERT still raises `23505` on `eval_runs_holdout_once` (any future writer must use the helper). Fine.
+
+## Test edits forced by the fixes
+- `version-proposals.test.ts` tampers a stored candidate with the identity trigger disabled: legitimate, and tighter. It first asserts the trigger refuses the edit, then disables the trigger inside try/finally (re-enabled) so `PROPOSAL_CHANGED` (409) is still tested with identical assertions for both tampers.
+- `eval-model.test.ts` "a run can be finished once": legitimate, a tightening. Same assertions kept, plus a `run_incomplete` refusal, and the missing results are filled from `eval_run_missing` before the finish.
+- `eval-fixtures.ts` `partialFinish`: legitimate. Opt-in, used only by the cherry-picked-cases loader test (`HO-PC`), switches the guard off for one UPDATE inside a transaction and re-enables it before commit, rolled back on error. No default behaviour changed.
+- `eval-evidence.test.ts` helper: tighter, not looser; it now throws when a reused base run has different scores, judge or evaluator, and five tests got their own datasets (HO-J1, HO-J2, HO-EA, HO-PC, HO-FK) with unchanged assertions. This resolves my earlier minor note.
+
+## Down migration (safe)
+`down 39, up, down 39, down 39` ran without error on a populated schema (second down is a no-op thanks to `drop ... if exists`); after down, `eval_canon_config` is gone and no `agent_version_proposals_identity` trigger remains in the schema; up again works. Order is right: the guard is restored to the 0037 version before the helper functions are dropped. Note for the controller: 0040 was edited in place after being applied to axion_e2e18, which is fine only because 0040 is unmerged; any database that applied the earlier 0040 would need a down/up.
+
+## Remaining (all minor, no blockers)
+1. SQL `btrim` vs JS `trim`, empty skills in `eval_canon_config` (raw writers only).
+2. Repeat exemption in F4 can hide a duplicated-input leak.
+3. Same dataset content under another id (F6, unchanged), variant B on a used holdout, `startRun` is the only path that names the race refusal.
