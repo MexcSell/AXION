@@ -6,6 +6,7 @@
 import { createHash } from 'node:crypto';
 import type { BrowserAction, Locator } from '../../../shared/contracts/src/browser.ts';
 import { CURRENT_BASELINE, evaluate, tierRank, type Action, type Decision, type Grant, type ReasonCode, type RiskTier, type TenantPolicy, type Requester } from '../policy/index.ts';
+import type { ApprovalInput } from '../approvals/service.ts';
 import { browserActionSchema, forbiddenKeysIn, originOfUrl } from './schema.ts';
 
 export type { BrowserAction, Locator };
@@ -66,12 +67,19 @@ export interface ElementFacts {
 /** Obligations the executor MUST honour. A download is `quarantine`d (scanned, not exposed as an artifact) before anything reads it. */
 export type Obligation = 'quarantine';
 /**
- * The policy decision plus obligations. `obligations` is required on the type and present on every decision. When the policy allows an
- * action that has obligations, the outcome is `allow_with_obligations`, NOT `allow`: an executor that switches on `outcome` and only runs
- * `allow` can never run such an action without going through the obligation code path, so the obligation cannot be dropped by reading
- * only the outcome.
+ * The policy decision plus obligations, as a union that the compiler checks. `obligations` is required on every decision.
+ * Chosen design: the outcome NAME carries the obligation. With no obligations the outcome is allow / needs_approval / deny. With
+ * obligations, an allow becomes `allow_with_obligations` and a needs_approval becomes `needs_approval_with_obligations`; the plain
+ * `allow` and `needs_approval` with a non-empty `obligations` list do not type-check. Why: an executor that reads only the outcome (the
+ * approved-run path included) can never see a plain `allow` or `needs_approval` for an action that must be quarantined, so it has to go
+ * through the obligation-aware branch. A single "only way to get an executable" function was rejected: nothing exists yet to bind it to.
  */
-export type BrowserDecision = Omit<Decision, 'outcome'> & { outcome: Decision['outcome'] | 'allow_with_obligations'; obligations: readonly Obligation[] };
+export type PlainOutcome = 'allow' | 'needs_approval' | 'deny';
+export type ObligedOutcome = 'allow_with_obligations' | 'needs_approval_with_obligations' | 'deny';
+type DecisionBase = Omit<Decision, 'outcome'>;
+export type BrowserDecision =
+  | (DecisionBase & { outcome: PlainOutcome; obligations: readonly [] })
+  | (DecisionBase & { outcome: ObligedOutcome; obligations: readonly [Obligation, ...Obligation[]] });
 export interface PageContext {
   /** The origin the plan expected the action to run on. A different actual origin denies. */
   expectedOrigin?: string;
@@ -122,12 +130,16 @@ const KEYWORDS: readonly (readonly [string, RegExp])[] = [
   ['send_message', kw(['send', 'invite', 'message', 'reply', 'envoyer', 'enviar', 'senden', 'einladen', 'invi[ao]re', 'inviar', 'invitar', 'inviter', 'comment', 'share'], ['送信', '发送', '發送', '送る', '邀请'])],
   ['publish_post', kw(['publish', 'ver[o]ffentlichen', 'publicar', 'publier', 'pubblica', 'post', 'tweet'], ['公開', '发布', '發布'])],
   ['submit_bid', kw(['bid', 'bieten', 'pujar', 'enchere'], ['入札', '投标'])],
-  ['change_external_setting', kw(['delete', 'remove', 'l[o]schen', 'eliminar', 'supprimer', 'elimina', 'entfernen', 'unsubscribe', 'cancel', 'close account', 'deactivate', 'log ?out', 'sign ?out'], ['削除', '删除', '刪除'])],
-  ['submit_form', kw(['submit', 'pay', 'buy', 'purchase', 'checkout', 'check ?out', 'place order', 'order', 'donate', 'subscribe', 'register', 'apply', 'sign ?up', 'join', 'vote', 'add to cart', 'confirm', 'transfer', 'withdraw', 'best[a]tigen', 'confirmar', 'confirmer', 'confermare', 'kaufen', 'bezahlen', 'pagar', 'comprar', 'acheter', 'payer', 'acquista', '[u]berweisen', 'transferir'], ['支払', '购买', '購入', '确认', '確認', '转账', '振込', '付款'])],
+  ['change_external_setting', kw(['delete', 'remove', 'l[o]schen', 'eliminar', 'supprimer', 'elimina', 'entfernen', 'unsubscribe', 'cancel', 'удалить', 'close account', 'deactivate', 'log ?out', 'sign ?out'], ['削除', '删除', '刪除'])],
+  ['submit_form', kw(['submit', 'pay', 'buy', 'purchase', 'checkout', 'check ?out', 'place order', 'order', 'donate', 'subscribe', 'register', 'apply', 'sign ?up', 'join', 'vote', 'add to cart', 'confirm', 'transfer', 'withdraw', 'absenden', 'zahlen', 'valider', 'оплатить', 'отправить', 'купить', 'best[a]tigen', 'confirmar', 'confirmer', 'confermare', 'kaufen', 'bezahlen', 'pagar', 'comprar', 'acheter', 'payer', 'acquista', '[u]berweisen', 'transferir'], ['支払', '购买', '購入', '确认', '確認', '转账', '振込', '付款'])],
 ];
 // Sensitive-field names (a fill into one needs a sec_ reference).
-const SENSITIVE = /(?<![\p{L}\p{N}])(?:card|cvv|cvc|csc|iban|ssn|password|passcode|passwort|contrasena|mot de passe)/u;
-const SENSITIVE_AUTOCOMPLETE = /^(?:cc-|current-password|new-password|one-time-code)/i;
+const SENSITIVE = /(?<![\p{L}\p{N}])(?:card|cvv|cvc|csc|iban|ssn|password|passcode|passwort|contrasena|mot de passe|kartennummer|kreditkarte|secret|token|cc[-_ ]?(?:num|number|csc|cvv|exp)|api[-_ ]?key)|(?<![\p{L}\p{N}])pin(?![\p{L}\p{N}])/u;
+/** autocomplete is a whitespace separated token list (e.g. "section-a billing cc-number"): every token is tested. */
+const SENSITIVE_AUTOCOMPLETE_TOKEN = /^(?:cc-|current-password$|new-password$|one-time-code$)/;
+const sensitiveFacts = (e: ElementFacts): boolean =>
+  (typeof e.inputType === 'string' && e.inputType.trim().toLowerCase() === 'password')
+  || (typeof e.autocomplete === 'string' && e.autocomplete.toLowerCase().split(/[\t\n\f\r ]+/).some((t) => SENSITIVE_AUTOCOMPLETE_TOKEN.test(t)));
 
 interface NameFacts { kinds: string[]; mixed: boolean; blank: boolean }
 function nameFacts(names: readonly (string | undefined)[]): NameFacts {
@@ -164,14 +176,22 @@ const asPolicyAction = (kind: string, origin: string, opts: ClassifyOptions, pay
 
 function deny(tier: RiskTier, reasons: string[], origin: string | null, kind: string, extra: Partial<Classification> = {}, policyReason: ReasonCode = 'no_grant'): Classification {
   const obligations: readonly Obligation[] = extra.quarantine ? ['quarantine'] : [];
-  const decision: BrowserDecision = { outcome: 'deny', tier, approver: null, reasons: [policyReason], policyVersion: CURRENT_BASELINE.version, obligations };
+  const decision = { outcome: 'deny', tier, approver: null, reasons: [policyReason], policyVersion: CURRENT_BASELINE.version, obligations } as BrowserDecision;
   return { decision, tier, kind, origin, quarantine: false, obligations, reasons: [policyReason, ...reasons], policyAction: null, ...extra };
 }
 
 const higher = (a: string, b: string) => (tierRank(CURRENT_BASELINE.kinds[b]!.tier) > tierRank(CURRENT_BASELINE.kinds[a]!.tier) ? b : a);
 
-const withObligations = (d: Decision, obligations: readonly Obligation[]): BrowserDecision =>
-  ({ ...d, outcome: d.outcome === 'allow' && obligations.length ? 'allow_with_obligations' : d.outcome, obligations });
+const withObligations = (d: Decision, obligations: readonly Obligation[]): BrowserDecision => {
+  if (obligations.length === 0) return { ...d, outcome: d.outcome, obligations: [] };
+  const outcome = d.outcome === 'allow' ? 'allow_with_obligations' : d.outcome === 'needs_approval' ? 'needs_approval_with_obligations' : 'deny';
+  return { ...d, outcome, obligations: obligations as [Obligation, ...Obligation[]] };
+};
+/** A deny override of an already built decision: no approver, and no approval_* reason (a refusal does not offer approval). */
+const denied = (c: Classification, add: readonly string[]): Classification => {
+  const keep = (r: string) => !r.startsWith('approval_');
+  return { ...c, decision: { ...c.decision, outcome: 'deny', approver: null, reasons: [...new Set([...c.decision.reasons, ...add.filter((r) => ['out_of_scope', 'no_grant', 'grant_expired', 'prohibited', 'tenant_deny'].includes(r))])].filter(keep) as ReasonCode[] } as BrowserDecision, reasons: [...new Set([...c.reasons, ...add])].filter(keep) };
+};
 
 export function classifyAction(action: BrowserAction, page: PageContext | null, opts: ClassifyOptions): Classification {
   const reasons: string[] = [];
@@ -200,7 +220,7 @@ export function classifyAction(action: BrowserAction, page: PageContext | null, 
     }
     for (const h of hops) if (ev('read', h, payload).decision.outcome === 'deny') hopBad = true;
     const base: Classification = { decision: withObligations(main.decision, []), tier: main.decision.tier, obligations: [], kind: 'read', origin: dest.origin, quarantine: false, reasons: [...main.decision.reasons], policyAction: main.pa };
-    if (hopBad) return { ...base, decision: { ...base.decision, outcome: 'deny', approver: null, reasons: [...new Set([...main.decision.reasons, 'out_of_scope' as ReasonCode])] }, reasons: [...main.decision.reasons, 'out_of_scope', 'redirect_ungranted'] };
+    if (hopBad) return denied(base, ['out_of_scope', 'redirect_ungranted']);
     return base;
   }
 
@@ -246,7 +266,7 @@ export function classifyAction(action: BrowserAction, page: PageContext | null, 
       else kind = 'fill_draft';
       // The val_/sec_ prefix is bound to the stored value's secret flag by the Stage 7 value resolver (it rejects a mismatch).
       // Here the SENSITIVE FIELD is decided from the executor's element facts (and, only to raise, names): a sensitive field takes a sec_ ref only.
-      const sensitive = resolved && (e!.inputType?.toLowerCase() === 'password' || SENSITIVE_AUTOCOMPLETE.test(e!.autocomplete ?? '')
+      const sensitive = resolved && (sensitiveFacts(e!)
         || isSensitiveName([e!.name, e!.fieldName, ...(target ? locatorText(target) : [])]));
       if (sensitive && action.valueRef.startsWith('val_')) return deny(CURRENT_BASELINE.kinds.submit_form.tier, [...reasons, 'secret_via_value_ref'], origin, 'submit_form', {}, 'prohibited');
       if (action.valueRef.startsWith('sec_')) { kind = higher(kind, 'submit_form'); reasons.push('secret_value'); }
@@ -287,9 +307,23 @@ export function classifyAction(action: BrowserAction, page: PageContext | null, 
     // (for example no grant for a draft action), the raised action stays denied.
     const sd = ev(structuralKind, origin, payload).decision;
     if (sd.outcome === 'deny') {
-      c = { ...c, decision: { ...c.decision, outcome: 'deny', approver: null, reasons: [...new Set([...c.decision.reasons, ...sd.reasons])] }, reasons: [...new Set([...c.reasons, ...sd.reasons])] };
+      c = denied(c, sd.reasons);
     }
   }
-  if (changed) return { ...c, decision: { ...c.decision, outcome: 'deny', approver: null }, reasons: [...c.reasons, 'origin_changed'] };
+  if (changed) return denied(c, ['origin_changed']);
   return c;
+}
+
+// ---------------------------------------------------------------- approvals adapter
+export interface ApprovalMeta { tenantId: string; agentId: string; title: string; expiresInMin: number; id?: string }
+/**
+ * Adapts a classified, bound action into the `requestApproval` input. Only a needs_approval outcome (with or without obligations) can
+ * be adapted; everything else throws. The payload is the bound payload, so approvals `digestOf(missionId, kind, payload)` equals
+ * `bound.digest`. The obligations are listed in `detail` so the approver sees them, and they are enforced by the outcome name, not by this text.
+ */
+export function toApprovalInput(c: Classification, bound: BoundAction, meta: ApprovalMeta): ApprovalInput {
+  const o = c.decision.outcome;
+  if (o !== 'needs_approval' && o !== 'needs_approval_with_obligations') throw new Error(`toApprovalInput: outcome ${o} does not ask for approval`);
+  const detail = `${bound.payload.action.type} on ${bound.payload.origin}; tier ${c.tier}; reasons: ${c.reasons.join(', ')}` + (c.obligations.length ? `; obligations: ${c.obligations.join(', ')}` : '');
+  return { tenantId: meta.tenantId, missionId: bound.missionId, agentId: meta.agentId, kind: bound.kind, title: meta.title, detail, payload: bound.payload as unknown as Record<string, unknown>, expiresInMin: meta.expiresInMin, ...(meta.id ? { id: meta.id } : {}) };
 }
