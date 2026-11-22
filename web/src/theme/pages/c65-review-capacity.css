@@ -1,0 +1,27 @@
+/* Improvement cycle 65: review capacity panel (System Operations). Compact and calm: no gauge, no ranking, no colour for "better" or "worse" people. */
+.ops-review-capacity .rc-cells { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+@media (max-width: 820px) { .ops-review-capacity .rc-cells { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); } }
+.rc-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; height: 76px; padding: 6px 10px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); overflow: hidden; }
+.rc-cell.bad { border-color: var(--bad); }
+.rc-cl { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-muted); white-space: nowrap; min-width: 0; }
+.rc-cl svg { color: var(--accent-2); flex: none; }
+.rc-cv { font-size: 20px; font-weight: 700; line-height: 1.15; }
+.rc-cv.rc-small { font-size: 13px; font-weight: 600; line-height: 1.25; }
+.rc-cv.bad { color: var(--bad); }
+.rc-cv.rc-none, .rc-none { font-size: 11.5px; font-weight: 600; color: var(--text-muted); display: inline-flex; align-items: center; gap: 4px; line-height: 1.2; }
+.rc-cm { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); margin-top: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rc-cell.none { background: repeating-linear-gradient(135deg, transparent 0 6px, rgba(var(--accent-2-rgb), .05) 6px 12px), var(--panel-2); }
+.rc-note { font-size: 12px; margin: 6px 0 0; }
+.rc-cols { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 8px; margin-top: 8px; }
+@media (max-width: 820px) { .rc-cols { grid-template-columns: minmax(0, 1fr); } }
+.rc-box, .rc-people { padding: 6px 10px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); min-width: 0; }
+.rc-people { margin-top: 8px; }
+.rc-h { display: flex; align-items: center; gap: 6px; font-size: 12.5px; margin-bottom: 4px; }
+.rc-h svg { color: var(--accent-2); }
+.rc-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.rc-table th, .rc-table td { padding: 3px 6px; text-align: left; border-bottom: 1px solid var(--border-soft); font-weight: 500; }
+.rc-table thead th { font-size: 10.5px; color: var(--text-muted); font-weight: 600; }
+.rc-table th[scope=row] { font-weight: 600; max-width: 150px; }
+.rc-table .r { text-align: right; }
+.rc-table tr:last-child th, .rc-table tr:last-child td { border-bottom: 0; }
+.rc-foot { font-size: 11px; margin: 4px 0 0; }
