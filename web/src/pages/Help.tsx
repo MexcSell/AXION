@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  LifeBuoy, BookOpen, Lightbulb, Keyboard, Wrench, BookMarked, Search, Rocket, MessagesSquare, Globe, GitCompareArrows, Check, ChevronDown, Play, RotateCcw, SearchX,
+  LifeBuoy, Sparkles, MapPin, ExternalLink, BookOpen, Lightbulb, Keyboard, Wrench, BookMarked, Search, Rocket, MessagesSquare, Globe, GitCompareArrows, Check, ChevronDown, Play, RotateCcw, SearchX,
 } from 'lucide-react';
 import { TopBoard, FrameBody } from '@/components/layout/PageFrame';
 import { Panel } from '@/components/ui/Panel';
@@ -12,26 +12,73 @@ import { Chip } from '@/components/ui/Chips';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { SHORTCUTS } from '@/components/settings/bits';
 import { HELP } from '@/help/registry';
+import { WHATS_NEW, WHATS_NEW_BY_KEY, type WhatsNewStatus } from '@/help/whatsnew';
 import { useTab } from '@/hooks/useTab';
 import { toast } from '@/store/ui';
 import { cx } from '@/lib/format';
 import '@/theme/pages/settings-ops-help.css';
 
-const ICONS = [BookOpen, Lightbulb, Keyboard, Wrench, BookMarked];
+const ICONS = [Sparkles, BookOpen, Lightbulb, Keyboard, Wrench, BookMarked];
 
 export default function HelpPage() {
   const [tab, setTab, tabs] = useTab('help');
   return (
     <div className="page">
-      <TopBoard icon={LifeBuoy} title="Help Center" help="help.center" sub="Guides, every ? explanation, shortcuts, troubleshooting and a glossary."
+      <TopBoard icon={LifeBuoy} title="Help Center" help="help.center" sub="What is new, guides, every ? explanation, shortcuts, troubleshooting and a glossary."
         tabs={{ tabs, value: tab, onChange: setTab, icons: ICONS, ariaLabel: 'Help sections' }} />
       <FrameBody tab={tab} panel={false}>
+        {tab === 'New Features' && <WhatsNew />}
         {tab === 'Guides' && <Guides />}
         {tab === 'Context Help' && <Context />}
         {tab === 'Shortcuts' && <Shortcuts />}
         {tab === 'Troubleshooting' && <Trouble />}
         {tab === 'Glossary' && <Glossary />}
       </FrameBody>
+    </div>
+  );
+}
+
+const STATUS: Record<WhatsNewStatus, { label: string; hue: number }> = {
+  real: { label: 'Real', hue: 148 },
+  mixed: { label: 'Real + DEMO parts', hue: 38 },
+  later: { label: 'Coming when merged', hue: 225 },
+};
+
+/** Cycle 17: what is new since Stage 5, in plain language, one page per feature; ?f=<key> selects a page. */
+function WhatsNew() {
+  const [sp, setSp] = useSearchParams();
+  const sel = WHATS_NEW_BY_KEY[sp.get('f') ?? ''] ?? WHATS_NEW[0];
+  const pick = (k: string) => setSp((prev) => { const n = new URLSearchParams(prev); n.set('f', k); return n; }, { replace: true });
+  const groups = Array.from(new Set(WHATS_NEW.map((i) => i.group)));
+  const st = STATUS[sel.status];
+  const rows: [string, string, string?][] = [['What it does', sel.does], ['Where to find it', sel.where], ['What is real', sel.real], ['What is still DEMO', sel.demo]];
+  return (
+    <div className="grid ctx-grid" data-whatsnew>
+      <Panel icon={Sparkles} title="What is new" help="help.whatsnew" delay={.05} sub={`${WHATS_NEW.length} features since Stage 5`}>
+        <div className="dim" style={{ fontSize: 11.5, marginBottom: 6 }} data-wn-note>This describes the server version. The offline demo (?data=demo) shows sample data.</div>
+        <div className="ctx-list wn-list" role="listbox" aria-label="Features">
+          {groups.map((g) => (
+            <div key={g} className="col" style={{ gap: 4 }}>
+              <div className="section-label" style={{ margin: '6px 4px 2px' }}>{g}</div>
+              {WHATS_NEW.filter((i) => i.group === g).map((i) => (
+                <button key={i.key} role="option" aria-selected={sel.key === i.key} data-wn={i.key} className={cx('ctx-item', sel.key === i.key && 'on')} onClick={() => pick(i.key)}>
+                  <span className="row" style={{ gap: 6, width: '100%' }}><b className="grow">{i.title}</b><Chip hue={STATUS[i.status].hue} size="sm">{STATUS[i.status].label}</Chip></span>
+                  <span className="dim" style={{ fontSize: 11.5 }}>{i.line}</span>
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+      </Panel>
+      <Panel icon={MapPin} title={sel.title} delay={.1} sub={<Chip hue={st.hue} size="sm">{st.label}</Chip>} className="wn-detail" data-wn-detail={sel.key}>
+        <AnimatePresence mode="wait">
+          <motion.div key={sel.key} className="col" style={{ gap: 10 }} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: .18 }}>
+            {rows.map(([h, t]) => <div key={h}><div className="section-label">{h}</div><div style={{ fontSize: 13 }}>{t}</div></div>)}
+            {sel.limits && <div><div className="section-label">Honest limits</div><div style={{ fontSize: 13 }}>{sel.limits}</div></div>}
+            <div className="row"><Link className="btn primary" to={sel.route} data-wn-open={sel.key}><ExternalLink size={14} />{sel.linkLabel}</Link></div>
+          </motion.div>
+        </AnimatePresence>
+      </Panel>
     </div>
   );
 }

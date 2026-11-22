@@ -42,7 +42,7 @@ export const ROUTE_TABS: Record<string, string[]> = {
   notifications: ['Inbox', 'News', 'Pending', 'Resolved', 'Rules'],
   settings: ['General', 'Users', 'Navigation', 'Appearance', 'Avatars & Faces', 'Accessibility', 'Browser', 'Integrations', 'Storage', 'Security', 'Backups'],
   operations: ['Services', 'VMs', 'Agents', 'Models', 'Workers', 'Queues', 'Storage', 'Logs', 'Recovery'],
-  help: ['Guides', 'Context Help', 'Shortcuts', 'Troubleshooting', 'Glossary'],
+  help: ['New Features', 'Guides', 'Context Help', 'Shortcuts', 'Troubleshooting', 'Glossary'],
 };
 
 /** Mission list status filter (?filter=) on the Missions page — not a route, so kept out of ROUTE_TABS. */
