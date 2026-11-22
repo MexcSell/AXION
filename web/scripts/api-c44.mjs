@@ -5,7 +5,7 @@
 // 200 ms, which a slow or loaded machine fails with no fault in the flush; the flush itself adds 60 ms). The quiet control
 // is measured in the same run, on the same thread, interleaved with the after-burst probes (quiet, burst, quiet, burst, ...), with
 // the same page, flags and CPU throttle (THROTTLE=N), and the bar compares the medians. A flush stuck at its burst delay
-// (the pre-c44 rule: 60 + 12 per event of the last batch, 60 + 12 per event of the last batch: +300 ms after a 30-message batch) adds more than MARGIN.
+// (the pre-c44 rule: 60 + 12 per event of the last batch, so +300 ms after a 30-message batch) adds more than MARGIN.
 // Run through scripts/api-e2e.sh. No fixed sleeps except the pause itself. Env: BURST (200), REBURST (30), PAUSE (150), MARGIN (80), PROBES (5), THROTTLE (1).
 import { chromium } from 'playwright';
 import { readFileSync } from 'node:fs';
