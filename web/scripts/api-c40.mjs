@@ -18,6 +18,7 @@ for (const [W, H] of SIZES) {
   // 1. Activity cards
   if (demo) { await go(`/missions/${demo.id}?tab=Activity`); await p.locator('[data-tab="Activity"]').first().click({ force: true }).catch(() => {}); await p.waitForTimeout(900);
     const cards = await p.evaluate(() => [...document.querySelectorAll('.act-card')].map((c) => { const r = c.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.right)]; }));
+    await p.locator('.act-card').first().evaluate((e) => e.scrollIntoView({ block: 'center', behavior: 'instant' })).catch(() => {}); await p.waitForTimeout(300);
     if (SHOTS) await p.screenshot({ path: `${SHOTS}/activity-${W}.png` });
     console.log(`${W} act-cards=${cards.length} ${JSON.stringify(cards.slice(0, 2))}`);
     if (!cards.length) fails.push(`FAIL ${W}: no act-card found (probe cannot see the Activity tab)`);
