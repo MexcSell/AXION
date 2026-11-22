@@ -122,6 +122,7 @@ const six = Object.fromEntries([0, 1, 2, 3, 4, 5].map((i) => [i, 'grader_timeout
 beforeAll(async () => {
   s = await makeSchema();
   await q(`insert into tenants(id,name) values ('t-1','T') on conflict do nothing`);
+  await q(`insert into users(id,tenant_id,name,name_key,pass_hash,role,status) values ('ev-b','t-1','Ev','evb','h','member','approved'), ('u-prop','t-1','Prop','prop','h','member','approved'), ('u-off','t-1','Off','off','h','member','disabled')`);
   await q(`insert into agent_definitions(id, tenant_id, name, role, dept, duty, created_by) values ('a-1','t-1','A','r','D','duty','u')`);
   v1 = (await q(`insert into agent_versions(agent_id, seq, label, model, prompt_hash, created_by) values ('a-1',1,'v1','m','h','u') returning id`)).rows[0].id;
 });
@@ -196,7 +197,7 @@ describe('R2-2 loader: ungraded is inconclusive, never worse', () => {
     const p = await pair({ base: Array(12).fill(40), cand: Array(12).fill(70).map((x, i) => x + (i % 3)), bg: G1, cg: G1 });
     const e = await load(p.pid);
     expect(e.outcome).toBe('verified_better');
-    expect(e.grading).toMatchObject({ sufficient: true, regradeId: null });
+    expect(e.grading).toMatchObject({ sufficient: true, regrade: null });
   });
 });
 
@@ -219,7 +220,7 @@ describe('R2-2 loader: grader versions', () => {
     await cx(async (c) => { await recordRegrade(c, { id: 'RG-' + p.pid, tenantId: 't-1', runId: p.base, to: G2, by: 'ev-b', cases: ids(12).map((caseId) => ({ caseId, attempt: 1, newScore: 40 })) }); });
     const e = await load(p.pid);
     expect(e.refusals.map((r) => r.code)).not.toContain('grader_mismatch');
-    expect(e.grading.regradeId).toBe('RG-' + p.pid);
+    expect(e.grading.regrade).toEqual({ id: 'RG-' + p.pid, by: 'ev-b', byName: 'Ev' });
     expect(e.outcome).toBe('verified_better');
     expect(e.baselineMean).toBe(40);
   });
@@ -228,7 +229,7 @@ describe('R2-2 loader: grader versions', () => {
     await cx(async (c) => { await recordRegrade(c, { id: 'RG-' + p.pid, tenantId: 't-1', runId: p.base, to: G2, by: 'ev-b', cases: ids(11).map((caseId) => ({ caseId, attempt: 1, newScore: 40 })) }); });
     const e = await load(p.pid);
     expect(e.refusals.map((r) => r.code)).toContain('grader_mismatch');
-    expect(e.grading.regradeId).toBeNull();
+    expect(e.grading.regrade).toBeNull();
   });
   it('a diff to a third version does not link', async () => {
     const p = await pair({ base: Array(12).fill(90), cand: Array(12).fill(75), bg: G1, cg: G2 });
@@ -319,5 +320,49 @@ describe('fix round 1: the loader', () => {
     const p = await pair({ cases: 100, base: t.base, cand: t.cand, bg: G1, cg: G1, cUn: t.un });
     const e = await load(p.pid);
     expect(e.outcome).not.toBe('verified_better'); expect(e.grading.robust).toBe(false); expect(e.grading.retained).toEqual({ baseline: 100, candidate: 80, shared: 100 });
+  });
+});
+
+// ---- c61 fix round, item 3: a re-grade diff is evidence, not a claim (review finding 3) ------------------------------------------------
+describe('fix round 3: who may re-grade', () => {
+  const all12 = (v: number) => ids(12).map((caseId) => ({ caseId, attempt: 1, newScore: v }));
+  it('the review probe: a diff by "anyone" cannot turn a worse candidate (90 vs 40) into verified better', async () => {
+    const p = await pair({ base: Array(12).fill(90), cand: Array(12).fill(40), bg: G1, cg: G2 });
+    await cx(async (c) => { await expect(recordRegrade(c, { id: 'RG-' + p.pid, tenantId: 't-1', runId: p.base, to: G2, by: 'anyone', cases: all12(5) })).rejects.toThrow(/regrader/); });
+    const e = await load(p.pid);
+    expect(e.outcome).not.toBe('verified_better'); expect(e.refusals.map((r) => r.code)).toContain('grader_mismatch');
+  });
+  it('a disabled user cannot re-grade either', async () => {
+    const p = await pair({ base: Array(12).fill(90), cand: Array(12).fill(40), bg: G1, cg: G2 });
+    await cx(async (c) => { await expect(recordRegrade(c, { id: 'RG-' + p.pid, tenantId: 't-1', runId: p.base, to: G2, by: 'u-off', cases: all12(5) })).rejects.toThrow(/regrader/); });
+  });
+  it('the author of the proposal cannot re-grade its runs (producer is not verifier): refused on the candidate run, not linked on the base run', async () => {
+    const n = ++seq, ds = 'AH' + n, pid = 'AP' + n;
+    await makeDataset(s.pool, { id: ds, split: 'holdout', cases: 12 });
+    await q(`insert into agent_version_proposals(id, tenant_id, agent_id, base_version_id, base_sha, candidate, candidate_sha, title, created_by) values ($1,'t-1','a-1',$2,'h',$4::jsonb,$3,'t','u-prop')`, [pid, v1, 'sha-A' + n, JSON.stringify({ model: 'qwen-72b', skills: ['sha-A' + n], tools: [] })]);
+    await addRun(s.pool, { id: 'AB' + n, datasetId: ds, versionId: v1, scores: Array(12).fill(90), grader: G1, ...ev });
+    await addRun(s.pool, { id: 'AC' + n, datasetId: ds, proposalId: pid, scores: Array(12).fill(75), grader: G2, ...ev });
+    await cx(async (c) => { await expect(recordRegrade(c, { id: 'RGc' + n, tenantId: 't-1', runId: 'AC' + n, to: G1, by: 'u-prop', cases: all12(75) })).rejects.toThrow(/regrader/); });
+    await cx(async (c) => { await recordRegrade(c, { id: 'RGb' + n, tenantId: 't-1', runId: 'AB' + n, to: G2, by: 'u-prop', cases: all12(40) }); });
+    const e = await cx(async (c) => (await loadEvaluations(c, 't-1', [{ id: pid, created_by: 'u-prop', base_version_id: v1, candidate: { model: 'qwen-72b' } }])).get(pid)!);
+    expect(e.refusals.map((r) => r.code)).toContain('grader_mismatch'); expect(e.grading.regrade).toBeNull();
+  });
+  it('new scores must be in the score domain 0..100', async () => {
+    const p = await pair({ base: Array(12).fill(90), cand: Array(12).fill(75), bg: G1, cg: G2 });
+    await cx(async (c) => { await expect(recordRegrade(c, { id: 'RG-' + p.pid, tenantId: 't-1', runId: p.base, to: G2, by: 'ev-b', cases: all12(150) })).rejects.toThrow(); });
+    await cx(async (c) => { await expect(recordRegrade(c, { id: 'RH-' + p.pid, tenantId: 't-1', runId: p.base, to: G2, by: 'ev-b', cases: all12(-1) })).rejects.toThrow(); });
+  });
+  it('a diff must cover every GRADED result of the run; an ungraded result need not be covered and stays ungraded', async () => {
+    const p = await pair({ base: Array(12).fill(40), cand: Array(12).fill(75).map((x, i) => (i === 0 ? null : x)), bg: G1, cg: G2, cUn: { 0: 'grader_error' } });
+    // re-grade the CANDIDATE run to version 1, leaving out the one ungraded result: links, and that case stays ungraded
+    await cx(async (c) => { await recordRegrade(c, { id: 'RG-' + p.pid, tenantId: 't-1', runId: p.cand, to: G1, by: 'ev-b', cases: ids(12).slice(1).map((caseId) => ({ caseId, attempt: 1, newScore: 75 })) }); });
+    const e = await load(p.pid);
+    expect(e.grading.regrade?.id).toBe('RG-' + p.pid);
+    expect(e.grading.candidate).toMatchObject({ attempted: 12, graded: 11, graderVersion: '1' });
+  });
+  it('a verdict that rests on a re-grade says who made it', async () => {
+    const p = await pair({ base: Array(12).fill(90), cand: Array(12).fill(75), bg: G1, cg: G2 });
+    await cx(async (c) => { await recordRegrade(c, { id: 'RG-' + p.pid, tenantId: 't-1', runId: p.base, to: G2, by: 'ev-b', cases: all12(40) }); });
+    expect((await load(p.pid)).grading.regrade).toMatchObject({ by: 'ev-b', byName: 'Ev' });
   });
 });

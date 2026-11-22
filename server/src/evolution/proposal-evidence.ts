@@ -48,7 +48,9 @@ const num = (x: unknown) => (x === null || x === undefined ? null : Number(x));
 async function caseRuns(c: Tx, runId: string, regradeId: string | null = null): Promise<CaseRuns[]> {
   const rows = (await c.query(
     regradeId
-      ? `select r.case_id, r.attempt, x.new_score as score, r.cost_units, x.new_ungraded_reason as ungraded_reason from eval_results r join eval_regrade_cases x on x.regrade_id=$2 and x.case_id=r.case_id and x.attempt=r.attempt where r.run_id=$1 order by r.case_id, r.attempt`
+      ? `select r.case_id, r.attempt, case when x.regrade_id is null then r.score else x.new_score end as score, r.cost_units,
+                case when x.regrade_id is null then r.ungraded_reason else x.new_ungraded_reason end as ungraded_reason
+           from eval_results r left join eval_regrade_cases x on x.regrade_id=$2 and x.case_id=r.case_id and x.attempt=r.attempt where r.run_id=$1 order by r.case_id, r.attempt`
       : `select case_id, attempt, score, cost_units, ungraded_reason from eval_results where run_id=$1 order by case_id, attempt`, regradeId ? [runId, regradeId] : [runId])).rows;
   const by = new Map<string, Attempt[]>();
   for (const r of rows) {
@@ -62,12 +64,15 @@ async function caseRuns(c: Tx, runId: string, regradeId: string | null = null): 
 type GraderRow = { grader_name: string | null; grader_version: string | null };
 const graderOf = (r: GraderRow | undefined | null) => (r?.grader_name && r.grader_version ? { name: r.grader_name, version: r.grader_version } : null);
 /** c61: a re-grade diff of `run` from its own grader to `to` that covers every stored result of the run (the diff that links it to a run graded by `to`). */
-async function linkingRegrade(c: Tx, runId: string, from: { name: string; version: string }, to: { name: string; version: string }): Promise<string | null> {
-  return (await c.query(
-    `select g.id from eval_regrades g
-      where g.run_id=$1 and (g.from_grader_name, g.from_grader_version) = ($2,$3) and (g.to_grader_name, g.to_grader_version) = ($4,$5)
-        and (select count(*) from eval_regrade_cases x where x.regrade_id = g.id) = (select count(*) from eval_results where run_id=$1)
-      order by g.created_at, g.id limit 1`, [runId, from.name, from.version, to.name, to.version])).rows[0]?.id ?? null;
+async function linkingRegrade(c: Tx, runId: string, from: { name: string; version: string }, to: { name: string; version: string }, proposalAuthor: string): Promise<{ id: string; by: string; byName: string } | null> {
+  // covers every GRADED result of the run (an ungraded result need not be covered and stays ungraded); not by the proposal's author
+  const r = (await c.query(
+    `select g.id, g.created_by as by, u.name as "byName" from eval_regrades g join users u on u.id = g.created_by
+      where g.run_id=$1 and (g.from_grader_name, g.from_grader_version) = ($2,$3) and (g.to_grader_name, g.to_grader_version) = ($4,$5) and g.created_by <> $6
+        and (select count(*) from eval_regrade_cases x join eval_results e on e.run_id = g.run_id and e.case_id = x.case_id and e.attempt = x.attempt and e.ungraded_reason is null where x.regrade_id = g.id)
+          = (select count(*) from eval_results where run_id = $1 and ungraded_reason is null)
+      order by g.created_at, g.id limit 1`, [runId, from.name, from.version, to.name, to.version, proposalAuthor])).rows[0];
+  return r ? { id: r.id, by: r.by, byName: r.byName } : null;
 }
 
 /** Evaluations for the given proposals (those without a finished candidate run are absent from the map). */
@@ -108,14 +113,14 @@ export async function loadEvaluations(c: Tx, tenantId: string, proposals: Eviden
     const cases = (await c.query(`select case_id as "caseId", input, expected from eval_cases where dataset_id=$1`, [cand.dataset_id])).rows as Array<{ caseId: string; input: unknown; expected: unknown }>;
     // c61: graders must match, or a re-grade diff links the two; a linked comparison uses the NEW grades of the re-graded run
     const gBase = graderOf(base), gCand = graderOf(cand);
-    let regradeBase: string | null = null, regradeCand: string | null = null;
+    let regradeBase: { id: string; by: string; byName: string } | null = null, regradeCand: { id: string; by: string; byName: string } | null = null;
     if (base && gBase && gCand && (gBase.name !== gCand.name || gBase.version !== gCand.version)) {
-      regradeBase = await linkingRegrade(c, base.id, gBase, gCand);
-      if (!regradeBase) regradeCand = await linkingRegrade(c, cand.id, gCand, gBase);
+      regradeBase = await linkingRegrade(c, base.id, gBase, gCand, p.created_by);
+      if (!regradeBase) regradeCand = await linkingRegrade(c, cand.id, gCand, gBase, p.created_by);
     }
     const linked = !!(regradeBase || regradeCand);
-    const baseline = base ? await caseRuns(c, base.id, regradeBase) : [];
-    const candidate = await caseRuns(c, cand.id, regradeCand);
+    const baseline = base ? await caseRuns(c, base.id, regradeBase?.id ?? null) : [];
+    const candidate = await caseRuns(c, cand.id, regradeCand?.id ?? null);
     const model = typeof (p.candidate as { model?: unknown })?.model === 'string' ? (p.candidate as { model: string }).model : '';
     // c53: families are the c38 vendors; an unresolved label (judge or candidate model) is refused, never defaulted
     const candVendor = vendorOf(model);
@@ -165,7 +170,7 @@ export async function loadEvaluations(c: Tx, tenantId: string, proposals: Eviden
       grading: {
         baseline: base ? { ...v.grading.baseline, graderName: regradeBase ? gCand!.name : gBase?.name ?? null, graderVersion: regradeBase ? gCand!.version : gBase?.version ?? null } : null,
         candidate: { ...v.grading.candidate, graderName: regradeCand ? gBase!.name : gCand?.name ?? null, graderVersion: regradeCand ? gBase!.version : gCand?.version ?? null },
-        excludedCases: v.grading.excludedCases, sufficient: v.grading.sufficient, minFraction: v.grading.minFraction, retained: v.grading.retained, robust: v.grading.robust, regradeId: regradeBase ?? regradeCand,
+        excludedCases: v.grading.excludedCases, sufficient: v.grading.sufficient, minFraction: v.grading.minFraction, retained: v.grading.retained, robust: v.grading.robust, regrade: regradeBase ?? regradeCand,
       },
       validity: await datasetValidity(c, cand.dataset_id),
       datasetId: cand.dataset_id, datasetSha: cand.content_sha256, baseRunId: base?.id ?? null, candidateRunId: cand.id, runCount,

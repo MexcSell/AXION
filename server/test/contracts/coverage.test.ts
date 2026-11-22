@@ -233,8 +233,8 @@ describe('API coverage run', () => {
     await makeDataset(t.pool, { id: 'HO-c50', split: 'holdout', cases: 12, createdBy: minaId, attestBy: adminId });
     await addRun(t.pool, { id: 'c50-base', datasetId: 'HO-c50', versionId: coder.versionId, scores: Array.from({ length: 12 }, () => 40), evaluator: minaId, judge: 'gpt-judge', grader: { name: 'rubric', version: '1' } });
     await addRun(t.pool, { id: 'c50-cand', datasetId: 'HO-c50', proposalId: vp1.id, scores: Array.from({ length: 12 }, (_, i) => 70 + (i % 3)), evaluator: minaId, judge: 'gpt-judge', grader: { name: 'rubric', version: '2' } });
-    // c61: the base run was graded by version 1 and the candidate by version 2; a re-grade diff links them (so the DTO carries a regradeId and both graders)
-    { const gc = await t.pool.connect(); try { await recordRegrade(gc, { id: 'c61-rg', tenantId: 't-1', runId: 'c50-base', to: { name: 'rubric', version: '2' }, by: minaId, cases: Array.from({ length: 12 }, (_, i) => ({ caseId: 'c' + String(i + 1).padStart(2, '0'), attempt: 1, newScore: 40 })) }); } finally { gc.release(); } }
+    // c61: the base run was graded by version 1 and the candidate by version 2; a re-grade diff links them (so the DTO carries the re-grade and both graders)
+    { const gc = await t.pool.connect(); try { await recordRegrade(gc, { id: 'c61-rg', tenantId: 't-1', runId: 'c50-base', to: { name: 'rubric', version: '2' }, by: adminId, cases: Array.from({ length: 12 }, (_, i) => ({ caseId: 'c' + String(i + 1).padStart(2, '0'), attempt: 1, newScore: 40 })) }); } finally { gc.release(); } }
     const evaluated = ((await call(admin, 'GET', '/agents/:id/version-proposals', '/agents/coder-01/version-proposals')).body.proposals as any[]).find((x) => x.id === vp1.id);
     expect(evaluated.evaluation?.outcome, 'the stored runs give a verified evaluation: ' + JSON.stringify(evaluated.evaluation?.refusals)).toBe('verified_better');
     await call(admin, 'GET', '/version-proposals', '/version-proposals');

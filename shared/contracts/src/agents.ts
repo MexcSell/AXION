@@ -126,10 +126,12 @@ export interface ProposalEvaluationDto {
   datasetId: string; datasetSha: string | null; baseRunId: string | null; candidateRunId: string;
   /**
    * c61 (R2-2): who graded each run and how much of it was graded. Shown beside every pass rate. An ungraded attempt is no grade, not a
-   * failure: with too few graded (`sufficient` false) the outcome is `inconclusive`, never `worse`. `regradeId` is the re-grade diff
+   * failure: with too few graded (`sufficient` false) the outcome is `inconclusive`, never `worse`. `regrade` is the re-grade diff
    * that links two runs graded by different grader versions (its NEW grades are the ones compared); null when none was needed.
    */
-  grading: { baseline: GradingDto | null; candidate: GradingDto; excludedCases: number; sufficient: boolean; minFraction: number; regradeId: string | null;
+  grading: { baseline: GradingDto | null; candidate: GradingDto; excludedCases: number; sufficient: boolean; minFraction: number;
+    /** the re-grade diff this verdict rests on (the NEW grades of one run were compared) and the person who recorded it; null when none was needed. Show it: the grades are not the original ones. */
+    regrade: { id: string; by: string; byName: string } | null;
     /** cases each run kept (every attempt graded), of the cases both ran; below `minFraction` of either the verdict is inconclusive */
     retained: { baseline: number; candidate: number; shared: number };
     /** false when the verdict was withdrawn because it did not survive the worst case for the cases left out (ungraded) */

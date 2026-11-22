@@ -205,7 +205,7 @@ const proposalEvaluation: V<ProposalEvaluationDto> = obj<ProposalEvaluationDto>(
   passHatK: obj<ProposalEvaluationDto['passHatK']>({ baseline: arr(nullable(num)), candidate: arr(nullable(num)) }),
   refusals: arr(evalRefusal), reasons: arr(str), notes: arr(str),
   validity: datasetValidity,
-  grading: obj<ProposalEvaluationDto['grading']>({ baseline: nullable(grading), candidate: grading, excludedCases: int, sufficient: bool, minFraction: num, regradeId: nullable(str), retained: obj<ProposalEvaluationDto['grading']['retained']>({ baseline: int, candidate: int, shared: int }), robust: bool }),
+  grading: obj<ProposalEvaluationDto['grading']>({ baseline: nullable(grading), candidate: grading, excludedCases: int, sufficient: bool, minFraction: num, regrade: nullable(obj<NonNullable<ProposalEvaluationDto['grading']['regrade']>>({ id: str, by: str, byName: str })), retained: obj<ProposalEvaluationDto['grading']['retained']>({ baseline: int, candidate: int, shared: int }), robust: bool }),
   datasetId: str, datasetSha: nullable(str), baseRunId: nullable(str), candidateRunId: str, runCount: int,
 });
 const versionProposal: V<VersionProposalDto> = obj<VersionProposalDto>({

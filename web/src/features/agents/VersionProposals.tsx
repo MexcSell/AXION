@@ -75,6 +75,7 @@ export function EvaluationView({ e, sample }: { e: ProposalEvaluationDto; sample
         <span data-eval-outcome={e.outcome}><Chip hue={O.hue} icon={O.icon} size="sm" solid={e.outcome === 'verified_better'} title={O.hint}>{O.label}</Chip></span>
         <span className="tnum" data-eval-n={e.n} title="Cases scored on both the active version and the candidate">n = {e.n}</span>
         <span className="dim tnum">{e.wins} won · {e.losses} lost · mean {pts(e.delta)} pts</span>
+        {e.grading.regrade && <Chip hue={260} size="sm" title={`One run's grades were replaced by a re-grade recorded by ${e.grading.regrade.byName}, so the two runs are compared under one grader`} data-eval-regraded={e.grading.regrade.id}>re-graded by {e.grading.regrade.byName}</Chip>}
         {e.validity.unvalidated && <><Chip hue={38} size="sm" title={e.validity.status === 'failing' ? `The dataset checklist has "no" answers: ${e.validity.failedItems.join(', ')}` : e.validity.canBeAttested ? 'The holdout dataset was not attested (checklist) before it was frozen, so this evidence is unvalidated' : 'This dataset was created before its author was recorded, so it can never be attested. Freeze a new dataset to get validated evidence'} data-eval-unvalidated={e.validity.status} data-eval-attestable={e.validity.canBeAttested ? '1' : '0'}>unvalidated</Chip><HelpTrigger k="agent.version.unvalidated" /></>}
         {e.runCount > 1 && <Chip hue={38} size="sm" title="More than one run on this holdout">{e.runCount} runs</Chip>}
         {sample && <Chip hue={225} size="sm" title="Demo data: nothing was measured">Sample</Chip>}
@@ -89,7 +90,7 @@ export function EvaluationView({ e, sample }: { e: ProposalEvaluationDto; sample
             <span>{e.ties} tied</span>
             <span>{e.ci.low !== null && e.ci.high !== null ? `95% interval ${pts(e.ci.low)} to ${pts(e.ci.high)}` : 'no interval'}</span>
             {e.passHatK.baseline[0] !== undefined && <span>pass^1 {pct(e.passHatK.baseline[0])} → {pct(e.passHatK.candidate[0])}</span>}
-            <span data-eval-graded title={`Graded attempts of each run. An ungraded attempt is not a failure${e.grading.candidate.graderName ? ` · grader ${e.grading.candidate.graderName} ${e.grading.candidate.graderVersion}` : ' · grader not recorded'}`}>
+            <span data-eval-graded title={`Graded attempts of each run (an ungraded attempt is not a failure). Grader: base ${e.grading.baseline?.graderName ? `${e.grading.baseline.graderName} ${e.grading.baseline.graderVersion}` : 'not recorded'}, candidate ${e.grading.candidate.graderName ? `${e.grading.candidate.graderName} ${e.grading.candidate.graderVersion}` : 'not recorded'}`}>
               graded {e.grading.baseline ? `${e.grading.baseline.graded}/${e.grading.baseline.attempted}` : 'n/a'} → {e.grading.candidate.graded}/{e.grading.candidate.attempted}
             </span>
             <span className="mono" title={e.datasetSha ?? ''}>holdout {e.datasetId}{e.datasetSha ? ` · ${e.datasetSha.slice(0, 8)}` : ''}</span>

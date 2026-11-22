@@ -33,7 +33,7 @@ create table eval_regrades (
   from_grader_version text not null,
   to_grader_name text not null,
   to_grader_version text not null,
-  created_by text not null check (btrim(created_by) <> ''),
+  created_by text not null references users(id),
   created_at timestamptz not null default now(),
   check ((from_grader_name, from_grader_version) is distinct from (to_grader_name, to_grader_version)),
   check (btrim(to_grader_name) <> '' and btrim(to_grader_version) <> '')
@@ -51,9 +51,16 @@ create table eval_regrade_cases (
 );
 
 create function eval_regrades_check() returns trigger language plpgsql as $$
-declare r eval_runs;
+declare r eval_runs; pa text;
 begin
   select * into r from eval_runs where id = new.run_id;
+  -- a re-grade is evidence, so it has a person of standing: an approved user of the tenant, who did not write the proposal under test
+  if not exists (select 1 from users where id = new.created_by and tenant_id = new.tenant_id and status = 'approved') then
+    raise exception 'regrader_unknown: a re-grade is recorded by an approved person of this tenant'; end if;
+  if r.subject_proposal_id is not null then
+    select created_by into pa from agent_version_proposals where id = r.subject_proposal_id;
+    if pa = new.created_by then raise exception 'regrader_is_author: the author of a proposal cannot re-grade its runs'; end if;
+  end if;
   if r.finished_at is null then raise exception 'eval run % is not finished; only a finished run can be re-graded', r.id; end if;
   if r.tenant_id <> new.tenant_id then raise exception 'a re-grade diff has the tenant of its run'; end if;
   if r.grader_name is null or (r.grader_name, r.grader_version) is distinct from (new.from_grader_name, new.from_grader_version) then
