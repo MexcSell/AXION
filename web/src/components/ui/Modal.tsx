@@ -33,7 +33,8 @@ export function Modal({ title, icon: Icon, help, sub, size = 'md', tone = 'defau
     prevFocus.current = document.activeElement as HTMLElement;
     const el = ref.current!;
     const first = (el.querySelector('[data-autofocus]:not([disabled])') as HTMLElement) ?? (el.querySelector('.modal-body ' + FOCUSABLE) as HTMLElement) ?? el;
-    window.setTimeout(() => first?.focus(), 30);
+    // never steal focus from a field the user (or a fast typist) already focused inside the dialog (cycle 43)
+    window.setTimeout(() => { if (!el.contains(document.activeElement) || document.activeElement === el) first?.focus(); }, 30);
     // Escape closes the top-most modal even before focus has moved inside it
     const onEsc = (e: KeyboardEvent) => {
       if ((e.key !== 'Escape' && e.key !== 'Tab') || e.defaultPrevented) return;
