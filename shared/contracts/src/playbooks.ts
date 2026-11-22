@@ -1,7 +1,10 @@
 /** Improvement cycle 41: reviewed playbooks and a skill library (records only: nothing executes). */
 export type SourceKind = 'mission' | 'failure_tag' | 'review' | 'task' | 'note';
 /** Where a lesson or a skill comes from. Only `mission` refs are checked against the database (and for visibility). */
-export interface SourceRef { kind: SourceKind; id: string; note?: string }
+export interface SourceRef { kind: SourceKind; id: string; note?: string; /** set by the server: true for mission and task sources (checked at propose time), false for the typed kinds */ verified?: boolean; /** a private mission or task id hidden from a member (id is empty) */ hidden?: boolean }
+export type StepKind = 'navigate' | 'observe' | 'fill' | 'click' | 'check' | 'ask_human' | 'note';
+/** A skill step: a closed structure. Text is plain; a URL appears only as `origin` of a navigate step. Quoted data, never executed. */
+export interface SkillStep { kind: StepKind; target?: string; detail: string; origin?: string }
 
 export type LessonStatus = 'proposed' | 'accepted' | 'rejected' | 'superseded';
 export interface LessonConflict { lessonId: string; text: string }
@@ -11,6 +14,8 @@ export interface LessonCandidateDto {
   status: LessonStatus; sha256: string; reviewBy: string | null; createdAt: string;
   decidedBy: string | null; decidedByName: string | null; decidedAt: string | null; decisionNote: string | null; overrideNote: string | null;
   acceptedInVersion: number | null;
+  /** set when a rollback removed the accepted item (status becomes superseded) */
+  withdrawnInVersion: number | null;
   /** Items of the current playbook this text seems to contradict (deterministic check). Accepting needs an override note. */
   conflicts: LessonConflict[];
   /** What the viewer may do: false with a reason when the decider would be the proposer (or the submitter). */
@@ -31,7 +36,7 @@ export interface PlaybookDiff { from: number; to: number; added: PlaybookItem[];
 
 export type SkillStatus = 'draft' | 'approved' | 'retired';
 export interface SkillDto {
-  id: string; name: string; version: number; description: string; steps: string[]; preconditions: string[]; sources: SourceRef[];
+  id: string; name: string; version: number; description: string; steps: SkillStep[]; preconditions: string[]; sources: SourceRef[];
   status: SkillStatus; proposedBy: string; proposedByName: string; createdAt: string;
   approvedBy: string | null; approvedByName: string | null; approvedAt: string | null; retiredBy: string | null; retiredAt: string | null; retireNote: string | null;
   canDecide: boolean; cannotDecideWhy: string | null;

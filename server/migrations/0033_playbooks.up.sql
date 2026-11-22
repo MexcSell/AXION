@@ -7,7 +7,7 @@
 create table lesson_candidates (
   id text primary key,                                         -- 'LC-' + 128 random bits
   tenant_id text not null references tenants(id),
-  agent_id text not null references agent_definitions(id),     -- the role's one agent (one agent per role)
+  agent_id text not null references agent_definitions(id),     -- playbooks belong to one agent (several agents can share a role value, so the role string is not the key)
   role text not null,
   text text not null check (length(btrim(text)) between 1 and 600),
   sources jsonb not null check (jsonb_typeof(sources) = 'array' and jsonb_array_length(sources) between 1 and 10),
@@ -23,11 +23,14 @@ create table lesson_candidates (
   decision_note text,
   override_note text,
   accepted_in_version int,
+  withdrawn_in_version int,                                    -- set when a rollback removes the accepted item (status becomes superseded)
   check ((status = 'proposed') = (decided_at is null)),
   check ((decided_by is null) = (decided_at is null)),
   check (decided_by is null or (decided_by <> proposed_by and decided_by is distinct from submitted_by) or (decided_by = 'system' and status = 'superseded')),
   check (decided_by is distinct from 'system' or status = 'superseded'),  -- the system only closes duplicates: accepting is always a person
-  check ((status = 'accepted') = (accepted_in_version is not null))
+  check (status <> 'accepted' or accepted_in_version is not null),
+  check (accepted_in_version is null or status in ('accepted','superseded')),
+  check ((withdrawn_in_version is not null) = (status = 'superseded' and accepted_in_version is not null))
 );
 create index lesson_candidates_tenant on lesson_candidates(tenant_id, created_at desc);
 create index lesson_candidates_agent on lesson_candidates(agent_id, created_at desc);
@@ -91,16 +94,21 @@ end $$;
 create trigger playbooks_no_edit before update or delete on playbooks for each row execute function playbooks_guard();
 create trigger playbooks_no_truncate before truncate on playbooks for each statement execute function playbooks_guard();
 
--- a candidate is decided once: proposed -> accepted | rejected | superseded; its content never changes
+-- a candidate is decided once: proposed -> accepted | rejected | superseded; its content never changes. The one later change: an
+-- accepted lesson becomes superseded (once) when a rollback removes its item from the playbook.
 create function lesson_candidates_guard() returns trigger language plpgsql as $$
 begin
   if tg_op = 'DELETE' and coalesce(current_setting('axion.purge_demo', true), '') = 'on' then return old; end if;
   if tg_op = 'DELETE' or tg_op = 'TRUNCATE' then raise exception 'lesson_candidates is append-only'; end if;
-  if old.status <> 'proposed' then raise exception 'a decided lesson candidate never changes'; end if;
+  if old.status in ('rejected','superseded') then raise exception 'a decided lesson candidate never changes'; end if;
   if new.id <> old.id or new.tenant_id <> old.tenant_id or new.agent_id <> old.agent_id or new.role <> old.role or new.text <> old.text
      or new.sources <> old.sources or new.proposed_by <> old.proposed_by or new.proposed_by_kind <> old.proposed_by_kind
      or new.submitted_by is distinct from old.submitted_by or new.sha256 <> old.sha256 or new.review_by is distinct from old.review_by or new.created_at <> old.created_at
   then raise exception 'a lesson candidate can only be decided'; end if;
+  if old.status = 'accepted' and (new.status <> 'superseded' or new.withdrawn_in_version is null or new.decided_by is distinct from old.decided_by
+     or new.decided_at is distinct from old.decided_at or new.decision_note is distinct from old.decision_note or new.override_note is distinct from old.override_note
+     or new.accepted_in_version is distinct from old.accepted_in_version)
+  then raise exception 'an accepted lesson never changes, except that a rollback can withdraw it'; end if;
   return new;
 end $$;
 create trigger lesson_candidates_no_edit before update or delete on lesson_candidates for each row execute function lesson_candidates_guard();

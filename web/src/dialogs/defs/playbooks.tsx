@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { BookMarked, Check, X, Plus, Wand2, Undo2, ShieldAlert, Info, Loader2, AlertOctagon, Minus } from 'lucide-react';
-import type { LessonCandidateDto, SourceKind, SourceRef } from '@contracts';
+import type { LessonCandidateDto, SkillStep, SourceKind, SourceRef, StepKind } from '@contracts';
 import { Modal } from '@/components/ui/Modal';
 import { Field } from '@/components/ui/Form';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
@@ -40,6 +40,33 @@ function SourcesEditor({ rows, onChange, error }: { rows: SourceRef[]; onChange:
   );
 }
 const cleanSources = (rows: SourceRef[]): SourceRef[] => rows.filter((r) => r.id.trim()).map((r) => ({ kind: r.kind, id: r.id.trim() }));
+const STEP_KINDS: StepKind[] = ['navigate', 'observe', 'fill', 'click', 'check', 'ask_human', 'note'];
+const STEP_HELP: Record<StepKind, string> = { navigate: 'Go to a page', observe: 'Look at something', fill: 'Enter a value', click: 'Press something', check: 'Verify something', ask_human: 'Ask a person', note: 'Remember something' };
+/** Steps are a closed structure: a kind, optional target, a detail, and (navigate only) an https origin. Quoted data, never executed. */
+function StepsEditor({ rows, onChange, error }: { rows: SkillStep[]; onChange: (r: SkillStep[]) => void; error?: string }) {
+  const set = (i: number, p: Partial<SkillStep>) => onChange(rows.map((r, j) => (j === i ? { ...r, ...p } : r)));
+  return (
+    <div className="col" style={{ gap: 6 }} data-steps-editor>
+      <div className="row" style={{ gap: 6 }}><div className="section-label" style={{ margin: 0 }}>Steps ({rows.filter((r) => r.detail.trim()).length} of 20)</div><HelpTrigger k="skills.steps" /></div>
+      {rows.map((r, i) => (
+        <motion.div key={i} layout initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="col" style={{ gap: 4 }}>
+          <div className="row" style={{ gap: 6 }}>
+            <select className="select" style={{ width: 130, height: 32 }} aria-label={`Step ${i + 1} kind`} title={STEP_HELP[r.kind]} value={r.kind} onChange={(e) => set(i, { kind: e.target.value as StepKind, ...(e.target.value === 'navigate' ? {} : { origin: undefined }) })}>
+              {STEP_KINDS.map((k) => <option key={k} value={k}>{k.replace('_', ' ')}</option>)}
+            </select>
+            <input className="input" style={{ width: 150, height: 32 }} aria-label={`Step ${i + 1} target`} maxLength={80} value={r.target ?? ''} placeholder="target (optional)" onChange={(e) => set(i, { target: e.target.value })} />
+            <input className="input" style={{ flex: 1, minWidth: 0, height: 32 }} aria-label={`Step ${i + 1} detail`} maxLength={300} value={r.detail} placeholder="what to do" onChange={(e) => set(i, { detail: e.target.value })} />
+            <button type="button" className="icon-btn" style={{ width: 24, height: 24 }} aria-label={`Remove step ${i + 1}`} disabled={rows.length === 1} onClick={() => onChange(rows.filter((_, j) => j !== i))}><X size={12} /></button>
+          </div>
+          {r.kind === 'navigate' && <input className="input" style={{ height: 30, marginLeft: 136 }} aria-label={`Step ${i + 1} origin`} maxLength={260} value={r.origin ?? ''} placeholder="origin (optional), e.g. https://example.com" onChange={(e) => set(i, { origin: e.target.value })} />}
+        </motion.div>
+      ))}
+      <div><button type="button" className="btn sm" disabled={rows.length >= 20} onClick={() => onChange([...rows, { kind: 'note', detail: '' }])} aria-label="Add step"><Plus size={13} />Add step</button></div>
+      {error && <span className="dim" style={{ fontSize: 12 }}>{error}</span>}
+    </div>
+  );
+}
+const cleanSteps = (rows: SkillStep[]): SkillStep[] => rows.filter((r) => r.detail.trim()).map((r) => ({ kind: r.kind, detail: r.detail.trim(), ...(r.target?.trim() ? { target: r.target.trim() } : {}), ...(r.kind === 'navigate' && r.origin?.trim() ? { origin: r.origin.trim() } : {}) }));
 const lines = (s: string) => s.split('\n').map((x) => x.trim()).filter(Boolean);
 
 /* DL-92 */
@@ -181,7 +208,7 @@ function SkillPropose({ close }: DialogComponentProps<Record<string, never>>) {
   const api_ = isApi();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [steps, setSteps] = useState('');
+  const [steps, setSteps] = useState<SkillStep[]>([{ kind: 'observe', detail: '' }]);
   const [pre, setPre] = useState('');
   const [rows, setRows] = useState<SourceRef[]>([{ kind: 'review', id: '' }]);
   const [busy, setBusy] = useState(false);
@@ -189,12 +216,12 @@ function SkillPropose({ close }: DialogComponentProps<Record<string, never>>) {
   const [fields, setFields] = useState<Record<string, string>>({});
   const key = useRef(newKey());
   const src = cleanSources(rows);
-  const err = !api_ ? 'Skills are stored on the server' : !name.trim() ? 'Name the skill' : !description.trim() ? 'Describe the skill' : lines(steps).length === 0 ? 'Add at least one step' : src.length === 0 ? 'Add at least one source' : '';
+  const err = !api_ ? 'Skills are stored on the server' : !name.trim() ? 'Name the skill' : !description.trim() ? 'Describe the skill' : cleanSteps(steps).length === 0 ? 'Add at least one step' : src.length === 0 ? 'Add at least one source' : '';
   const touch = () => { setSrvErr(null); setFields({}); };
   const submit = async () => {
     if (err || busy) return;
     setBusy(true); touch();
-    const r = await proposeSkill({ name: name.trim(), description: description.trim(), steps: lines(steps), preconditions: lines(pre), sources: src }, key.current);
+    const r = await proposeSkill({ name: name.trim(), description: description.trim(), steps: cleanSteps(steps), preconditions: lines(pre), sources: src }, key.current);
     setBusy(false);
     if (!r.ok) { setSrvErr(r.message); setFields(r.fieldErrors ?? {}); key.current = newKey(); return; }
     toast({ tone: 'success', title: 'Skill proposed', body: `${r.value.skill.name} v${r.value.skill.version} is a draft until another administrator approves it.` });
@@ -202,7 +229,7 @@ function SkillPropose({ close }: DialogComponentProps<Record<string, never>>) {
   };
   return (
     <Modal title="Propose a skill" icon={Wand2} help="skills.panel" dialogId="DL-95" size="lg" onClose={close}
-      sub="A named list of plain steps. It is only a description: text that looks like code is refused."
+      sub="A named list of plain steps. Quoted data that is never executed: letters, digits and common punctuation only."
       footer={<><button className="btn" onClick={close}>Cancel</button><button className="btn primary" disabled={!!err || busy} title={err || undefined} onClick={submit}>{busy ? <Loader2 size={14} className="spin" /> : <Wand2 size={14} />}Submit skill</button></>}>
       <div className="col" style={{ gap: 12 }}>
         {!api_ && <div className="oa-banner"><Info size={15} /><span>Skills are stored on the server. In demo mode this dialog only shows the form.</span></div>}
@@ -219,9 +246,7 @@ function SkillPropose({ close }: DialogComponentProps<Record<string, never>>) {
             </Field>
           </div>
           <div className="col" style={{ gap: 12 }}>
-            <Field label={`Steps (one per line, ${lines(steps).length} of 20)`} help="skills.steps" htmlFor="sk-steps" required error={fields.steps}>
-              <textarea id="sk-steps" className="input" rows={5} value={steps} onChange={(e) => { touch(); setSteps(e.target.value); }} placeholder={'Open the report\nName the failing selector'} />
-            </Field>
+            <StepsEditor rows={steps} onChange={(r) => { touch(); setSteps(r); }} error={Object.entries(fields).find(([k]) => k === 'steps' || k.startsWith('steps.'))?.[1]} />
             <SourcesEditor rows={rows} onChange={(r) => { touch(); setRows(r); }} error={fields.sources} />
           </div>
         </div>

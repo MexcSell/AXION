@@ -165,6 +165,8 @@ try {
   await view(A.p, /^Playbook/);
   check('A: the Playbook tab reads v3 with one item again', await until(async () => (await A.p.getByRole('radio', { name: /Playbook v3/ }).count()) === 1 && (await A.p.locator('[data-playbook-item]').count()) === 1, 8000));
   check('B and C (no reload) also show v3 with one item', await until(async () => (await B.p.getByRole('radio', { name: /Playbook v3/ }).count()) === 1 && (await C.p.getByRole('radio', { name: /Playbook v3/ }).count()) === 1 && (await C.p.locator('[data-playbook-item]').count()) === 1, 10000));
+  check('A: the typed source REV-C41 shows as an unverified chip; C (member) sees the same chip', await (async () => { await view(A.p, /^Playbook/); await view(C.p, /^Playbook/); return await until(async () => (await A.p.locator('.oa-src-unverified').first().innerText()).includes('unverified review: REV-C41') && (await C.p.locator('.oa-src-unverified').count()) >= 1, 8000); })());
+  check('C (member) does not see the rollback reason in History; A (administrator) does', await (async () => { await view(C.p, /History/); await view(A.p, /History/); return await until(async () => (await A.p.locator('[data-playbook-version="3"]').innerText()).includes('The linter rule is too slow here.') && !(await C.p.locator('[data-playbook-version="3"]').innerText()).includes('too slow'), 8000); })());
   check('C (member): no rollback buttons are enabled (read only)', await (async () => { await view(C.p, /History/); await C.p.locator('[data-playbook-version]').first().waitFor({ timeout: 8000 }); const bs = C.p.getByRole('button', { name: /^Roll back to version/ }); const n = await bs.count(); for (let i = 0; i < n; i++) if (!(await bs.nth(i).isDisabled())) return false; return n === 3; })());
   const stale = await apiA('POST', `/agents/${X}/playbook/rollback`, { toVersion: 1, baseVersion: 2, why: 'stale' });
   check('a rollback from an old view is 409 (compare-and-set)', stale.status === 409);
@@ -191,12 +193,12 @@ try {
   await A.p.screenshot({ path: `${SHOTS}/c41-playbook.png` });
 
   // ------------------------------------------------------------ skills
-  const sk = await apiB('POST', '/skills', { name: 'Triage a failing check', description: 'Find the cause of a red check.', steps: ['Open the report', 'Name the failing selector', 'Attach the screenshot'], preconditions: ['A report exists'], sources: [{ kind: 'review', id: 'REV-SK' }] }, key());
-  const codey = await apiB('POST', '/skills', { name: 'Bad', description: 'x', steps: ['function run() {}'], sources: [{ kind: 'note', id: 'n' }] }, key());
+  const sk = await apiB('POST', '/skills', { name: 'Triage a failing check', description: 'Find the cause of a red check.', steps: [{ kind: 'navigate', detail: 'Open the report', origin: 'https://example.com' }, { kind: 'observe', detail: 'Name the failing selector' }, { kind: 'note', detail: 'Attach the screenshot' }], preconditions: ['A report exists'], sources: [{ kind: 'review', id: 'REV-SK' }] }, key());
+  const codey = await apiB('POST', '/skills', { name: 'Bad', description: 'x', steps: [{ kind: 'note', detail: 'function run() {}' }], sources: [{ kind: 'note', id: 'n' }] }, key());
   check('B proposes a skill (draft); code-like steps are 400', sk.status === 201 && sk.body.skill.status === 'draft' && codey.status === 400);
   await view(A.p, /Skills/);
   const skA = A.p.locator(`[data-skill="${sk.body.skill.id}"]`);
-  check('A (no reload) sees the draft with Approve enabled; steps are listed', await until(async () => (await skA.count()) === 1 && !(await skA.getByRole('button', { name: /^Approve skill/ }).isDisabled()) && (await skA.innerText()).includes('Name the failing selector'), 10000));
+  check('A (no reload) sees the draft with Approve enabled; steps are listed', await until(async () => (await skA.count()) === 1 && !(await skA.getByRole('button', { name: /^Approve skill/ }).isDisabled()) && (await skA.innerText()).includes('Name the failing selector') && (await skA.locator('[data-step-kind="navigate"]').innerText()).includes('https://example.com'), 10000));
   await view(B.p, /Skills/);
   const skB = B.p.locator(`[data-skill="${sk.body.skill.id}"]`);
   check('B (the proposer) sees Approve disabled with the reason', await until(async () => (await skB.count()) === 1 && (await skB.getByRole('button', { name: /^Approve skill/ }).isDisabled()) && (await skB.innerText()).includes('Another administrator'), 10000));

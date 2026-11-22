@@ -316,21 +316,23 @@ describe('versions, diff and rollback', () => {
     expect((await post({ toVersion: 1, baseVersion: 4, why: '' })).status).toBe(400);
   });
 
-  it('a rolled-back lesson can be proposed and accepted again; the candidate that created it stays accepted in history', async () => {
-    expect((await q('select status, accepted_in_version from lesson_candidates where id=$1', [lessons[2]]))[0]).toEqual({ status: 'accepted', accepted_in_version: 3 });
+  it('a rolled-back lesson can be proposed and accepted again; the candidate whose item the rollback removed becomes superseded (once), keeping where it was accepted', async () => {
+    expect((await q('select status, accepted_in_version, withdrawn_in_version from lesson_candidates where id=$1', [lessons[2]]))[0]).toEqual({ status: 'superseded', accepted_in_version: 3, withdrawn_in_version: 4 });
+    expect((await q('select status from lesson_candidates where id=$1', [lessons[0]]))[0].status).toBe('accepted'); // still in the playbook
     const again = await lessonId(M, agent, 'Approve only with the checks green and a note.');
     expect((await accept(B, again, agent)).body.playbook.version).toBe(5);
   });
 });
 
 describe('skills', () => {
-  const body = (over: Record<string, unknown> = {}) => ({ name: 'Triage a failing check', description: 'Find the cause of a red check.', steps: ['Open the report', 'Name the failing selector', 'Attach the screenshot'], preconditions: ['A report exists'], sources: SRC, ...over });
-  it.each([['function', 'steps', { steps: ['function run() { return 1 }'] }], ['arrow', 'steps', { steps: ['x => x + 1'] }], ['eval', 'description', { description: 'then eval(input)' }], ['script', 'name', { name: '<script>x</script>' }], ['precondition', 'preconditions', { preconditions: ['eval("1")'] }]])
+  const st = (detail: string, kind = 'note', extra: Record<string, unknown> = {}) => ({ kind, detail, ...extra });
+  const body = (over: Record<string, unknown> = {}) => ({ name: 'Triage a failing check', description: 'Find the cause of a red check.', steps: [st('Open the report', 'navigate'), st('Name the failing selector', 'observe'), st('Attach the screenshot', 'note')], preconditions: ['A report exists'], sources: SRC, ...over });
+  it.each([['function', 'steps', { steps: [st('function run() { return 1 }')] }], ['arrow', 'steps', { steps: [st('x => x + 1')] }], ['eval', 'description', { description: 'then eval(input)' }], ['script', 'name', { name: '<script>x</script>' }], ['precondition', 'preconditions', { preconditions: ['eval("1")'] }]])
   ('code-like %s is 400 and nothing is stored', async (_l, field, over) => {
     const before = await count('select count(*)::int n from skills');
     const r = await A.req('POST', '/skills', body(over), key());
     expect(r.status).toBe(400);
-    expect(r.body.fieldErrors[field as string]).toBeTruthy();
+    expect(Object.keys(r.body.fieldErrors).some((k) => k === field || k.startsWith(field + '.'))).toBe(true);
     expect(await count('select count(*)::int n from skills')).toBe(before);
   });
   it('a skill without sources or steps is 400', async () => {
@@ -352,7 +354,7 @@ describe('skills', () => {
     expect(ok.body.skill).toMatchObject({ status: 'approved', approvedBy: aId });
     expect((await K.req('GET', `/skills/${v1.id}`)).status).toBe(200); // approved: visible to all
     expect((await A.req('POST', `/skills/${v1.id}/approve`, {})).status).toBe(409);
-    const v2 = (await B.req('POST', '/skills', body({ name: 'triage a FAILING check', steps: ['Open the report', 'Compare with the last green run'] }), key())).body.skill;
+    const v2 = (await B.req('POST', '/skills', body({ name: 'triage a FAILING check', steps: [st('Open the report', 'navigate'), st('Compare with the last green run', 'check')] }), key())).body.skill;
     expect(v2.version).toBe(2);
     expect((await A.req('POST', `/skills/${v2.id}/approve`, {})).status).toBe(200);
     expect((await q(`select version, status from skills where lower(name)='triage a failing check' order by version`)).map((r) => [r.version, r.status])).toEqual([[1, 'retired'], [2, 'approved']]);
@@ -363,6 +365,131 @@ describe('skills', () => {
     expect(list.every((s) => s.status !== 'draft' || s.proposedBy === 'k')).toBe(true);
     expect(list.map((s) => s.id)).toContain(v1.id);
     expect(await count(`select count(*)::int n from audit_events where action like 'skill.%'`)).toBeGreaterThanOrEqual(6);
+  });
+});
+
+describe('skills: a closed structure, quoted data that is never executed', () => {
+  const st = (detail: string, kind = 'note', extra: Record<string, unknown> = {}) => ({ kind, detail, ...extra });
+  const body = (steps: unknown[], over: Record<string, unknown> = {}) => ({ name: 'Closed ' + n++, description: 'A skill.', steps, preconditions: [], sources: SRC, ...over });
+  const post = (b: unknown) => A.req('POST', '/skills', b, key());
+  it('a name that differs only by whitespace, case or Unicode form is the next VERSION of the same skill, never a 500', async () => {
+    const a = await post(body([st('Open it')], { name: 'Foo Bar' }));
+    expect(a.status).toBe(201);
+    const b = await post(body([st('Open it again')], { name: 'Foo   Bar ' }));
+    expect(b.status).toBe(201);
+    expect(b.body.skill).toMatchObject({ name: 'Foo Bar', version: 2 });
+    const c = await post(body([st('Once more')], { name: 'foo bar' }));
+    expect(c.body.skill.version).toBe(3);
+    const nfd = await post(body([st('Accents')], { name: 'Caf\u00e9 check' })), nfd2 = await post(body([st('Accents')], { name: 'Cafe\u0301 check' }));
+    expect([nfd.status, nfd2.status, nfd2.body.skill.version]).toEqual([201, 201, 2]);
+  });
+  it('steps are a closed schema: enumerated kinds, bounded text, no extra keys', async () => {
+    expect((await post(body([st('x', 'run_shell')]))).status).toBe(400);
+    expect((await post(body([{ kind: 'note', detail: 'x', command: 'ls' }]))).status).toBe(400);
+    expect((await post(body(['plain string step']))).status).toBe(400);
+    expect((await post(body([st('x'.repeat(301))]))).status).toBe(400);
+    expect((await post(body([st('', 'note')]))).status).toBe(400);
+    for (const kind of ['navigate', 'observe', 'fill', 'click', 'check', 'ask_human', 'note']) expect((await post(body([st('Do the thing', kind, { target: 'The login button' })]))).status, kind).toBe(201);
+  });
+  it.each([['backtick', 'use `ls`'], ['less-than', 'a < b'], ['greater-than', 'a > b'], ['open brace', 'a { b'], ['close brace', 'a } b'], ['dollar', 'costs $5'], ['backslash', 'a \\ b'], ['zero-width', 'func\u200Btion'], ['control', 'a\u0007b'], ['bidi', 'a\u202Eb'], ['pipe-less url', 'see https://evil.example/x'], ['javascript scheme', 'javascript://x'], ['data url', 'data://text/html']])
+  ('%s in step text is 400 and nothing is stored', async (_l, text) => {
+    const before = await count('select count(*)::int n from skills');
+    for (const f of [{ detail: text }, { detail: 'ok', target: text }]) {
+      const r = await post(body([{ kind: 'note', ...f }]));
+      expect(r.status, JSON.stringify(f)).toBe(400);
+    }
+    expect((await post(body([st('ok')], { description: text }))).status).toBe(400);
+    expect((await post(body([st('ok')], { preconditions: [text] }))).status).toBe(400);
+    expect((await post(body([st('ok')], { name: text }))).status).toBe(400);
+    expect(await count('select count(*)::int n from skills')).toBe(before);
+  });
+  it('plain punctuation and non-English letters are fine', async () => {
+    expect((await post(body([st("Check the \"Save\" button (top-right): it's 50% done, e-mail a/b & c; #1?", 'check', { target: 'Zahlungsübersicht 日本語' })]))).status).toBe(201);
+  });
+  it('a URL only through the origin field of a navigate step: plain https, ASCII host, no path, no IDN', async () => {
+    const nav = (origin: unknown) => post(body([st('Open the dashboard', 'navigate', { origin })]));
+    for (const ok of ['https://example.com', 'https://app.example.co.uk', 'https://example.com:8443']) expect((await nav(ok)).status, ok).toBe(201);
+    for (const bad of ['http://example.com', 'https://example.com/path', 'https://user@example.com', 'https://b\u00fccher.de', 'https://xn--bcher-kva.de', 'https://EXAMPLE.com', 'https://localhost', 'https://example.com?x=1', 'javascript:alert(1)', 'https://', 'https://exa mple.com', 'https://example..com', 'https://-a.example.com', 'https://127.0.0.1', 5]) expect((await nav(bad)).status, String(bad)).toBe(400);
+    expect((await post(body([st('x', 'click', { origin: 'https://example.com' })]))).status).toBe(400); // only navigate takes an origin
+    const got = (await nav('https://example.com')).body.skill;
+    expect(got.steps[0]).toMatchObject({ kind: 'navigate', origin: 'https://example.com' });
+  });
+  it('lesson text uses the same charset rule', async () => {
+    for (const text of ['Use `rm` carefully', 'a <b> tag', 'costs $5', 'curly {x}', 'back\\slash', 'zero\u200Bwidth', 'see https://evil.example']) expect((await propose(A, 'coder-01', text)).status, text).toBe(400);
+    expect((await propose(A, 'coder-01', "Don't skip the review (it's quick): ask early, ask often!")).status).toBe(201);
+  });
+});
+
+describe('sources: checked where the tree can check them, otherwise shown as unverified', () => {
+  it('mission and task sources are verified against what the proposer can see; the other kinds are flagged unverified', async () => {
+    await q(`insert into missions(id,tenant_id,owner_id,shared,status) values ('M-9200','t-1',$1,false,'running'), ('M-9201','t-1',$1,true,'running')`, [aId]);
+    await q(`insert into mission_revisions(mission_id,revision,title,kind,priority,text,created_by) values ('M-9200',1,'P','general','normal','x',$1), ('M-9201',1,'S','general','normal','x',$1)`, [aId]);
+    await q(`insert into tasks(id,tenant_id,mission_id,title) values ('T-9200','t-1','M-9200','private task'), ('T-9201','t-1','M-9201','shared task')`);
+    const p = (by: Browser, sources: unknown[]) => by.req('POST', '/agents/coder-01/lessons', { text: 'Source check ' + n++, sources }, key());
+    expect((await p(M, [{ kind: 'task', id: 'T-9200' }])).status).toBe(404); // a task of a mission she cannot see
+    expect((await p(M, [{ kind: 'task', id: 'T-nope' }])).status).toBe(404);
+    const ok = await p(M, [{ kind: 'task', id: 'T-9201' }, { kind: 'mission', id: 'M-9201' }, { kind: 'review', id: 'R-1' }, { kind: 'failure_tag', id: 'flaky' }, { kind: 'note', id: 'n' }]);
+    expect(ok.status).toBe(201);
+    expect(ok.body.lesson.sources.map((s: any) => [s.kind, s.verified])).toEqual([['task', true], ['mission', true], ['review', false], ['failure_tag', false], ['note', false]]);
+  });
+});
+
+describe('what members may read: admin-only notes and hidden private sources', () => {
+  const agent = 'integrator-01';
+  it('rollback notes, override notes and accepted items\' mission/task source ids are admin-only; members get the text and a hidden chip', async () => {
+    await q(`insert into missions(id,tenant_id,owner_id,shared,status) values ('M-9300','t-1',$1,true,'running')`, [aId]);
+    await q(`insert into mission_revisions(mission_id,revision,title,kind,priority,text,created_by) values ('M-9300',1,'S','general','normal','x',$1)`, [aId]);
+    const l1 = await lessonId(A, agent, 'Always pin the dependency versions.', { sources: [{ kind: 'mission', id: 'M-9300', note: 'customer Acme complained' }, { kind: 'review', id: 'REV-9' }] });
+    expect((await accept(B, l1, agent)).status).toBe(200);
+    const l2 = await lessonId(A, agent, 'Never pin the dependency versions.');
+    expect((await accept(B, l2, agent, { overrideNote: 'Customer Acme needs floating versions.' })).status).toBe(200);
+    const l3 = await lessonId(A, agent, 'Review the changelog of each upgrade.');
+    expect((await accept(B, l3, agent)).status).toBe(200);
+    expect((await B.req('POST', `/agents/${agent}/playbook/rollback`, { toVersion: 2, baseVersion: 3, why: 'Acme asked us to undo it' })).status).toBe(200);
+    for (const [who, admin] of [[A, true], [B, true], [M, false], [K, false]] as const) {
+      const r = (await who.req('GET', `/agents/${agent}/playbook`)).body;
+      const first = r.playbook.items[0], second = r.playbook.items[1];
+      expect(first.text).toBe('Always pin the dependency versions.');
+      expect(second.overrideNote).toBe(admin ? 'Customer Acme needs floating versions.' : null);
+      expect(second.contradiction).toBe(true); // the flag itself is not secret
+      expect(r.versions[0].note).toBe(admin ? 'Acme asked us to undo it' : null);
+      expect(r.playbook.note).toBe(admin ? 'Acme asked us to undo it' : null);
+      const mission = first.sources[0];
+      if (admin) expect(mission).toMatchObject({ kind: 'mission', id: 'M-9300', note: 'customer Acme complained' });
+      else { expect(mission).toMatchObject({ kind: 'mission', hidden: true, id: '' }); expect(mission.note).toBeUndefined(); }
+      expect(first.sources[1]).toMatchObject({ kind: 'review', id: 'REV-9' }); // an unverified typed id is not a private reference
+      const d = (await who.req('GET', `/agents/${agent}/playbook/diff?from=0&to=1`)).body.diff;
+      expect(JSON.stringify(d).includes('M-9300')).toBe(admin);
+      const v = (await who.req('GET', `/agents/${agent}/playbook/versions/1`)).body.playbook;
+      expect(JSON.stringify(v).includes('M-9300')).toBe(admin);
+      const ls = (await who.req('GET', `/lessons/${l2}`)).body.lesson;
+      expect(ls.overrideNote).toBe(admin ? 'Customer Acme needs floating versions.' : null);
+      expect(ls.decisionNote).toBeNull();
+    }
+    // a member's own proposal still shows her own sources
+    const mine = await lessonId(M, agent, 'Tag releases with the date.', { sources: [{ kind: 'mission', id: 'M-9300' }] });
+    expect((await M.req('GET', `/lessons/${mine}`)).body.lesson.sources[0].id).toBe('M-9300');
+    expect((await B.req('GET', `/lessons/${mine}`)).body.lesson.sources[0].id).toBe('M-9300');
+  });
+});
+
+describe('rollback and the decider rule', () => {
+  const agent = 'optimizer-01';
+  it('an admin who proposed a lesson cannot re-activate it by rolling back; the other admin can; removed lessons become superseded', async () => {
+    const l1 = await lessonId(A, agent, 'Measure before optimising.');
+    expect((await accept(B, l1, agent)).status).toBe(200); // v1: proposer A
+    const l2 = await lessonId(B, agent, 'Cache only what is read often.');
+    expect((await accept(A, l2, agent)).status).toBe(200); // v2: proposer B
+    expect((await B.req('POST', `/agents/${agent}/playbook/rollback`, { toVersion: 1, baseVersion: 2, why: 'too early' })).status).toBe(200); // v3 = v1: removes l2 (nothing re-activated)
+    expect((await q('select status, withdrawn_in_version from lesson_candidates where id=$1', [l2]))[0]).toEqual({ status: 'superseded', withdrawn_in_version: 3 });
+    const own = await B.req('POST', `/agents/${agent}/playbook/rollback`, { toVersion: 2, baseVersion: 3, why: 'bring it back' }); // would re-activate l2, proposed by B
+    expect(own.status).toBe(403);
+    expect(own.body.code).toBe('SELF_APPROVAL');
+    expect(await count(`select count(*)::int n from audit_events where action='playbook.rollback' and subject=$1 and result='denied'`, [agent])).toBe(1);
+    expect((await book(agent)).playbook.version).toBe(3);
+    const ok = await A.req('POST', `/agents/${agent}/playbook/rollback`, { toVersion: 2, baseVersion: 3, why: 'bring it back' });
+    expect(ok.status).toBe(200);
+    expect(ok.body.playbook.items.map((i: any) => i.lessonId)).toEqual([l1, l2]);
   });
 });
 

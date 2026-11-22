@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
-import type { LessonCandidateDto, PlaybookDiff, PlaybookDto, PlaybookVersionRow, SkillDto, SourceRef } from '@contracts';
+import type { LessonCandidateDto, PlaybookDiff, PlaybookDto, PlaybookVersionRow, SkillDto, SkillStep, SourceRef } from '@contracts';
 import { api, ApiFailure, newKey } from './client';
 import { isApi } from './mode';
 
@@ -48,7 +48,7 @@ export const decideLesson = (id: string, body: { decision: 'accept' | 'reject'; 
   write<{ lesson: LessonCandidateDto; playbook: PlaybookDto | null }>('POST', `/lessons/${encodeURIComponent(id)}/decision`, body);
 export const rollbackPlaybook = (agentId: string, body: { toVersion: number; baseVersion: number; why: string }) =>
   write<{ playbook: PlaybookDto }>('POST', `/agents/${encodeURIComponent(agentId)}/playbook/rollback`, body);
-export const proposeSkill = (body: { name: string; description: string; steps: string[]; preconditions: string[]; sources: SourceRef[] }, key: string) =>
+export const proposeSkill = (body: { name: string; description: string; steps: SkillStep[]; preconditions: string[]; sources: SourceRef[] }, key: string) =>
   write<{ skill: SkillDto }>('POST', '/skills', body, key);
 export const approveSkill = (id: string) => write<{ skill: SkillDto }>('POST', `/skills/${encodeURIComponent(id)}/approve`, {});
 export const retireSkill = (id: string, note: string) => write<{ skill: SkillDto }>('POST', `/skills/${encodeURIComponent(id)}/retire`, note.trim() ? { note: note.trim() } : {});

@@ -3,9 +3,9 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useMemo, useState } from 'react';
 import {
   BookMarked, Plus, Check, X, ShieldCheck, CalendarClock, AlertTriangle, Undo2, History, Lock, Bot, User, Target, Tag, ClipboardCheck, ListChecks, StickyNote,
-  Wand2, CheckCircle2, XCircle, Archive, Info, Layers, Minus, AlertOctagon,
+  Wand2, CheckCircle2, XCircle, Archive, Info, Layers, Minus, AlertOctagon, EyeOff, HelpCircle, Globe,
 } from 'lucide-react';
-import type { LessonCandidateDto, PlaybookItem, PlaybookVersionRow, SkillDto, SkillStatus, SourceKind, SourceRef } from '@contracts';
+import type { LessonCandidateDto, PlaybookItem, PlaybookVersionRow, SkillDto, SkillStatus, SkillStep, SourceKind, SourceRef } from '@contracts';
 import { Panel } from '@/components/ui/Panel';
 import { Segmented } from '@/components/ui/Form';
 import { Chip, DemoTag } from '@/components/ui/Chips';
@@ -34,7 +34,11 @@ export const DEMO_WHY = 'DEMO samples are read only. Playbooks are stored on the
 export function SourceChips({ sources }: { sources: SourceRef[] }) {
   return (
     <span className="row wrap" style={{ gap: 5 }} data-sources={sources.length}>
-      {sources.map((s, i) => <Chip key={i} hue={205} icon={SRC_ICON[s.kind]} size="sm" title={s.note ? `${SRC_LABEL[s.kind]} ${s.id}: ${s.note}` : `${SRC_LABEL[s.kind]} ${s.id}`}>{s.id}</Chip>)}
+      {sources.map((s, i) => s.hidden
+        ? <Chip key={i} hue={225} icon={EyeOff} size="sm" className="oa-src-hidden" title={`A ${SRC_LABEL[s.kind]} source: only administrators see which one`}>source hidden</Chip>
+        : s.verified === false
+          ? <Chip key={i} hue={38} icon={HelpCircle} size="sm" className="oa-src-unverified" title={`Unverified: ${SRC_LABEL[s.kind]} ids are typed by the proposer and not checked against any record${s.note ? '. Note: ' + s.note : ''}`}>unverified {SRC_LABEL[s.kind]}: {s.id}</Chip>
+          : <Chip key={i} hue={205} icon={SRC_ICON[s.kind]} size="sm" title={s.note ? `${SRC_LABEL[s.kind]} ${s.id} (checked): ${s.note}` : `${SRC_LABEL[s.kind]} ${s.id} (checked)`}>{s.id}</Chip>)}
     </span>
   );
 }
@@ -130,6 +134,16 @@ function VersionRow({ v, current, agentId, admin, api_, index }: { v: PlaybookVe
   );
 }
 
+/** A step is quoted data: its text is shown as text, and an origin is shown, never opened. */
+function StepLine({ st }: { st: SkillStep }) {
+  return (
+    <span className="row wrap" style={{ gap: 6, display: 'inline-flex' }}>
+      <Chip hue={265} size="sm">{st.kind.replace('_', ' ')}</Chip>
+      {st.target && <b>{st.target}</b>}<span>{st.detail}</span>
+      {st.origin && <Chip hue={225} icon={Globe} size="sm" title="Origin (shown, never opened here)">{st.origin}</Chip>}
+    </span>
+  );
+}
 const SK_STATUS: Record<SkillStatus, { label: string; hue: number; icon: typeof Check }> = {
   draft: { label: 'Draft', hue: 38, icon: Wand2 }, approved: { label: 'Approved', hue: 145, icon: CheckCircle2 }, retired: { label: 'Retired', hue: 225, icon: Archive },
 };
@@ -163,7 +177,7 @@ function SkillRow({ s, admin, api_, index }: { s: SkillDto; admin: boolean; api_
         {admin && s.status !== 'retired' && !retiring && <button className="btn sm ghost" disabled={!api_} title={!api_ ? DEMO_WHY : 'Retire: stays in the library'} aria-label={`Retire skill ${s.name}`} onClick={() => setRetiring(true)}><Archive size={13} />Retire</button>}
       </div>
       <div className="dim" style={{ fontSize: 12.5, margin: '4px 0' }}>{s.description}</div>
-      <ol className="col" style={{ gap: 2, margin: '2px 0 4px', paddingLeft: 18, fontSize: 12.5 }} aria-label={`Steps of ${s.name}`}>{s.steps.map((st, i) => <li key={i}>{st}</li>)}</ol>
+      <ol className="col" style={{ gap: 2, margin: '2px 0 4px', paddingLeft: 18, fontSize: 12.5 }} aria-label={`Steps of ${s.name}`}>{s.steps.map((st, i) => <li key={i} data-step-kind={st.kind}><StepLine st={st} /></li>)}</ol>
       <div className="row wrap" style={{ gap: 6 }}>
         {s.preconditions.length > 0 && <Chip hue={225} icon={Info} size="sm" title={s.preconditions.join(' | ')}>{s.preconditions.length} precondition{s.preconditions.length === 1 ? '' : 's'}</Chip>}
         <SourceChips sources={s.sources} />
@@ -224,8 +238,8 @@ export function PlaybookPanel() {
           <Segmented ariaLabel="Playbook view" size="sm" value={view} onChange={setView} options={options} />
           {view !== 'skills' && (
             <label className="row" style={{ gap: 6, fontSize: 12.5 }}>
-              <span className="dim">Role</span>
-              <select className="select" aria-label="Agent role" style={{ height: 30 }} value={agentId} onChange={(e) => setAgentId(e.target.value)}>
+              <span className="dim">Agent</span>
+              <select className="select" aria-label="Agent" style={{ height: 30 }} value={agentId} onChange={(e) => setAgentId(e.target.value)}>
                 {AGENTS.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
               </select>
             </label>
@@ -246,7 +260,7 @@ export function PlaybookPanel() {
             {decided.slice(0, 4).map((l) => (
               <li key={l.id} className="row dim" style={{ gap: 8, fontSize: 12, listStyle: 'none', padding: '2px 4px' }} data-lesson={l.id} data-status={l.status}>
                 {l.status === 'accepted' ? <CheckCircle2 size={14} style={{ color: 'var(--good)' }} aria-label="accepted" /> : <XCircle size={14} aria-label={l.status} />}
-                <span className="ellipsis" style={{ flex: 1, minWidth: 0 }}>{l.text}</span><span>{l.status}{l.decidedByName ? ` by ${l.decidedByName}` : ''}{l.acceptedInVersion ? ` · v${l.acceptedInVersion}` : ''}</span>
+                <span className="ellipsis" style={{ flex: 1, minWidth: 0 }}>{l.text}</span><span>{l.status}{l.decidedByName ? ` by ${l.decidedByName}` : ''}{l.acceptedInVersion ? ` · v${l.acceptedInVersion}` : ''}{l.withdrawnInVersion ? ` · withdrawn in v${l.withdrawnInVersion}` : ''}</span>
               </li>))}
           </AnimatePresence></ol>)}
         {!loading && view === 'history' && pb.data && (pb.data.versions.length === 0
