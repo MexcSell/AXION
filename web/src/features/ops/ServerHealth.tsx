@@ -1,10 +1,11 @@
 import { motion } from 'motion/react';
 import { useEffect, useState } from 'react';
-import { Database, Radio, ScrollText, HardDriveDownload, Ban, Server, RefreshCw } from 'lucide-react';
+import { Database, Radio, ScrollText, HardDriveDownload, Ban, Server, RefreshCw, Anchor } from 'lucide-react';
 import { Panel } from '@/components/ui/Panel';
 import { Chip, Dot } from '@/components/ui/Chips';
 import { IconButton } from '@/components/ui/IconButton';
 import { Tip } from '@/components/ui/Tip';
+import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { api, ApiFailure } from '@/api/client';
 import { useData } from '@/store/data';
 
@@ -19,6 +20,9 @@ interface Health {
   checkedAt: string;
 }
 
+interface AnchorInfo { configured: boolean; ok: boolean; lastAnchorAt: string | null; restartedAt: string | null; reason: string | null; tenants: { tenant: string; status: string; anchoredSeq: number | null; reason: string | null }[] }
+const ANCHOR_WORDS: Record<string, string> = { ok: 'Matches', truncated: 'Rows were removed', rewritten: 'History was rewritten', bad_signature: 'Anchor file was edited', anchor_missing: 'Not verifiable', rolled_back: 'Anchor file was cut back', insecure_file: 'Anchor file is not safe', unreadable: 'Anchor file unreadable' };
+
 const dur = (s: number) => (s < 90 ? `${s}s` : s < 5400 ? `${Math.round(s / 60)} min` : s < 172800 ? `${Math.round(s / 3600)} h` : `${Math.round(s / 86400)} d`);
 const mb = (b?: number) => (b === undefined ? '—' : `${(b / 1048576).toFixed(1)} MB`);
 const ago = (iso: string | null) => { if (!iso) return 'never'; const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000); return m < 1 ? 'just now' : m < 90 ? `${m} min ago` : m < 2880 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
@@ -28,6 +32,7 @@ export function ServerHealth() {
   const [h, setH] = useState<Health | null>(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [an, setAn] = useState<AnchorInfo | null>(null);
   const lastEventAt = useData((s) => s.lastEventAt);
   const load = async () => {
     setBusy(true);
@@ -35,6 +40,8 @@ export function ServerHealth() {
     catch (e) { setErr(e instanceof ApiFailure ? e.message : 'Not reachable'); }
     finally { setBusy(false); }
   };
+  const loadAnchor = async () => { try { setAn(await api<AnchorInfo>('GET', '/operations/anchors')); } catch { setAn(null); } };
+  useEffect(() => { void loadAnchor(); }, []);
   useEffect(() => { void load(); const t = window.setInterval(() => void load(), 15000); return () => window.clearInterval(t); }, []);
   useEffect(() => { const t = window.setTimeout(() => void load(), 400); return () => window.clearTimeout(t); }, [lastEventAt]);
 
@@ -50,7 +57,7 @@ export function ServerHealth() {
   return (
     <Panel icon={Server} titleSize="lg" title="AXION server" help="ops.serverHealth" delay={.02} className="ops-server-health"
       sub={h ? `Checked ${ago(h.checkedAt)} · read-only` : 'Read-only status of the API and database'}
-      actions={<><Chip hue={err ? 0 : 148} size="sm">{err ? 'unreachable' : 'live data'}</Chip><IconButton size="xs" icon={RefreshCw} label="Refresh now" onClick={() => void load()} className={busy ? 'spin' : undefined} /></>}>
+      actions={<><Chip hue={err ? 0 : 148} size="sm">{err ? 'unreachable' : 'live data'}</Chip><IconButton size="xs" icon={RefreshCw} label="Refresh now" onClick={() => { void load(); void loadAnchor(); }} className={busy ? 'spin' : undefined} /></>}>
       {err ? <div className="dim" style={{ fontSize: 13 }}>{err}</div> : (
         <div className="grid g-3" data-testid="server-health">
           {tiles.map((t, i) => (
@@ -65,6 +72,26 @@ export function ServerHealth() {
               <div className="dim ellipsis" style={{ fontSize: 11.5, marginTop: 4 }} title={t.sub}>{t.sub}</div>
             </motion.div>
           ))}
+          {an && (() => {
+            const bad = an.tenants.find((t) => t.status !== 'ok');
+            const tone = an.ok ? 'good' as const : an.configured && bad && bad.status !== 'anchor_missing' ? 'bad' as const : 'warn' as const;
+            const word = an.ok ? 'Matches' : bad ? (ANCHOR_WORDS[bad.status] ?? bad.status) : 'Not verifiable';
+            const restarted = an.restartedAt ? ` · restarted on ${new Date(an.restartedAt).toLocaleDateString()} (previous file archived)` : '';
+            const sub = (an.lastAnchorAt ? `last checkpoint ${ago(an.lastAnchorAt)} · ${an.tenants.map((t) => `${t.status === 'ok' ? 'ok' : t.status.replace('_', ' ')}${t.anchoredSeq ? ` through #${t.anchoredSeq}` : ''}`).join(', ')}` : (an.reason ?? 'run npm run audit:anchor')) + restarted;
+            return (
+              <motion.div className="subpanel glass-card svc-card" data-testid="audit-anchor" data-status={an.ok ? 'ok' : bad?.status ?? 'anchor_missing'} style={{ gridColumn: '1 / -1' }} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .26 }}>
+                <div className="row" style={{ gap: 8 }}>
+                  <Dot tone={tone} pulse={tone !== 'good'} />
+                  <Anchor size={15} />
+                  <b style={{ fontSize: 13 }}>Audit anchor</b>
+                  <HelpTrigger k="ops.auditAnchor" />
+                  <span className="spacer" />
+                  <Tip label={sub}><b className={tone} style={{ fontSize: 14 }}>{word}</b></Tip>
+                </div>
+                <div className="dim ellipsis" style={{ fontSize: 11.5, marginTop: 4 }} title={sub}>{sub}</div>
+              </motion.div>
+            );
+          })()}
         </div>
       )}
     </Panel>

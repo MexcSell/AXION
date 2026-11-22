@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit -p .",
     "migrate": "tsx --env-file=.env src/migrate-cli.ts",
     "audit:verify": "tsx --env-file=.env src/cli/audit-verify.ts",
+    "audit:anchor": "tsx --env-file=.env src/cli/audit-anchor.ts",
     "admin:approve-device": "tsx --env-file=.env src/cli/approve-device.ts",
     "demo:seed": "tsx --env-file=.env src/cli/demo.ts seed",
     "demo:clear": "tsx --env-file=.env src/cli/demo.ts clear",
