@@ -68,3 +68,21 @@ A1 → B1 → C1 → A3 → B3 → C2 → A2 → B2 → C3 → A5 → B4 → C4 
 | H6 | Loading and busy texts in api mode ("Loading instances…" and similar in Agents, AgentProfile, ServerProposals, JobSearch) sit in plain divs with no role=status/aria-live; also check Tab wrap-around in the a11y script (from the c16 review). | 3 | 4 | 5 | 12 |
 
 | P2 | Virtualise long conversation threads (c22: a live 1,000-message burst still keeps the page busy; api-stage6 counts one DOM row per message, so coordinate the check). | 3 | 2 | 4 | 9 |
+
+| H7 | flows.mjs steps flake under load (Hierarchy even at 1x; Conversations, palette, theme, help popover, u1 News / Chat dock under load), found in c29. Make every step condition-based and check it under FLOWS_CPU_THROTTLE=4. After c28 and c29 merge. | 4 | 3 | 5 | 12 |
+
+| H8 | useStaffingDriver (web/src/features/mission/staffing.ts:12-21) ticks over a `missions` array captured at render time, so between a store update and the React commit a tick can advance a just-archived mission (staffing-plan.ts:97 checks the stale copy). Read fresh state from the store inside the tick, and prove c29-archive-race.mjs fails on a known-bad mutation. From the c29 review. | 3 | 5 | 5 | 13 |
+
+| E1b | Wire verdictV2 into version proposals: bind runs to the holdout dataset id, compute the observed hash from the stored cases (not from the caller), check content_sha256 against the cases, and refuse an INSERT of an already-frozen dataset with no cases (the c32 guard covers only UPDATE). From the c32 review and fix round. | 4 | 3 | 5 | 12 |
+
+| P5b | Audit chain anchor: keep the latest hash outside the DB, or use an HMAC key held outside agent-editable storage, so truncation of the newest rows or a full rehash is detected (c31 limit). | 4 | 3 | 4 | 11 |
+
+| P3a | Approvals UI: hide or disable Approve/Deny for members on R3/R4 requests, with a `?` explaining "needs an administrator" (the server now refuses with 403 POLICY_DENIED, c30). Fold into P3. | 3 | 4 | 5 | 12 |
+
+| P3b | Second-approver rule. Agent requests carry agent ids in requested_by, so "decider ≠ requester" never fires for them: a human who created a mission can approve their own agent's R3/R4 request alone. Needs either a distinct owner role (Q9) or a two-person rule for R3/R4, with a fallback for single-admin tenants (for example a time delay plus a notification). Found in the c35 review. | 4 | 3 | 4 | 11 |
+
+| P4a | IDN site grants. c36 refuses every internationalised hostname (fail closed after the review found Armenian, Hebrew, Han/Kana and combining-mark look-alikes). Add an explicit path: the admin types the Unicode name, the UI shows the punycode plus a script-mixing / confusable report (UTS #39 skeletons), and a second confirmation is required. | 2 | 2 | 4 | 8 |
+
+| P4b | Full public-suffix check: c36 embeds a partial list of multi-tenant suffixes. Vendor a pinned Public Suffix List snapshot (with a hash) and refuse grants on any public suffix. | 3 | 3 | 5 | 11 |
+
+| H9 | Refresh c15 contract tests against the full API after batch 8 (held at batch 5: written before cycles 4–20, with 53 drift fields, 19 uncovered routes and 7 events). Generate the coverage list from the route table so new routes can't go uncovered. | 4 | 3 | 5 | 12 |

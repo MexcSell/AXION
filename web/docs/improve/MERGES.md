@@ -302,3 +302,67 @@ Integrator log: one entry per merge request. Times are UTC.
 - **fit-check:** 77/77 ALL FIT. **ov-fit:** 32/32, NO SCROLL ANYWHERE.
 
 **Follow-up commits:** `f8a5ff5`. Controller files committed with this entry: LOG.md, QUEUE.md (modified; the new batch 5e).
+
+**Controller rulings since batch 5:** `f8a5ff5` (inventedNumbers) CONFIRMED. c15 stays **HELD by controller ruling**: it is skipped here and will be refreshed in a new lane after batch 8, against the full Phase 2 API. The archive step's two failures (batch 2d; batch 4 flows-alone run 2) are recorded; c29 (batch 5f) fixes it.
+
+## Batch 5c: c24 (mobile fit)
+
+- **Merged:** 2026-11-22 ~01:38 UTC. Pre-batch commit `eca4e8d`.
+- **Merge commit:** `4ff1b40` c24-mobile-fit (bb0551b), `--no-ff`. **Conflicts:** none. Every rule in `touch.css` sits inside a ≤900/800/440 px media query (checked: no bare rule).
+- **Server:** tsc OK; vitest 37 files 583/583. **web:** tsc OK.
+
+**Batch checks on `4ff1b40`:**
+- **api-e2e (exit 1, only api-mobile):** api-auth-flow 15/15; api-flows 23/23; api-stage6 94/94; api-improve 107/107.
+- **api-mobile** (`DATA_MODE=api node scripts/api-mobile.mjs`; without `DATA_MODE=api` its `signIn` falls back to demo mode): exit 1. 651 states and 366 dialogs measured, against the lane's 233 states. 32 FAIL lines; 424 distinct controls under 40 px.
+- **A/B probe** (throwaway, not committed): the touch.css `<style>` was removed in-page and the same states re-measured, in api mode via api-e2e.sh.
+
+  | Family | With touch.css | Without touch.css |
+  |---|---|---|
+  | 390 Activity act-cards (M-134) | card right edge 416, chat button 363..403 | card right edge 416, chat button 381..403 |
+  | 390 Help: Company scorecard popover | top −113, height 686 | top −119, height 672 |
+  | Toast "Dismiss notification" | at rest 325..365 (390), 829..869 (900): fits | at rest 337..359, 847..869: fits |
+  | | mid-exit 351..391, 854..894 | mid-exit 361..383, 872..894 |
+  | DL-75 "Propose a change" at 900 | 24..1064, width 1040 | 24..1064, width 1040 |
+
+  - The toast clips only during its exit slide (`x: 40`), with or without touch.css. The harness caught toasts mid-exit.
+  - **Result: every family exists without touch.css, so c24 causes none of them.** Per the controller's ruling, c24 stays merged and the lines are recorded in QUEUE's known failures as "mobile layout debt (pre-existing, measured by c24)". A mobile-fix lane will follow. Any new api-mobile FAIL line blocks.
+- **The 32 api-mobile FAIL lines (verbatim):**
+
+```
+FAIL 390 /overview tab=Pulse > dialog "" via [Help: Company scorecard]: dialog "" (null) outside viewport {"l":38,"t":-256,"r":378,"b":430,"fits":false,"bodyScroll":false,"bodyX":0,"label":"","id":null}
+FAIL 390 /missions tab=Activity: clipped control div.act-card.glass-card[Researcher-01GMResearchB] x=27..437
+FAIL 390 /missions tab=Activity: clipped control button.icon-btn.xs[Chat with Researcher-01 ] x=384..424
+FAIL 390 /missions tab=Activity: clipped control div.act-card.glass-card[Analyst-01AnalyticsBrows] x=27..437
+FAIL 390 /missions tab=Activity: clipped control button.icon-btn.xs[Chat with Analyst-01 in ] x=384..424
+FAIL 390 /missions tab=Activity: clipped control button.icon-btn.xs[Chat with Writer-01 in t] x=384..424
+FAIL 390 /missions tab=Activity: clipped control button.icon-btn.xs[Chat with Browser-01 in ] x=384..424
+FAIL 390 /missions tab=Conversations > dialog "" via [Help: Mission agents views]: dialog "" (null) outside viewport {"l":38,"t":-13,"r":378,"b":431,"fits":false,"bodyScroll":false,"bodyX":0,"label":"","id":null}
+FAIL 390 /missions/M-134 tab=Activity: clipped control div.act-card.glass-card[GMGMGeneral ManagerCalli] x=27..416
+FAIL 390 /missions/M-134 tab=Activity: clipped control button.icon-btn.xs[Chat with GM in this mis] x=363..403
+FAIL 390 /missions/M-134 tab=Activity: clipped control div.act-card.glass-card[Planner-01executorPlanni] x=27..416
+FAIL 390 /missions/M-134 tab=Activity: clipped control button.icon-btn.xs[Chat with Planner-01 in ] x=363..403
+FAIL 390 /missions/M-134 tab=Activity: clipped control button.icon-btn.xs[Chat with Analyst-01 in ] x=363..403
+FAIL 390 /agents tab=Services > dialog "" via [Help: AXION server]: dialog "" (null) outside viewport {"l":38,"t":-21,"r":378,"b":431,"fits":false,"bodyScroll":false,"bodyX":0,"label":"","id":null}
+FAIL 390 /agents/analyst-01 > dialog "" via [Help: Development stage]: dialog "" (null) outside viewport {"l":38,"t":-79,"r":378,"b":431,"fits":false,"bodyScroll":false,"bodyX":0,"label":"","id":null}
+FAIL 390 /agents/analyst-01 > dialog "" via [Help: Reliability (measured)]: dialog "" (null) outside viewport {"l":38,"t":-605,"r":378,"b":432,"fits":false,"bodyScroll":false,"bodyX":0,"label":"","id":null}
+FAIL 390 /agents/analyst-01 tab=Mentoring > dialog "" via [Help: Mentoring plan]: dialog "" (null) outside viewport {"l":38,"t":-145,"r":378,"b":431,"fits":false,"bodyScroll":false,"bodyX":0,"label":"","id":null}
+FAIL 390 /agents/analyst-01 tab=Evolution > dialog "" via [Help: Propose a change]: dialog "" (null) outside viewport {"l":38,"t":-20,"r":378,"b":432,"fits":false,"bodyScroll":false,"bodyX":0,"label":"","id":null}
+FAIL 390 /agents/analyst-01 tab=Evolution > dialog "" via [Help: Roll back to this versio]: dialog "" (null) outside viewport {"l":38,"t":-71,"r":378,"b":431,"fits":false,"bodyScroll":false,"bodyX":0,"label":"","id":null}
+FAIL 390 /agents/analyst-01 tab=Evolution > dialog "" via [Help: Version proposals]: dialog "" (null) outside viewport {"l":38,"t":-288,"r":378,"b":464,"fits":false,"bodyScroll":false,"bodyX":0,"label":"","id":null}
+FAIL 390 /operations tab=Recovery: clipped control button.icon-btn.xs[Dismiss notification] x=365..405
+FAIL 390 /models tab=Recovery: clipped control button.icon-btn.xs[Dismiss notification] x=365..405
+FAIL 900 /overview tab=Pulse > dialog "" via [Help: Company scorecard]: dialog "" (null) outside viewport {"l":277,"t":510,"r":617,"b":1196,"fits":false,"bodyScroll":false,"bodyX":0,"label":"","id":null}
+FAIL 900 /agents/analyst-01 > dialog "" via [Help: Reliability (measured)]: dialog "" (null) outside viewport {"l":319,"t":-532,"r":659,"b":505,"fits":false,"bodyScroll":false,"bodyX":0,"label":"","id":null}
+FAIL 900 /agents/analyst-01 tab=Evolution > dialog "Propose a change to Analyst-01" via [Propose a change]: clipped control button.icon-btn.sm[Close (Esc)] x=1005..1045
+FAIL 900 /agents/analyst-01 tab=Evolution > dialog "Propose a change to Analyst-01" via [Propose a change]: clipped control button.help-btn[Help: Evaluation] x=1016..1034
+FAIL 900 /agents/analyst-01 tab=Evolution > dialog "Propose a change to Analyst-01" via [Propose a change]: clipped control textarea.textarea[] x=499..1045
+FAIL 900 /agents/analyst-01 tab=Evolution > dialog "Propose a change to Analyst-01" via [Propose a change]: clipped control input.input[] x=499..1045
+FAIL 900 /agents/analyst-01 tab=Evolution > dialog "Propose a change to Analyst-01" via [Propose a change]: clipped control button.btn.primary[Change the model, a skil] x=892..1045
+FAIL 900 /agents/analyst-01 tab=Evolution > dialog "Propose a change to Analyst-01" via [Propose a change]: dialog "Propose a change to Analyst-01" (DL-75) outside viewport {"l":24,"t":212,"r":1064,"b":788,"fits":false,"bodyScroll":false,"bodyX":0,"label":"Propose a change to Analyst-01","id":"DL-75"}
+FAIL 900 /agents/analyst-01 tab=Evolution > dialog "" via [Help: Version proposals]: dialog "" (null) outside viewport {"l":288,"t":-133,"r":628,"b":619,"fits":false,"bodyScroll":false,"bodyX":0,"label":"","id":null}
+FAIL 900 /operations?tab=logs tab=Logs: clipped control button.icon-btn.xs[Dismiss notification] x=869..909
+```
+- **verify-all:** exit 0, "ALL 10 STEPS PASSED", no FAIL lines.
+- **Desktop unchanged:** fit-check 1672×941 77/77, 1366×768 77/77, 1280×760 77/77, all ALL FIT. ov-fit 32/32, NO SCROLL ANYWHERE.
+
+**Follow-up commits:** none. Controller files committed with this entry: QUEUE.md (the api-mobile known-failure line is mine, per the ruling; the rest is the controller's), BACKLOG.md, LANES.md, LESSONS.md, LOG.md (modified); PHASE2.md, phase2/, and cycles/c26-rereview, c29–c40 briefs and reviews (new).

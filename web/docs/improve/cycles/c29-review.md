@@ -1,0 +1,7 @@
+# c29 review: CLEAR (with Minor notes)
+1. Assertions: same two checks, same messages. waitForFunction (15s) and locator.waitFor (15s) both .catch -> throw Error(same msg), so a timeout is a real FAIL via step(). Fixed 600ms sleep removed, none added. Slightly stricter in one spot: rows.length===1 required with pin (old: pin count===1 on first match). Fine.
+2. Not an app race: partly supported. staffing.ts:12-21 driver iterates a render-time `missions` closure; the effect re-arms on each missions change, so a stale-closure window exists between store set and React commit (widened under throttle). advance() guards archived (staffing-plan.ts:97) only on the stale m. c29-archive-race.mjs does exercise this (archives at i*450ms phases, throttle 8x, checks final store status) so it can catch a race, but it was never shown RED (no mutation test), 3 passing runs is probabilistic. Minor.
+3. Throttle hook: flows.mjs:12-13, only if FLOWS_CPU_THROTTLE>1; off by default. Minor: CDP session is created only on that branch, no effect otherwise.
+4. Merge: c28 tip 072a1ea has no committed change to web/scripts/flows.mjs vs its base (3-dot diff lists a11y-check.mjs etc. only; w26 worktree clean). `git merge-tree --write-tree HEAD c28-palette-and-gaps` is clean (tree 2f95abb...). If w26 later edits flows.mjs, hunks are at lines ~9-14 and ~62-77; resolve by keeping both sides. LOG/LANES docs may conflict textually, trivial.
+5. node --check flows.mjs and c29-archive-race.mjs: ok.
+Minor: report admits no clean 10/10 verify-all (unrelated flakes).

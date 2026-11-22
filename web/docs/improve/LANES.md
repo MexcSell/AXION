@@ -5,7 +5,7 @@ The owner asked (2026-11-21) to use all resources and run many cycles at once. E
 
 ## Your lane
 Lane L lives in `/home/luca/AXION-wL` on its own branch. Port base B is 5000 + L×100 for lanes 2–9, and
-6000 + (L−10)×100 for lanes 10–15.
+6000 + (L−10)×100 for lanes 10 and up (so w28 = 7800, w30 = 8000).
 
 | Purpose | Port / name |
 |---|---|
@@ -51,6 +51,14 @@ Migrations 0001–0013 are on `improve-30h`. Reserved numbers, so lanes never co
 | w12 | 0022 |
 | w17 | 0023 |
 | w18 | 0024 |
+| w28 (c30, only if needed) | 0025 |
+| w29 (c31) | 0026 |
+| w30 (c32) | 0027 |
+| w31 (c33) | 0028 |
+| w33 (c35) | 0029 |
+| w34 (c36) | 0030 |
+| w36 (c38) | 0031 |
+| w37 (c39) | 0032 |
 
 Use your number only if you really need a migration.
 
@@ -63,3 +71,6 @@ Use your number only if you really need a migration.
   shared ones (for example a new browser-check script `web/scripts/api-cNN.mjs` instead of extending `api-improve.mjs`).
 - In api mode never wait for `networkidle`, and never add fixed sleeps. Use `domcontentloaded` + `settle()` and
   condition waits.
+
+## Test databases for lanes 28 and up
+The `axion` role can't create databases, and nobody uses sudo for that. New lanes reuse a retired lane's e2e DB, which the harness empties and re-migrates on every start: w28 → axion_e2e2, w29 → axion_e2e3, w30 → axion_e2e4. w31 → axion_e2e5, w32 → axion_e2e6, w33 → axion_e2e7, w34 → axion_e2e8, w35 → axion_e2e9, w36 → axion_e2e10, w37 → axion_e2e11, w38 → axion_e2e12. Next free: axion_e2e13 to axion_e2e18 (lanes merged). Edit the new lane's `server/.env` after `new-lane.sh`.

@@ -16,3 +16,11 @@ One line per cycle: what it taught and whether PROCESS.md changed.
 - Gates must be honest: verify-all's exit code ignored sub-script FAILs for the whole loop, so 'green' meant 'didn't crash'. A gate is only as good as its weakest exit code; test the gate itself by forcing a failure.
 - Workers can all die at once from outside causes (here: sign-in). Everything that matters must live in git and the loop files, not in agent memory: the integration queue, rulings, and every lane's brief. Lanes should commit work-in-progress often.
 - c25: converting a fixed sleep before an ABSENCE assertion to an animation-settle wait makes the check pass before the data arrives. An absence check must wait for a positive signal first. A cleanup cycle can quietly weaken tests, so review hygiene changes as strictly as features.
+
+## Phase 2, Wave 1–2 (2026-11-22)
+- **New constraints break code the lane never runs.** Twice, a NOT NULL or insert guard broke `scale-bench.ts`: c31 (audit chain) and the c31+c35 combination. Every brief that adds a constraint now says "grep scripts and fixtures for raw inserts". The controller also checks the interaction across branches when two lanes touch the same table.
+- **Clocks.** Three reviews (c32, c35, c36) found app-clock vs DB-clock comparisons. Rule: expiry, revoke and consume compare in SQL with `now()`.
+- **Append-only needs all four guards.** UPDATE, DELETE, TRUNCATE, and the purge_demo exception, plus a test that clearDemo still works. c32, c35 and c36 each missed one.
+- **Fail closed beats enumerating.** c36's look-alike lists missed whole scripts. Refusing every IDN, with an explicit later path (P4a), was safer and simpler.
+- **"Self" rules need a real second person.** Producer ≠ verifier and decider ≠ requester only bite if the data has distinct humans. With a single admin and agent-raised requests, they are dormant (P3b, Q9). Make the gap visible rather than claiming the rule.
+- **Licences of research artefacts.** The MAST paper is CC BY-NC-ND. Keep names and ids with attribution, and write our own descriptions.
