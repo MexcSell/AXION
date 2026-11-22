@@ -28,8 +28,8 @@ export function EvidenceBlock({ ev, compact, asOf }: { ev: OrgEvidence; compact?
         <b>{L.label}</b>
         {picked ? <Chip hue={225} size="sm" title="The proposer picked this trigger as a reason for the change">picked</Chip> : <span className="dim" style={{ fontSize: 11 }}>not picked</span>}
         <Chip hue={t.supported ? 145 : 38} size="sm" title={t.supported ? 'The recorded counts back this trigger' : 'The recorded counts do not back this trigger'}>{t.supported ? 'backed by the counts' : 'not backed by the counts'}</Chip>
-        <span className="dim" style={{ fontSize: 11 }} data-scope={t.scope}>{SCOPE(t, ev.windowDays)}</span>
         <span className={'dim oa-rs-facts' + (compact ? ' inl' : '')} title={t.facts.map((f) => `${f.label}: ${f.value}`).join('\n')}>{t.facts.map((f) => `${f.label} ${f.value}`).join(' · ')}</span>
+        <span className="dim" style={{ fontSize: 11 }} data-scope={t.scope}>{SCOPE(t, ev.windowDays)}</span>
       </div>
     );
   };

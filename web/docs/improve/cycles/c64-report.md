@@ -102,3 +102,22 @@ Browser checks: `web/scripts/api-c64.mjs` (new), `api-improve.mjs`, `api-c11.mjs
 6. Evidence counts use all non-demo, non-deleted missions (the proposer is an administrator, who sees all), and the stored counts are readable by every signed-in user, like the rest of the proposal. They are counts and agent or role ids, no mission titles.
 7. The first full parallel vitest run hit the shared connection cap again (H14). The serial run is clean.
 8. The migration number 0048 leaves gaps in the sequence (0046, 0047 belong to other lanes); the migrate test passes.
+
+## Fix round (review rulings S1-S6)
+Test-first on 9c70ba8. RED = the new tests failed on the unfixed code (S1: 3 of 4 new churn tests failed, the flip-flop got 201 where 409 was required; S2-S4: 5 of 5 new tests failed; S6: both new guardrail tests failed). GREEN = same tests after the fix. Migration 0048 was extended in place (unmerged): `org_proposals.rollback_to int null`.
+
+- **S1, rollback exemption.** Only the undo of the last applied change is exempt: target = the revision just before the current one, and the current one was applied by a normal (non-rollback) proposal (`undoesLastChange` in proposals.ts, from `rollback_to`). Every other rollback (roll-forward, undo of an undo, older revision) follows the cooldown and the budget and still counts toward the window. Cooldown and budget are re-checked at approval (`ORG_COOLDOWN` 409 / `ORG_CHURN_BUDGET` 422); the exempt undo stays exempt there. Flip-flop test: after the first allowed undo, rolling forward is refused with `ORG_COOLDOWN`. Test tightened with a reason: "a rollback proposal is never held by the cooldown" rolled back two revisions (the flaw itself); it now rolls back to the previous revision and a second test shows the older target is held. `contracts/coverage.test.ts` set up its rollback the same way and now does an exempt undo of a proposal it made (plus a cooldown dry run), so every churn field is still filled.
+- **S2.** `failure_concentration` share is top-role tags over ALL confirmed tags in the window. Test: 1 attributed out of 10 is "not backed".
+- **S3.** `TriggerEvidence.scope` is `now` (load, coverage) or `window` (reassigns, failures); the UI labels each row "now" or "last 30 days". Reassign counts now join the task and mission and exclude demo, deleted and simulated work. Tests for both.
+- **S4.** `OrgEvidence.others` holds the unpicked triggers with their counts (`triggers` stays the picked ones); the UI shows all four, picked ones marked "picked", others "not picked". Test tightened with a reason: "no trigger picked" now also lists the four as `others`.
+- **S5.** The card and the dialog show "as of <time>" on the evidence and the churn status (stored proposals: creation time). `OrgChurn.exempt` marks the exempt undo; its card says "undo of the last change: not held by cooldown or budget" and no frozen "cooldown left".
+- **S6.** With both settings off the chip reads "budget and cooldown: not enforced" (one setting off: "budget: not enforced" or "cooldown: not enforced"). `ORG_MAX_ESCALATION_LEVELS=0` now means not enforced (the check's title says so); unset stays the default of 6. config.ts and `.env.example` say so. The level check covers only agents whose chain of managers the proposal changes, so an existing deep chain no longer blocks unrelated proposals. Help texts updated (evidence, contracts, churn, triggers). Dialog layout: unpicked rows are one line; the dialog still fits 1366x768 without an inner scroll.
+
+S7 stays in the backlog (not done).
+
+### Results after the fix round
+- tsc (server and web): clean.
+- Full vitest, serial (`--maxWorkers=1 --no-file-parallelism`) via heavy.sh: 79 files, 2415 tests passed, 0 failures (was 2405; +10 new tests). No parallel run was attempted this round, so no H14 names to record.
+- api-c64 ALL PASS (now 28 checks; four new fix-round checks), api-improve 108/108, api-c11 16/16, api-c20 ALL PASS, api-stage6 94/94 (ports 11292/11293).
+- Note on api-improve: it first failed "nothing invented" because the check's regex read a fact number followed by the next row's label "Coverage gap" across a line break. The test was not touched: the evidence rows now end with the scope text ("now" or "last 30 days"), not with a number. It then passed 108/108.
+- fit-check at 1366x768, api mode: the same 10 pre-existing `/agents/coder-01?tab=*` BAD lines as on base 07831cd (mainOver 48), nothing new.
