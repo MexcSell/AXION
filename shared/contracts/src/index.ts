@@ -18,3 +18,4 @@ export * from './dimensions.ts';
 export * from './api.ts';
 export * from './metric-guard.ts';
 export * from './metric-registry.ts';
+export * from './process.ts';
