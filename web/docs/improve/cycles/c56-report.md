@@ -47,3 +47,19 @@ Note on vector test shape: items 2 and 3 tests were written and run RED together
 - `psl.ts` reads the 340 KB file synchronously once at import (about 10 ms). It is only imported by origin.ts.
 - `.local`-style non-Internet TLDs listed in the PSL are still refused earlier by the reserved-name rule; the vectors for them are commented out upstream.
 - Wall-clock under load: the machine load average was 5-17 during the runs (270 users logged in); the full browser pass was slow, not flaky.
+
+## Fix round (review c56-review.md, controller rulings 1-4)
+Commits: efa4494 (ruling 1), the ruling 2 commit, 3dea62f (rulings 3 and 4), 46d2515 (null-safe lower-case in the vector test).
+
+| Ruling | RED | GREEN |
+|---|---|---|
+| 1 fail closed at load | new `psl-integrity.test.ts`: 6/6 failed (`parseSnapshot is not a function`) | `parseSnapshot(text, expectedSha256)` in psl.ts checks the manifest SHA-256, a floor of 8,000 rules and the sentinels `co.uk`, `github.io`, `*.ck`, `!www.ck`; throws otherwise, so import fails and the server will not start. 6/6: an empty file, a truncated file and a one-byte edit each throw; a self-consistent hash does not save an empty or truncated file; a missing sentinel throws. Import cost, measured with tsx (includes the TypeScript transform): 21-26 ms, hash adds about 1 ms |
+| 2 no loosening vs c36 | `grants-deny.test.ts`: all 36 removed entries run through `normaliseOrigin`; 2 failed (`amazonaws.com`, `glitch.me` accepted) | mechanical check: exactly those 2 of the 36 are not covered by the PSL. `EXTRA_REFUSED_HOSTS` in origin.ts ("multi-tenant hosts refused in addition to the PSL") refuses them as `public_suffix`; 39/39, each of the 36 is pinned; subdomains of them stay accepted (one exact origin) |
+| 3 THIRD_PARTY_NOTICES.md | n/a (document) | repo root: PSL (MPL-2.0, source, version, commit, unmodified, path) and the vectors (CC0-1.0, source, path) |
+| 4 upper-case vectors | `[A-Z]` exclusion removed: `https://example.COM` and `https://WwW.example.COM` failed (expectation compared with the un-lowered input) | the expected origin is lower-cased, as the normaliser does; 143/143, all vectors including upper-case go through `normaliseOrigin` |
+
+Re-run results
+- server `tsc --noEmit`: clean.
+- Full vitest via heavy.sh: 74 files, 2,326 tests. The shared database server hit "too many connections for role axion" on every full run (other lanes; load average 11-22, 270 users): run 1 77 failed, run 2 131 failed, run 3 (`--maxWorkers=2`) 31 failed, all in DB-backed files unrelated to this cycle (agents, jobs, missions, playbooks, seed, task-reviews, and others) with "too many connections" or the follow-on "Cannot read properties of undefined (close)". Re-running only the failed files with `--no-file-parallelism` left 2 files, and `jobs.test.ts` (76/76) and `task-reviews.test.ts` then passed alone. Every file passed at least once after the last code change; no single full run was green. New and touched files (psl-integrity 6, grants-deny 39, psl 30 incl. snapshot, psl-vectors 143, origin, site-grants) pass in every run. Honest status: full suite not green in one run because of database connection exhaustion by other lanes.
+- api-c36: 35/35, no page errors. api-c56: 14/14, no page errors (one heavy.sh run, E2E ports 10592/10593, both ports free afterwards).
+- Load average at the api run: 9.9 (13.9 five-minute).
