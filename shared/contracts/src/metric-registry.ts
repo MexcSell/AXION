@@ -25,7 +25,7 @@ export const QUALITY_DIMENSION_IDS = Object.keys(QUALITY_DIMENSIONS) as QualityD
 export type CounterMetric = { ref: string; why: string } | { none: string };
 export interface MetricMeta {
   id: string;
-  kind: 'scorecard' | 'dimension' | 'kpi';
+  kind: 'scorecard' | 'dimension' | 'kpi' | 'process';
   label: string;
   inputs: readonly InputFieldId[];
   /** required when `inputs` is empty: why a row reads no stored field */
@@ -41,6 +41,8 @@ const S = (key: string, label: string, inputs: InputFieldId[], counter: CounterM
 const D = (key: string, label: string, inputs: InputFieldId[], counter: CounterMetric, covers: QualityDimension[], uncovered: QualityDimension[], inputsNote?: string): MetricMeta =>
   ({ id: `dimension.${key}`, kind: 'dimension', label, inputs, counter, covers, uncovered, ...(inputsNote ? { inputsNote } : {}) });
 const K = (key: string, label: string, inputs: InputFieldId[], counter: CounterMetric, covers: QualityDimension[], uncovered: QualityDimension[]): MetricMeta => ({ id: `kpi.${key}`, kind: 'kpi', label, inputs, counter, covers, uncovered });
+const P = (key: string, label: string, inputs: InputFieldId[], counter: CounterMetric, covers: QualityDimension[], uncovered: QualityDimension[], inputsNote?: string): MetricMeta =>
+  ({ id: `process.${key}`, kind: 'process', label, inputs, counter, covers, uncovered, ...(inputsNote ? { inputsNote } : {}) });
 const via = (ref: string, why: string): CounterMetric => ({ ref, why });
 
 export const METRICS: readonly MetricMeta[] = [
@@ -83,6 +85,15 @@ export const METRICS: readonly MetricMeta[] = [
   D('evolutionary.rollbacks', 'Agent versions rolled back', ['audit_events.agent_rollback'], { none: 'a rollback is itself the counter-signal to promotions; nothing stored would rise if rollbacks were avoided' }, ['durability'], ['correctness', 'completeness', 'cost']),
   D('evolutionary.verdict_outcomes', 'Evaluation verdicts', ['eval_runs.results', 'agent_version_proposals.status'], via('dimension.evolutionary.rollbacks', 'proposals that win their evaluation but do badly later raise this and then the rollbacks'), ['correctness'], ['durability', 'user_value', 'cost']),
   D('evolutionary.org_revisions', 'Org revisions applied', ['org_revisions.lines', 'agent_definitions.catalog'], { none: 'a count of structural changes an administrator approved; more or fewer is neither better nor worse, and no stored number tracks their effect yet' }, [], ['correctness', 'completeness', 'timeliness', 'cost']),
+
+  // ---- process metrics next to the outcomes (c69, R3-5)
+  P('rework_rate', 'Returned for rework', ['task_reviews.review', 'failure_tags.mode', 'failure_tags.status', 'tasks.status', 'tasks.owner'], via('scorecard.failure_rate', 'accepting weak work to avoid returns lowers the rework rate and raises failures later'), ['correctness'], ['timeliness', 'safety', 'user_value', 'cost']),
+  P('first_pass_acceptance', 'Accepted first time', ['task_reviews.review', 'tasks.owner'], via('scorecard.tasks_verified_by_review', 'accepting a first review without a real check raises this but not independently accepted reviews with evidence'), ['correctness'], ['independence', 'timeliness', 'durability', 'cost']),
+  P('duplicate_delegation', 'Duplicate delegations', ['delegation_briefs.brief'], { none: 'rewording a goal hides a repeat, and no stored number tracks repeated work apart from the brief text; only a person reading the briefs can' }, [], ['correctness', 'completeness', 'timeliness', 'cost']),
+  P('reassign_churn', 'Reassign churn', ['tasks.owner', 'task_owner_history.owner'], via('scorecard.median_cycle_time_h', 'leaving a task with its first owner instead of handing it over lengthens the cycle'), [], ['correctness', 'completeness', 'timeliness', 'cost']),
+  P('handoff_wait_h', 'Wait on a hand-off', ['mission_delegations.delegated_edge', 'task_attempts.times'], via('scorecard.task_recovery_rate', 'starting an attempt early to end the wait raises the number of retried tasks'), ['timeliness'], ['correctness', 'completeness', 'safety', 'cost']),
+  P('approval_decision_h', 'Wait for an approval decision', [], { none: 'not measured in this version, so there is no number to game; once it is, a short wait can mean quick care or rubber-stamping and only the human audit sample can tell' }, ['timeliness'], ['correctness', 'safety', 'independence', 'cost'], 'not measured in this version: the stored decision time is not in this build'),
+  P('cost', 'Cost', [], { none: 'cost is not measured until Stage 9 (the usage ledger), so there is no number to game yet' }, ['cost'], ['correctness', 'completeness', 'timeliness'], 'no source exists until Stage 9'),
 ];
 
 export const METRIC_BY_ID: ReadonlyMap<string, MetricMeta> = new Map(METRICS.map((m) => [m.id, m]));

@@ -81,10 +81,10 @@ export function siteProblems(found: Set<string>, declared: Set<string>, sites: R
   return out;
 }
 
-/** Tables the three company loaders read, as written in their SQL (`from x` / `join x`). */
+/** Tables the company loaders read (c69: and the process loader), as written in their SQL (`from x` / `join x`). */
 export function loaderTables(): string[] {
   const t = new Set<string>();
-  for (const f of files().filter((x) => ['company/routes.ts', 'company/dimensions-routes.ts', 'company/departments.ts'].includes(x.rel)))
+  for (const f of files().filter((x) => ['company/routes.ts', 'company/dimensions-routes.ts', 'company/departments.ts', 'company/process-routes.ts'].includes(x.rel)))
     for (const m of f.text.matchAll(/\b(?:from|join)\s+([a-z_]+)\b/g)) t.add(m[1]);
   return [...t].sort();
 }

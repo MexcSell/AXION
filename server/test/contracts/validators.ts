@@ -357,7 +357,7 @@ const metricAuditState: V<MetricAuditState> = obj<MetricAuditState>({
   n: int, disagreements: int, metricOver: int, auditOver: int, divergence: nullable(num), bar: num, minN: int, state: oneOf(['none', 'ok'] as const), flagged: bool, lastAuditedAt: nullable(iso),
 });
 const metricGuardRow: V<MetricGuardRow> = obj<MetricGuardRow>({
-  id: str, kind: oneOf(['scorecard', 'dimension', 'kpi'] as const), label: str,
+  id: str, kind: oneOf(['scorecard', 'dimension', 'kpi', 'process'] as const), label: str,
   counter: either(obj<Extract<MetricGuard['counter'], { kind: 'metric' }>>({ kind: lit('metric' as const), ref: str, refLabel: str, why: str }), obj<Extract<MetricGuard['counter'], { kind: 'none' }>>({ kind: lit('none' as const), reason: str })),
   uncovered: arr(obj<MetricGuard['uncovered'][number]>({ id: oneOf(QUALITY_DIMENSION_IDS), label: str })),
   gameable: bool, gameableText: str, inputs: arr(obj<MetricGuard['inputs'][number]>({ id: str, what: str })), audit: metricAuditState,
