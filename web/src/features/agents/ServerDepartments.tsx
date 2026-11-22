@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Building2, Plus, AlertTriangle, Crown, Briefcase, CheckCircle2, XCircle, RotateCcw, GitCommitHorizontal, Loader, Hourglass } from 'lucide-react';
+import { Layers, Building2, Plus, AlertTriangle, Crown, Briefcase, CheckCircle2, XCircle, RotateCcw, GitCommitHorizontal, Loader, Hourglass } from 'lucide-react';
 import { DEPT_MIN_SAMPLE, type DepartmentFacts, type ScorecardWindow } from '@contracts';
 import { Panel } from '@/components/ui/Panel';
 import { Segmented, Switch } from '@/components/ui/Form';
@@ -43,6 +43,7 @@ export function ServerDepartments() {
       actions={<div className="row dpa-actions" data-departments={shown ? 'ready' : error ? 'error' : 'loading'} data-window={win} data-demo={demo ? '1' : '0'}>
         <AnimatePresence>{demo && <motion.span key="demo" initial={{ opacity: 0, scale: .8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: .8 }}><DemoTag title="DEMO missions and simulated tasks are included in these counts" /></motion.span>}</AnimatePresence>
         <label className="row sc-demo"><span>include DEMO</span><Switch checked={demo} onChange={setDemo} label="Include DEMO missions" /></label>
+        <button className="btn sm" data-six-dimensions onClick={() => openDialog('six-dimensions')}><Layers size={14} />Six dimensions</button>
         <Segmented size="sm" ariaLabel="Outcome window" value={win} onChange={setWin} options={(['7d', '30d', '90d'] as const).map((k) => ({ key: k, label: k, title: WINDOW_LABEL[k] }))} />
         {canEdit && <button className="btn primary" onClick={() => openDialog('department-create')}><Plus size={15} />New department</button>}
       </div>}>

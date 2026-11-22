@@ -1,0 +1,19 @@
+/* Improvement cycle 46: Six dimensions dialog (DL-98). No gauges, no total: rows of independent cells. */
+.dim-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.dim-bar .select { height: 32px; min-width: 170px; }
+.dim-bar .dim-ctl { display: inline-flex; align-items: center; gap: 4px; }
+.dim-rows { display: flex; flex-direction: column; gap: 6px; }
+.dim-row { display: grid; grid-template-columns: 148px minmax(0, 1fr); gap: 10px; align-items: stretch; padding: 6px 8px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); }
+.dim-name { display: flex; align-items: center; gap: 7px; font-weight: 700; font-size: 13.5px; }
+.dim-name .dim-ico { color: var(--accent-2); flex: none; }
+.dim-cells { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; min-width: 0; }
+.dim-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; height: 62px; padding: 5px 8px; border-radius: 9px; background: var(--panel-3, var(--panel)); outline: none; overflow: hidden; }
+.dim-cell:hover, .dim-cell:focus-visible { box-shadow: 0 0 0 1.5px var(--accent-2); }
+.dim-cl { font-size: 10.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dim-cv { display: flex; align-items: baseline; gap: 6px; font-size: 19px; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.dim-cv small { white-space: nowrap; font-size: 11px; font-weight: 600; color: var(--text-muted); }
+.dim-cell.none .dim-cv { font-size: 11.5px; font-weight: 600; color: var(--text-muted); line-height: 1.2; white-space: normal; }
+.dim-cm { font-size: 10.5px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dim-tr { font-size: 11px; font-weight: 700; color: var(--text); }
+.dim-note { font-size: 11px; margin-top: 6px; }
+@media (max-width: 720px) { .dim-row { grid-template-columns: 1fr; } }
