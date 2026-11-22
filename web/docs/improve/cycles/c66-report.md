@@ -114,10 +114,49 @@ web/docs/screenshots/improve-c66-*.png (4), this report
 
 ## Concerns
 1. **The flag is a statement about code paths, not behaviour.** No route lets a client name an agent and agents do not execute, so today nothing agent-written exists. The flags will change when Stage 7 adds an executor and its write sites. The inventory test is what forces that update, but it works at table level.
-2. **The minimum audit size (60) is lower than the sample size at which the 95% claim holds (about 100).** A row can be evaluated, and flagged or not, on a sample where the flag is weaker than the stated threshold. Raising the minimum is a one-line change the controller can decide.
-3. **`verified_success_rate` and its relatives are flagged gameable through `mission_delegations.edge`.** The "verified" rule needs a real `verifies` delegation, and the instance service takes an agent identity, so the flag is accurate to the code, although today only the simulator and the reassign route call it. Reading the flag as "an agent is gaming this" would be wrong.
+2. ~~The minimum audit size (60) was below the size at which the 95% claim holds.~~ Fixed in the fix round: the minimum is now 100.
+3. ~~`verified_success_rate` and its relatives are flagged gameable through `mission_delegations.edge`.~~ **Wrong, corrected in the fix round:** the instance service writes only `delegated` edges, and the verified rule reads `verifies` edges, which no agent-reachable code writes. The flag was an over-flag from table-level granularity. The field is now split by edge kind and those three rows are not gameable.
 4. **DEMO-only KPI tiles** (Operations, Agents pages, and the demo Overview) show invented numbers. They have no registry row and no guard (listed in the test as an explicit exclusion). Department facts (`/departments`) are counts with n and window, not scorecard or dimension rows, and are not covered; flag if the controller wants them.
 5. **Existing popover behaviour.** Escape closes a tooltip before a popover, and clicking another trigger does not dismiss an open popover (the help popovers behave the same, so I did not change shared behaviour). The new check closes popovers through their close button.
 6. **Counter-metrics are my reading of the data, not a measured relation.** Each says what would rise if the number were gamed; none was tested against real gaming. A reviewer should read the 33 sentences.
 7. **Migration 0050** adds a table with no demo link, so the demo purge neither reads nor removes labels; it carries the standard four guards anyway (UPDATE, DELETE, TRUNCATE, purge exception). If c60's "every column mapped" OTel test is in the integration tree, `metric_audit_labels` needs a row in the mapping table at merge time (this base has no such test).
 8. The audit labels are binary (the metric counted it / the person agrees). A richer rubric, and a periodic reminder to audit, are not built.
+
+## Fix round (review: CLEAR AFTER FIXES)
+
+Base `138b201`. One commit per item. Each item was test-first (RED on 138b201, then GREEN).
+Commits: 0bdf12f S1, 40ce588 S2, 13bbcb6 S3, 0937eed minors, and the report commit that follows.
+
+| Item | Result | RED then GREEN |
+|---|---|---|
+| S1 scan holes | DONE | RED: the reviewer's probe strings, `insert into public.task_reviews` first (`expected [] to deeply equal [ StringMatching ]`), then templated names, and `scanCallers is not a function`. GREEN 13/13 in `c66-writability.test.ts`. The scan now reads `insert into`, `update [only]`, `delete from [only]`, `merge into`, `truncate [table] [only]` and `copy`, on a bare, schema-qualified or quoted table, over several lines. A templated name (`${...}`) is reported as `file\|${templated}` and fails unless declared. A caller scan compares the importers of 16 exported write helpers (`insertDelegation`, `insertInstance`, `joinMission`, `setInstanceState`, `attachSimBrief`, `proposeLesson`, `createTag`, `decideTag`, `recordReview`, `createBrief`, `requestApproval`, `consumeApproval`, `settleMission`, `createOrgRevision`, `switchVersion`, `addVersion`) with `HELPER_CALLERS`. RED proof: a fake new caller of `insertDelegation`, a stale caller and an unknown helper are each reported. |
+| S2 headline over-flag | DONE | RED: the snapshot still listed `kpi.success.api`, `scorecard.completed_unverified` and `scorecard.verified_success_rate`. `mission_delegations.edge` is split into `delegated_edge` (written by the agent-reachable `joinMission`, with a gate note) and `verifies_edge` (no agent-reachable writer). GREEN: those three rows are not gameable, **11 of 33 rows are gameable** (was 14), pinned in the snapshot and by an explicit count. |
+| S3 minimum 100 | DONE | RED: `expected 60 to be 100` (3 tests). `AUDIT_BAR` and `AUDIT_MIN_N` moved to the shared contracts, so the help text reads the constants. Tests, the coverage flow (100 labels, 20 disagreeing) and api-c66 (100 labels, 22%) updated. |
+| Minors | DONE | RED: `expected ... to contain 'task reviews'`. The popover says no agent executes today and who enters the labels (and that the metric label is typed, so a flag is only as good as the sampling); plain words replace function names; the compact guard has a 24 px hit area under `(pointer: coarse), (max-width: 720px)` through negative margins (api-c66 measures 24x24 with the row still 18 px at 390 px); the help notes that the demo-only tiles and `/departments` facts are not covered. api-c66 is now 26/26. |
+
+### Remaining limits of the writability scan (also in the test header)
+Literal SQL in `server/src` only: SQL in scripts or migrations is not seen. Triggers and foreign-key cascades are not seen (checked by hand: no trigger writes an input table; `DELETE /missions/:id` and `clearDemo` cascade, both human or system). The scan is at table level, so a new column written by an agent site on a declared table is invisible. The caller scan covers helpers by name and by import, not what a caller passes as an argument. Which kinds reach a site is typed by hand in `WRITE_SITES` and checked against the code by review, so threshold (b) re-derives those typed kinds and is close to a tautology.
+
+### Trial rates after the change (minimum audit size 100)
+At n = 100 and 5% auditor error the rates are the same as before, because the seeds and model are unchanged: seed 660001: 20% gamed fires **97.8%**, 0% gamed fires **0.1%**; fresh seed 9900001: **98.9%** and **0.0%**. Threshold (c) is PASS at every size the flag can now be evaluated at, with 5% auditor error (100: 97.8 / 0.1, 200: 99.7 / 0.0). It is still not met at 100 samples with no auditor noise (92.3%) and the 10% auditor-error false-alarm rate at 100 samples is 8.2%. Still circular. Full grid, seed 660001, 1,000 trials per cell (the two n = 60 rows were measured with the old minimum of 60; the flag no longer evaluates below 100):
+
+| sample n | auditor error | 20% gamed fires | 0% gamed fires | note |
+|---|---|---|---|---|
+| 30 | any | n/a | n/a | below the minimum |
+| 60 | 0% | 87.6% | 0.0% | now below the minimum (measured before the change) |
+| 60 | 5% | 94.8% | 0.2% | now below the minimum (measured before the change) |
+| 60 | 10% | 98.2% | 14.7% | now below the minimum (measured before the change) |
+| 100 | 0% | 92.3% | 0.0% | |
+| 100 | 5% | 97.8% | 0.1% | |
+| 100 | 10% | 99.5% | 8.2% | |
+| 200 | 0% | 97.4% | 0.0% | |
+| 200 | 5% | 99.7% | 0.0% | |
+| 200 | 10% | 100.0% | 2.0% | |
+
+### Re-run results
+- tsc: server and web clean.
+- Full vitest via heavy.sh at default workers (concurrent with the browser checks, load high): 79 files, 2175 tests, **2 failed**, both in `test/seed.test.ts` with `too many connections for role "axion"` (the shared 45-connection cap): `demo seed > runs automatically when the first admin registers (DEMO_SEED)` and `demo clear after a decision > removes demo missions even when one of their approvals was decided (append-only decisions cascade)` (the second also `Called end on pool more than once`, a consequence of the first). Serial fallback (`--maxWorkers=1 --no-file-parallelism`) on that file: 3/3 passed. So 2173 passed first time, the other 2 on the serial rerun, and no failure is a c66 test.
+- api-c66 26/26, api-c46 36/36, api-stage6 94/94 (heavy.sh api-e2e.sh, ports 11492/11493, db axion_e2e9).
+- api-mobile: "NO FAILURES". Its SMALL-target notes are informational (the compact guard no longer appears among them).
+- fit-check 1366x768: ALL FIT. a11y api: 41 views, 64 dialogs, 0 violations.
+- Dev server on 11490 stopped; ports 11490-11493 are free.
