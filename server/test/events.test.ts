@@ -136,10 +136,10 @@ describe('event log', () => {
     let release!: () => void;
     const held = new Promise<void>((r) => { release = r; });
     let firstId = 0;
-    const t1 = tx(s.pool, async (c) => { firstId = Number((await appendEvent(c, { tenantId: 't-1', type: 'x.one', subject: { kind: 'test', id: '1' } })).id); await held; });
+    const t1 = tx(s.pool, async (c) => { firstId = Number((await appendEvent(c, { tenantId: 't-1', type: 'x.one' as never, subject: { kind: 'test', id: '1' } })).id); await held; });
     await new Promise((r) => setTimeout(r, 100));
     let secondDone = false;
-    const t2 = tx(s.pool, async (c) => appendEvent(c, { tenantId: 't-1', type: 'x.two', subject: { kind: 'test', id: '2' } })).then((e) => { secondDone = true; return e; });
+    const t2 = tx(s.pool, async (c) => appendEvent(c, { tenantId: 't-1', type: 'x.two' as never, subject: { kind: 'test', id: '2' } })).then((e) => { secondDone = true; return e; });
     await new Promise((r) => setTimeout(r, 200));
     expect(secondDone).toBe(false);
     release();
