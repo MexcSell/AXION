@@ -124,7 +124,10 @@ describe('the default export (content off)', () => {
   it('failure tags and attributions are span events on the tagged subject; both views and the kinds are there, no person id is', () => {
     const t1 = spans.find((s) => attr(s, 'axion.task.id') === 'T-1')!;
     expect(t1.events.map((e) => e.name)).toEqual(['axion.failure_tag', 'axion.failure_attribution', 'axion.failure_attribution']);
-    expect(t1.events.filter((e) => e.name === 'axion.failure_attribution').map((e) => [attr(e, 'axion.failure.attributed_agent_id'), attr(e, 'axion.failure.attributed_step_ref')])).toEqual([['dev', 'step-2'], ['gm', undefined]]);
+    // the attributor's text is content: only pointers by default (the text itself is checked in the S1 tests and with content on)
+    expect(t1.events.filter((e) => e.name === 'axion.failure_attribution').map((e) => [attr(e, 'axion.failure.attributed_agent_id_ref'), attr(e, 'axion.failure.attributed_step_ref_ref'), attr(e, 'axion.failure.attributed_agent_id')])).toEqual([['axion://failure_attributions/FA-1#agent_id', 'axion://failure_attributions/FA-1#step_ref', undefined], ['axion://failure_attributions/FA-2#agent_id', undefined, undefined]]);
+    const incEv = spansOf(buildOtlp(fixture(), { includeContent: true })).find((s) => attr(s, 'axion.task.id') === 'T-1')!.events.filter((e) => e.name === 'axion.failure_attribution');
+    expect(incEv.map((e) => [attr(e, 'axion.failure.attributed_agent_id'), attr(e, 'axion.failure.attributed_step_ref')])).toEqual([['dev', 'step-2'], ['gm', undefined]]);
     expect(spans.find((s) => attr(s, 'axion.attempt.id') === '11')!.events).toHaveLength(1);
     expect(spans.find((s) => s.name === 'axion.mission')!.events.map((e) => attr(e, 'axion.failure.mode_id'))).toEqual(['FM-3.1']);
     expect(text).not.toMatch(/u-secret-person|u-other-person/);
@@ -241,7 +244,7 @@ describe('from stored records (database) to a file', () => {
     expect(JSON.stringify(doc)).not.toMatch(/SENTINEL|Other mission/);
     expect(spansOf(doc).some((s) => attr(s, 'axion.task.id') === 'T-E2')).toBe(false);
     const ev = spansOf(doc).find((s) => attr(s, 'axion.task.id') === 'T-E1')!.events.find((e) => e.name === 'axion.failure_attribution')!;
-    expect(attr(ev, 'axion.failure.attributed_agent_id')).toBe('gm'); expect(attr(ev, 'axion.failure.full_trace_available')).toBe(true);
+    expect(attr(ev, 'axion.failure.attributed_agent_id')).toBeUndefined(); expect(attr(ev, 'axion.failure.attributed_agent_id_ref')).toMatch(/^axion:\/\/failure_attributions\/.+#agent_id$/); expect(attr(ev, 'axion.failure.full_trace_available')).toBe(true);
   });
   it('an unknown mission, another tenant\'s mission and a deleted mission are refused', async () => {
     await expect(loadMissionRecords(t.app.db, 't-1', 'M-NOPE')).rejects.toThrow(/No such mission/);
@@ -268,5 +271,68 @@ describe('from stored records (database) to a file', () => {
     expect(parseExportArgs(['M-1', '--include-content', '--out', 'x.json', '--tenant', 't-2', '--force'])).toMatchObject({ includeContent: true, out: 'x.json', tenant: 't-2', force: true });
     expect(() => parseExportArgs([])).toThrow(/mission id/);
     expect(() => parseExportArgs(['M-1', '--endpoint', 'http://x'])).toThrow(/Unknown option/);
+  });
+});
+
+// Fix round, ruling S1: no free text or caller-supplied text in the default export. A secret-shaped sentinel is planted in EVERY source field
+// that holds text a person, an agent or a tool supplied; the default export must not contain it anywhere in the serialized JSON.
+describe('S1: sentinel secrets in every free-text source field never reach the default export', () => {
+  const SEC = 'sk-TESTSENTINEL';
+  const planted = (): MissionRecords => {
+    const r = fixture();
+    r.instances[1].agent_name = `${SEC}-agent name=1`; r.instances[0].task_label = `${SEC}-label`;
+    r.tasks[0].owner_agent = `${SEC}-owner`; r.tasks[0].title = `${SEC}-title`; r.tasks[0].criteria = [{ text: `${SEC}-crit` }];
+    r.attempts[0].evidence_ref = `${SEC}-evidence`;
+    r.attributions[0].agent_id = `${SEC}-attr-agent`; r.attributions[0].step_ref = `${SEC}-attr-step`; r.attributions[1].agent_id = `${SEC}-agent-2`;
+    r.tags[0].note = `${SEC}-note`;
+    r.evalResults[0].case_id = `${SEC}-case`; r.evalResults[0].dataset_id = `${SEC}-dataset`; r.evalResults[0].judge_model_family = `${SEC}-judge`;
+    r.evalResults[0].trace = { steps: [
+      { kind: 'tool', name: `${SEC}-tool password=hunter2`, input: `${SEC}-in`, output: `${SEC}-out`, error: `${SEC}_err` },
+      { kind: 'tool', name: `${SEC}-tool2`, error: `${SEC}-err2` },
+      { kind: 'tool', name: 'x'.repeat(200), error: 'timeout' },
+      { kind: 'plan', input: `${SEC}-plan`, error: `${SEC}-plan-err` },
+    ] };
+    return r;
+  };
+  it('the default export contains no sentinel anywhere, and still validates', () => {
+    const doc = buildOtlp(planted());
+    expect(JSON.stringify(doc)).not.toContain('TESTSENTINEL');
+    expect(JSON.stringify(doc)).not.toMatch(/hunter2/);
+    expect(validateOtlp(doc, { includeContent: false })).toEqual([]);
+  });
+  it('tool names that are not a plain identifier become _OTHER (span name and gen_ai.tool.name); error.type is only from a fixed vocabulary', () => {
+    const spans = spansOf(buildOtlp(planted()));
+    const tools = spans.filter((s) => attr(s, 'gen_ai.operation.name') === 'execute_tool');
+    expect(tools.map((s) => s.name)).toEqual(['execute_tool _OTHER', 'execute_tool _OTHER', 'execute_tool _OTHER']);
+    expect(tools.map((s) => attr(s, 'gen_ai.tool.name'))).toEqual(['_OTHER', '_OTHER', '_OTHER']);
+    expect(tools.map((s) => attr(s, 'error.type'))).toEqual(['_OTHER', '_OTHER', 'timeout']);
+    expect(attr(spans.find((s) => s.name === 'plan Developer' || s.name === 'plan _OTHER')!, 'error.type')).toBe('_OTHER');
+  });
+  it('a long or odd tool name is capped by the character class; a plain name is kept', () => {
+    const r = fixture(); r.evalResults[0].trace = { steps: [{ kind: 'tool', name: 'web_search.v2' }, { kind: 'tool', name: 'a b' }, { kind: 'tool', name: 'a'.repeat(65) }] };
+    expect(spansOf(buildOtlp(r)).filter((s) => s.name.startsWith('execute_tool')).map((s) => s.name)).toEqual(['execute_tool web_search.v2', 'execute_tool _OTHER', 'execute_tool _OTHER']);
+  });
+  it('attribution agent/step, owner agent and evidence ref are content: _ref pointers by default, the text only with content on', () => {
+    const doc = buildOtlp(planted());
+    const t1 = spansOf(doc).find((s) => attr(s, 'axion.task.id') === 'T-1')!;
+    expect(attr(t1, 'axion.task.owner_agent')).toBeUndefined();
+    expect(attr(t1, 'axion.task.owner_agent_ref')).toBe('axion://tasks/T-1#owner_agent');
+    expect(attr(spansOf(doc).find((s) => attr(s, 'axion.attempt.id') === '11')!, 'axion.attempt.evidence_ref_ref')).toBe('axion://task_attempts/11#evidence_ref');
+    const ev = t1.events.filter((e) => e.name === 'axion.failure_attribution');
+    expect(attr(ev[0], 'axion.failure.attributed_agent_id_ref')).toBe('axion://failure_attributions/FA-1#agent_id');
+    expect(attr(ev[0], 'axion.failure.attributed_step_ref_ref')).toBe('axion://failure_attributions/FA-1#step_ref');
+    expect(attr(ev[1], 'axion.failure.attributed_step_ref_ref')).toBeUndefined(); // no step on that entry
+    const inc = buildOtlp(planted(), { includeContent: true });
+    const text = JSON.stringify(inc);
+    for (const s of ['-owner', '-evidence', '-attr-agent', '-attr-step', '-tool password=hunter2']) expect(text, s).toContain(SEC + s);
+    expect(validateOtlp(inc, { includeContent: true })).toEqual([]);
+  });
+  it('validateOtlp rejects each content attribute in a default export', () => {
+    for (const key of ['axion.task.owner_agent', 'axion.attempt.evidence_ref', 'axion.failure.attributed_agent_id', 'axion.failure.attributed_step_ref', 'axion.step.tool_name', 'axion.agent.name_raw']) {
+      expect(CONTENT_ATTRIBUTES.has(key), key).toBe(true);
+      const d = JSON.parse(JSON.stringify(buildOtlp(fixture()))) as OtlpDoc;
+      spansOf(d)[0].attributes.push({ key, value: { stringValue: 'x' } });
+      expect(validateOtlp(d, { includeContent: false }).join('\n'), key).toMatch(new RegExp(`content attribute ${key.replace(/\./g, '\\.')}`));
+    }
   });
 });

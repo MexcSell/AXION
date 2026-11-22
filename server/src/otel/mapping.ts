@@ -39,7 +39,7 @@ export const FIELD_MAP: Record<string, FieldEntry> = {
   'tasks.run_id': e(ax('axion.task.run_id'), 'No equivalent for a mission run.'),
   'tasks.title': e(ax('axion.task.title_ref'), 'Text a person wrote: content. Pointer by default.', text('axion.task.title')),
   'tasks.status': e(sp('status'), 'failed becomes span status ERROR with error.type "task_failed"; every other status is only in axion.task.status. The error message is never exported.'),
-  'tasks.owner_agent': e(ax('axion.task.owner_agent'), 'A free-text owner label. The span name uses the name of the owner instance\'s agent definition when there is one.'),
+  'tasks.owner_agent': e(ax('axion.task.owner_agent_ref'), 'A free-text owner label: content. Pointer by default. The span name uses the (sanitised) name of the owner instance\'s agent definition when there is one.', text('axion.task.owner_agent')),
   'tasks.created_at': e(sp('start_time'), 'Start time of the task span.'),
   'tasks.owner_instance_id': e(sp('parent'), 'The task span is a child of the span of the owning agent instance; without an owner it is a child of the mission span.'),
   'tasks.weight': e(ax('axion.task.weight'), 'No equivalent: the spec has no notion of a weighted task.'),
@@ -58,7 +58,7 @@ export const FIELD_MAP: Record<string, FieldEntry> = {
   'task_attempts.started_at': e(sp('start_time'), 'Start time of the attempt span (the task\'s start when the attempt has none yet).'),
   'task_attempts.finished_at': e(sp('end_time'), 'End time of the attempt span.'),
   'task_attempts.result': e(sp('status'), 'failed becomes span status ERROR with error.type "attempt_failed"; the value is also in axion.attempt.result.'),
-  'task_attempts.evidence_ref': e(ax('axion.attempt.evidence_ref'), 'Already a pointer in AXION, so it is exported as is (a pointer, not content).'),
+  'task_attempts.evidence_ref': e(ax('axion.attempt.evidence_ref_ref'), 'Caller-supplied text (AXION does not check that it is a pointer): content. Pointer to the field by default.', text('axion.attempt.evidence_ref')),
 
   // ---- agent instances: one `invoke_agent` span per instance, child of the mission span
   'agent_instances.seq': e(none, internal),
@@ -66,7 +66,7 @@ export const FIELD_MAP: Record<string, FieldEntry> = {
   'agent_instances.tenant_id': e(none, internal),
   'agent_instances.mission_id': e(gen('gen_ai.conversation.id'), 'See tasks.mission_id.'),
   'agent_instances.run_id': e(ax('axion.instance.run_id'), 'No equivalent for a mission run.'),
-  'agent_instances.agent_id': e(ax('axion.agent.id'), 'The pinned gen_ai.agent.id belongs to the create-agent and client invoke-agent spans, not to the internal invoke_agent span AXION emits, so the extension attribute is used. The agent\'s name is exported as gen_ai.agent.name.'),
+  'agent_instances.agent_id': e(ax('axion.agent.id'), 'The pinned gen_ai.agent.id belongs to the create-agent and client invoke-agent spans, not to the internal invoke_agent span AXION emits, so the extension attribute is used. The agent\'s name is exported as gen_ai.agent.name, sanitised: only letters, digits, spaces and . _ : - (at most 64 characters, not shaped like a key) pass, otherwise "_OTHER"; the raw name is axion.agent.name_raw only with --include-content.'),
   'agent_instances.agent_version_id': e(ax('axion.agent.version_id'), 'Same reason: gen_ai.agent.version is not on the internal invoke_agent span.'),
   'agent_instances.manager_instance_id': e(sp('parent'), 'The span of a managed instance could be a child of its manager\'s; AXION keeps all instances under the mission span and records the manager in axion.instance.manager_id.'),
   'agent_instances.state': e(ax('axion.instance.state'), 'No equivalent.'),
@@ -90,26 +90,26 @@ export const FIELD_MAP: Record<string, FieldEntry> = {
   // ---- evaluation runs and results (traces): one `invoke_agent` span per result, children per trace step
   'eval_runs.id': e(ax('axion.eval.run_id'), 'No equivalent for an evaluation run.'),
   'eval_runs.tenant_id': e(none, internal),
-  'eval_runs.dataset_id': e(ax('axion.eval.dataset_id'), 'No equivalent for an evaluation dataset.'),
+  'eval_runs.dataset_id': e(ax('axion.eval.dataset_id'), 'No equivalent for an evaluation dataset. Only a plain identifier is exported (otherwise "_OTHER").'),
   'eval_runs.subject_version_id': e(ax('axion.agent.version_id'), 'The agent version under evaluation. It also decides which evaluation results belong to a mission: those whose subject version is pinned by one of the mission\'s agent instances.'),
   'eval_runs.subject_proposal_id': e(ax('axion.eval.subject_proposal_id'), 'A run evaluates either a version or a version proposal (exactly one). Results of proposal runs have no pinned version, so they are not linked to a mission and are not exported.'),
-  'eval_runs.judge_model_family': e(ax('axion.eval.judge_model_family'), 'A family label of the judge, not a model name; gen_ai.request.model is not used because no model call is recorded.'),
+  'eval_runs.judge_model_family': e(ax('axion.eval.judge_model_family'), 'A family label of the judge (plain identifier only, otherwise "_OTHER"), not a model name; gen_ai.request.model is not used because no model call is recorded.'),
   'eval_runs.evaluator_id': e(none, 'A person\'s or agent\'s identity is not exported.'),
   'eval_runs.k': e(ax('axion.eval.k'), 'No equivalent.'),
   'eval_runs.started_at': e(none, 'A run has no span of its own; the span of a result starts at the result\'s recorded time.'),
   'eval_runs.finished_at': e(none, 'A run has no span of its own.'),
   'eval_results.run_id': e(ax('axion.eval.run_id'), 'See eval_runs.id.'),
-  'eval_results.case_id': e(ax('axion.eval.case_id'), 'No equivalent.'),
+  'eval_results.case_id': e(ax('axion.eval.case_id'), 'No equivalent. Written by a dataset author, so only a plain identifier is exported (otherwise "_OTHER").'),
   'eval_results.attempt': e(ax('axion.eval.attempt'), 'No equivalent.'),
   'eval_results.score': e(ax('axion.eval.score'), 'The spec has no score for an agent result.'),
   'eval_results.cost_units': e(ax('axion.eval.cost_units'), 'AXION cost units are not tokens; gen_ai.usage.* attributes are not used so that nothing implies a token count.'),
   'eval_results.trace': e(sp('event'), 'Each step of trace.steps[] becomes a child span; see the step rows below. Steps with an unknown kind are counted in axion.export.unmapped_steps on the result span, never dropped silently.'),
   'eval_results.recorded_at': e(sp('start_time'), 'Start time of the result span when a step has no time of its own.'),
   'eval_results.trace.steps[].kind': e(sp('name'), '"tool" becomes an execute_tool span, "plan" a plan span; any other value is not mapped.'),
-  'eval_results.trace.steps[].name': e(gen('gen_ai.tool.name'), 'The tool name of an execute_tool span (Required by the spec; a tool step without a name is counted as unmapped). Not used for a plan step.'),
+  'eval_results.trace.steps[].name': e(gen('gen_ai.tool.name'), 'The tool name of an execute_tool span (Required by the spec; a tool step without a name is counted as unmapped). Not used for a plan step. The name is untrusted text: only a plain identifier (a letter, then letters, digits, "_" or ".", at most 48 characters, and not shaped like a key or token) is exported, in the span name and in gen_ai.tool.name; anything else becomes "_OTHER". The raw name is axion.step.tool_name only with --include-content (pointer axion.step.tool_name_ref by default).', { refKey: 'axion.step.tool_name_ref', inlineKey: 'axion.step.tool_name' }),
   'eval_results.trace.steps[].input': e(ax('axion.step.input_ref'), 'Content. Opt-In in the spec, and the spec has no _ref form for tool arguments, so the pointer uses AXION\'s axion.step.input_ref and the text uses gen_ai.tool.call.arguments (tool steps) or axion.step.input (plan steps) only with --include-content.', { refKey: 'axion.step.input_ref', inlineKey: 'gen_ai.tool.call.arguments' }),
   'eval_results.trace.steps[].output': e(ax('axion.step.output_ref'), 'Content. Opt-In in the spec; same pointer rule as input (gen_ai.tool.call.result with --include-content for tool steps, axion.step.output for plan steps).', { refKey: 'axion.step.output_ref', inlineKey: 'gen_ai.tool.call.result' }),
-  'eval_results.trace.steps[].error': e(gen('error.type'), 'A short error class (letters, digits and . _ : -, at most 64 characters) becomes error.type; anything else becomes "_OTHER". The message text is content: axion.step.error_ref by default.', { refKey: 'axion.step.error_ref', inlineKey: 'axion.step.error' }),
+  'eval_results.trace.steps[].error': e(gen('error.type'), 'error.type comes from a fixed vocabulary only (timeout, rate_limit, not_found, permission_denied, invalid_input, unavailable, cancelled, internal_error); any other value becomes "_OTHER", the OpenTelemetry convention for an unknown value. The message text is content: axion.step.error_ref by default.', { refKey: 'axion.step.error_ref', inlineKey: 'axion.step.error' }),
   'eval_results.trace.steps[].startMs': e(sp('start_time'), 'Milliseconds since the epoch; optional.'),
   'eval_results.trace.steps[].endMs': e(sp('end_time'), 'Milliseconds since the epoch; optional.'),
 
@@ -133,8 +133,8 @@ export const FIELD_MAP: Record<string, FieldEntry> = {
   'failure_attributions.tenant_id': e(none, internal),
   'failure_attributions.tag_id': e(ax('axion.failure.tag_id'), 'Links the attribution event to its tag event.'),
   'failure_attributions.mission_id': e(gen('gen_ai.conversation.id'), 'See tasks.mission_id.'),
-  'failure_attributions.agent_id': e(ax('axion.failure.attributed_agent_id'), 'A claim about which agent the failure came from. Not gen_ai.agent.id: that names the agent of the span, and this is somebody\'s claim.'),
-  'failure_attributions.step_ref': e(ax('axion.failure.attributed_step_ref'), 'A claim about which step. A free-text reference, not checked against stored traces.'),
+  'failure_attributions.agent_id': e(ax('axion.failure.attributed_agent_id_ref'), 'A claim about which agent the failure came from, free text written by the attributor: content. Pointer by default. Not gen_ai.agent.id: that names the agent of the span, and this is somebody\'s claim.', text('axion.failure.attributed_agent_id')),
+  'failure_attributions.step_ref': e(ax('axion.failure.attributed_step_ref_ref'), 'A claim about which step. A free-text reference, not checked against stored traces: content. Pointer by default.', text('axion.failure.attributed_step_ref')),
   'failure_attributions.full_trace_available': e(ax('axion.failure.full_trace_available'), 'The attributor\'s claim that the whole trace exists for checking.'),
   'failure_attributions.attributed_by': e(none, 'A person\'s identity is not exported; only the kind is.'),
   'failure_attributions.attributed_by_kind': e(ax('axion.failure.attributed_by_kind'), 'No equivalent.'),
@@ -151,7 +151,7 @@ const targetText = (t: Target): string =>
 export const STRUCTURAL_AXION_ATTRIBUTES = [
   'axion.mission.id', 'axion.task.status', 'axion.attempt.result', 'axion.instance.manager_id', 'axion.export.unmapped_steps',
   'axion.export.include_content', 'axion.export.semconv_repository', 'axion.export.semconv_tag', 'axion.export.semconv_commit', 'axion.export.semconv_status',
-  'axion.step.input', 'axion.step.output', // the inline text of a plan step (a tool step uses the spec's gen_ai.tool.call.* attributes), only with --include-content
+  'axion.agent.name_raw', 'axion.step.input', 'axion.step.output', // the inline text of a plan step (a tool step uses the spec's gen_ai.tool.call.* attributes), only with --include-content
 ] as const;
 
 /** The text of web/docs/improve/phase2/otel-mapping.md. Run `npx tsx src/otel/write-mapping-doc.ts` after editing the table. */
@@ -185,7 +185,7 @@ export function renderMappingMarkdown(): string {
     L.push('');
   }
   const n = Object.keys(FIELD_MAP).length, none_ = Object.values(FIELD_MAP).filter((f) => f.to.kind === 'none').length, g_ = Object.values(FIELD_MAP).filter((f) => f.to.kind === 'gen_ai').length;
-  L.push('## Attributes that belong to no column', '', 'These describe the export itself (resource attributes, with the pinned version) a relation between spans, or the inline text of a plan step (with --include-content): ' + STRUCTURAL_AXION_ATTRIBUTES.map((a) => `\`${a}\``).join(', ') + '.', '');
+  L.push('## Attributes that belong to no column', '', 'These describe the export itself (resource attributes, with the pinned version) a relation between spans, or the inline text of a plan step or the raw agent name (with --include-content): ' + STRUCTURAL_AXION_ATTRIBUTES.map((a) => `\`${a}\``).join(', ') + '.', '');
   L.push('## Counts', '', `${n} AXION fields listed; ${g_} map to a pinned GenAI attribute; ${none_} have no equivalent and are not exported; the rest map to a span property or an \`axion.*\` extension attribute.`, '');
   return L.join('\n');
 }

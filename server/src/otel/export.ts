@@ -54,7 +54,14 @@ const toAttrs = (a: Attrs): OtlpAttr[] => [...a.entries()].sort(([x], [y]) => (x
 const num = (x: unknown): number | null => { if (x === null || x === undefined || x === '') return null; const n = Number(x); return Number.isFinite(n) ? n : null; };
 const asText = (x: unknown) => (typeof x === 'string' ? x : JSON.stringify(x));
 const present = (x: unknown) => x !== null && x !== undefined && x !== '' && !(Array.isArray(x) && x.length === 0);
-const ERROR_CLASS = /^[A-Za-z0-9_.:-]{1,64}$/;
+/** error.type values AXION will write from a stored error: a fixed vocabulary; anything else is "_OTHER" (the OpenTelemetry convention for an unknown value). */
+export const ERROR_TYPES: ReadonlySet<string> = new Set(['timeout', 'rate_limit', 'not_found', 'permission_denied', 'invalid_input', 'unavailable', 'cancelled', 'internal_error']);
+const SECRET_SHAPE = /^(sk|pk|rk)[-_.]|^(ghp|gho|ghs|xox[a-z]|AKIA|eyJ)/i; // defence in depth; the character class is the real guard
+/** Untrusted text that must be a plain identifier to be exported (tool names, case ids...). Anything else is "_OTHER". */
+const TOOL_NAME = /^[A-Za-z][A-Za-z0-9_.]{0,47}$/;
+const ident = (x: unknown, re: RegExp = /^[A-Za-z0-9][A-Za-z0-9_.:\/-]{0,63}$/): string => (typeof x === 'string' && re.test(x) && !SECRET_SHAPE.test(x) ? x : '_OTHER');
+const toolName = (x: string) => ident(x, TOOL_NAME);
+const agentName = (x: string) => ident(x, /^[A-Za-z0-9][A-Za-z0-9 _.:-]{0,63}$/);
 
 interface Node { key: string; parent: string | null; name: string; start: number; end: number | null; attrs: Attrs; events: { at: number; name: string; attrs: Attrs }[]; error: boolean; kids: Node[] }
 
@@ -78,10 +85,12 @@ export function buildOtlp(rec: MissionRecords, opts: ExportOptions = {}): OtlpDo
 
   const agentNameOf = new Map<string, string>(); // instance id -> agent name
   for (const i of rec.instances) {
-    const name = typeof i.agent_name === 'string' && i.agent_name.trim() ? i.agent_name.trim() : '';
+    const rawName = typeof i.agent_name === 'string' && i.agent_name.trim() ? i.agent_name.trim() : '';
+    const name = rawName ? agentName(rawName) : '';
     if (name) agentNameOf.set(i.id, name);
     const a: Attrs = new Map<string, string | number | boolean>([['gen_ai.operation.name', 'invoke_agent'], ['gen_ai.conversation.id', rec.missionId], ['axion.instance.id', i.id], ['axion.agent.id', i.agent_id], ['axion.agent.version_id', String(i.agent_version_id)], ['axion.instance.state', i.state], ['axion.simulated', !!i.simulated]]);
     if (name) a.set('gen_ai.agent.name', name);
+    if (inc && rawName && rawName !== name) a.set('axion.agent.name_raw', rawName);
     if (i.run_id !== null && i.run_id !== undefined) a.set('axion.instance.run_id', Number(i.run_id));
     if (i.manager_instance_id) a.set('axion.instance.manager_id', i.manager_instance_id);
     content(a, 'agent_instances.task_label', `axion://agent_instances/${i.id}#task_label`, i.task_label);
@@ -97,7 +106,7 @@ export function buildOtlp(rec: MissionRecords, opts: ExportOptions = {}): OtlpDo
     const a: Attrs = new Map<string, string | number | boolean>([['gen_ai.operation.name', 'invoke_agent'], ['gen_ai.conversation.id', rec.missionId], ['axion.task.id', t.id], ['axion.task.status', t.status], ['axion.task.weight', Number(t.weight ?? 1)], ['axion.task.evidence_count', Number(t.evidence ?? 0)], ['axion.simulated', !!t.simulated]]);
     if (agent) a.set('gen_ai.agent.name', agent);
     if (t.run_id !== null && t.run_id !== undefined) a.set('axion.task.run_id', Number(t.run_id));
-    if (t.owner_agent) a.set('axion.task.owner_agent', t.owner_agent);
+    content(a, 'tasks.owner_agent', `axion://tasks/${t.id}#owner_agent`, t.owner_agent);
     if (failed) a.set('error.type', 'task_failed');
     content(a, 'tasks.title', `axion://tasks/${t.id}#title`, t.title);
     content(a, 'tasks.criteria', `axion://tasks/${t.id}#criteria`, t.criteria);
@@ -110,7 +119,7 @@ export function buildOtlp(rec: MissionRecords, opts: ExportOptions = {}): OtlpDo
     const a: Attrs = new Map<string, string | number | boolean>([['gen_ai.operation.name', 'invoke_agent'], ['gen_ai.conversation.id', rec.missionId], ['axion.attempt.id', String(at.id)], ['axion.attempt.no', Number(at.attempt_no)]]);
     if (agent) a.set('gen_ai.agent.name', agent);
     if (at.result) a.set('axion.attempt.result', at.result);
-    if (at.evidence_ref) a.set('axion.attempt.evidence_ref', at.evidence_ref);
+    content(a, 'task_attempts.evidence_ref', `axion://task_attempts/${at.id}#evidence_ref`, at.evidence_ref);
     if (failed) a.set('error.type', 'attempt_failed');
     const start = ms(at.started_at) ?? task.start;
     add(`attempt:${at.id}`, task.key, agent ? `invoke_agent ${agent}` : 'invoke_agent', start, ms(at.finished_at), a, failed);
@@ -120,13 +129,14 @@ export function buildOtlp(rec: MissionRecords, opts: ExportOptions = {}): OtlpDo
     const inst = rec.instances.find((i) => String(i.agent_version_id) === String(r.subject_version_id));
     const parent = inst ? `instance:${inst.id}` : rootKey;
     const agent = inst ? nameSuffix(parent) : '';
+    const caseId = ident(r.case_id); // written by a dataset author: only a plain identifier leaves
     const rkey = `result:${r.run_id}/${r.case_id}/${r.attempt}`;
     const base = ms(r.recorded_at) ?? t0;
     const steps: unknown[] = Array.isArray(r.trace?.steps) ? r.trace.steps : [];
-    const a: Attrs = new Map<string, string | number | boolean>([['gen_ai.operation.name', 'invoke_agent'], ['gen_ai.conversation.id', rec.missionId], ['axion.eval.run_id', r.run_id], ['axion.eval.dataset_id', r.dataset_id], ['axion.eval.case_id', r.case_id], ['axion.eval.attempt', Number(r.attempt)], ['axion.agent.version_id', String(r.subject_version_id)]]);
+    const a: Attrs = new Map<string, string | number | boolean>([['gen_ai.operation.name', 'invoke_agent'], ['gen_ai.conversation.id', rec.missionId], ['axion.eval.run_id', r.run_id], ['axion.eval.dataset_id', ident(r.dataset_id)], ['axion.eval.case_id', caseId], ['axion.eval.attempt', Number(r.attempt)], ['axion.agent.version_id', String(r.subject_version_id)]]);
     if (agent) a.set('gen_ai.agent.name', agent);
     if (r.k !== null && r.k !== undefined) a.set('axion.eval.k', Number(r.k));
-    if (r.judge_model_family) a.set('axion.eval.judge_model_family', r.judge_model_family);
+    if (r.judge_model_family) a.set('axion.eval.judge_model_family', ident(r.judge_model_family));
     const score = num(r.score); if (score !== null) a.set('axion.eval.score', score);
     const cost = num(r.cost_units); if (cost !== null) a.set('axion.eval.cost_units', cost);
     add(rkey, parent, agent ? `invoke_agent ${agent}` : 'invoke_agent', base, null, a);
@@ -134,18 +144,20 @@ export function buildOtlp(rec: MissionRecords, opts: ExportOptions = {}): OtlpDo
     steps.forEach((raw, i) => {
       const s = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Row) : null;
       const kind = s?.kind;
-      const tool = kind === 'tool' && typeof s?.name === 'string' && s.name.trim() ? (s.name as string).trim() : '';
-      if (!s || (kind !== 'plan' && !tool)) { unmapped++; return; }
-      const ref = (f: string) => `axion://eval_results/${r.run_id}/${r.case_id}/${r.attempt}#steps/${i}/${f}`;
+      const rawTool = kind === 'tool' && typeof s?.name === 'string' && s.name.trim() ? (s.name as string).trim() : '';
+      if (!s || (kind !== 'plan' && !rawTool)) { unmapped++; return; }
+      const tool = rawTool ? toolName(rawTool) : '';
+      const ref = (f: string) => `axion://eval_results/${r.run_id}/${caseId}/${r.attempt}#steps/${i}/${f}`;
       const sa: Attrs = new Map<string, string | number | boolean>();
       if (kind === 'tool') { sa.set('gen_ai.operation.name', 'execute_tool'); sa.set('gen_ai.tool.name', tool); sa.set('gen_ai.conversation.id', rec.missionId); }
       else sa.set('gen_ai.operation.name', 'plan');
       if (agent) sa.set('gen_ai.agent.name', agent);
+      if (rawTool && tool !== rawTool) content(sa, 'eval_results.trace.steps[].name', ref('name'), rawTool);
       content(sa, 'eval_results.trace.steps[].input', ref('input'), s.input, kind === 'tool' ? undefined : 'axion.step.input');
       content(sa, 'eval_results.trace.steps[].output', ref('output'), s.output, kind === 'tool' ? undefined : 'axion.step.output');
       const hasError = present(s.error);
       if (hasError) {
-        sa.set('error.type', typeof s.error === 'string' && ERROR_CLASS.test(s.error) ? s.error : '_OTHER');
+        sa.set('error.type', typeof s.error === 'string' && ERROR_TYPES.has(s.error) ? s.error : '_OTHER');
         content(sa, 'eval_results.trace.steps[].error', ref('error'), s.error);
       }
       const st = typeof s.startMs === 'number' && Number.isFinite(s.startMs) ? s.startMs : base;
@@ -165,8 +177,8 @@ export function buildOtlp(rec: MissionRecords, opts: ExportOptions = {}): OtlpDo
     n.events.push({ at, name: 'axion.failure_tag', attrs: a });
     for (const x of rec.attributions.filter((y) => y.tag_id === g.id)) {
       const b: Attrs = new Map<string, string | number | boolean>([['axion.failure.attribution_id', x.id], ['axion.failure.tag_id', g.id], ['axion.failure.full_trace_available', !!x.full_trace_available], ['axion.failure.attributed_by_kind', x.attributed_by_kind]]);
-      if (x.agent_id) b.set('axion.failure.attributed_agent_id', x.agent_id);
-      if (x.step_ref) b.set('axion.failure.attributed_step_ref', x.step_ref);
+      content(b, 'failure_attributions.agent_id', `axion://failure_attributions/${x.id}#agent_id`, x.agent_id);
+      content(b, 'failure_attributions.step_ref', `axion://failure_attributions/${x.id}#step_ref`, x.step_ref);
       n.events.push({ at: ms(x.created_at) ?? at, name: 'axion.failure_attribution', attrs: b });
     }
   }
