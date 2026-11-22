@@ -93,9 +93,9 @@ async function reviewerOf(c: Tx | Db, ctx: ReviewCtx, who: Reviewer): Promise<Re
 }
 
 /** null when `reviewer` may review; otherwise the refusal. One rule for the route, the GET `canReview` and the recording. */
-export function independence(reviewer: ReviewActor, producer: ReviewActor, principalId: string, history: { rows: number; current?: boolean; actors: ReadonlySet<string> }): { code: ErrorCode; message: string } | null {
+export function independence(reviewer: ReviewActor, producer: ReviewActor, principalId: string, history: { rows: number; current: boolean; actors: ReadonlySet<string> }): { code: ErrorCode; message: string } | null {
   const prior = history.actors;
-  if (history.rows === 0 || history.current === false) return { code: NOT_INDEPENDENT, message: 'The owner history of this task is missing or does not end at its current owner, so it cannot be shown that the reviewer did not work on it. No review is accepted until the history exists.' };
+  if (history.rows === 0 || !history.current) return { code: NOT_INDEPENDENT, message: 'The owner history of this task is missing or does not end at its current owner, so it cannot be shown that the reviewer did not work on it. No review is accepted until the history exists.' };
   if (reviewer.kind === 'agent' && prior.has(reviewer.id)) return { code: NOT_INDEPENDENT, message: 'This agent worked on an earlier attempt of the task, so it cannot review it.' };
   if (reviewer.id === producer.id) return { code: NOT_INDEPENDENT, message: 'The one who produced the work cannot review it.' };
   if (reviewer.kind === 'user' && reviewer.id === principalId) return { code: NOT_INDEPENDENT, message: 'You commissioned this mission, so you cannot be the independent reviewer of its work. Ask someone else to review it.' };

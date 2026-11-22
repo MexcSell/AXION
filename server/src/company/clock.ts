@@ -1,0 +1,24 @@
+import type { Db, Tx } from '../db.ts';
+import type { ScorecardWindow } from '../../../shared/contracts/src/index.ts';
+import { windowOf } from './scorecard.ts';
+
+/**
+ * Improvement cycle 54 (H11): the one clock of a window read is the DATABASE's. `now()` is the start of the current
+ * transaction, so every SQL bound written as `<= now()` and the JS window ends this returns are the same instant.
+ *
+ * EDGE CONVENTION (one, explicit): a window is the closed interval [to - N days, to] in milliseconds; the previous equal
+ * window is [from - N days - 1 ms, from - 1 ms], so the two meet with no gap and no overlap. SQL only ever loads a SUPERSET
+ * (upper bound `<= now()`, lower bound `now() - interval`, never a JS Date: pg hands timestamptz back with millisecond
+ * precision, rows keep microseconds); the pure functions then place each row by its millisecond time against these dates.
+ */
+export const WINDOW_DAYS: Record<ScorecardWindow, number> = { '7d': 7, '30d': 30, '90d': 90 };
+
+/** The database clock (statement time inside a transaction: its start). Display and window maths only, never a SQL bound. */
+export async function dbNow(c: Db | Tx): Promise<Date> {
+  return new Date((await c.query(`select now() as now`)).rows[0].now);
+}
+
+/** `windowOf` with `to` = the database clock. */
+export async function dbWindow(c: Db | Tx, w: ScorecardWindow) {
+  return windowOf(w, await dbNow(c));
+}

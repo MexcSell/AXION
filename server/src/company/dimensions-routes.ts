@@ -8,7 +8,7 @@ import { VISIBLE_SQL } from '../missions/visibility.ts';
 import { DIMENSION_WINDOWS, FAILURE_TAXONOMY_VERSION } from '../../../shared/contracts/src/index.ts';
 import { computeDimensions, type DimInput } from './dimensions.ts';
 import { loadDeptRows } from './departments.ts';
-import { windowOf } from './scorecard.ts';
+import { dbWindow } from './clock.ts';
 
 const QueryIn = z.object({ window: z.enum(DIMENSION_WINDOWS as unknown as [string, ...string[]]).default('30d'), department: z.string().trim().min(1).max(80).optional() }).strict();
 
@@ -32,9 +32,7 @@ export default async function dimensionRoutes(app: FastifyInstance) {
       // one snapshot for every read: REPEATABLE READ (the first statement of the transaction), one database clock
       await c.query('set transaction isolation level repeatable read read only');
       // one clock for the whole read: the database's (expiry and window ends are compared against it, never the app clock)
-      const to = new Date((await c.query(`select now() as now`)).rows[0].now);
-      const w = windowOf(qs.window as '7d' | '30d' | '90d', to);
-      const prevFrom = new Date(w.from.getTime() - (w.to.getTime() - w.from.getTime()) - 1);
+      const w = await dbWindow(c, qs.window as '7d' | '30d' | '90d');
       // SQL time bounds come from SQL: pg hands timestamptz back as a JS Date (milliseconds), so a row written in the same millisecond as
       // this read's now() has created_at above the Date and would be dropped by `<= $to`. Upper bound: `<= now()` (the same transaction
       // clock). Lower bound: `now() - interval`, 2 ms wider than the JS window start (the pure function filters rows by the JS dates; the SQL bound only has to load a superset).

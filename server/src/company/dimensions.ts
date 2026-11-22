@@ -1,5 +1,5 @@
 import { DIMENSION_KEYS, DIMENSION_LABEL, stallCheck, FAILURE_MODE_IDS, type CompanyDimensionsDto, type DimensionCell, type DimensionKey, type DimensionRowDto, type DimensionWindow, type ProgressBody } from '../../../shared/contracts/src/index.ts';
-import { MIN_N, trendOf, windowOf } from './scorecard.ts';
+import { MIN_N, trendOf } from './scorecard.ts';
 import { outcomesOf, type DeptRows } from './departments.ts';
 
 /**
@@ -291,5 +291,4 @@ export function computeDimensions(input: DimInput, opt: { window: DimensionWindo
   return { window: opt.window, from: iso(opt.from), to: iso(opt.to), previousFrom: iso(pFrom), previousTo: iso(pTo), department: opt.department, departments, dimensions };
 }
 
-export { windowOf };
 export const DIMENSION_DAY = DAY;

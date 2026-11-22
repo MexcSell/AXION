@@ -5,7 +5,7 @@ import { requireUser } from '../auth/session.ts';
 import { parse } from '../auth/routes.ts';
 import { idempotent } from '../idempotency.ts';
 import { SCORECARD_WINDOWS } from '../../../shared/contracts/src/index.ts';
-import { windowOf } from '../company/scorecard.ts';
+import { dbWindow } from '../company/clock.ts';
 import { FAILURE_SUBJECT_KINDS } from './taxonomy.ts';
 import { createTag, decideTag, tagsOfSubject, failureModeCounts } from './service.ts';
 
@@ -49,6 +49,6 @@ export default async function failureRoutes(app: FastifyInstance) {
   app.get('/company/failure-modes', async (req) => {
     const ctx = await requireUser(req);
     const q = parse(CountsIn, req.query ?? {});
-    return failureModeCounts(app.db, ctx, windowOf(q.window), q.includeDemo === '1');
+    return tx(app.db, async (c) => failureModeCounts(c, ctx, await dbWindow(c, q.window), q.includeDemo === '1'));
   });
 }
