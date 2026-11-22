@@ -260,7 +260,7 @@ export function PlaybookPanel() {
             {decided.slice(0, 4).map((l) => (
               <li key={l.id} className="row dim" style={{ gap: 8, fontSize: 12, listStyle: 'none', padding: '2px 4px' }} data-lesson={l.id} data-status={l.status}>
                 {l.status === 'accepted' ? <CheckCircle2 size={14} style={{ color: 'var(--good)' }} aria-label="accepted" /> : <XCircle size={14} aria-label={l.status} />}
-                <span className="ellipsis" style={{ flex: 1, minWidth: 0 }}>{l.text}</span><span>{l.status}{l.decidedByName ? ` by ${l.decidedByName}` : ''}{l.acceptedInVersion ? ` · v${l.acceptedInVersion}` : ''}{l.withdrawnInVersion ? ` · withdrawn in v${l.withdrawnInVersion}` : ''}</span>
+                <span className="ellipsis" style={{ flex: 1, minWidth: 0 }}>{l.text}</span><span>{l.status}{l.decidedByName ? ` by ${l.decidedByName}` : ''}{l.acceptedInVersion ? ` · v${l.acceptedInVersion}` : ''}{l.withdrawnInVersion ? (l.inPlaybook ? ` · withdrawn in v${l.withdrawnInVersion}, restored: in the playbook again` : ` · withdrawn in v${l.withdrawnInVersion}`) : ''}</span>
               </li>))}
           </AnimatePresence></ol>)}
         {!loading && view === 'history' && pb.data && (pb.data.versions.length === 0

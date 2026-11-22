@@ -457,7 +457,8 @@ describe('what members may read: admin-only notes and hidden private sources', (
       const mission = first.sources[0];
       if (admin) expect(mission).toMatchObject({ kind: 'mission', id: 'M-9300', note: 'customer Acme complained' });
       else { expect(mission).toMatchObject({ kind: 'mission', hidden: true, id: '' }); expect(mission.note).toBeUndefined(); }
-      expect(first.sources[1]).toMatchObject({ kind: 'review', id: 'REV-9' }); // an unverified typed id is not a private reference
+      if (admin) expect(first.sources[1]).toMatchObject({ kind: 'review', id: 'REV-9', verified: false });
+      else expect(first.sources[1]).toMatchObject({ kind: 'review', hidden: true, id: '' });
       const d = (await who.req('GET', `/agents/${agent}/playbook/diff?from=0&to=1`)).body.diff;
       expect(JSON.stringify(d).includes('M-9300')).toBe(admin);
       const v = (await who.req('GET', `/agents/${agent}/playbook/versions/1`)).body.playbook;
@@ -490,6 +491,107 @@ describe('rollback and the decider rule', () => {
     const ok = await A.req('POST', `/agents/${agent}/playbook/rollback`, { toVersion: 2, baseVersion: 3, why: 'bring it back' });
     expect(ok.status).toBe(200);
     expect(ok.body.playbook.items.map((i: any) => i.lessonId)).toEqual([l1, l2]);
+  });
+});
+
+describe('fix round 2: invisible characters, member source view, direct proposals, events', () => {
+  const PROBES: [string, string][] = [['U+034F', '͏'], ['U+115F', 'ᅟ'], ['U+1160', 'ᅠ'], ['U+3164', 'ㅤ'], ['U+FFA0', 'ﾠ'], ['U+17B4', '឴'], ['U+17B5', '឵'],
+    ['U+180B', '᠋'], ['U+180C', '᠌'], ['U+180D', '᠍'], ['U+180E', '᠎'], ['U+180F', '᠏'], ['U+FE00', '︀'], ['U+FE0F', '️'], ['U+E0100', '\u{E0100}'], ['U+E01EF', '\u{E01EF}'], ['U+2060', '⁠'], ['U+00AD', '­']];
+  it.each(PROBES)('%s (default-ignorable) is refused in lesson text, skill name, step text and source note', async (_n, ch) => {
+    const text = 'Dep' + ch + 'loy carefully';
+    expect((await propose(A, 'coder-01', text)).status).toBe(400);
+    const sk = (over: Record<string, unknown>) => A.req('POST', '/skills', { name: 'Hidden ' + n++, description: 'd', steps: [{ kind: 'note', detail: 'x' }], preconditions: [], sources: SRC, ...over }, key());
+    expect((await sk({ name: text })).status).toBe(400);
+    expect((await sk({ steps: [{ kind: 'note', detail: text }] })).status).toBe(400);
+    expect((await A.req('POST', '/agents/coder-01/lessons', { text: 'Fine text', sources: [{ kind: 'review', id: 'R-1', note: text }] }, key())).status).toBe(400);
+  });
+  it('an ordinary accented letter, a combining accent after a base letter and CJK are still fine', async () => {
+    expect((await propose(A, 'coder-01', 'Zahlungsübersicht, café and 日本語 are fine ' + n++)).status).toBe(201);
+  });
+
+  it('members see only kind + "hidden" for every source kind and never a note; administrators and the proposer see their data', async () => {
+    const agent = 'knowledge-01';
+    const kinds = ['mission', 'task', 'review', 'failure_tag', 'note'] as const;
+    await q(`insert into missions(id,tenant_id,owner_id,shared,status) values ('M-9400','t-1',$1,true,'running')`, [aId]);
+    await q(`insert into mission_revisions(mission_id,revision,title,kind,priority,text,created_by) values ('M-9400',1,'S','general','normal','x',$1)`, [aId]);
+    await q(`insert into tasks(id,tenant_id,mission_id,title) values ('T-9400','t-1','M-9400','t')`);
+    const ids: Record<string, string> = { mission: 'M-9400', task: 'T-9400', review: 'REV-77', failure_tag: 'flaky-77', note: 'note-77' };
+    const sources = kinds.map((k) => ({ kind: k, id: ids[k], note: `secret note about ${k}` }));
+    const lid = await lessonId(A, agent, 'Keep a changelog for every release.', { sources });
+    expect((await accept(B, lid, agent)).status).toBe(200);
+    const sk = await A.req('POST', '/skills', { name: 'Release notes', description: 'd', steps: [{ kind: 'note', detail: 'Write them' }], preconditions: [], sources }, key());
+    expect(sk.status).toBe(201);
+    expect((await B.req('POST', `/skills/${sk.body.skill.id}/approve`, {})).status).toBe(200);
+    const views = async (who: Browser) => {
+      const r = (await who.req('GET', `/agents/${agent}/playbook`)).body.playbook.items[0].sources;
+      const d = (await who.req('GET', `/agents/${agent}/playbook/diff?from=0&to=1`)).body.diff.added[0].sources;
+      const v = (await who.req('GET', `/agents/${agent}/playbook/versions/1`)).body.playbook.items[0].sources;
+      const c = (await who.req('GET', `/lessons/${lid}`)).body.lesson.sources;
+      const k = (await who.req('GET', `/skills/${sk.body.skill.id}`)).body.skill.sources;
+      const l = (await who.req('GET', '/skills')).body.skills.find((x: any) => x.id === sk.body.skill.id).sources;
+      return { r, d, v, c, k, l };
+    };
+    for (const who of [M, K]) {
+      const all = await views(who);
+      for (const [name, srcs] of Object.entries(all)) {
+        expect(srcs.map((x: any) => x.kind), name).toEqual(kinds);
+        for (const x of srcs) { expect(x.hidden, name + x.kind).toBe(true); expect(x.id, name + x.kind).toBe(''); expect(x.note, name + x.kind).toBeUndefined(); }
+        expect(JSON.stringify(srcs)).not.toMatch(/secret note|REV-77|flaky-77|note-77|M-9400|T-9400/);
+      }
+    }
+    for (const who of [A, B]) {
+      const all = await views(who);
+      for (const [name, srcs] of Object.entries(all)) for (const x of srcs) { expect(x.hidden, name).toBeUndefined(); expect(x.id).toBe(ids[x.kind]); expect(x.note).toBe(`secret note about ${x.kind}`); expect(x.verified).toBe(x.kind === 'mission' || x.kind === 'task'); }
+    }
+    // the proposer keeps seeing the row she wrote (candidate and her own skill draft), and only that
+    const mine = await lessonId(M, agent, 'Tag the release commit.', { sources: [{ kind: 'review', id: 'REV-M', note: 'my own note' }] });
+    expect((await M.req('GET', `/lessons/${mine}`)).body.lesson.sources[0]).toMatchObject({ id: 'REV-M', note: 'my own note' });
+    expect((await B.req('GET', `/lessons/${mine}`)).body.lesson.sources[0]).toMatchObject({ id: 'REV-M', note: 'my own note' });
+  });
+
+  it('an unknown task and a task of a mission the person cannot see give the identical 404 (same message)', async () => {
+    await q(`insert into missions(id,tenant_id,owner_id,shared,status) values ('M-9500','t-1',$1,false,'running')`, [aId]);
+    await q(`insert into mission_revisions(mission_id,revision,title,kind,priority,text,created_by) values ('M-9500',1,'P','general','normal','x',$1)`, [aId]);
+    await q(`insert into tasks(id,tenant_id,mission_id,title) values ('T-9500','t-1','M-9500','t')`);
+    const a = await M.req('POST', '/agents/coder-01/lessons', { text: 'Unknown task ' + n++, sources: [{ kind: 'task', id: 'T-none' }] }, key());
+    const b = await M.req('POST', '/agents/coder-01/lessons', { text: 'Hidden task ' + n++, sources: [{ kind: 'task', id: 'T-9500' }] }, key());
+    expect([a.status, b.status]).toEqual([404, 404]);
+    expect(b.body.message).toBe(a.body.message);
+  });
+
+  it('proposeLesson validates NFC and the charset itself (a direct caller cannot bypass the route schema)', async () => {
+    const call = (text: string, sources: SourceRef[] = SRC) => tx(t.app.db, (c) => proposeLesson(c, { tenantId: 't-1', agentId: 'coder-01', proposedBy: 'tester-01', kind: 'agent', submittedBy: aId, text, sources, correlationId: 'c41-direct' }));
+    for (const bad of ['use `ls`', 'a < b', 'zero​width', 'hiddenㅤfiller', 'link https://evil.example', '']) await expect(call(bad), JSON.stringify(bad)).rejects.toMatchObject({ status: 400 });
+    await expect(call('fine', [{ kind: 'note', id: 'n', note: 'bad `note`' }])).rejects.toMatchObject({ status: 400 });
+    await expect(call('fine', [{ kind: 'note', id: 'bad id!' }])).rejects.toMatchObject({ status: 400 });
+    const id = await call('  Café   direct   proposal ' + n++);
+    expect((await q('select text from lesson_candidates where id=$1', [id]))[0].text.startsWith('Café direct proposal')).toBe(true); // squashed and NFC
+  });
+
+  it('a lesson restored by a later rollback says so: status stays superseded (once-only trigger), the list reports inPlaybook', async () => {
+    const agent = 'designer-01';
+    const l1 = await lessonId(A, agent, 'Use the design tokens for colours.');
+    expect((await accept(B, l1, agent)).status).toBe(200);
+    const l2 = await lessonId(A, agent, 'Name every layer in the file.');
+    expect((await accept(B, l2, agent)).status).toBe(200); // v2
+    expect((await A.req('POST', `/agents/${agent}/playbook/rollback`, { toVersion: 1, baseVersion: 2, why: 'x' })).status).toBe(200); // v3 removes l2
+    const gone = (await A.req('GET', `/lessons/${l2}`)).body.lesson;
+    expect([gone.status, gone.withdrawnInVersion, gone.inPlaybook]).toEqual(['superseded', 3, false]);
+    expect((await B.req('POST', `/agents/${agent}/playbook/rollback`, { toVersion: 2, baseVersion: 3, why: 'back' })).status).toBe(200); // v4 restores l2 (B did not propose it)
+    const back = (await A.req('GET', `/lessons/${l2}`)).body.lesson;
+    expect([back.status, back.inPlaybook]).toEqual(['superseded', true]);
+    expect((await A.req('GET', `/lessons/${l1}`)).body.lesson.inPlaybook).toBe(true);
+  });
+
+  it('lesson and skill proposal events go to administrators and the proposer only (audience user), never to everyone', async () => {
+    const l = await lessonId(M, 'writer-01', 'Mia event audience check ' + n++);
+    const ev = (await q(`select audience, audience_user from events where type='playbook.lessonProposed' and payload->>'lessonId'=$1`, [l]))[0];
+    expect(ev).toEqual({ audience: 'user', audience_user: mId });
+    const sk = await M.req('POST', '/skills', { name: 'Event audience ' + n++, description: 'd', steps: [{ kind: 'note', detail: 'x' }], preconditions: [], sources: SRC }, key());
+    const e2 = (await q(`select audience, audience_user from events where type='skill.proposed' and payload->>'skillId'=$1`, [sk.body.skill.id]))[0];
+    expect(e2).toEqual({ audience: 'user', audience_user: mId });
+    const agentL = await tx(t.app.db, (c) => proposeLesson(c, { tenantId: 't-1', agentId: 'writer-01', proposedBy: 'tester-01', kind: 'agent', submittedBy: aId, text: 'Agent event check ' + n++, sources: SRC, correlationId: 'c41-ev' }));
+    expect((await q(`select audience, audience_user from events where type='playbook.lessonProposed' and payload->>'lessonId'=$1`, [agentL]))[0]).toEqual({ audience: 'user', audience_user: aId });
   });
 });
 

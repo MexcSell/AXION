@@ -20,7 +20,7 @@ export const DEMO_VERSIONS: PlaybookVersionRow[] = [3, 2, 1].map((v) => ({ versi
 const cand = (id: string, agentId: string, agentName: string, text: string, extra: Partial<LessonCandidateDto> = {}): LessonCandidateDto => ({
   id, agentId, agentName, role: 'dev', text, sources: [src('failure_tag', 'flaky-selector')], proposedBy: 'demo', proposedByName: 'DEMO proposer', proposedByKind: 'human', submittedBy: null,
   status: 'proposed', sha256: 'e'.repeat(64), reviewBy: null, createdAt: '2026-11-21T09:00:00.000Z', decidedBy: null, decidedByName: null, decidedAt: null, decisionNote: null, overrideNote: null,
-  acceptedInVersion: null, withdrawnInVersion: null, conflicts: [], canDecide: false, cannotDecideWhy: 'DEMO samples are read only. Playbooks are stored on the server.', ...extra,
+  acceptedInVersion: null, withdrawnInVersion: null, inPlaybook: false, conflicts: [], canDecide: false, cannotDecideWhy: 'DEMO samples are read only. Playbooks are stored on the server.', ...extra,
 });
 export const DEMO_LESSONS = (agentId: string, agentName: string): LessonCandidateDto[] => [
   cand('LC-DEMO-A', agentId, agentName, 'Prefer role-based locators over CSS selectors in browser checks.', { proposedByKind: 'agent', proposedByName: 'Tester-01' }),

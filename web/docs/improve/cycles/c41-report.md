@@ -126,3 +126,22 @@ Tests for each item were written before the code in this round, but the new test
    - dialog smoke 60 × 2, 0 failures; help keys and dialog ids OK.
    - verify-all was not re-run as a whole (only fit-check, check-help, check-dialogs, dialog-smoke and a11y).
    - Every browser run went through heavy.sh. No new screenshots were taken in this round.
+
+## Fix round 2 (re-review c41-rereview.md, NOT CLEAR on two Important items)
+**RED first.** The new tests were added and run against the code of fix round 1: `playbooks.test.ts` gave 21 failed, 55 passed (76). Failures: 16 hidden-character probes (U+034F, 115F, 1160, 3164, FFA0, 17B4, 17B5, 180B, 180C, 180D, 180F, FE00, FE0F, E0100, E01EF; U+180E, 2060 and 00AD were already refused), the member source view, the identical 404 message, the direct `proposeLesson` call, the restored-lesson label and the event audience. The pre-existing member test was also changed to expect hidden typed ids and failed too.
+
+**Fixes (GREEN)**
+1. The charset also refuses `\p{Default_Ignorable_Code_Point}` (lessons, skill name, description, steps, preconditions, source notes). Accented letters, combining accents after a base letter and CJK still pass (tested).
+2. For members `shapeSource` returns the kind only (`hidden: true`, empty id, no note) on every kind, in items, diffs, version reads, candidates and skills. Administrators, and the proposer on her own candidate or skill, see the full row. Tested for a note on each of the five kinds, for members, administrators and the proposer, across the six read routes. The UI shows a member only "source hidden" chips (they no longer see the "unverified" chip; administrators do).
+3. Minors:
+   - `checkSources`: an unknown task and a task of an unseen mission give the same 404 message (tested).
+   - `proposeLesson` validates text (squash, NFC, charset, hidden characters) and sources (ids, notes) itself; the direct-call test refuses backtick, `<`, zero-width, Hangul filler, a link, empty text, a bad note and a bad id, and stores NFC.
+   - Restored lessons: I did not touch the trigger. The smaller change is read-side: the candidate DTO has `inPlaybook`, computed from the current playbook. The status stays `superseded` (the trigger stays once-only), and the list says "withdrawn in vN, restored: in the playbook again" when `inPlaybook` is true.
+   - `playbook.lessonProposed` and `skill.proposed` now use audience `user` with the proposer (or whoever filed an agent's proposal) as audience user, so they reach administrators plus that person only (tested on the events table).
+
+**Counts after the fixes**
+- Server tsc and web tsc: clean.
+- Full vitest: 39 files, 682 tests passed (was 658).
+- api-flows 23/23; api-c41 45/45 (one check changed: C now sees only "source hidden", no id).
+- api-stage6, a11y, fit-check and verify-all were not re-run in this round: only server logic, one DTO field, a chip label and a result label changed in the web code, and the controller asked for server tsc, vitest, api-c41 and api-flows.
+- Browser runs went through heavy.sh.

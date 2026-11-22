@@ -41,8 +41,10 @@ const realDate = (d: string) => !Number.isNaN(Date.parse(d + 'T00:00:00Z')) && n
 /** Plain text: squashed, NFC, letters/marks/digits/space and common punctuation only (no backtick < > { } $ \\ | ~ ^, no control or zero-width characters), no links. */
 const BAD_CHARS = /[^\p{L}\p{M}\p{N} .,;:!?'"()\-_/&%+=@#*[\]]/u;
 const URLISH = /:\/\/|\bwww\./i;
+/** Default-ignorable code points (fillers, variation selectors, joiners, tag characters...) are letters or marks to Unicode but invisible to a reader: refused. */
+const HIDDEN = /\p{Default_Ignorable_Code_Point}/u;
 const plain = (min: number, max: number) => z.string().transform((x) => squash(x).normalize('NFC'))
-  .pipe(z.string().min(min).max(max).refine((x) => !BAD_CHARS.test(x) && !URLISH.test(x), 'Plain text only: letters, digits and common punctuation. No links, code characters or hidden characters.'));
+  .pipe(z.string().min(min).max(max).refine((x) => !BAD_CHARS.test(x) && !HIDDEN.test(x) && !URLISH.test(x), 'Plain text only: letters, digits and common punctuation. No links, code characters or hidden characters.'));
 /** The only way a URL gets into a skill: plain https, lower-case ASCII host with a dot, optional port, no path, no userinfo, no IDN (xn-- refused too). c36's origin normaliser is not in this tree, so this is the fail-closed subset. */
 export function validOrigin(o: string): boolean {
   const m = /^https:\/\/((?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z](?:[a-z0-9-]*[a-z0-9])?)(?::([0-9]{1,5}))?$/.exec(o);
@@ -105,9 +107,9 @@ const PLAYBOOK_SELECT = `select p.*, a.name as agent_name, u.name as created_by_
 /** Only mission and task sources are checked against the tree (at propose time); the other kinds are typed strings and are flagged unverified. */
 const shapeSource = (s: SourceRef, seeAll: boolean): SourceRef => {
   const verified = s.kind === 'mission' || s.kind === 'task';
-  return !seeAll && verified ? { kind: s.kind, id: '', hidden: true, verified } : { ...s, verified };
+  return seeAll ? { ...s, verified } : { kind: s.kind, id: '', hidden: true, verified }; // members: the kind only, never an id or a note
 };
-/** What a person may read of an item: members get no override note and no private source ids. */
+/** What a person may read of an item: members get no override note and no source ids or notes. */
 const itemView = (i: PlaybookItem, admin: boolean): PlaybookItem => ({ ...i, sources: i.sources.map((x) => shapeSource(x, admin)), overrideNote: admin ? i.overrideNote : null });
 const playbookDto = (r: any, agent: { id: string; name: string; role: string }, admin: boolean): PlaybookDto => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
   agentId: agent.id, agentName: agent.name, role: agent.role, version: r ? r.version : 0, items: r ? (r.items_x as PlaybookItem[]).map((i) => itemView(i, admin)) : [],
@@ -133,7 +135,7 @@ const mine = (c: { proposed_by: string; submitted_by: string | null }, userId: s
 /** The viewer's own rows, accepted lessons, and everything for an administrator. */
 const visible = (ctx: Ctx, c: { proposed_by: string; submitted_by: string | null; status: string }) => ctx.user.role === 'admin' || c.status === 'accepted' || mine(c, ctx.user.id);
 
-function candidateDto(r: any, ctx: Ctx, conflictsNow: LessonConflict[]): LessonCandidateDto { // eslint-disable-line @typescript-eslint/no-explicit-any
+function candidateDto(r: any, ctx: Ctx, conflictsNow: LessonConflict[], inPlaybook: boolean): LessonCandidateDto { // eslint-disable-line @typescript-eslint/no-explicit-any
   const admin = ctx.user.role === 'admin';
   const self = mine(r, ctx.user.id);
   const proposed = r.status === 'proposed';
@@ -142,7 +144,7 @@ function candidateDto(r: any, ctx: Ctx, conflictsNow: LessonConflict[]): LessonC
     proposedBy: r.proposed_by, proposedByName: r.proposed_name, proposedByKind: r.proposed_by_kind, submittedBy: r.submitted_by,
     status: r.status, sha256: r.sha256, reviewBy: r.review_text, createdAt: iso(r.created_at)!,
     decidedBy: r.decided_by, decidedByName: r.decided_by ? r.decided_name : null, decidedAt: iso(r.decided_at), decisionNote: admin ? r.decision_note : null, overrideNote: admin ? r.override_note : null,
-    acceptedInVersion: r.accepted_in_version, withdrawnInVersion: r.withdrawn_in_version, conflicts: proposed ? conflictsNow : [],
+    acceptedInVersion: r.accepted_in_version, withdrawnInVersion: r.withdrawn_in_version, inPlaybook, conflicts: proposed ? conflictsNow : [],
     canDecide: proposed && admin && !self,
     cannotDecideWhy: !proposed ? null : !admin ? 'Only administrators decide.' : self ? 'You proposed this lesson. Another administrator must decide it.' : null,
   };
@@ -152,9 +154,10 @@ async function candidates(c: Tx, ctx: Ctx, where: string, params: unknown[]): Pr
   const rows = (await c.query(`${CAND_SELECT} where c.tenant_id=$1 and ${where} and ($${n}::boolean or c.status='accepted' or c.proposed_by=$${n + 1} or c.submitted_by=$${n + 1}) order by c.created_at desc, c.id limit 200`,
     [ctx.tenantId, ...params, ctx.user.role === 'admin', ctx.user.id])).rows.filter((r) => visible(ctx, r));
   const items = new Map<string, { lessonId: string; text: string }[]>();
-  for (const id of new Set(rows.filter((r) => r.status === 'proposed').map((r) => r.agent_id as string)))
+  for (const id of new Set(rows.filter((r) => r.status !== 'rejected').map((r) => r.agent_id as string)))
     items.set(id, ((await versionRow(c, ctx.tenantId, id, null))?.items ?? []) as { lessonId: string; text: string }[]);
-  return rows.map((r) => candidateDto(r, ctx, r.status === 'proposed' ? findConflicts(r.text, items.get(r.agent_id) ?? []) : []));
+  // inPlaybook is read from the CURRENT playbook, so a lesson a later rollback put back is not shown as withdrawn
+  return rows.map((r) => candidateDto(r, ctx, r.status === 'proposed' ? findConflicts(r.text, items.get(r.agent_id) ?? []) : [], (items.get(r.agent_id) ?? []).some((i) => i.lessonId === r.id)));
 }
 
 /* ---------- writes shared by the route and by an agent's proposal ---------- */
@@ -162,16 +165,20 @@ export interface ProposeArgs { tenantId: string; agentId: string; proposedBy: st
 /** Records a candidate. For kind 'agent', proposedBy is the agent and submittedBy the person who filed it: neither can decide it. */
 export async function proposeLesson(c: Tx, a: ProposeArgs): Promise<string> {
   const agent = await agentOf(c, a.tenantId, a.agentId);
+  // the same text rules as the route, so a direct caller (a future agent runtime) cannot bypass them
+  const txt = plain(1, 600).safeParse(a.text), srcs = Sources.safeParse(a.sources);
+  if (!txt.success || !srcs.success) throw badRequest('Some fields are not valid.', { ...(txt.success ? {} : { text: txt.error.issues[0].message }), ...(srcs.success ? {} : { sources: srcs.error.issues[0].message }) });
   if (a.reviewBy && (await c.query('select $1::date < current_date as past', [a.reviewBy])).rows[0].past)
     throw new ApiError('VALIDATION', 422, 'Some fields are not valid.', { fieldErrors: { reviewBy: 'The review date is already past.' } });
-  const text = squash(a.text);
+  const text = txt.data, sources = srcs.data;
   const id = 'LC-' + randomBytes(16).toString('hex').toUpperCase(); // 128-bit
   await c.query(
     `insert into lesson_candidates(id, tenant_id, agent_id, role, text, sources, proposed_by, proposed_by_kind, submitted_by, sha256, review_by) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-    [id, a.tenantId, a.agentId, agent.role, text, JSON.stringify(a.sources), a.proposedBy, a.kind, a.submittedBy ?? null, sha([a.agentId, text, a.sources, a.reviewBy ?? null]), a.reviewBy ?? null]);
+    [id, a.tenantId, a.agentId, agent.role, text, JSON.stringify(sources), a.proposedBy, a.kind, a.submittedBy ?? null, sha([a.agentId, text, sources, a.reviewBy ?? null]), a.reviewBy ?? null]);
   const actor = a.submittedBy ?? a.proposedBy;
-  await audit(c, { tenantId: a.tenantId, actor, action: 'playbook.propose', subject: id, result: 'ok', correlationId: a.correlationId, detail: { agentId: a.agentId, kind: a.kind, proposedBy: a.proposedBy, sources: a.sources.length, text } });
-  await emit(c, { tenantId: a.tenantId, actor: a.proposedBy, actorKind: a.kind, correlationId: a.correlationId, type: 'playbook.lessonProposed', subject: a.agentId, subjectKind: 'agent', payload: { lessonId: id } });
+  await audit(c, { tenantId: a.tenantId, actor, action: 'playbook.propose', subject: id, result: 'ok', correlationId: a.correlationId, detail: { agentId: a.agentId, kind: a.kind, proposedBy: a.proposedBy, sources: sources.length, text } });
+  // audience 'user' = administrators plus that one person (the proposer, or whoever filed an agent's proposal)
+  await emit(c, { tenantId: a.tenantId, actor: a.proposedBy, actorKind: a.kind, correlationId: a.correlationId, type: 'playbook.lessonProposed', subject: a.agentId, subjectKind: 'agent', audience: 'user', audienceUser: a.submittedBy ?? a.proposedBy, payload: { lessonId: id } });
   return id;
 }
 
@@ -180,9 +187,10 @@ async function checkSources(c: Tx, ctx: Ctx, sources: SourceRef[]) {
   for (const s of sources) {
     if (s.kind === 'mission') await getVisibleRow(c, ctx, s.id);
     if (s.kind === 'task') {
+      const same = () => notFound('No such task, or it is not visible to you.'); // one message: an unknown task and an unseen one look the same
       const t = (await c.query('select mission_id from tasks where id=$1 and tenant_id=$2', [s.id, ctx.tenantId])).rows[0];
-      if (!t) throw notFound('No such task.');
-      await getVisibleRow(c, ctx, t.mission_id); // a task of a mission this person cannot see is the same 404
+      if (!t) throw same();
+      try { await getVisibleRow(c, ctx, t.mission_id); } catch { throw same(); }
     }
   }
 }
@@ -438,7 +446,7 @@ export default async function playbookRoutes(app: FastifyInstance) {
       await c.query(`insert into skills(id, tenant_id, name, version, description, steps, preconditions, sources, proposed_by) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
         [id, ctx.tenantId, b.name, version, b.description, JSON.stringify(b.steps), JSON.stringify(b.preconditions), JSON.stringify(b.sources), ctx.user.id]);
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'skill.propose', subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { name: b.name, version, steps: b.steps.length, sources: b.sources.length } });
-      await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'skill.proposed', subject: id, subjectKind: 'skill', payload: { skillId: id, version } });
+      await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'skill.proposed', subject: id, subjectKind: 'skill', audience: 'user', audienceUser: ctx.user.id, payload: { skillId: id, version } });
       return { status: 201, body: { skill: skillDto((await c.query(`${SKILL_SELECT} where s.id=$1`, [id])).rows[0], ctx) } };
     });
     return reply.status(out.status).send(out.body);

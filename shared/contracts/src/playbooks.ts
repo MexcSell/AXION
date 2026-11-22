@@ -16,6 +16,8 @@ export interface LessonCandidateDto {
   acceptedInVersion: number | null;
   /** set when a rollback removed the accepted item (status becomes superseded) */
   withdrawnInVersion: number | null;
+  /** true when the lesson's item is in the CURRENT playbook (a superseded lesson that a later rollback restored is true) */
+  inPlaybook: boolean;
   /** Items of the current playbook this text seems to contradict (deterministic check). Accepting needs an override note. */
   conflicts: LessonConflict[];
   /** What the viewer may do: false with a reason when the decider would be the proposer (or the submitter). */
