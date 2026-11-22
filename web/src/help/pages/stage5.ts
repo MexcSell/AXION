@@ -23,6 +23,13 @@ const entries: Record<string, HelpEntry> = {
     why: 'Execution stays disabled in Stage 5: missions are planned and staffed (simulated), but no agent, model or browser runs yet.',
     permission: 'Administrators only.',
   },
+  'ops.jobRecords': {
+    title: 'Job records',
+    what: 'Durable job records from the server: how many jobs sit in each state (queued, leased, succeeded, failed, canceled, dead), how long the oldest queued job has waited, and how many leases have expired.',
+    how: 'Read-only. A job is leased by a worker with a fencing token and a heartbeat; an expired lease is reclaimed, and after the last attempt a job is dead-lettered.',
+    why: 'Records only: no workers run in this build, so every count stays at zero until a later stage turns execution on.',
+    permission: 'Administrators only. Nothing here enqueues, claims or cancels a job.',
+  },
   'mission.demoTag': { title: 'DEMO mission', what: 'A sample mission from the prototype, stored on the server so the screens have content. It is marked DEMO everywhere.', how: 'An administrator removes all of them with "npm run demo:clear" on the server. Your own missions are never DEMO.' },
 };
 export default entries;

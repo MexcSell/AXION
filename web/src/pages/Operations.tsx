@@ -25,6 +25,7 @@ import { cx } from '@/lib/format';
 import { isApi } from '@/api/mode';
 import { useMe, isAdmin } from '@/store/auth';
 import { ServerHealth } from '@/features/ops/ServerHealth';
+import { JobRecords } from '@/features/ops/JobRecords';
 import '@/theme/pages/settings-ops-help.css';
 
 const ICONS = [Server, Monitor, Bot, Boxes, Cpu, ListChecks, HardDrive, ScrollText, LifeBuoy];
@@ -77,7 +78,7 @@ export default function OperationsPage() {
           {tab === 'Services' && <>{isApi() && isAdmin(me) && <ServerHealth />}<Services /></>}
           {tab === 'VMs' && <VMs />}
           {tab === 'Workers' && <Workers />}
-          {tab === 'Queues' && <Queues />}
+          {tab === 'Queues' && <>{isApi() && isAdmin(me) && <JobRecords />}<Queues /></>}
           {tab === 'Storage' && <StorageOps />}
           {tab === 'Logs' && <Logs />}
           {tab === 'Recovery' && <Recovery />}
