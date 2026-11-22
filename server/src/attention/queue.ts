@@ -3,7 +3,7 @@ import { VISIBLE_SQL } from '../missions/visibility.ts';
 import { isTier } from '../policy/types.ts';
 import { approverFor, CURRENT_BASELINE } from '../policy/baseline.ts';
 import { decideRefusal, rowDigest } from '../approvals/service.ts';
-import { STALE_BEFORE_SQL } from '../tasks/reviews.ts';
+import { STALE_BEFORE_SQL, reviewable } from '../tasks/reviews.ts';
 import { failureModeOf } from '../failures/taxonomy.ts';
 import { ATTENTION_SETTINGS } from '../../../shared/contracts/src/index.ts';
 import type { AttentionItem } from './types.ts';
@@ -59,14 +59,15 @@ async function approvals(c: Q, v: Viewer, admin: boolean): Promise<AttentionItem
 
 async function staleReviews(c: Q, v: Viewer, admin: boolean): Promise<AttentionItem[]> {
   const rows = (await c.query(
-    `select r.id as review_id, r.task_id, r.mission_id, r.created_at, t.title, m.demo, m.owner_id, r.verdict,
+    `select r.id as review_id, r.task_id, r.mission_id, r.created_at, t.title, t.status as task_status, m.demo, m.owner_id, r.verdict,
             (select ra.attempt_no from task_attempts ra where ra.id = r.attempt_id) as reviewed_attempt,
             ${STALE_BEFORE_SQL('r')} as latest_attempt,
             extract(epoch from now() - coalesce((select la.started_at from task_attempts la where la.task_id = r.task_id order by la.attempt_no desc limit 1), r.created_at)) as age_s
        from task_reviews r join tasks t on t.id = r.task_id join missions m on m.id = r.mission_id
       where r.tenant_id=$1 and m.deleted_at is null and ${VISIBLE_SQL('$2', '$3')} and t.status <> 'canceled'
         and r.seq = (select max(x.seq) from task_reviews x where x.task_id = r.task_id) and ${STALE_BEFORE_SQL('r')} is not null`, [v.tenantId, admin, v.user.id])).rows;
-  return rows.map((r) => ({
+  // only a task the review route would accept a review of (reviewable(): passed, or failed): a task being retried has nothing for a person to review yet
+  return rows.filter((r) => reviewable(r.task_status, 'rejected').ok).map((r) => ({
     id: `review:${r.task_id}`, reason: 'review_stale' as const, kind: 'task_review' as const, tier: null, subject: r.title,
     ageSec: secs(r.age_s)!, expiresInSec: null, missionId: r.mission_id, demo: !!r.demo, route: `/missions/${r.mission_id}?tab=task-flow`, canAct: r.owner_id !== v.user.id, note: 'You commissioned this work, so someone else reviews it.',
     facts: { taskId: r.task_id, missionId: r.mission_id, reviewedAttempt: num(r.reviewed_attempt ?? 0), latestAttempt: num(r.latest_attempt), ageSec: secs(r.age_s)!, verdict: r.verdict },
@@ -95,7 +96,7 @@ async function undetectedFailures(c: Q, v: Viewer, admin: boolean): Promise<Atte
        from failure_tags f join missions m on m.id = f.mission_id
       where f.tenant_id=$1 and m.deleted_at is null and ${VISIBLE_SQL('$2', '$3')} and f.status = 'confirmed' and f.detection_channel is null
         and f.decided_at > now() - make_interval(days => $4::int)
-        and not exists (select 1 from failure_tags g where g.tenant_id = f.tenant_id and g.subject_kind = f.subject_kind and g.subject_id = f.subject_id and g.status = 'confirmed' and g.detection_channel is not null)`,
+        and not exists (select 1 from failure_tags g where g.tenant_id = f.tenant_id and g.subject_kind = f.subject_kind and g.subject_id = f.subject_id and g.mode_id = f.mode_id and g.status = 'confirmed' and g.detection_channel is not null)`,
     [v.tenantId, admin, v.user.id, ATTENTION_SETTINGS.failureWindowDays])).rows;
   return rows.map((r) => {
     const mode = failureModeOf(r.mode_id)?.mode.name ?? r.mode_id;
