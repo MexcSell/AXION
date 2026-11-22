@@ -83,14 +83,16 @@ function TaskReview({ close, props }: DialogComponentProps<{ missionId?: string;
               {list.map((r, i) => (
                 <motion.div key={i} layout initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="rv-crit" data-crit={i}>
                   <div className="row" style={{ gap: 6 }}>
-                    {r.fixed ? <span className="rv-crit-t ellipsis" title={r.criterion}>{r.criterion}</span>
+                    {r.fixed ? <span className="rv-crit-t" title={r.criterion}>{r.criterion}</span>
                       : <input className="input" style={{ flex: 1, minWidth: 0, height: 28 }} value={r.criterion} maxLength={400} aria-label={`Criterion ${i + 1}`} placeholder="e.g. The page loads without errors"
                           onChange={(e) => { touch(); setRows((xs) => (xs ?? []).map((x, j) => (j === i ? { ...x, criterion: e.target.value } : x))); }} />}
-                    <Segmented ariaLabel={`Result ${i + 1}`} size="sm" value={r.result ?? ('' as RubricResult)} onChange={(v) => { touch(); setRows((xs) => (xs ?? []).map((x, j) => (j === i ? { ...x, result: v } : x))); }}
-                      options={RESULTS.map((o) => ({ key: o.key, label: <><o.icon size={12} />{o.label}</> }))} />
                     {!r.fixed && <button type="button" className="icon-btn" style={{ width: 22, height: 22 }} aria-label={`Remove criterion ${i + 1}`} disabled={list.length === 1} onClick={() => setRows((xs) => (xs ?? []).filter((_, j) => j !== i))}><X size={12} /></button>}
                   </div>
-                  <input className="input rv-note" value={r.note} maxLength={1000} aria-label={`Note ${i + 1}`} placeholder="Note (optional)" onChange={(e) => { touch(); setRows((xs) => (xs ?? []).map((x, j) => (j === i ? { ...x, note: e.target.value } : x))); }} />
+                  <div className="row" style={{ gap: 6 }}>
+                    <Segmented ariaLabel={`Result ${i + 1}`} size="sm" value={r.result ?? ('' as RubricResult)} onChange={(v) => { touch(); setRows((xs) => (xs ?? []).map((x, j) => (j === i ? { ...x, result: v } : x))); }}
+                      options={RESULTS.map((o) => ({ key: o.key, label: <><o.icon size={12} />{o.label}</> }))} />
+                    <input className="input rv-note" style={{ flex: 1, minWidth: 0 }} value={r.note} maxLength={1000} aria-label={`Note ${i + 1}`} placeholder="Note (optional)" onChange={(e) => { touch(); setRows((xs) => (xs ?? []).map((x, j) => (j === i ? { ...x, note: e.target.value } : x))); }} />
+                  </div>
                 </motion.div>
               ))}
             </div>
