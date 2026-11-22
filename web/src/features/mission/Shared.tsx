@@ -1,5 +1,6 @@
 import { motion } from 'motion/react';
 import { CheckCircle2, Gavel } from 'lucide-react';
+import { ApprovalFacts, GateHelp, useGated } from '@/features/approvals/ApprovalBinding';
 import { Chip } from '@/components/ui/Chips';
 import { useData, allApprovals, useVisibleMissions } from '@/store/data';
 import { openDialog, toast } from '@/store/ui';
@@ -20,6 +21,7 @@ export function ApprovalMini({ id }: { id: string }) {
   const decide = useData((s) => s.decideApproval);
   const a = allApprovals(missions, decisions).find((x) => x.id === id)!;
   const resolved = a.status !== 'pending';
+  const gated = useGated(a);
   return (
     <motion.div layout className={cx('approval-mini', resolved && 'resolved')} style={{ ['--tone' as string]: a.risk === 'high' || a.risk === 'critical' ? 'var(--bad)' : 'var(--warn)' }}>
       <div className="row" style={{ gap: 8 }}>
@@ -30,10 +32,12 @@ export function ApprovalMini({ id }: { id: string }) {
         <span className="dim" style={{ fontSize: 11.5 }}>{resolved ? a.status : `expires in ${a.expiresMin} min`}</span>
       </div>
       <div className="muted" style={{ fontSize: 12.5, margin: '6px 0 8px 24px' }}>{a.detail} <span className="dim">· requested by {AGENT_BY_ID[a.agentId]?.name}</span></div>
+      {!resolved && <div style={{ marginLeft: 24, marginBottom: 6 }}><ApprovalFacts a={a} /></div>}
       {!resolved ? (
         <div className="row" style={{ gap: 6, marginLeft: 24 }}>
-          <button className="btn sm good" onClick={() => { decide(a.id, 'approved'); toast({ tone: 'success', title: 'Approved once', body: `${a.title} — bound to ${a.id}.` }); }}>Approve once</button>
-          <button className="btn sm danger" onClick={() => { decide(a.id, 'denied'); toast({ tone: 'warning', title: 'Denied', body: `${a.title}. The agent will propose an alternative.` }); }}>Deny</button>
+          {gated && <GateHelp />}
+          <button className="btn sm good" disabled={gated} onClick={() => { decide(a.id, 'approved'); toast({ tone: 'success', title: 'Approved once', body: `${a.title} — bound to ${a.id}.` }); }}>Approve once</button>
+          <button className="btn sm danger" disabled={gated} onClick={() => { decide(a.id, 'denied'); toast({ tone: 'warning', title: 'Denied', body: `${a.title}. The agent will propose an alternative.` }); }}>Deny</button>
           <button className="btn sm ghost" onClick={() => openDialog('approval-decision', { approvalId: a.id })}>Review details…</button>
         </div>
       ) : <div className="row" style={{ marginLeft: 24, gap: 6, fontSize: 12.5 }}>{a.status === 'approved' ? <CheckCircle2 size={14} className="good" /> : <XCircle size={14} className="bad" />}Resolved: {a.status}</div>}

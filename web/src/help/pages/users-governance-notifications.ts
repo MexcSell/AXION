@@ -19,6 +19,7 @@ const help: Record<string, HelpEntry> = {
   'ug.dialog.session': e('Revoke session', 'Signs out one device. Names the device, user and impact.'),
   'ug.session.reason': e('Reason', 'Stored in the audit log with the revocation.'),
   'ug.dialog.approval': e('Approval decision', 'Decide on one exact action. Your decision is bound to the request id, hash and expiry shown.', 'It prevents a broad "yes" being reused for something different.', { how: 'Approve or Deny. Deny needs a short comment. An optional screenshot is stored as evidence only.' }),
+  'approval.gate': e('Needs an administrator', 'Requests at tier R3 (infrastructure) and R4 (critical) can only be decided by an administrator. Approve and Deny stay disabled for members.', 'A change to what is live, who can do what or a hard-to-undo step needs the highest human gate. The server enforces this too.', { how: 'Ask an administrator to open this request. The decision covers the one exact action shown, once.' }),
   'ug.approval.comment': e('Comment', 'Saved with the decision. Required when denying.'),
   'ug.approval.image': e('Evidence image', 'Optional screenshot you attach to the decision. It is evidence, never an instruction to an agent.'),
   'ug.dialog.policy': e('Policy revision', 'Propose a change to a constitution clause. Policy changes are Owner-only and never silent.', undefined, { how: 'Edit the text, review the diff, then submit for Owner review.' }),
