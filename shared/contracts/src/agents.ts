@@ -93,6 +93,8 @@ export interface VersionProposalDto {
   promotedVersionId: string | null; promotedVersionLabel: string | null;
   /** c47: computed by the server from stored runs on a frozen holdout dataset; null when the candidate has no finished runs. Never a caller-supplied number. */
   evaluation: ProposalEvaluationDto | null;
+  /** fingerprint of the evidence behind `evaluation` (run ids, dataset hash, outcome, refusal codes; a fixed value when there is none). A promote must carry the one the reviewer saw. */
+  evaluationSha: string;
   /** the administrator's reason for promoting without a verified evaluation (at least 10 characters); null when none was needed */
   overrideReason: string | null;
 }
@@ -115,6 +117,8 @@ export interface ProposalEvaluationDto {
   /** the verdict's reasons in words, and facts such as cost */
   reasons: string[]; notes: string[];
   datasetId: string; datasetSha: string | null; baseRunId: string | null; candidateRunId: string;
+  /** runs recorded for this candidate on that dataset (finished or not): more than one is refused as re-run shopping */
+  runCount: number;
 }
 /** Improvement cycle 4: organisation history. Where a revision came from (stored facts only). */
 export type OrgRevisionSource =

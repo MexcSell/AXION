@@ -72,6 +72,75 @@ describe('the hash is computed in the database and equals hashDataset', () => {
   });
 });
 
+// c47 fix round, M1: the freeze either refuses a case whose canonical form SQL and JS could render differently, or the
+// stored hash equals hashDataset(stored cases). Shapes named by the reviewer, then generated ones (seeded, reproducible).
+const rawCase = (id: string, input: string, expected = '1') => ({ id, input, expected });
+const FRIENDLY = [
+  '{"a":1,"b":[true,null,"x"],"c":{"z":1.5,"y":-0.25}}', '[0.1,1.10,-0,100000,1e5,0.000001]', '{"t":"caf\\u00e9 \\u0001 \\u2028 \\ud83d\\ude00"}', '{"":1,"k":{}}', '[[],{}]', '"s"', 'null',
+];
+const NASTY = [
+  '9007199254740993', '123456789012345678901', '9007199254740992', '1e21', '1e-7', '1e400', '0.3000000000000000444', '0.30000000000000004', '[1e22]', '{"n":{"m":9007199254740993}}',
+  '{"\\ud83d\\ude00":1,"\\uffee":2}', '{"\\ue000":1,"\\ud83d\\ude00":2}', '{"\\ufb01":1}',
+];
+let propSeq = 0;
+async function freezeShape(cases: Array<{ id: string; input: string; expected: string }>) {
+  const ds = 'P-' + ++propSeq;
+  await q(`insert into eval_datasets(id, tenant_id, name, split) values ($1,'t-1',$1,'dev')`, [ds]);
+  for (const c of cases) await q(`insert into eval_cases(dataset_id, case_id, input, expected) values ($1,$2,$3::jsonb,$4::jsonb)`, [ds, c.id, c.input, c.expected]);
+  try {
+    const sha = (await q(`select eval_freeze_dataset($1) as sha`, [ds])).rows[0].sha;
+    return { frozen: true as const, ds, sha };
+  } catch (e) { return { frozen: false as const, ds, msg: (e as Error).message }; }
+}
+const mulberry = (a: number) => () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+
+describe('M1: freeze fails closed on shapes SQL and JS could render differently', () => {
+  it.each(FRIENDLY)('friendly shape %s freezes and the hash equals hashDataset', async (v) => {
+    const r = await freezeShape([rawCase('a', v), rawCase('b', '{"k":1}', v)]);
+    expect(r.frozen).toBe(true);
+    if (r.frozen) expect(r.sha).toBe(hashDataset(await stored(r.ds)));
+  });
+  it.each(NASTY)('risky shape %s is refused (never frozen with a hash the loader would flag)', async (v) => {
+    const r = await freezeShape([rawCase('a', v)]);
+    expect(r.frozen).toBe(false);
+    if (!r.frozen) expect(r.msg).toMatch(/canonical form/);
+    expect((await q(`select frozen_at from eval_datasets where id=$1`, [r.ds])).rows[0].frozen_at).toBeNull();
+  });
+  it('a risky value in expected, or in a case id, is refused too', async () => {
+    expect((await freezeShape([rawCase('a', '1', '9007199254740993')])).frozen).toBe(false);
+    expect((await freezeShape([rawCase(String.fromCodePoint(0xe000), '1'), rawCase(String.fromCodePoint(0x1f600), '1')])).frozen).toBe(false);
+    expect((await freezeShape([rawCase(String.fromCodePoint(0xfffd), '1')])).frozen).toBe(false);
+    expect((await freezeShape([rawCase('plain-id_1', '1')])).frozen).toBe(true);
+  });
+  it('property: 300 generated datasets are either refused or hash exactly as hashDataset does', async () => {
+    const rnd = mulberry(47);
+    const pick = <T,>(xs: T[]) => xs[Math.floor(rnd() * xs.length)];
+    const safe = ['a', 'Z', '0', '_', '\u00e9', '\u4e2d', '\ud7ff', '\ud83d\ude00', '\ud835\udd0a', '\u0001', '\u2028', '"', '\\'];
+    const risky = ['\ue000', '\uffee', '\ufb01'];
+    const key = () => Array.from({ length: 1 + Math.floor(rnd() * 3) }, () => (rnd() < 0.015 ? pick(risky) : pick(safe))).join('');
+    const okNums = [() => String(Math.floor(rnd() * 1000)), () => String(Math.floor(rnd() * 2 ** 40)), () => (rnd() * 1000).toFixed(Math.floor(rnd() * 6)), () => `-${(rnd() * 100).toFixed(2)}`, () => `${Math.floor(rnd() * 99)}.${'0'.repeat(1 + Math.floor(rnd() * 5))}`];
+    const riskyNums = [() => String(2 ** 53 + Math.floor(rnd() * 100)), () => String(rnd()), () => `${(rnd() * 9).toFixed(3)}e${Math.floor(rnd() * 50) - 25}`, () => (rnd() * 1000).toFixed(17)];
+    const num = (): string => (rnd() < 0.015 ? pick(riskyNums) : pick(okNums))();
+    const val = (d: number): string => {
+      const t = rnd();
+      if (d > 2 || t < 0.35) return num();
+      if (t < 0.5) return JSON.stringify(key());
+      if (t < 0.55) return pick(['true', 'false', 'null']);
+      if (t < 0.75) return '[' + Array.from({ length: Math.floor(rnd() * 3) }, () => val(d + 1)).join(',') + ']';
+      const ks = new Set(Array.from({ length: 1 + Math.floor(rnd() * 3) }, key));
+      return '{' + [...ks].map((k) => `${JSON.stringify(k)}:${val(d + 1)}`).join(',') + '}';
+    };
+    let frozen = 0, refused = 0;
+    for (let i = 0; i < 300; i++) {
+      const ids = new Set([key(), key(), key()]);
+      const r = await freezeShape([...ids].map((id) => ({ id, input: val(0), expected: val(0) })));
+      if (r.frozen) { frozen++; expect(r.sha, `dataset ${r.ds}`).toBe(hashDataset(await stored(r.ds))); }
+      else { refused++; expect(r.msg).toMatch(/canonical form|no cases/); }
+    }
+    expect(frozen).toBeGreaterThan(20); expect(refused).toBeGreaterThan(10); // both sides of the property are exercised
+  }, 120_000);
+});
+
 describe('freezing', () => {
   it('a raw UPDATE that freezes with a false hash is refused', async () => {
     await q(`insert into eval_datasets(id, tenant_id, name, split) values ('F1','t-1','f1','dev')`);

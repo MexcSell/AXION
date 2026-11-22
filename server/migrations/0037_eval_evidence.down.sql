@@ -67,4 +67,6 @@ create trigger eval_datasets_guard before update or delete on eval_datasets for 
 
 drop function eval_freeze_dataset(text);
 drop function eval_dataset_sha(text);
+drop function eval_json_bad(jsonb);
+drop function eval_text_bad(text);
 drop function eval_canon(jsonb);

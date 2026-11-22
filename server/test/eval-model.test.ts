@@ -78,7 +78,7 @@ describe('fix round', () => {
 describe('runs and results', () => {
   let run: string;
   beforeAll(async () => {
-    await q(`select eval_freeze_dataset('DS-1')`).catch(() => undefined); // already frozen by the tenant test above when it ran first
+    await q(`select eval_freeze_dataset('DS-1')`).catch((e: Error) => { if (!/already frozen/.test(e.message)) throw e; }); // already frozen by the tenant test above when it ran first (any other freeze error is real)
     run = 'ER-1';
     await q(`insert into eval_runs(id, tenant_id, dataset_id, subject_version_id, k) values ($1,'t-1','DS-1',$2,2)`, [run, vid]);
   });

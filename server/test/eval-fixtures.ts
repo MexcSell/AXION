@@ -2,13 +2,13 @@
 // evaluation or calls a model. Used by tests (and mirrored in web/scripts/api-c47.mjs for the browser check).
 import type pg from 'pg';
 
-export interface DatasetOpts { id: string; tenant?: string; split?: 'dev' | 'holdout'; cases?: number; name?: string; freeze?: boolean }
+export interface DatasetOpts { id: string; tenant?: string; split?: 'dev' | 'holdout'; cases?: number; name?: string; freeze?: boolean; /** cases carry this tag in their input (default: the dataset id, so two datasets share no case); give two datasets the same tag to make them overlap */ inputTag?: string }
 /** Inserts a dataset with n cases (c01..cNN) and freezes it through eval_freeze_dataset (the hash is computed in the database). */
 export async function makeDataset(pool: pg.Pool, o: DatasetOpts): Promise<string[]> {
   const n = o.cases ?? 12;
   await pool.query(`insert into eval_datasets(id, tenant_id, name, version, split) values ($1,$2,$3,1,$4)`, [o.id, o.tenant ?? 't-1', o.name ?? 'set-' + o.id, o.split ?? 'holdout']);
   const ids = Array.from({ length: n }, (_, i) => 'c' + String(i + 1).padStart(2, '0'));
-  for (const [i, c] of ids.entries()) await pool.query(`insert into eval_cases(dataset_id, case_id, input, expected) values ($1,$2,$3,$4)`, [o.id, c, JSON.stringify({ q: i, text: 'question ' + i }), JSON.stringify({ a: i * 2 })]);
+  for (const [i, c] of ids.entries()) await pool.query(`insert into eval_cases(dataset_id, case_id, input, expected) values ($1,$2,$3,$4)`, [o.id, c, JSON.stringify({ q: i, text: 'question ' + i, set: o.inputTag ?? o.id }), JSON.stringify({ a: i * 2 })]);
   if (o.freeze !== false) await pool.query(`select eval_freeze_dataset($1)`, [o.id]);
   return ids;
 }

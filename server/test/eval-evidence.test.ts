@@ -26,10 +26,14 @@ async function propose(model = 'qwen-72b') {
   const a = await agent();
   const r = await A.req('POST', `/agents/${AG}/version-proposals`, { title: 'Try ' + ++seq, hypothesis: 'Fewer review rounds.', candidate: { model, skills: [...a.skills, 'Skill-' + seq + '-' + n], tools: a.tools }, baseVersionId: a.versionId }, key());
   expect(r.status, JSON.stringify(r.body)).toBe(201);
-  return { ...r.body.proposal, baseId: a.versionId } as { id: string; sha: string; baseId: string; evaluation: any; overrideReason: string | null };
+  return { ...r.body.proposal, baseId: a.versionId } as { id: string; sha: string; baseId: string; evaluation: any; evaluationSha: string; overrideReason: string | null };
 }
 const get = async (by: Browser, id: string) => ((await by.req('GET', `/agents/${AG}/version-proposals`)).body.proposals as any[]).find((p) => p.id === id);
-const decide = (id: string, sha: string, extra: Record<string, unknown> = {}, decision = 'promote') => B.req('POST', `/version-proposals/${id}/decision`, { decision, sha, ...extra });
+/** The decision carries the evaluationSha the reviewer saw: by default the current one (a test passes its own to test a stale one). */
+const decide = async (id: string, sha: string, extra: Record<string, unknown> = {}, decision = 'promote') => {
+  const evaluationSha = 'evaluationSha' in extra ? extra.evaluationSha : (await get(A, id)).evaluationSha;
+  return B.req('POST', `/version-proposals/${id}/decision`, { decision, sha, ...(decision === 'promote' ? { evaluationSha } : {}), ...extra });
+};
 const ids = (k: number) => Array.from({ length: k }, (_, i) => i);
 /** base scores b[i], candidate scores c[i], on dataset ds, with honest defaults (different judge family, evaluator = B). */
 async function evidence(p: { id: string; baseId: string }, ds: string, b: RunOpts['scores'], c: RunOpts['scores'], o: { judge?: string | null; evaluator?: string | null; cand?: Partial<Parameters<typeof addRun>[1]>; base?: Partial<Parameters<typeof addRun>[1]> } = {}) {
@@ -97,13 +101,10 @@ describe('verified evidence', () => {
     expect((await get(A, p.id)).status).toBe('pending');
     expect((await agent()).versionId).toBe(p.baseId);
   });
-  it('the latest finished run of each subject counts', async () => {
+  it('a single candidate run on the holdout is counted once in the DTO', async () => {
     const p = await propose();
-    await evidence(p, 'HO', BETTER.b, ids(12).map(() => 10)); // an old bad candidate run
-    await new Promise((r) => setTimeout(r, 20));
-    await addRun(t.pool, { id: 'LATE' + seq, datasetId: 'HO', proposalId: p.id, scores: BETTER.c, evaluator: bId });
-    // started_at is the transaction time: the later insert sorts after
-    expect((await get(A, p.id)).evaluation.outcome).toBe('verified_better');
+    await evidence(p, 'HO', BETTER.b, BETTER.c);
+    expect((await get(A, p.id)).evaluation.runCount).toBe(1);
   });
   it('k > 1 reports pass^k per attempt count', async () => {
     const p = await propose();
@@ -224,6 +225,149 @@ describe('refusals: each dishonest setup is inconclusive with its own reason', (
     await evidence(p, 'HO', BETTER.b, BETTER.c);
     const e = (await get(A, p.id)).evaluation;
     expect(e.datasetId).toBe('HO'); expect(e.outcome).toBe('verified_better');
+  });
+});
+
+describe('re-run shopping and honest baselines (fix round)', () => {
+  const codes = (e: any) => e.refusals.map((r: any) => r.code);
+  it('a second candidate run on the same holdout can never be verified better: holdout_rerun, run count listed', async () => {
+    await makeDataset(t.pool, { id: 'HO-RR', split: 'holdout', cases: 12 });
+    const p = await propose();
+    await evidence(p, 'HO-RR', BETTER.b, ids(12).map(() => 10)); // a bad first run
+    await addRun(t.pool, { id: 'RR-late' + seq, datasetId: 'HO-RR', proposalId: p.id, scores: BETTER.c, evaluator: bId }); // a good second one
+    const e = (await get(A, p.id)).evaluation;
+    expect(e.outcome).toBe('inconclusive'); expect(codes(e)).toContain('holdout_rerun'); expect(e.runCount).toBe(2);
+    expect(e.refusals.find((r: any) => r.code === 'holdout_rerun').detail).toMatch(/fresh holdout/);
+  });
+  it('an unfinished extra run counts toward the re-run refusal', async () => {
+    await makeDataset(t.pool, { id: 'HO-RR2', split: 'holdout', cases: 12 });
+    const p = await propose();
+    await evidence(p, 'HO-RR2', BETTER.b, BETTER.c);
+    await addRun(t.pool, { id: 'RR2-open' + seq, datasetId: 'HO-RR2', proposalId: p.id, scores: [50], finish: false });
+    expect(codes((await get(A, p.id)).evaluation)).toContain('holdout_rerun');
+  });
+  it('finished runs on two different holdout datasets are also refused (pick-the-best-set shopping)', async () => {
+    await makeDataset(t.pool, { id: 'HO-S1', split: 'holdout', cases: 12 }); await makeDataset(t.pool, { id: 'HO-S2', split: 'holdout', cases: 12 });
+    const p = await propose();
+    await evidence(p, 'HO-S1', BETTER.b, ids(12).map(() => 20));
+    await evidence(p, 'HO-S2', BETTER.b, BETTER.c);
+    const e = (await get(A, p.id)).evaluation;
+    expect(e.outcome).toBe('inconclusive'); expect(codes(e)).toContain('holdout_rerun');
+  });
+  it('dev_holdout_reuse fires on a real signal: a dev dataset the candidate ran on shares cases with the holdout', async () => {
+    await makeDataset(t.pool, { id: 'DEV-OV', split: 'dev', cases: 12, inputTag: 'shared' });
+    await makeDataset(t.pool, { id: 'HO-OV', split: 'holdout', cases: 12, inputTag: 'shared' });
+    const p = await propose();
+    await addRun(t.pool, { id: 'OV-dev' + seq, datasetId: 'DEV-OV', proposalId: p.id, scores: BETTER.c, evaluator: bId });
+    await evidence(p, 'HO-OV', BETTER.b, BETTER.c);
+    const e = (await get(A, p.id)).evaluation;
+    expect(e.datasetId).toBe('HO-OV'); expect(e.outcome).toBe('inconclusive'); expect(codes(e)).toContain('dev_holdout_reuse');
+  });
+  it('a dev run on a disjoint dataset does not trigger it', async () => {
+    await makeDataset(t.pool, { id: 'DEV-OK', split: 'dev', cases: 12 });
+    await makeDataset(t.pool, { id: 'HO-OK', split: 'holdout', cases: 12 });
+    const p = await propose();
+    await addRun(t.pool, { id: 'OK-dev' + seq, datasetId: 'DEV-OK', proposalId: p.id, scores: BETTER.c, evaluator: bId });
+    await evidence(p, 'HO-OK', BETTER.b, BETTER.c);
+    const e = (await get(A, p.id)).evaluation;
+    expect(codes(e)).not.toContain('dev_holdout_reuse'); expect(e.outcome).toBe('verified_better');
+  });
+  it('the base run is held to the same rules: its evaluator is the author', async () => {
+    await makeDataset(t.pool, { id: 'HO-BA', split: 'holdout', cases: 12 });
+    const p = await propose();
+    await evidence(p, 'HO-BA', BETTER.b, BETTER.c, { base: { evaluator: aId } });
+    const e = (await get(A, p.id)).evaluation;
+    expect(e.outcome).toBe('inconclusive'); expect(codes(e)).toContain('base_evaluator_is_author');
+  });
+  it('the base run is held to the same rules: its judge is the candidate\'s family, or missing', async () => {
+    await makeDataset(t.pool, { id: 'HO-BJ', split: 'holdout', cases: 12 });
+    const p = await propose('qwen-72b');
+    await evidence(p, 'HO-BJ', BETTER.b, BETTER.c, { base: { judge: 'qwen-max' } });
+    expect(codes((await get(A, p.id)).evaluation)).toContain('base_self_judging');
+    await makeDataset(t.pool, { id: 'HO-BJ2', split: 'holdout', cases: 12 });
+    const q = await propose();
+    await evidence(q, 'HO-BJ2', BETTER.b, BETTER.c, { base: { judge: null } });
+    expect(codes((await get(A, q.id)).evaluation)).toContain('base_self_judging');
+  });
+});
+
+describe('what counts as worse (fix round)', () => {
+  it('a significantly worse paired mean (interval entirely below 0) is worse, though it won some cases by small margins', async () => {
+    await makeDataset(t.pool, { id: 'HO-W1', split: 'holdout', cases: 12 });
+    const p = await propose();
+    // 7 small wins (+1), 5 large losses (-40): wins > losses, mean -16, the 95% interval is below 0
+    await evidence(p, 'HO-W1', ids(12).map(() => 80), ids(12).map((i) => (i < 7 ? 81 : 40)));
+    const e = (await get(A, p.id)).evaluation;
+    expect(e.wins).toBe(7); expect(e.losses).toBe(5); expect(e.ci.high).toBeLessThan(0);
+    expect(e.outcome).toBe('worse');
+    const r = await decide(p.id, p.sha, { overrideReason: 'The wins matter more to us.' });
+    expect(r.status).toBe(409); expect(r.body.code).toBe('EVAL_WORSE');
+  });
+  it('a significant sign test with many small wins and a few big losses (negative mean) is worse too', async () => {
+    await makeDataset(t.pool, { id: 'HO-W2', split: 'holdout', cases: 16 });
+    const p = await propose();
+    await evidence(p, 'HO-W2', ids(16).map(() => 80), ids(16).map((i) => (i < 13 ? 81 : 20)));
+    const e = (await get(A, p.id)).evaluation;
+    expect(e.wins).toBe(13); expect(e.losses).toBe(3); expect(e.delta).toBeLessThan(0);
+    expect(e.outcome).toBe('worse');
+    expect((await decide(p.id, p.sha, { overrideReason: 'Override please, I insist.' })).body.code).toBe('EVAL_WORSE');
+  });
+  it('a positive-mean candidate with the same sign counts is not worse', async () => {
+    await makeDataset(t.pool, { id: 'HO-W3', split: 'holdout', cases: 12 });
+    const p = await propose();
+    await evidence(p, 'HO-W3', ids(12).map(() => 50), ids(12).map((i) => (i < 7 ? 90 : 49)));
+    expect((await get(A, p.id)).evaluation.outcome).not.toBe('worse');
+  });
+});
+
+describe('the decision is bound to the evaluation the reviewer saw (evaluationSha)', () => {
+  it('every proposal has an evaluationSha; two proposals with no evaluation share the sentinel', async () => {
+    const a = await propose(), b = await propose();
+    expect(a.evaluationSha).toMatch(/^[0-9a-f]{64}$/); expect(a.evaluationSha).toBe(b.evaluationSha);
+  });
+  it('it changes when the evidence changes and is stable otherwise', async () => {
+    const p = await propose();
+    const none = (await get(A, p.id)).evaluationSha;
+    await evidence(p, 'HO', BETTER.b, BETTER.c);
+    const one = (await get(A, p.id)).evaluationSha;
+    expect(one).not.toBe(none); expect((await get(M, p.id)).evaluationSha).toBe(one);
+  });
+  it('a promote without evaluationSha is refused (409 EVALUATION_CHANGED)', async () => {
+    const p = await propose();
+    const r = await B.req('POST', `/version-proposals/${p.id}/decision`, { decision: 'promote', sha: p.sha, overrideReason: 'Reviewed by hand, ok.' });
+    expect(r.status).toBe(409); expect(r.body.code).toBe('EVALUATION_CHANGED');
+    expect((await get(A, p.id)).status).toBe('pending');
+  });
+  it('a run added after review makes the promote 409, audited; reviewing again promotes', async () => {
+    await makeDataset(t.pool, { id: 'HO-LATE', split: 'holdout', cases: 12 });
+    const p = await propose();
+    const seen = (await get(A, p.id)).evaluationSha; // the reviewer looked at a card with no evaluation
+    await evidence(p, 'HO-LATE', BETTER.b, BETTER.c); // a run lands afterwards
+    const r = await decide(p.id, p.sha, { overrideReason: 'Reviewed by hand, ok.', evaluationSha: seen });
+    expect(r.status).toBe(409); expect(r.body.code).toBe('EVALUATION_CHANGED');
+    expect((await get(A, p.id)).status).toBe('pending');
+    const au = await rows(`select result, detail from audit_events where action='agent.version.decide' and subject=$1 order by id desc limit 1`, [p.id]);
+    expect(au[0].result).toBe('denied'); expect(au[0].detail.code).toBe('EVALUATION_CHANGED');
+    expect((await decide(p.id, p.sha)).status).toBe(200); // verified now: no override needed
+  });
+  it('a wrong evaluationSha is refused before the gate (even for a worse candidate)', async () => {
+    await makeDataset(t.pool, { id: 'HO-WS', split: 'holdout', cases: 12 });
+    const p = await propose();
+    await evidence(p, 'HO-WS', BETTER.c, BETTER.b);
+    expect((await decide(p.id, p.sha, { evaluationSha: 'a'.repeat(64) })).body.code).toBe('EVALUATION_CHANGED');
+  });
+  it('a reject does not need it', async () => {
+    const p = await propose();
+    expect((await B.req('POST', `/version-proposals/${p.id}/decision`, { decision: 'reject', sha: p.sha })).status).toBe(200);
+  });
+  it('the audit row of a promote records the run ids and the evaluationSha', async () => {
+    await makeDataset(t.pool, { id: 'HO-AU', split: 'holdout', cases: 12 });
+    const p = await propose();
+    await evidence(p, 'HO-AU', BETTER.b, BETTER.c);
+    const sha = (await get(A, p.id)).evaluationSha;
+    expect((await decide(p.id, p.sha)).status).toBe(200);
+    const au = (await rows(`select detail from audit_events where action='agent.version.decide' and subject=$1 and result='ok'`, [p.id]))[0].detail;
+    expect(au.evaluationSha).toBe(sha); expect(au.evaluation.candidateRunId).toMatch(/c$/); expect(au.evaluation.baseRunId).toMatch(/b$/);
   });
 });
 

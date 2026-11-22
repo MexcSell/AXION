@@ -10,7 +10,7 @@ import { idempotent } from '../idempotency.ts';
 import { emit } from '../events/hooks.ts';
 import { getAgent, lockAgent, lockAndReadAgent, promptHash, switchVersion, type AgentBase } from './service.ts';
 import { attachReliability } from './reliability.ts';
-import { loadEvaluations } from '../evolution/proposal-evidence.ts';
+import { loadEvaluations, evaluationSha } from '../evolution/proposal-evidence.ts';
 import type { AgentVersionDto, ProposalEvaluationDto, VersionConfig, VersionDiff, VersionProposalDto } from '../../../shared/contracts/src/index.ts';
 
 /**
@@ -31,7 +31,7 @@ const Str = z.string().trim();
 const List = z.array(Str.min(1).max(80)).max(50);
 const Config = z.object({ model: Str.min(1).max(120), skills: List, tools: List }).strict();
 const CreateIn = z.object({ title: Str.min(1).max(120), hypothesis: Str.min(1).max(2000), candidate: Config, baseVersionId: z.string().max(64) }).strict();
-const DecisionIn = z.object({ decision: z.enum(['promote', 'reject']), sha: z.string().max(128), note: Str.max(1000).optional(), overrideReason: Str.max(1000).optional() }).strict();
+const DecisionIn = z.object({ decision: z.enum(['promote', 'reject']), sha: z.string().max(128), note: Str.max(1000).optional(), overrideReason: Str.max(1000).optional(), evaluationSha: z.string().max(128).optional() }).strict();
 /** c47: promoting without a verified evaluation needs the administrator's reason (trimmed length). */
 export const MIN_OVERRIDE = 10;
 const RollbackIn = z.object({ toVersionId: z.string().max(64), why: Str.min(1).max(1000) }).strict();
@@ -77,7 +77,7 @@ const dto = (r: any, evaluation: ProposalEvaluationDto | null = null): VersionPr
     status: r.status, activeVersionId: r.active_version_id, stale: r.status === 'pending' && r.active_version_id !== r.base_version_id,
     createdBy: r.created_by, createdByName: r.created_by_name ?? r.created_by, createdAt: iso(r.created_at)!, expiresAt: iso(r.expires_at)!,
     decidedBy: r.decided_by, decidedByName: r.decided_by ? (r.decided_by_name ?? r.decided_by) : null, decidedAt: iso(r.decided_at), note: r.note,
-    promotedVersionId: r.promoted_version_id, promotedVersionLabel: r.promoted_label ?? null, evaluation, overrideReason: r.override_reason ?? null,
+    promotedVersionId: r.promoted_version_id, promotedVersionLabel: r.promoted_label ?? null, evaluation, evaluationSha: evaluationSha(evaluation), overrideReason: r.override_reason ?? null,
   };
 };
 /** Rows to DTOs with their evaluation, computed from stored runs only (c47). */
@@ -208,7 +208,10 @@ export default async function versionRoutes(app: FastifyInstance) {
       let override: string | null = null;
       if (b.decision === 'promote') {
         ev = (await loadEvaluations(c, ctx.tenantId, [p])).get(pid) ?? null;
-        const seen = { evaluation: ev ? { outcome: ev.outcome, n: ev.n, datasetId: ev.datasetId } : null };
+        const seen = { evaluation: ev ? { outcome: ev.outcome, n: ev.n, datasetId: ev.datasetId } : null, evaluationSha: evaluationSha(ev) };
+        // the decision is bound to the evidence the reviewer saw: a run that landed after review changes it
+        if (b.evaluationSha !== evaluationSha(ev))
+          return refuse(c, ctx, A, pid, new ApiError('EVALUATION_CHANGED', 409, 'The evidence changed since you looked. Reload and review it again.'), seen);
         if (ev?.outcome === 'worse')
           return refuse(c, ctx, A, pid, new ApiError('EVAL_WORSE', 409, `The evaluation measured this candidate as worse than the active version (${ev.losses} cases lost, ${ev.wins} won). It cannot be promoted; reject it or propose another change.`), seen);
         if (ev?.outcome !== 'verified_better') {
@@ -229,7 +232,7 @@ export default async function versionRoutes(app: FastifyInstance) {
         `update agent_version_proposals set status='promoted', decided_by=$2, decided_at=now(), note=$3, promoted_version_id=$4, override_reason=$6 where id=$1 and tenant_id=$5 and status='pending' returning id`,
         [pid, ctx.user.id, note, v.id, ctx.tenantId, override]);
       if (!u.rowCount) throw new ApiError('PROPOSAL_NOT_PENDING', 409, 'This proposal was decided meanwhile.'); // rolls the version back
-      await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: A, subject: pid, result: 'ok', correlationId: ctx.correlationId, detail: { decision: 'promote', agentId: p.agent_id, fromVersionId: p.base_version_id, newVersionId: v.id, label: v.label, evaluation: ev ? { outcome: ev.outcome, n: ev.n, datasetId: ev.datasetId, datasetSha: ev.datasetSha } : null, ...(override ? { overrideReason: override } : {}) } });
+      await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: A, subject: pid, result: 'ok', correlationId: ctx.correlationId, detail: { decision: 'promote', agentId: p.agent_id, fromVersionId: p.base_version_id, newVersionId: v.id, label: v.label, evaluationSha: evaluationSha(ev), evaluation: ev ? { outcome: ev.outcome, n: ev.n, datasetId: ev.datasetId, datasetSha: ev.datasetSha, baseRunId: ev.baseRunId, candidateRunId: ev.candidateRunId } : null, ...(override ? { overrideReason: override } : {}) } });
       await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'agent.versionPromoted', subject: p.agent_id, subjectKind: 'agent', payload: { proposalId: pid, versionId: v.id, label: v.label, previousVersionId: p.base_version_id } });
       await announceVersion(c, ctx, p.agent_id, v, p.base_version_id, configDiff(cfgOf(cur), candidate), { proposalId: pid });
       return { proposal: await one(c, ctx.tenantId, pid) };

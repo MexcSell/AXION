@@ -2,13 +2,35 @@
 -- 1. a run names a version OR a proposal (a candidate is not an agent_versions row until it is promoted);
 --    the run also stores who judged it (model family) and who evaluated it, so the verdict reads them from rows;
 -- 2. freezing is safe: the content hash is recomputed in the database from the stored cases (same canonical form as
---    hashDataset in evolution/verdict-v2.ts), zero-case freezes and false hashes are refused, an already-frozen dataset
+--    hashDataset in evolution/verdict-v2.ts; a case whose canonical form SQL and JS could render differently is refused, see
+--    eval_json_bad / eval_text_bad), zero-case freezes and false hashes are refused, an already-frozen dataset
 --    cannot be inserted, and freeze is serialised against case inserts by the dataset row lock;
 -- 3. a promotion without a verified evaluation keeps the administrator's override reason on the proposal.
 
 -- ---- canonical form + hash, computed from the stored cases --------------------------------------------------------
 -- Mirrors canonical() in verdict-v2.ts: object keys sorted bytewise, arrays in order, numbers without trailing zeros,
--- strings as JSON. A value the two forms render differently (exotic numbers) makes the freeze fail, never pass.
+-- strings as JSON. The two forms can differ for some values, so eval_dataset_sha REFUSES those (fail closed), never hashes them:
+--   integers beyond 2^53-1; non-integers with more than 15 significant digits, below 1e-6 or from 1e21 up (JS prints exponents,
+--   rounds, or goes non-finite); and keys or case ids with a code point from U+E000 up (SQL collate "C" orders by code point,
+--   JS sort() by UTF-16 unit, which disagree once an astral character meets U+E000..U+FFFF).
+create function eval_text_bad(t text) returns boolean language sql immutable as $$
+  select exists (select 1 from generate_series(1, char_length(t)) i where ascii(substr(t, i, 1)) >= 57344)
+$$;
+create function eval_json_bad(v jsonb) returns boolean language plpgsql immutable as $$
+declare t text := jsonb_typeof(v); n numeric; digits text;
+begin
+  if t = 'object' then
+    return exists (select 1 from jsonb_object_keys(v) k where eval_text_bad(k) or eval_json_bad(v -> k));
+  elsif t = 'array' then
+    return exists (select 1 from jsonb_array_elements(v) e where eval_json_bad(e));
+  elsif t = 'number' then
+    n := (v #>> '{}')::numeric;
+    if n = trunc(n) then return abs(n) > 9007199254740991; end if;
+    digits := ltrim(regexp_replace(abs(trim_scale(n))::text, '[^0-9]', '', 'g'), '0');
+    return abs(n) >= 1e21 or abs(n) < 0.000001 or char_length(digits) > 15;
+  end if;
+  return false;
+end $$;
 create function eval_canon(v jsonb) returns text language plpgsql immutable as $$
 declare t text := jsonb_typeof(v); r text;
 begin
@@ -25,11 +47,15 @@ begin
 end $$;
 
 -- volatile on purpose: it must see the cases committed while a freeze waited for the dataset row lock
-create function eval_dataset_sha(ds text) returns text language sql as $$
-  select encode(sha256(convert_to('[' || coalesce(string_agg(
+create function eval_dataset_sha(ds text) returns text language plpgsql as $$
+begin
+  if exists (select 1 from eval_cases where dataset_id = ds and (eval_text_bad(case_id) or eval_json_bad(input) or eval_json_bad(expected))) then
+    raise exception 'eval dataset % has a value whose canonical form could differ between the database and the application (integer above 2^53, a number with more than 15 digits or in exponent form, or a key above U+E000); it cannot be hashed', ds;
+  end if;
+  return (select encode(sha256(convert_to('[' || coalesce(string_agg(
     '{"caseId":' || to_jsonb(case_id)::text || ',"expected":' || eval_canon(expected) || ',"input":' || eval_canon(input) || '}', ',' order by case_id collate "C"), '') || ']', 'UTF8')), 'hex')
-  from eval_cases where dataset_id = ds
-$$;
+    from eval_cases where dataset_id = ds);
+end $$;
 
 -- the one way the application freezes: lock the row, hash the stored cases, set both in one statement
 create function eval_freeze_dataset(ds text) returns text language plpgsql as $$
