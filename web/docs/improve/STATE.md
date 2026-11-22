@@ -59,7 +59,7 @@ Rewritten 2026-11-22T07:35Z by the controller and again at 17:50Z after the live
 | w56 | c57 test hygiene (H12, H13), e2e15 | CLEARED at 38d807d, batch 14 |
 | — | Research round 2: research-r2.md plus research-r2-verified.md (22 CONFIRMED, 4 CORRECTED; R2-4 dropped) | done |
 | w57 | c58 Rule-of-Two profile + approval quality (R2-6, R2-9), e2e16, mig 0043, DL-100 | CLEARED at 7f31c94, batch 17 |
-| w61 | c63 failure learning (R3-8), from c60 tip df8c17e, e2e12, mig 0047 | fix round (review CLEAR AFTER FIXES) |
+| w61 | c63 failure learning (R3-8), from c60 tip df8c17e, e2e12, mig 0047 | CLEARED at 99376e4, batch 22 |
 | w62 | c64 restructure guardrails (R3-6), e2e11, mig 0048 | fix round (review CLEAR AFTER FIXES) |
 | w63 | c65 review capacity (R3-10), from c58 tip 7f31c94, e2e10, mig 0049 if needed | implementing (Wave 7) |
 | w64 | c66 metric-gaming guard (R3-4), from c54 tip 78e149f, e2e9, mig 0050 if needed | implementing (Wave 7) |
