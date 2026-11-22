@@ -12,7 +12,7 @@ export interface Config {
   /** where db-backup.sh writes dumps (Operations › Health shows the newest) */
   backupDir?: string;
   /** c49: tests pass the anchor key/file here; in production both come from the environment (AUDIT_ANCHOR_KEY, AUDIT_ANCHOR_FILE) and never from a config object that could be logged */
-  auditAnchor?: { key?: string; file?: string };
+  auditAnchor?: { key?: string; file?: string; domain?: string };
   /** SSE ping interval (tests shorten it) */
   sseHeartbeatMs?: number;
   /** seed demo missions when the first admin appears */

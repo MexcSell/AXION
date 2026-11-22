@@ -5,20 +5,21 @@
  * transaction's commit/rollback returning. A transaction that takes the lock twice counts from the first grant. Wait time
  * (the lock query itself) is reported separately: that is the queueing other writers feel.
  * Observation only: no lock behaviour is changed.
- * Run: /home/luca/AXION-lanes/heavy.sh npx tsx --env-file=.env scripts/events-lock-hold.ts
+ * Run: CONFIRM_WIPE=<this lane's db name> /home/luca/AXION-lanes/heavy.sh npx tsx --env-file=.env scripts/events-lock-hold.ts
  */
 import pg from 'pg';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { basename, resolve } from 'node:path';
+import { resolve } from 'node:path';
+import { assertLaneWipe } from './lane-db-guard.ts';
 import { buildApp } from '../src/app.ts';
 import { migrate } from '../src/migrate.ts';
 import { Browser } from '../test/helpers.ts';
 
 const url = process.env.E2E_DATABASE_URL;
-// scale-guard maps lane N to axion_e2eN, but reused lanes (w48 -> axion_e2e4) break that; so: a lane worktree and an axion_e2e<N> database
-if (!/^AXION-w\d+$/.test(basename(resolve(join(import.meta.dirname, '..', '..')))) || !/\/axion_e2e\d+$/.test(url ?? '')) throw new Error('events-lock-hold runs only in a lane worktree against its axion_e2e<N> database');
+// scale-guard maps lane N to axion_e2eN, which breaks for reused lanes (w48 -> axion_e2e4); this guard compares with the worktree's own server/.env instead
+assertLaneWipe(url, resolve(join(import.meta.dirname, '..', '..')), process.env.CONFIRM_WIPE);
 const TOTAL = Number(process.env.WRITES || 600);
 const CONC = Number(process.env.CONC || 12);
 

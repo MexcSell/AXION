@@ -26,7 +26,7 @@ const entries: Record<string, HelpEntry> = {
   'ops.auditAnchor': {
     title: 'Audit anchor',
     what: 'The audit log is a hash chain, which on its own only proves it is consistent with itself. The anchor is a signed checkpoint of the newest audit row, kept in a file outside the database. This tile checks that the chain still contains the anchored row with the same hash.',
-    how: 'An operator writes a checkpoint with npm run audit:anchor on the server (never automatic). "Matches" means nothing anchored was removed or rewritten. "Rows were removed" or "history was rewritten" means someone with database access changed the log after the checkpoint.',
+    how: 'An operator writes a checkpoint with npm run audit:anchor on the server (never automatic). "Matches" means no row at or before the checkpoint was removed or rewritten (hashes at the anchored positions agree); it is not a full content check, which npm run audit:verify and the audit check do. "Rows were removed" or "history was rewritten" means someone with database access changed the log after the checkpoint.',
     why: 'Rows added after the last checkpoint are not covered until the next one, and deleting the whole newest checkpoint cannot be seen. "Not verifiable" means no key or no checkpoint file yet, never a pass.',
     permission: 'Administrators only. The signing key stays in the server environment and is never shown here.',
   },

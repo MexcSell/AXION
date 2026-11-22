@@ -7,7 +7,11 @@ import { chromium } from 'playwright';
 import { writeFileSync, mkdirSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-const base = process.env.BASE || 'http://127.0.0.1:5193';
+if (!process.env.BASE || !process.env.E2E_API_PORT || !process.env.E2E_WEB_PORT) {
+  console.error('api-c49.mjs must run through scripts/api-e2e.sh with the lane ports, for example:\n  E2E_API_PORT=<B+92> E2E_WEB_PORT=<B+93> /home/luca/AXION-lanes/heavy.sh ./scripts/api-e2e.sh api-c49.mjs\n(BASE, E2E_API_PORT and E2E_WEB_PORT are required; there is deliberately no default port.)');
+  process.exit(2);
+}
+const base = process.env.BASE;
 const SHOTS = process.env.SHOTS || `/tmp/axion-api-c49-${new URL(base).port}`;
 const DOC_SHOT = process.env.DOC_SHOT_C49;
 mkdirSync(SHOTS, { recursive: true });

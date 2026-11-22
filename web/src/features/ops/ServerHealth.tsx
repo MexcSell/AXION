@@ -21,7 +21,7 @@ interface Health {
 }
 
 interface AnchorInfo { configured: boolean; ok: boolean; lastAnchorAt: string | null; reason: string | null; tenants: { tenant: string; status: string; anchoredSeq: number | null; reason: string | null }[] }
-const ANCHOR_WORDS: Record<string, string> = { ok: 'Matches', truncated: 'Rows were removed', rewritten: 'History was rewritten', bad_signature: 'Anchor file was edited', anchor_missing: 'Not verifiable', rolled_back: 'Anchor file was cut back' };
+const ANCHOR_WORDS: Record<string, string> = { ok: 'Matches', truncated: 'Rows were removed', rewritten: 'History was rewritten', bad_signature: 'Anchor file was edited', anchor_missing: 'Not verifiable', rolled_back: 'Anchor file was cut back', insecure_file: 'Anchor file is not safe', unreadable: 'Anchor file unreadable' };
 
 const dur = (s: number) => (s < 90 ? `${s}s` : s < 5400 ? `${Math.round(s / 60)} min` : s < 172800 ? `${Math.round(s / 3600)} h` : `${Math.round(s / 86400)} d`);
 const mb = (b?: number) => (b === undefined ? '—' : `${(b / 1048576).toFixed(1)} MB`);

@@ -1,13 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type pg from 'pg';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync, statSync, readdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync, statSync, readdirSync, symlinkSync, chmodSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { makeSchema, makeTestApp, withAdmin, TEST_DB, type TestApp } from './helpers.ts';
 import { audit, chainHash, verifyChain, GENESIS } from '../src/audit.ts';
-import { writeAnchor, verifyAnchors, requireKey, anchorSettings, AnchorError, MIN_KEY_BYTES } from '../src/audit-anchor.ts';
+import { writeAnchor, verifyAnchors, rotateAnchor, requireKey, anchorSettings, AnchorError, MIN_KEY_BYTES } from '../src/audit-anchor.ts';
+import { assertLaneWipe } from '../scripts/lane-db-guard.ts';
 
 const KEY = randomBytes(32).toString('hex');
 const put = (pool: pg.Pool, n: number, tenantId: string) =>
@@ -56,8 +57,12 @@ describe('audit anchor (c49)', () => {
       const short = 'x'.repeat(MIN_KEY_BYTES - 1);
       try { requireKey(short); throw new Error('should have thrown'); } catch (e) { expect((e as Error).message).toMatch(/too short/); expect((e as Error).message).not.toContain(short); }
     });
-    it('requireKey accepts exactly 32 bytes', () => { expect(requireKey('k'.repeat(32)).length).toBe(32); });
-    it('counts bytes, not characters: 16 two-byte characters are 32 bytes', () => { expect(requireKey('é'.repeat(16)).length).toBe(32); expect(() => requireKey('é'.repeat(15))).toThrow(/too short/); });
+    it('requireKey accepts exactly 32 bytes of varied content', () => { expect(requireKey('abcdefghijklmnopqrstuvwxyz012345').length).toBe(32); });
+    it('counts bytes, not characters: 16 different two-byte characters are 32 bytes', () => { expect(requireKey('àáâãäåæçèéêëìíîï').length).toBe(32); expect(() => requireKey('àáâãäåæçèéêëìíî')).toThrow(/too short/); });
+    it('P5: a repeated character or pattern meets the length but not the distinct-byte rule', () => {
+      for (const k of ['a'.repeat(32), 'ab'.repeat(16), '0123'.repeat(16)]) expect(() => requireKey(k)).toThrow(/too repetitive/);
+      expect(requireKey(randomBytes(32).toString('hex')).length).toBe(64);
+    });
     it('anchorSettings reads the key and file from the environment, and an override wins', () => {
       expect(anchorSettings({}, { AUDIT_ANCHOR_KEY: 'a', AUDIT_ANCHOR_FILE: '/x/y' })).toEqual({ key: 'a', file: '/x/y' });
       expect(anchorSettings({}, {}).key).toBeUndefined();
@@ -328,6 +333,150 @@ describe('audit anchor (c49)', () => {
     });
   });
 
+
+  describe('fix round (c49 review)', () => {
+    it('F1: a correct signature followed by junk, or in upper case, is bad_signature', async () => {
+      const t = await fresh(2);
+      await writeAnchor(s.pool, o());
+      for (const mutate of [(g: string) => g + 'zzzz', (g: string) => g.toUpperCase(), (g: string) => g.slice(0, 62)]) {
+        const ls = lines().map((l) => JSON.parse(l)); const i = ls.findIndex((l) => l.tenant === t);
+        const keep = ls[i].sig; ls[i].sig = mutate(keep);
+        writeFileSync(file, ls.map((l) => JSON.stringify(l)).join('\n') + '\n', { mode: 0o600 });
+        expect(await statusOf(t)).toBe('bad_signature');
+        ls[i].sig = keep; writeFileSync(file, ls.map((l) => JSON.stringify(l)).join('\n') + '\n', { mode: 0o600 });
+        expect(await statusOf(t)).toBe('ok');
+      }
+    });
+    it('F2: a directory in place of the file reports ok:false with a reason (no throw), per tenant too', async () => {
+      const t = await fresh(2);
+      mkdirSync(file);
+      const rep = await verifyAnchors(s.pool, { ...o(), tenant: t });
+      expect(rep).toMatchObject({ ok: false, configured: true });
+      expect(rep.reason).toMatch(/not a regular file/);
+      expect(rep.tenants[0].status).toBe('unreadable');
+      await expect(writeAnchor(s.pool, o())).rejects.toThrow(/not a regular file/);
+    });
+    it('F2: the route answers 200 ok:false (not 500) and the CLI exits 1 cleanly', async () => {
+      const ta = await makeTestApp({ auditAnchor: { key: KEY, file } });
+      try {
+        const A = await withAdmin(ta.app);
+        mkdirSync(file);
+        const r = await A.admin.req('GET', '/operations/anchors');
+        expect(r.status).toBe(200); expect(r.body).toMatchObject({ ok: false, configured: true }); expect(r.body.reason).toMatch(/not a regular file/);
+        const v = spawnSync('node', ['--import', 'tsx', 'src/cli/audit-verify.ts', 't-1'], { cwd: join(import.meta.dirname, '..'), encoding: 'utf8',
+          env: { ...process.env, DATABASE_URL: TEST_DB(), DATABASE_SCHEMA: ta.schema, AUDIT_ANCHOR_FILE: file, AUDIT_ANCHOR_KEY: KEY } });
+        expect(v.status).toBe(1); expect(v.stderr).not.toMatch(/unhandled|EISDIR|at .*\.ts:/i); expect(v.stdout).toMatch(/UNREADABLE/);
+      } finally { await ta.close(); }
+    });
+    it('F3: a symlink at the anchor path is refused for verify and for writing; the target is untouched', async () => {
+      const t = await fresh(2);
+      await writeAnchor(s.pool, o());
+      const real = file + '.real'; writeFileSync(real, readFileSync(file), { mode: 0o600 }); rmSync(file); symlinkSync(real, file);
+      const before = readFileSync(real, 'utf8');
+      const rep = await verifyAnchors(s.pool, { ...o(), tenant: t });
+      expect(rep).toMatchObject({ ok: false }); expect(rep.tenants[0].status).toBe('insecure_file'); expect(rep.reason).toMatch(/symbolic link/);
+      await expect(writeAnchor(s.pool, o())).rejects.toThrow(/symbolic link/);
+      expect(readFileSync(real, 'utf8')).toBe(before);
+    });
+    it('F3: a dangling symlink is not followed to create its target', async () => {
+      await fresh(1);
+      const target = join(dir, 'elsewhere.jsonl'); symlinkSync(target, file);
+      await expect(writeAnchor(s.pool, o())).rejects.toThrow(/symbolic link/);
+      expect(existsSync(target)).toBe(false);
+    });
+    it('F3: a group- or world-writable file is insecure_file; chmod 600 fixes it', async () => {
+      const t = await fresh(2);
+      await writeAnchor(s.pool, o());
+      chmodSync(file, 0o666);
+      const rep = await verifyAnchors(s.pool, { ...o(), tenant: t });
+      expect(rep.ok).toBe(false); expect(rep.tenants[0].status).toBe('insecure_file'); expect(rep.reason).toMatch(/chmod 600/);
+      await expect(writeAnchor(s.pool, o())).rejects.toThrow(/writable by group or others/);
+      chmodSync(file, 0o620); expect(await statusOf(t)).toBe('insecure_file');
+      chmodSync(file, 0o600); expect(await statusOf(t)).toBe('ok');
+      chmodSync(file, 0o644); expect(await statusOf(t)).toBe('ok'); // readable by others is allowed; only writable is refused
+    });
+    it('P1: the lock is taken before anything else is read (a held lock touches neither the database nor the file)', async () => {
+      await fresh(1);
+      writeFileSync(file + '.lock', '');
+      const boom = new Proxy({}, { get() { throw new Error('DB TOUCHED before the lock'); } }) as unknown as pg.Pool;
+      await expect(writeAnchor(boom, o())).rejects.toThrow(/another anchor write is running/);
+    });
+    it('P1: writers racing with growing chains never produce an older head after a newer one', async () => {
+      const t = await fresh(2);
+      const w = async (i: number) => { await put(s.pool, 100 + i, t); try { await writeAnchor(s.pool, o()); } catch (e) { if (!/another anchor write/.test((e as Error).message)) throw e; } };
+      await Promise.all([1, 2, 3, 4, 5, 6].map(w));
+      const seqs = lines().map((l) => JSON.parse(l)).filter((l) => l.tenant === t).map((l) => l.seq);
+      expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
+      expect(await statusOf(t)).toBe('ok');
+    });
+    it('P2: a line signed for another deployment (domain) does not verify here', async () => {
+      const t = await fresh(2);
+      await writeAnchor(s.pool, { ...o(), domain: 'deployment-A' });
+      expect(await statusOf(t, { domain: 'deployment-A' })).toBe('ok');
+      expect(await statusOf(t, { domain: 'deployment-B' })).toBe('bad_signature');
+    });
+    it('P2: by default the domain is the database and schema, so a file copied to another schema does not verify', async () => {
+      const t = await fresh(2);
+      await writeAnchor(s.pool, o());
+      const other = await makeSchema();
+      try {
+        await put(other.pool, 1, t);
+        expect((await verifyAnchors(other.pool, { ...o(), tenant: t })).tenants[0].status).toBe('bad_signature');
+        expect((await verifyAnchors(other.pool, { ...o(), tenant: t, domain: undefined })).ok).toBe(false);
+      } finally { await other.drop(); }
+    });
+    it('P2: AUDIT_ANCHOR_DOMAIN from the environment is used', () => { expect(anchorSettings({}, { AUDIT_ANCHOR_DOMAIN: 'prod-1' }).domain).toBe('prod-1'); });
+    it('rotate: the bad file is archived (kept), the event is on the chain, and a new file starts at n=1', async () => {
+      const t = await fresh(3);
+      await writeAnchor(s.pool, o());
+      const ls = lines(); const j = JSON.parse(ls[0]); j.seq = 1; writeFileSync(file, JSON.stringify(j) + '\n', { mode: 0o600 });
+      const bad = readFileSync(file, 'utf8');
+      expect(await statusOf(t)).toBe('bad_signature');
+      await expect(writeAnchor(s.pool, o())).rejects.toThrow(/Recovery/);
+      const r = await rotateAnchor(s.pool, o());
+      expect(existsSync(file)).toBe(false);
+      expect(r.archived).toMatch(/\.jsonl\.\d{4}-\d\d-\d\dT[\d-]+Z\.bad$/); expect(readFileSync(r.archived, 'utf8')).toBe(bad);
+      const ev = (await s.pool.query(`select action, detail from audit_events where tenant_id=$1 and action='audit.anchor.rotated'`, [t])).rows;
+      expect(ev).toHaveLength(1); expect(ev[0].detail.archive).toMatch(/\.bad$/);
+      expect((await verifyChain(s.pool, t)).ok).toBe(true);
+      await writeAnchor(s.pool, o());
+      expect(lines().map((l) => JSON.parse(l).n)[0]).toBe(1);
+      expect(await statusOf(t)).toBe('ok');
+    });
+    it('rotate refuses a symlink and a missing file', async () => {
+      await fresh(1);
+      await expect(rotateAnchor(s.pool, o())).rejects.toThrow(/no anchor file/);
+      symlinkSync(join(dir, 'x'), file);
+      await expect(rotateAnchor(s.pool, o())).rejects.toThrow(/symbolic link/);
+    });
+    it('the stale-lock message points at the runbook', async () => {
+      await fresh(1); writeFileSync(file + '.lock', '');
+      await expect(writeAnchor(s.pool, o())).rejects.toThrow(/Stale lock/);
+    });
+    it('writeAnchor returns the last line number and a signature prefix to copy off-host; the CLI prints them', async () => {
+      await fresh(2);
+      const w = await writeAnchor(s.pool, o());
+      expect(w.lastN).toBe(lines().length); expect(w.lastSig).toBe(JSON.parse(lines()[lines().length - 1]).sig);
+    });
+    it('F8: the lane guard refuses another lane\'s database, a non-e2e name, a remote host and a missing confirmation', () => {
+      const root = mkdtempSync(join(tmpdir(), 'axion-lane-')); mkdirSync(join(root, 'server'));
+      const own = 'postgres://axion:pw@127.0.0.1:5432/axion_e2e4';
+      writeFileSync(join(root, 'server', '.env'), `DATABASE_URL=postgres://axion:pw@127.0.0.1:5432/axion_lane_disabled\nE2E_DATABASE_URL=${own}\n`);
+      try {
+        expect(assertLaneWipe(own, root, 'axion_e2e4')).toBe('axion_e2e4');
+        expect(() => assertLaneWipe('postgres://axion:pw@127.0.0.1:5432/axion_e2e1', root, 'axion_e2e1')).toThrow(/not this worktree's own/);
+        expect(() => assertLaneWipe('postgres://axion:pw@127.0.0.1:5432/axion_e2e44', root, 'axion_e2e44')).toThrow(/not this worktree's own/);
+        for (const n of ['axion', 'axion_test', 'axion_e2e', 'axion_e2e4x', 'axion_lane_disabled']) expect(() => assertLaneWipe(`postgres://axion:pw@127.0.0.1:5432/${n}`, root, n)).toThrow(/only axion_e2e<N>/);
+        expect(() => assertLaneWipe('postgres://axion:pw@db.example.com:5432/axion_e2e4', root, 'axion_e2e4')).toThrow(/host/);
+        expect(() => assertLaneWipe('postgres://axion:other@127.0.0.1:5432/axion_e2e4', root, 'axion_e2e4')).toThrow(/not this worktree's own/); // the FULL url
+        expect(() => assertLaneWipe(own, root, undefined)).toThrow(/CONFIRM_WIPE=axion_e2e4/);
+        expect(() => assertLaneWipe(own, root, 'axion_e2e1')).toThrow(/CONFIRM_WIPE/);
+        expect(() => assertLaneWipe(undefined, root, 'x')).toThrow(/not set/);
+        expect(() => assertLaneWipe(own, join(root, 'nowhere'), 'axion_e2e4')).toThrow(/no E2E_DATABASE_URL/);
+      } finally { rmSync(root, { recursive: true, force: true }); }
+    });
+  });
+
   describe('where the key goes', () => {
     const SRC = join(import.meta.dirname, '..', 'src');
     const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(d, e.name)) : [join(d, e.name)]));
@@ -357,7 +506,7 @@ describe('audit anchor (c49)', () => {
     it('audit:anchor writes, audit:verify passes (exit 0) and reports the anchor', async () => {
       const t = await fresh(3);
       const a = run('audit-anchor', { AUDIT_ANCHOR_KEY: KEY });
-      expect(a.status).toBe(0); expect(a.stdout).toMatch(/audit anchor written/); expect(a.stdout + a.stderr).not.toContain(KEY);
+      expect(a.status).toBe(0); expect(a.stdout).toMatch(/audit anchor written/); expect(a.stdout).toMatch(/copy off-host: line \d+ sig [0-9a-f]{12}\b/); expect(a.stdout + a.stderr).not.toContain(KEY);
       const v = run('audit-verify', { AUDIT_ANCHOR_KEY: KEY }, [t]);
       expect(v.status).toBe(0); expect(v.stdout).toMatch(new RegExp(`audit anchor OK for ${t}`));
     });
