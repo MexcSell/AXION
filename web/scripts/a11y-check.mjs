@@ -20,7 +20,7 @@ const missionId = API ? '' : 'M-126';
 const views = [];
 const add = (path, tabs, key) => { for (const t of tabs) views.push(`${path}?tab=${slug(t)}${key ? '' : ''}`); };
 add('/overview', ['Pulse', 'Portfolio', 'Activity', 'Health']);
-add('/missions/' + missionId, ['Overview', 'Activity', 'Hierarchy', 'Task Flow', 'Browser', 'Conversations', 'Results', 'Approvals', 'Reports', 'Timeline']);
+add('/missions/' + missionId, ['Overview', 'Activity', 'Hierarchy', 'Task Flow', 'Browser', 'Conversations', 'Results', 'Approvals', 'Reports', 'Timeline', 'Ledger']);
 for (const s of ['Directory', 'Development', 'Lineage', 'Live Instances', 'Departments', 'Assignments', 'Policies', 'Proposals']) views.push(`/operations?tab=agents&sub=${slug(s)}`);
 views.push('/operations?tab=agents&sub=directory&view=cards', '/operations?tab=agents&sub=directory&view=hierarchy');
 if (!API) add('/agents/coder-01', ['Profile', 'Capabilities', 'Tools', 'Instances', 'Conversations', 'Memory', 'Performance', 'Mentoring', 'Evolution', 'Audit']);

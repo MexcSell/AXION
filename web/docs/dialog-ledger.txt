@@ -52,6 +52,8 @@ PASS  error-inspector            no-props DL-65
 PASS  error-inspector            props    DL-65   
 PASS  help-drawer                no-props DL-62   
 PASS  help-drawer                props    DL-62   
+PASS  ledger-edit                no-props DL-78   
+PASS  ledger-edit                props    DL-78   
 PASS  mentoring-plan             no-props DL-77   
 PASS  mentoring-plan             props    DL-77   
 PASS  mentoring-session          no-props DL-38   
