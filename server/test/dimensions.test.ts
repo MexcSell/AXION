@@ -8,7 +8,7 @@ const NOW = new Date('2026-11-21T12:00:00Z');
 const H = 3_600_000, D = 24 * H;
 const ago = (ms: number) => new Date(NOW.getTime() - ms);
 const W = windowOf('30d', NOW);
-const empty = (): DimInput => ({ admin: true, agents: [], missions: [], instances: [], tasks: [], reviews: [], ledgers: [], approvals: [], delegations: [], briefs: [], grants: [], tags: [], lessons: [], playbooks: [], promotions: [], rollbacks: [], orgRevisions: [], orgChanges: [] });
+const empty = (): DimInput => ({ admin: true, agents: [], missions: [], instances: [], tasks: [], reviews: [], ledgers: [], approvals: [], delegations: [], briefs: [], grants: [], tags: [], lessons: [], playbooks: [], promotions: [], rollbacks: [], verdicts: [], orgRevisions: [], orgChanges: [] });
 const run = (i: DimInput, dept: string | null = null, w: '7d' | '30d' | '90d' = '30d') => { const x = windowOf(w, NOW); return computeDimensions(i, { window: w, from: x.from, to: x.to, department: dept }); };
 const cell = (r: ReturnType<typeof run>, key: string) => r.dimensions.flatMap((d) => d.cells).find((c) => c.key === key)!;
 
@@ -69,7 +69,7 @@ describe('every cell is a value with n and window, or "not enough evidence (n = 
   });
   it('the not-measured cells are state "unmeasured" with n = null and the reason first, with no window', () => {
     const r = run(rich());
-    for (const k of ['environmental.site_navigation', 'environmental.model_availability', 'evolutionary.verdict_outcomes']) {
+    for (const k of ['environmental.site_navigation', 'environmental.model_availability']) {
       const c = cell(r, k);
       expect([c.value, c.n, c.state, c.basis, c.from, c.to, c.trend]).toEqual([null, null, 'unmeasured', 'none', null, null, null]);
       expect(c.evidence).toMatch(/^not measured/);
@@ -145,6 +145,30 @@ describe('simulated and DEMO rows change no value', () => {
     p.delegations = p.delegations.map((d) => ({ ...d, simulated: false }));
     p.briefs = p.briefs.map((b) => ({ ...b, simulated: false }));
     expect(run(p)).not.toEqual(run(rich()));
+  });
+});
+
+describe('evaluation verdict outcomes (c54 M1b)', () => {
+  const v = (outcome: 'verified_better' | 'inconclusive' | 'worse', daysAgo: number, agentId = 'a1') => ({ agentId, outcome, at: ago(daysAgo * D) });
+  it('counts evaluated proposals in the window by outcome; the value is the count of evaluated proposals, never a score', () => {
+    const i = empty(); i.agents = AGENTS;
+    i.verdicts = [v('verified_better', 2), v('inconclusive', 3), v('worse', 4), v('verified_better', 90)];
+    const c = cell(run(i), 'evolutionary.verdict_outcomes');
+    expect(c).toMatchObject({ value: 3, n: 3, state: 'ok', basis: 'window' });
+    expect(c.evidence).toContain('1 verified better, 1 inconclusive, 1 worse');
+  });
+  it('fewer than MIN_N evaluated proposals: not enough evidence, value null with n', () => {
+    const i = empty(); i.agents = AGENTS;
+    i.verdicts = [v('verified_better', 2), v('worse', 3)];
+    const c = cell(run(i), 'evolutionary.verdict_outcomes');
+    expect([c.value, c.n, c.state]).toEqual([null, 2, 'none']);
+    expect(c.evidence.startsWith('not enough evidence (n = 2)')).toBe(true);
+  });
+  it('a department sees only its own agents verdicts', () => {
+    const i = empty(); i.agents = AGENTS;
+    i.verdicts = [v('worse', 1), v('worse', 1), v('worse', 1), v('worse', 1, 'b1')];
+    expect(cell(run(i, 'Eng'), 'evolutionary.verdict_outcomes').n).toBe(3);
+    expect(cell(run(i, 'Ops'), 'evolutionary.verdict_outcomes').n).toBe(1);
   });
 });
 

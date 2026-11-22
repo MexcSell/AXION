@@ -65,6 +65,8 @@ export interface DimInput {
   playbooks: { agentId: string; version: number; items: number; at: Date }[];
   promotions: { agentId: string; at: Date }[];
   rollbacks: { agentId: string; at: Date }[];
+  /** c54: one per proposal with a finished stored run: the outcome verdictV2 gives over the stored runs (loadEvaluations, read only), placed at its newest finished run */
+  verdicts: { agentId: string; outcome: 'verified_better' | 'inconclusive' | 'worse'; at: Date }[];
   orgRevisions: { seq: number; at: Date }[];
   orgChanges: { seq: number; at: Date; subordinateId: string }[];
 }
@@ -252,7 +254,12 @@ const SPECS: { dim: DimensionKey; spec: Spec; measure: Measurer | typeof UNMEASU
     const n = input.rollbacks.filter((p) => c.agentIn(p.agentId) && c.inWin(p.at)).length;
     return count(n, `${plural(n, 'rollback')} of an agent to an earlier configuration in the window`, `${plural(n, 'rollback')}`);
   } },
-  { dim: 'evolutionary', spec: { key: 'evolutionary.verdict_outcomes', label: 'Evaluation verdicts (win / inconclusive / loss)', unit: 'count', minN: MIN_N, scope: 'company' }, measure: UNMEASURED, reason: 'not measured yet (cycle 47)' },
+  { dim: 'evolutionary', spec: { key: 'evolutionary.verdict_outcomes', label: 'Evaluation verdicts (win / inconclusive / loss)', unit: 'count', minN: MIN_N, scope: 'company' }, measure: (input, c) => {
+    // c54: recomputed from stored runs at read time (verdictV2, the same call the proposal card uses); the count is evaluated proposals, never a score
+    const vs = input.verdicts.filter((v) => c.agentIn(v.agentId) && c.inWin(v.at));
+    const by = (o: string) => vs.filter((v) => v.outcome === o).length;
+    return count(vs.length, `${by('verified_better')} verified better, ${by('inconclusive')} inconclusive, ${by('worse')} worse: ${plural(vs.length, 'proposal')} with a finished evaluation run in the window, outcomes recomputed from the stored runs`, `${plural(vs.length, 'evaluated proposal')}`);
+  } },
   { dim: 'evolutionary', spec: { key: 'evolutionary.org_revisions', label: 'Org revisions applied', unit: 'count', minN: MIN_N, scope: 'company' }, measure: (input, c) => {
     const first = input.orgRevisions.reduce((m, r) => Math.min(m, r.seq), Infinity); // the first revision is the starting chart, not an applied change
     const seqs = c.dept

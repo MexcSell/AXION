@@ -8,6 +8,7 @@ import { STALE_BEFORE_SQL } from '../tasks/reviews.ts';
 import { VISIBLE_SQL } from '../missions/visibility.ts';
 import { DIMENSION_WINDOWS, FAILURE_TAXONOMY_VERSION } from '../../../shared/contracts/src/index.ts';
 import { computeDimensions, type DimInput } from './dimensions.ts';
+import { loadEvaluations } from '../evolution/proposal-evidence.ts';
 import { loadDeptRows } from './departments.ts';
 import { dbWindow } from './clock.ts';
 
@@ -71,6 +72,12 @@ export default async function dimensionRoutes(app: FastifyInstance) {
       ];
       const [instances, reviews, ledgers, approvals, delegations, briefs, grants, tags, lessons, playbooks, promotions, rollbacks, orgRevs] = await runInOrder(c, queries);
       const D = (x: unknown) => new Date(x as string);
+      // c54: proposals with a finished stored run, outcome recomputed by verdictV2 over the stored runs (read only; readable by every signed-in user like the proposals themselves)
+      const props = (await c.query(
+        `select p.id, p.agent_id, p.created_by, p.base_version_id, p.candidate, (select max(r.finished_at) from eval_runs r where r.subject_proposal_id = p.id and r.finished_at is not null) as at
+           from agent_version_proposals p where p.tenant_id=$1 and exists (select 1 from eval_runs r where r.subject_proposal_id = p.id and r.finished_at is not null)`, [T])).rows;
+      const evals = await loadEvaluations(c, T, props);
+      const verdicts: DimInput['verdicts'] = props.filter((p) => evals.has(p.id)).map((p) => ({ agentId: p.agent_id, outcome: evals.get(p.id)!.outcome, at: D(p.at) }));
       const input: DimInput = {
         admin,
         agents: dept.agents.map((a) => ({ id: a.id, dept: a.dept, role: '', active: a.active })),
@@ -88,6 +95,7 @@ export default async function dimensionRoutes(app: FastifyInstance) {
         playbooks: playbooks.rows.map((p) => ({ agentId: p.agent_id, version: p.version, items: Number(p.items), at: D(p.created_at) })),
         promotions: promotions.rows.map((p) => ({ agentId: p.agent_id, at: D(p.decided_at) })),
         rollbacks: rollbacks.rows.map((r) => ({ agentId: r.agent_id, at: D(r.at) })),
+        verdicts,
         orgRevisions: orgRevs.rows.map((r) => ({ seq: r.seq, at: D(r.active_from) })),
         orgChanges: dept.orgChanges,
       };
