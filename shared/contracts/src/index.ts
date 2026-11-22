@@ -13,3 +13,4 @@ export * from './failures.ts';
 export * from './ledgers.ts';
 export * from './ledger-demo.ts';
 export * from './delegation.ts';
+export * from './playbooks.ts';

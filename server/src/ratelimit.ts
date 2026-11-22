@@ -43,6 +43,12 @@ export const LIMITED_ROUTES: Record<string, WriteBucket> = {
   'POST /api/v1/tasks/:id/reviews': 'proposals', // c38: a review is a governance write
   'POST /api/v1/missions/:id/delegation-briefs': 'proposals', // c42
   'POST /api/v1/missions/:id/staffing/retry': 'proposals', // c42 fix round 2
+  'POST /api/v1/agents/:id/lessons': 'proposals', // c41: playbooks and skills
+  'POST /api/v1/lessons/:lid/decision': 'proposals',
+  'POST /api/v1/agents/:id/playbook/rollback': 'proposals',
+  'POST /api/v1/skills': 'proposals',
+  'POST /api/v1/skills/:sid/approve': 'proposals',
+  'POST /api/v1/skills/:sid/retire': 'proposals',
   'POST /api/v1/uploads': 'uploads',
 };
 

@@ -24,6 +24,7 @@ import proposalRoutes from './organization/proposals.ts';
 import versionRoutes from './agents/versions.ts';
 import historyRoutes from './organization/history.ts';
 import mentoringRoutes from './agents/mentoring.ts';
+import playbookRoutes from './agents/playbooks.ts';
 import coverageRoutes from './organization/coverageRoutes.ts';
 import { seedCompany } from './agents/seed.ts';
 import instanceRoutes from './instances/routes.ts';
@@ -103,6 +104,7 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   await app.register(versionRoutes, { prefix: '/api/v1' });
   await app.register(historyRoutes, { prefix: '/api/v1' });
   await app.register(mentoringRoutes, { prefix: '/api/v1' });
+  await app.register(playbookRoutes, { prefix: '/api/v1' });
   await app.register(coverageRoutes, { prefix: '/api/v1' });
   await app.register(instanceRoutes, { prefix: '/api/v1' });
   await app.register(taskRoutes, { prefix: '/api/v1' });

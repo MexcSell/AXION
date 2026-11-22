@@ -19,6 +19,7 @@ import { isAdmin, useMe } from '@/store/auth';
 import { toast } from '@/store/ui';
 import { ago, cx } from '@/lib/format';
 import { ServerMentoringList } from '@/features/agents/Mentoring';
+import { PlaybookPanel } from '@/features/agents/Playbooks';
 import '@/theme/pages/overview-org-agent.css';
 
 /* Improvement cycle 5 (api mode): agent version proposals. Only stored facts are shown: base → candidate (skills and
@@ -174,6 +175,7 @@ export function ServerDevelopment() {
         <VersionProposalList />
       </Panel>
       <ServerMentoringList />
+      <PlaybookPanel />
     </div>
   );
 }

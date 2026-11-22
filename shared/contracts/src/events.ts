@@ -25,6 +25,7 @@ export type EventType =
   | 'mentoring.planned' | 'mentoring.milestoneDone' | 'mentoring.closed'
   | 'grant.issued' | 'grant.revoked'
   | 'failure.tagged' | 'failure.decided'
+  | 'playbook.lessonProposed' | 'playbook.lessonDecided' | 'playbook.versionCreated' | 'skill.proposed' | 'skill.decided'
   | 'org.proposalCreated' | 'org.proposalDecided' | 'org.revisionApplied'
   | 'user.requested' | 'user.changed' | 'auth.approved';
 

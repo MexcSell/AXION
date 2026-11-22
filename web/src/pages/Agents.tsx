@@ -36,6 +36,7 @@ import { AgentHierarchy } from '@/features/agents/AgentHierarchy';
 import { GrowthBadge, LevelPips, EvoTrack, GROWTH } from '@/features/agents/Growth';
 import { Departments, Assignments, Policies, Proposals } from '@/features/agents/OrgSections';
 import { ServerDevelopment } from '@/features/agents/VersionProposals';
+import { PlaybookPanel } from '@/features/agents/Playbooks';
 import { useVersionProposals } from '@/api/versionProposals';
 import { useMentoringPlans } from '@/api/mentoring';
 
@@ -264,6 +265,7 @@ function Development() {
           );
         })}
       </div>
+      <PlaybookPanel />
     </div>
   );
 }

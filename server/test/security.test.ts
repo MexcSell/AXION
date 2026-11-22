@@ -45,6 +45,13 @@ const SINCE_STAGE5_WRITES: [string, string][] = [
   ['POST', '/api/v1/tasks/:id/reviews'], // c38
   ['POST', '/api/v1/missions/:id/delegation-briefs'],
   ['POST', '/api/v1/missions/:id/staffing/retry'],
+  // cycle 41: playbooks and skills
+  ['POST', '/api/v1/agents/:id/lessons'],
+  ['POST', '/api/v1/lessons/:lid/decision'],
+  ['POST', '/api/v1/agents/:id/playbook/rollback'],
+  ['POST', '/api/v1/skills'],
+  ['POST', '/api/v1/skills/:sid/approve'],
+  ['POST', '/api/v1/skills/:sid/retire'],
 ];
 const fill = (url: string) => url.replace(/:(\w+)/g, (_m, k) => (k === 'key' ? 'gm' : k === 'action' ? 'retry' : `x-${k}-1`));
 
@@ -216,7 +223,7 @@ describe('per-session write rate limits', () => {
   // Merge follow-up (c14 review I1): the map is hand-kept, so the route table guards it. Every write route of a limited
   // kind (messages, uploads, and governance writes: proposals of any kind, rollbacks, mentoring plans) must be in
   // LIMITED_ROUTES, and every key of LIMITED_ROUTES must be a real route.
-  const LIMITED_KIND = /\/messages$|proposal|rollback|mentoring|site-grants|failure-tags|\/ledgers\/|\/reviews$|\/uploads$/;
+  const LIMITED_KIND = /\/messages$|proposal|rollback|mentoring|site-grants|failure-tags|\/ledgers\/|\/reviews$|\/uploads$|\/lessons|\/skills/;
   it('route table: every message, upload and governance write route is in LIMITED_ROUTES; every limited route exists', () => {
     const writes = t.app.routeTable.filter((r) => ['POST', 'PUT', 'PATCH', 'DELETE'].includes(r.method) && r.url.startsWith('/api/v1/')).map((r) => `${r.method} ${r.url}`);
     const must = writes.filter((k) => LIMITED_KIND.test(k.split(' ')[1]));
@@ -231,6 +238,7 @@ describe('per-session write rate limits', () => {
       'POST /api/v1/failure-tags', 'POST /api/v1/failure-tags/:id/decision',
       'POST /api/v1/missions/:id/ledgers/:kind',
       'POST /api/v1/tasks/:id/reviews',
+      'POST /api/v1/agents/:id/lessons', 'POST /api/v1/lessons/:lid/decision', 'POST /api/v1/agents/:id/playbook/rollback', 'POST /api/v1/skills', 'POST /api/v1/skills/:sid/approve', 'POST /api/v1/skills/:sid/retire',
     ]));
     expect(must.filter((k) => !(k in LIMITED_ROUTES))).toEqual([]);
     expect(Object.keys(LIMITED_ROUTES).filter((k) => !writes.includes(k))).toEqual([]);
@@ -244,6 +252,16 @@ describe('per-session write rate limits', () => {
     s.push((await b.req('POST', '/mentoring/no-such-plan/close', {})).status);
     expect(s.every((x) => x !== 429)).toBe(true);
     for (const [url, body] of [['/agents/no-such-agent/rollback', {}], ['/version-proposals/no-such/decision', { decision: 'approve' }], ['/agents/no-such-agent/mentoring', {}]] as const) {
+      const r = await b.req('POST', url, body);
+      expect(r.status, url).toBe(429);
+      envelope(r.body, 'RATE_LIMITED');
+    }
+  });
+
+  it('cycle 41: playbook and skill writes share the proposals budget (3 allowed, the 4th is 429)', async () => {
+    const b = await sameDevice(admin, 'Luca');
+    for (let i = 0; i < 3; i++) expect((await b.req('POST', '/agents/no-such-agent/lessons', {}, { 'idempotency-key': 'c41-rl-' + i })).status).not.toBe(429);
+    for (const [url, body] of [['/skills', {}], ['/lessons/LC-none/decision', { decision: 'reject' }], ['/agents/no-such-agent/playbook/rollback', {}], ['/skills/SK-none/approve', {}]] as const) {
       const r = await b.req('POST', url, body);
       expect(r.status, url).toBe(429);
       envelope(r.body, 'RATE_LIMITED');
