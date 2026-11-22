@@ -9,9 +9,10 @@ import { idempotent } from '../idempotency.ts';
 import { emit } from '../events/hooks.ts';
 import { VISIBLE_SQL } from '../missions/visibility.ts';
 import { insertDelegation, taskById } from '../instances/service.ts';
+import { createBrief } from '../delegation/service.ts';
 import { transitionTask, USER_TASK_ACTIONS, type TaskStatus, type TaskAction } from './machine.ts';
 
-const ReassignIn = z.object({ toInstanceId: z.string().min(1).max(120), reason: z.string().max(400).optional() }).strict();
+const ReassignIn = z.object({ toInstanceId: z.string().min(1).max(120), reason: z.string().max(400).optional(), brief: z.unknown().optional() }).strict();
 const NoBody = z.object({}).strict().nullish();
 
 /** A task of a mission the caller can see (404 otherwise, same as the mission routes). */
@@ -54,6 +55,11 @@ export default async function taskRoutes(app: FastifyInstance) {
         if (fromInst !== target.id) await insertDelegation(c, { missionId: t.mission_id, from: fromInst, to: target.id, kind: 'delegated', taskId: id, simulated: sim });
         Object.assign(detail, { toInstanceId: target.id, fromInstanceId: t.owner_instance_id, fromAgent: t.owner_agent, reason: body!.reason ?? null }); // fromAgent: cycle 3 reliability (a task without an owner instance)
         delegated = { from: fromInst, to: target.id };
+        // c42: an optional typed brief is recorded in the same transaction (a refused brief refuses the whole reassignment)
+        if (body!.brief !== undefined) {
+          const b = await createBrief(c, { tenantId: ctx.tenantId, missionId: t.mission_id, toInstanceId: target.id, taskId: id, brief: body!.brief, actor: { id: ctx.user.id, role: ctx.user.role, name: ctx.user.name }, correlationId: ctx.correlationId, simulated: sim });
+          detail.briefId = b?.id;
+        }
       } else {
         // compare-and-set on the status we read: a concurrent change is a conflict, never a silent overwrite
         const u = await c.query(`update tasks set status=$2 where id=$1 and status=$3 returning id`, [id, to, from]);

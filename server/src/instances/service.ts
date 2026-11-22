@@ -2,6 +2,7 @@ import type { Tx, Db } from '../db.ts';
 import { emit } from '../events/hooks.ts';
 import { notFound } from '../errors.ts';
 import { VISIBLE_SQL } from '../missions/visibility.ts';
+import { attachSimBrief } from '../delegation/service.ts';
 
 export const instanceId = (missionId: string, agentId: string) => `${missionId}:${agentId}`;
 
@@ -46,6 +47,7 @@ export async function joinMission(c: Tx, i: NewInstance & { managerAgentId: stri
   if (!(await insertInstance(c, i))) return false;
   const to = instanceId(i.missionId, i.agentId), from = instanceId(i.missionId, i.managerAgentId);
   await insertDelegation(c, { missionId: i.missionId, from, to, kind: 'delegated', simulated: i.simulated });
+  await attachSimBrief(c, { tenantId: i.tenantId, missionId: i.missionId, fromInstanceId: from, toInstanceId: to, goal: i.task ?? '', simulated: i.simulated }); // c42: every new delegation carries a brief
   await emit(c, { tenantId: i.tenantId, type: 'instance.created', subjectKind: 'instance', subject: to, missionId: i.missionId, actor: i.managerAgentId, actorKind: 'agent',
     payload: { instanceId: to, agentId: i.agentId, managerInstanceId: from, simulated: i.simulated } });
   await emit(c, { tenantId: i.tenantId, type: 'task.delegated', subjectKind: 'instance', subject: to, missionId: i.missionId, actor: i.managerAgentId, actorKind: 'agent',

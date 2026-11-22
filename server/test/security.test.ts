@@ -42,6 +42,7 @@ const SINCE_STAGE5_WRITES: [string, string][] = [
   ['POST', '/api/v1/organization/proposals/:id/decision'],
   ['POST', '/api/v1/organization/proposals/:id/withdraw'],
   ['POST', '/api/v1/tasks/:id/:action'],
+  ['POST', '/api/v1/missions/:id/delegation-briefs'],
 ];
 const fill = (url: string) => url.replace(/:(\w+)/g, (_m, k) => (k === 'key' ? 'gm' : k === 'action' ? 'retry' : `x-${k}-1`));
 
