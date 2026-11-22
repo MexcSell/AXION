@@ -24,7 +24,7 @@ const entries: Record<string, HelpEntry> = {
     'It is not the complement of "Returned for rework": the cohorts differ (any review in the window here, first review in the window there).'),
   'process.duplicate_delegation': h('Duplicate delegations', 'Delegations in the window whose goal is the same as that of another delegation of the same mission.',
     'The same goal sent twice is repeated work, or a hand-over that lost context.',
-    'Formula: delegations whose normalised goal matches another current delegation of the same mission in the window / delegations with a goal in the window. Normalised means trimmed, lower-cased, with runs of spaces collapsed, so "Fix the bug" and "  fix  THE bug " match. A revised brief replaces the one it revises and is not counted twice. The same text in two different missions is not a duplicate. Needs at least 3 delegations.',
+    'Formula: delegations whose normalised goal matches another current delegation of the same mission in the window / delegations with a goal in the window. Normalised means trimmed, lower-cased, with runs of spaces collapsed, so "Fix the bug" and "  fix  THE bug " match. A revised brief replaces the one it revises and is not counted twice. The same text in two different missions is not a duplicate. Briefs the staffing simulator writes when it places an agent are not counted. Needs at least 3 delegations.',
     '2 of 5 delegations share a goal, in 1 repeated goal = 40%.',
     'Rewording a goal slightly hides a repeat: only a person reading the briefs can tell. The guard says so.'),
   'process.reassign_churn': h('Reassign churn', 'How many times a task changed owner after its first assignment: the median and the 90th percentile over tasks first assigned in the window.',
