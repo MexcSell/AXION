@@ -15,6 +15,7 @@ export * from './ledger-demo.ts';
 export * from './delegation.ts';
 export * from './playbooks.ts';
 export * from './dimensions.ts';
+export * from './attention.ts';
 export * from './api.ts';
 export * from './metric-guard.ts';
 export * from './metric-registry.ts';

@@ -403,6 +403,12 @@ describe('API coverage run', () => {
     }
     await call(admin, 'GET', '/failure-tags', '/failure-tags', { query: '?subjectKind=task&subjectId=T-c630' });
     await call(admin, 'GET', '/company/failure-patterns', '/company/failure-patterns');
+    // c68: a task waiting on a person for days with no state-change event (the wait is counted from its creation, so ageNote is set)
+    await t.pool.query(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent, created_at) values ('T-c68-wait',$1,$2,'Waiting','waiting_user','agent-c63', now() - interval '3 days')`, [tenant, m1]);
+    // c68: the attention queue, for an administrator (rows of several kinds) and for a member
+    const att = (await call(admin, 'GET', '/attention', '/attention')).body;
+    expect(att.rows.length).toBeGreaterThan(0);
+    await call(mina, 'GET', '/attention', '/attention');
     await call(admin, 'GET', '/failure-tags', '/failure-tags', { query: '?subjectKind=task&subjectId=T-c50a' });
     await call(admin, 'GET', '/site-grants', '/site-grants');
 

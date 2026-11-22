@@ -13,6 +13,7 @@ import {
   type SkillStep, type SourceRef, type TaskBody, type TaskDto, type TaskReviewDto, type TaskReviewsDto, type ThreadDto, type ThreadPartnerDto, type ThroughputDto,
   type UploadDto, type VersionConfig, type VersionDiff, type VersionProposalDto, type AgentReliability, type QueueSummaryDto, type AnchorStatusDto, type AnchorTenantDto, ANCHOR_STATUS_NAMES, JOB_STATUS_NAMES,
   type ContributionDto, type RetirementProposalsDto, type RetirementProposalDto, CONTRIBUTION_ACTIONS,
+  type AttentionDto, type AttentionRowDto, type AttentionMemberDto, type AttentionEvidence, type AttentionFact, type AttentionAction, ATTENTION_REASON_CODES, ATTENTION_KINDS, ATTENTION_ICONS,
   type ProposalEvaluationDto, type EvalRefusalDto, type GradingDto, type DatasetValidityDto, type CompanyDimensionsDto, type DimensionRowDto, type DimensionCell, DIMENSION_KEYS, DIMENSION_WINDOWS,
   type CapacityCellDto, type CapacityDeptDto, type CapacityPersonDto, type CapacityPeopleBody, type ReviewCapacityDto, type LittleLawDto, type SpanDto, type SpanRowDto,
   type MetricGuardDto, type MetricGuard, type MetricGuardRow, type MetricAuditState, type MetricAuditResult, QUALITY_DIMENSION_IDS,
@@ -431,3 +432,17 @@ const metricGuardRow: V<MetricGuardRow> = obj<MetricGuardRow>({
 });
 export const metricGuard: V<MetricGuardDto> = obj<MetricGuardDto>({ rows: arr(metricGuardRow), promotionNote: str });
 export const metricAuditResult: V<MetricAuditResult> = obj<MetricAuditResult>({ recorded: int, audit: metricAuditState });
+
+// ---- attention queue (c68)
+const attentionFact: V<AttentionFact> = obj<AttentionFact>({ label: str, value: str });
+const attentionEvidence: V<AttentionEvidence> = obj<AttentionEvidence>({ check: str, facts: arr(attentionFact) });
+const attentionAction: V<AttentionAction> = obj<AttentionAction>({ label: str, route: str, canAct: bool, note: nullable(str) });
+const attentionMember: V<AttentionMemberDto> = obj<AttentionMemberDto>({ id: str, subject: str, ageSec: int, expiresInSec: nullable(int), ageNote: nullable(str), route: str, tier: nullable(str), canAct: bool, note: nullable(str), demo: bool, evidence: attentionEvidence });
+const attentionRow: V<AttentionRowDto> = obj<AttentionRowDto>({
+  id: str, reason: oneOf(ATTENTION_REASON_CODES), kind: oneOf(ATTENTION_KINDS), icon: oneOf(ATTENTION_ICONS), tier: nullable(str), why: str, subject: str, ageSec: int, expiresInSec: nullable(int), ageNote: nullable(str),
+  count: int, members: arr(attentionMember), action: attentionAction, evidence: attentionEvidence, groupedBy: nullable(str), missionId: nullable(str),
+});
+export const attention: V<AttentionDto> = obj<AttentionDto>({
+  rows: arr(attentionRow), totals: obj<AttentionDto['totals']>({ items: int, rows: int, collapsed: int }),
+  settings: obj<AttentionDto['settings']>({ waitingHours: int, nearExpiryHours: int, failureWindowDays: int }), ranking: str, checkedAt: iso,
+});

@@ -1,0 +1,73 @@
+/* Improvement cycle 68: "Needs you", the operator attention queue. Dense one-line rows, a detail pane with three levels, one screen at 1366x768. */
+.ny-grid { display: grid; gap: var(--gap); grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr); }
+.ny-sub { font-size: 12px; color: var(--text-muted); }
+.ny-fold { display: inline-flex; align-items: center; gap: 4px; }
+.ny-rank { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--text-muted); }
+.ny-rank svg { color: var(--accent-2); }
+.ny-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; color: var(--text-muted); font-size: 13px; padding: 12px; }
+.ny-rows { list-style: none; margin: 0; padding: 0 2px 0 0; display: flex; flex-direction: column; gap: 0; }
+.ov-body .ny-scroll, .ny-scroll { overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
+.ny-li { display: flex; align-items: center; gap: 4px; flex: none; border-radius: 9px; border: 1px solid transparent; transition: background var(--dur-fast), border-color var(--dur-fast); }
+.ny-li:hover { background: var(--panel-2); }
+.ny-li.on { background: var(--panel-hover); border-color: var(--border-strong); box-shadow: inset 3px 0 0 hsl(var(--h, 260) 90% 62%); }
+.ny-row { flex: 1; min-width: 0; height: 29px; display: flex; align-items: center; gap: 8px; padding: 0 6px 0 8px; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: 9px; }
+.ny-row:focus-visible { outline: 2px solid var(--accent-2); outline-offset: -2px; }
+.ny-n { width: 16px; flex: none; text-align: right; font-size: 10.5px; color: var(--text-muted); }
+.ny-ico { width: 22px; height: 22px; flex: none; display: inline-flex; align-items: center; justify-content: center; border-radius: 7px; color: hsl(var(--h, 260) 95% 72%); background: hsl(var(--h, 260) 70% 50% / .18); }
+.ny-kind { flex: none; display: inline-flex; align-items: center; gap: 4px; min-width: 84px; font-size: 11px; font-weight: 600; color: var(--text-dim); white-space: nowrap; }
+.ny-kind b { padding: 0 5px; border-radius: 5px; font-size: 10.5px; line-height: 16px; color: hsl(var(--h) 95% 78%); background: hsl(var(--h) 80% 50% / .22); border: 1px solid hsl(var(--h) 80% 60% / .5); }
+.ny-why { flex: 1; min-width: 0; font-size: 12.5px; }
+.ny-count { flex: none; padding: 0 6px; border-radius: 999px; font-size: 11px; font-weight: 700; line-height: 17px; background: rgba(var(--accent-2-rgb), .18); color: var(--accent-2); border: 1px solid rgba(var(--accent-2-rgb), .4); }
+.ny-time { flex: none; width: 76px; white-space: nowrap; display: inline-flex; align-items: center; justify-content: flex-end; gap: 3px; font-size: 11.5px; color: var(--text-muted); }
+.ny-time.exp { color: var(--warn); }
+.ny-li .help-btn { flex: none; margin-right: 4px; }
+.vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* detail pane */
+.ny-detail-panel { min-width: 0; }
+.ny-detail-why { margin: 0 0 8px; font-size: 13px; line-height: 1.35; }
+.ny-levels { margin-bottom: 8px; display: flex; }
+.ny-level { padding-right: 2px; }
+.ny-facts { display: grid; grid-template-columns: minmax(88px, 40%) minmax(0, 1fr); gap: 5px 12px; margin: 0; font-size: 12px; align-items: baseline; }
+.ny-facts dt { color: var(--text-muted); }
+.ny-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.ny-facts dd.long { font-family: var(--font-mono); font-size: 10.5px; line-height: 1.3; }
+.ny-members { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.ny-mem { width: 100%; height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 8px; border: 1px solid transparent; background: none; color: inherit; font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; transition: background var(--dur-fast); }
+.ny-mem:hover { background: var(--panel-2); }
+.ny-mem.on { background: var(--panel-hover); border-color: var(--border-strong); }
+.ny-mem:focus-visible { outline: 2px solid var(--accent-2); outline-offset: -2px; }
+.ny-mem .ellipsis { flex: 1; min-width: 0; }
+.ny-tier { flex: none; padding: 0 5px; border-radius: 5px; font-size: 10.5px; line-height: 16px; color: hsl(var(--h) 95% 78%); background: hsl(var(--h) 80% 50% / .22); border: 1px solid hsl(var(--h) 80% 60% / .5); }
+.ny-row > .ny-demo { margin-left: 0; flex: none; }
+.ny-approx { display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted); font-size: 11px; }
+.ny-demo { margin-left: 6px; font-size: 9.5px; font-weight: 700; letter-spacing: .04em; color: var(--warn); }
+.ny-action { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.ny-action p { margin: 0; font-size: 12px; }
+.ny-locked { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border-radius: 10px; font-size: 12.5px; background: var(--panel-2); border: 1px solid var(--border-soft); }
+.ny-locked svg { flex: none; margin-top: 2px; color: var(--warn); }
+.ny-evidence { display: flex; flex-direction: column; gap: 10px; }
+.ny-check { display: flex; gap: 8px; padding: 8px 10px; border-radius: 10px; background: rgba(var(--accent-2-rgb), .1); border: 1px solid rgba(var(--accent-2-rgb), .35); }
+.ny-check svg { flex: none; margin-top: 2px; color: var(--accent-2); }
+.ny-check p { margin: 0; font-size: 12.5px; line-height: 1.4; }
+.ny-check b { display: block; font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent-2); margin-bottom: 2px; }
+
+@media (min-width: 1280px) and (min-height: 640px) {
+  .ov-body > .ny-grid { grid-template-rows: minmax(0, 1fr); }
+}
+@media (max-width: 900px) {
+  .ny-list-panel .panel-head, .ny-detail-panel .panel-head { flex-wrap: wrap; row-gap: 4px; }
+  .ny-list-panel .panel-title, .ny-detail-panel .panel-title { flex: none; }
+  .ny-grid { grid-template-columns: minmax(0, 1fr); }
+  .ny-row { height: auto; min-height: 34px; padding-top: 4px; padding-bottom: 4px; flex-wrap: wrap; row-gap: 2px; }
+  .ny-why { flex-basis: 100%; order: 5; white-space: normal; overflow: visible; text-overflow: clip; font-size: 12px; }
+  .ny-n { display: none; }
+  .ny-kind { min-width: 0; flex: 1; }
+  .ny-scroll { max-height: none; overflow: visible; }
+}
+
+[data-theme='light'] .ny-kind b, [data-theme='light'] .ny-tier { color: hsl(var(--h) 75% 28%); background: hsl(var(--h) 85% 55% / .2); border-color: hsl(var(--h) 70% 40% / .55); }
+[data-theme='light'] .ny-ico { color: hsl(var(--h, 260) 70% 32%); background: hsl(var(--h, 260) 80% 55% / .2); }
+[data-theme='light'] .ny-time.exp, [data-theme='light'] .ny-demo { color: #8a4b00; }
+[data-theme='light'] .ny-count { color: #1a4fb0; }
+@media (prefers-reduced-motion: reduce) { .ny-li, .ny-mem { transition: none; } }

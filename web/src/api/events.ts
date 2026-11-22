@@ -12,6 +12,7 @@ import { bumpGrants } from './siteGrants';
 import { bumpFailures } from './failures';
 import { bumpLedgers } from './ledgers';
 import { bumpPlaybooks } from './playbooks';
+import { bumpAttention } from './attention';
 import { bumpScorecard, clearScorecard } from './scorecard';
 import { bumpTaskReviews } from './taskReviews';
 import { bumpDepartments, clearDepartments } from './departments';
@@ -57,6 +58,7 @@ export function startSync(): () => void {
   const ledgers = debounceKeyed(() => bumpLedgers(), 150);
   const taskReviews = debounceKeyed(() => bumpTaskReviews(), 150);
   const playbooks = debounceKeyed(() => bumpPlaybooks(), 150); // c41
+  const attention = debounceKeyed(() => bumpAttention(), 300); // c68: the "Needs you" queue
   const scorecard = debounceKeyed(() => bumpScorecard(), 400);
   // improvement cycle 3: each agent's measured reliability follows task outcomes and reassignments (the catalog carries it)
   const reliability = debounceKeyed(() => { void loadAgents().catch(() => undefined); }, 400);
@@ -83,6 +85,8 @@ export function startSync(): () => void {
     useData.setState({ lastEventAt: Date.now() });
     if (e.subject.kind === 'mission') mission(e.subject.id);
     if (type.startsWith('approval.')) approvals('a');
+    // c68: everything that adds to or clears the "Needs you" queue
+    if (/^(approval|task|failure|org|playbook|mission|agent)\./.test(type)) attention('q');
     if (type === 'notification.created') notices('n');
     if (type.startsWith('user.') || type.startsWith('auth.')) people('p');
     // Stage 6: the agent catalog, and each mission's hierarchy, tasks and conversations
@@ -130,7 +134,7 @@ export function startSync(): () => void {
       set('live');
       // the snapshot is read after the stream's cursor exists, so nothing committed in between is missed
       void loadSnapshot().catch(() => undefined);
-      if (opened) playbooks('p'); // c41: a reconnect re-reads the playbook panel too
+      if (opened) { playbooks('p'); attention('q'); } // c41: a reconnect re-reads the playbook panel too; c68: and the queue
       if (opened++) { agents('a'); instances('i'); proposals('o'); versions('v'); mentoring('m'); grants('g'); failures('f'); ledgers('l'); taskReviews('t'); scorecard('s'); refreshLoadedMissionControl(); void refreshLoadedChannels(); departments('d'); } // a reconnect: re-read what this tab already shows
       else if (useAgentsVersion.getState().failed) agents('a'); // the first catalog load failed: try again now the server answers
     });
@@ -158,7 +162,7 @@ export function startSync(): () => void {
   return () => {
     closed = true; es?.close(); window.clearTimeout(staleTimer); window.clearTimeout(fallback); window.clearInterval(watchdog);
     mission.cancel(); approvals.cancel(); notices.cancel(); people.cancel(); agents.cancel(); instances.cancel(); proposals.cancel(); versions.cancel(); mentoring.cancel(); grants.cancel(); failures.cancel(); ledgers.cancel(); scorecard.cancel(); reliability.cancel(); departments.cancel(); // no refresh fires after sign-out
-    playbooks.cancel(); taskReviews.cancel(); // c41, c52
+    playbooks.cancel(); taskReviews.cancel(); attention.cancel(); // c41, c52, c68
     set('off');
   };
 }

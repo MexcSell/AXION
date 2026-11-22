@@ -1,5 +1,7 @@
 /* ================================================================== */
-/* Overview: one screen, no scrolling at all (not even inside a tab).  */
+/* Overview: one screen, no page scrolling. The Pulse, Portfolio, Activity */
+/* and Health tabs show only what fits; "Needs you" (c68) scrolls its list */
+/* inside its panel instead, because nothing in it may be hidden.         */
 /* Every tab fills the frame body exactly; panels share the height and */
 /* lists / card grids show only the items that fit whole (useFitCount, */
 /* which counts only when its box is overflow:hidden). The gate reaches */
