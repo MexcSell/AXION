@@ -3,6 +3,7 @@ import { makeTestApp, withAdmin, type TestApp, type Browser } from './helpers.ts
 import { tx } from '../src/db.ts';
 import { recordReview } from '../src/tasks/reviews.ts';
 import { addVersion } from '../src/agents/service.ts';
+import { audit } from '../src/audit.ts';
 import { seedDemo, clearDemo } from '../src/seed/demo.ts';
 import { MISSIONS } from '../../web/src/data/missions.ts';
 
@@ -228,7 +229,8 @@ describe('agents that worked on an earlier attempt cannot review (M1)', () => {
     await t.pool.query(`insert into mission_delegations(mission_id, from_instance, to_instance, edge_kind, task_id) values ($1,$2,$3,'delegated',$4)`, [M1, `${M1}:coder-01`, a.id, viaDeleg]);
     await expect(go(viaDeleg, a.agent_id)).rejects.toMatchObject({ code: 'REVIEW_NOT_INDEPENDENT', status: 403 });
     const viaReassign = await mkTask(M1);
-    await t.pool.query(`insert into audit_events(tenant_id, actor, action, subject, result, correlation_id, detail) values ($1,'x','task.reassign',$2,'ok','c',$3::jsonb)`, [t.app.cfg.tenantId, viaReassign, JSON.stringify({ fromAgent: b.agent_id, fromInstanceId: b.id })]);
+    // through audit(): since c31 every audit row is part of the tenant's hash chain (seq, prev_hash, row_hash NOT NULL)
+    await audit(t.pool, { tenantId: t.app.cfg.tenantId, actor: 'x', action: 'task.reassign', subject: viaReassign, result: 'ok', correlationId: 'c', detail: { fromAgent: b.agent_id, fromInstanceId: b.id } });
     await expect(go(viaReassign, b.agent_id)).rejects.toMatchObject({ code: 'REVIEW_NOT_INDEPENDENT' });
     expect(await count('select count(*)::int n from task_reviews where task_id = any($1)', [[viaDeleg, viaReassign]])).toBe(0);
     // controls: the agent that did not touch the task may review it, and a person is not affected
