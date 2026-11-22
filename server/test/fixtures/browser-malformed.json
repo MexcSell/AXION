@@ -1,0 +1,724 @@
+[
+ {
+  "why": "not an object (string)",
+  "raw": "click"
+ },
+ {
+  "why": "not an object (null)",
+  "raw": null
+ },
+ {
+  "why": "not an object (array)",
+  "raw": [
+   {
+    "type": "observe"
+   }
+  ]
+ },
+ {
+  "why": "not an object (number)",
+  "raw": 42
+ },
+ {
+  "why": "missing type",
+  "raw": {
+   "url": "https://shop.example.com"
+  }
+ },
+ {
+  "why": "unknown type",
+  "raw": {
+   "type": "evaluate",
+   "expression": "1"
+  },
+  "reasonIncludes": "type"
+ },
+ {
+  "why": "unknown type runJs",
+  "raw": {
+   "type": "runJs",
+   "code": "1"
+  }
+ },
+ {
+  "why": "unknown type shell",
+  "raw": {
+   "type": "shell",
+   "cmd": "ls"
+  }
+ },
+ {
+  "why": "unknown type sql",
+  "raw": {
+   "type": "sql",
+   "query": "select 1"
+  }
+ },
+ {
+  "why": "type wrong case",
+  "raw": {
+   "type": "Click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Go"
+   }
+  }
+ },
+ {
+  "why": "type not a string",
+  "raw": {
+   "type": 5
+  }
+ },
+ {
+  "why": "navigate without url",
+  "raw": {
+   "type": "navigate"
+  }
+ },
+ {
+  "why": "navigate url not a string",
+  "raw": {
+   "type": "navigate",
+   "url": 5
+  }
+ },
+ {
+  "why": "navigate with extra key",
+  "raw": {
+   "type": "navigate",
+   "url": "https://shop.example.com",
+   "headers": {
+    "a": "b"
+   }
+  }
+ },
+ {
+  "why": "navigate http scheme",
+  "raw": {
+   "type": "navigate",
+   "url": "http://shop.example.com/"
+  }
+ },
+ {
+  "why": "navigate file scheme",
+  "raw": {
+   "type": "navigate",
+   "url": "file:///etc/passwd"
+  }
+ },
+ {
+  "why": "navigate relative url",
+  "raw": {
+   "type": "navigate",
+   "url": "/checkout"
+  }
+ },
+ {
+  "why": "navigate empty url",
+  "raw": {
+   "type": "navigate",
+   "url": ""
+  }
+ },
+ {
+  "why": "navigate with CR LF in url",
+  "raw": {
+   "type": "navigate",
+   "url": "https://shop.example.com/a\r\nHost: evil"
+  }
+ },
+ {
+  "why": "navigate with space in url",
+  "raw": {
+   "type": "navigate",
+   "url": "https://shop.example.com/a b"
+  }
+ },
+ {
+  "why": "navigate to an IP",
+  "raw": {
+   "type": "navigate",
+   "url": "https://10.0.0.1/"
+  }
+ },
+ {
+  "why": "navigate to metadata host",
+  "raw": {
+   "type": "navigate",
+   "url": "https://metadata.google.internal/"
+  }
+ },
+ {
+  "why": "observe with extra key",
+  "raw": {
+   "type": "observe",
+   "evaluate": "x"
+  }
+ },
+ {
+  "why": "screenshot with script",
+  "raw": {
+   "type": "screenshot",
+   "script": "x"
+  }
+ },
+ {
+  "why": "click without target",
+  "raw": {
+   "type": "click"
+  }
+ },
+ {
+  "why": "click with target string",
+  "raw": {
+   "type": "click",
+   "target": "button"
+  }
+ },
+ {
+  "why": "click with unknown locator kind",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "xpath",
+    "selector": "//a"
+   }
+  }
+ },
+ {
+  "why": "locator role without name",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button"
+   }
+  }
+ },
+ {
+  "why": "locator role with invalid role",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button; drop",
+    "name": "x"
+   }
+  }
+ },
+ {
+  "why": "locator role not lower case",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "BUTTON",
+    "name": "x"
+   }
+  }
+ },
+ {
+  "why": "locator exact not boolean",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "x",
+    "exact": "yes"
+   }
+  }
+ },
+ {
+  "why": "locator with extra key",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "x",
+    "evaluate": "1"
+   }
+  }
+ },
+ {
+  "why": "locator name too long",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn"
+   }
+  }
+ },
+ {
+  "why": "locator label empty",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "label",
+    "label": ""
+   }
+  }
+ },
+ {
+  "why": "locator testId with space",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "testId",
+    "testId": "a b"
+   }
+  }
+ },
+ {
+  "why": "locator testId too long",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "testId",
+    "testId": "ttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"
+   }
+  }
+ },
+ {
+  "why": "css empty",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": ""
+   }
+  }
+ },
+ {
+  "why": "css too long",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   }
+  }
+ },
+ {
+  "why": "css with :has(",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "div:has(a)"
+   }
+  },
+  "reasonIncludes": "css"
+ },
+ {
+  "why": "css with JAVASCRIPT: upper case",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a[href^=JAVASCRIPT:]"
+   }
+  }
+ },
+ {
+  "why": "css with split expression(",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "div[x=EXPRESSION (1)]"
+   }
+  }
+ },
+ {
+  "why": "css with url(",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a[x=url(1)]"
+   }
+  }
+ },
+ {
+  "why": "css with braces",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a{color:red}"
+   }
+  }
+ },
+ {
+  "why": "css with comment",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a/**/b"
+   }
+  }
+ },
+ {
+  "why": "css with backslash escape",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": ".\\6a avascript"
+   }
+  }
+ },
+ {
+  "why": "fill without valueRef",
+  "raw": {
+   "type": "fill",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Go"
+   }
+  }
+ },
+ {
+  "why": "fill with raw value key",
+  "raw": {
+   "type": "fill",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Go"
+   },
+   "value": "x"
+  }
+ },
+ {
+  "why": "fill with valueRef and value",
+  "raw": {
+   "type": "fill",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Go"
+   },
+   "valueRef": "val_abc12345",
+   "value": "x"
+  }
+ },
+ {
+  "why": "fill valueRef not a string",
+  "raw": {
+   "type": "fill",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Go"
+   },
+   "valueRef": {
+    "id": 1
+   }
+  }
+ },
+ {
+  "why": "fill valueRef too short",
+  "raw": {
+   "type": "fill",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Go"
+   },
+   "valueRef": "val_a"
+  }
+ },
+ {
+  "why": "fill valueRef wrong prefix",
+  "raw": {
+   "type": "fill",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Go"
+   },
+   "valueRef": "raw_abc12345"
+  }
+ },
+ {
+  "why": "fill valueRef with path chars",
+  "raw": {
+   "type": "fill",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Go"
+   },
+   "valueRef": "val_../../etc"
+  }
+ },
+ {
+  "why": "select without value",
+  "raw": {
+   "type": "select",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Go"
+   }
+  }
+ },
+ {
+  "why": "select value not a string",
+  "raw": {
+   "type": "select",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Go"
+   },
+   "value": [
+    "a"
+   ]
+  }
+ },
+ {
+  "why": "select value with control char",
+  "raw": {
+   "type": "select",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Go"
+   },
+   "value": "a\u0000b"
+  }
+ },
+ {
+  "why": "select value javascript:",
+  "raw": {
+   "type": "select",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Go"
+   },
+   "value": "javascript:1"
+  }
+ },
+ {
+  "why": "scroll bad direction",
+  "raw": {
+   "type": "scroll",
+   "direction": "left",
+   "pixels": 10
+  }
+ },
+ {
+  "why": "scroll pixels too big",
+  "raw": {
+   "type": "scroll",
+   "direction": "down",
+   "pixels": 10001
+  }
+ },
+ {
+  "why": "scroll pixels zero",
+  "raw": {
+   "type": "scroll",
+   "direction": "down",
+   "pixels": 0
+  }
+ },
+ {
+  "why": "scroll pixels negative",
+  "raw": {
+   "type": "scroll",
+   "direction": "down",
+   "pixels": -5
+  }
+ },
+ {
+  "why": "scroll pixels fractional",
+  "raw": {
+   "type": "scroll",
+   "direction": "down",
+   "pixels": 1.5
+  }
+ },
+ {
+  "why": "scroll pixels string",
+  "raw": {
+   "type": "scroll",
+   "direction": "down",
+   "pixels": "100"
+  }
+ },
+ {
+  "why": "scroll pixels NaN-like null",
+  "raw": {
+   "type": "scroll",
+   "direction": "down",
+   "pixels": null
+  }
+ },
+ {
+  "why": "waitFor timeout too big",
+  "raw": {
+   "type": "waitFor",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Go"
+   },
+   "timeoutMs": 30001
+  }
+ },
+ {
+  "why": "waitFor timeout zero",
+  "raw": {
+   "type": "waitFor",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Go"
+   },
+   "timeoutMs": 0
+  }
+ },
+ {
+  "why": "waitFor timeout missing",
+  "raw": {
+   "type": "waitFor",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Go"
+   }
+  }
+ },
+ {
+  "why": "waitFor timeout string",
+  "raw": {
+   "type": "waitFor",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Go"
+   },
+   "timeoutMs": "100"
+  }
+ },
+ {
+  "why": "download without target",
+  "raw": {
+   "type": "download"
+  }
+ },
+ {
+  "why": "download with url key",
+  "raw": {
+   "type": "download",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Go"
+   },
+   "url": "https://evil.example.org/x.exe"
+  }
+ },
+ {
+  "why": "finish without summary",
+  "raw": {
+   "type": "finish"
+  }
+ },
+ {
+  "why": "finish summary too long",
+  "raw": {
+   "type": "finish",
+   "summary": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+  }
+ },
+ {
+  "why": "finish summary not a string",
+  "raw": {
+   "type": "finish",
+   "summary": {
+    "text": "x"
+   }
+  }
+ },
+ {
+  "why": "finish summary with NUL",
+  "raw": {
+   "type": "finish",
+   "summary": "a\u0000b"
+  }
+ },
+ {
+  "why": "proto pollution key",
+  "raw": {
+   "type": "observe",
+   "__proto__": {
+    "admin": true
+   }
+  }
+ },
+ {
+  "why": "constructor key",
+  "raw": {
+   "type": "observe",
+   "constructor": {
+    "prototype": {}
+   }
+  }
+ },
+ {
+  "why": "script key on scroll",
+  "raw": {
+   "type": "scroll",
+   "direction": "up",
+   "pixels": 5,
+   "script": "x"
+  }
+ },
+ {
+  "why": "expression key on waitFor",
+  "raw": {
+   "type": "waitFor",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Go"
+   },
+   "timeoutMs": 100,
+   "expression": "1"
+  }
+ },
+ {
+  "why": "cdp key on navigate",
+  "raw": {
+   "type": "navigate",
+   "url": "https://shop.example.com",
+   "cdp": "Page.navigate"
+  }
+ },
+ {
+  "why": "nested array as target",
+  "raw": {
+   "type": "click",
+   "target": [
+    {
+     "by": "role",
+     "role": "button",
+     "name": "Go"
+    }
+   ]
+  }
+ }
+]
