@@ -44,7 +44,7 @@ export async function audit(c: Tx | Db, a: AuditInput) {
     return;
   }
   const detail = JSON.stringify(redact(a.detail ?? {})); // what is stored is what is hashed: redacted first
-  await c.query('select pg_advisory_xact_lock($1)', [EVENTS_LOCK]);
+  await c.query(`select pg_advisory_xact_lock(${EVENTS_LOCK})`);
   await c.query('select pg_advisory_xact_lock(hashtextextended(current_schema() || $1, 0))', [':audit-chain:' + a.tenantId]);
   const head = (await c.query('select seq, row_hash from audit_events where tenant_id=$1 order by seq desc limit 1', [a.tenantId])).rows[0];
   const seq = head ? Number(head.seq) + 1 : 1;

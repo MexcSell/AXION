@@ -14,12 +14,18 @@ export interface AppendInput {
   audienceUser?: string;
 }
 
-export const EVENTS_LOCK = 0x4158_4556; // 'AXEV'
+/**
+ * The events lock key, scoped to the current schema like the audit-chain lock: one schema in production (same exclusivity
+ * as the old constant 0x41584556), and in the test database each test schema gets its own lock, so a test that parks a
+ * writer on it (audit-chain M1) no longer stalls every other schema's audit writes past their 5 s lock_timeout.
+ * Use as `select pg_advisory_xact_lock(${EVENTS_LOCK})` (an SQL expression, not a parameter).
+ */
+export const EVENTS_LOCK = "hashtextextended(current_schema() || ':axion-events', 0)";
 export const CHANNEL = 'axion_events';
 
 /** Append one event inside the caller's transaction. Serialised so ids are visible in commit order; NOTIFY wakes streams on commit. */
 export async function appendEvent(c: Tx, e: AppendInput): Promise<DomainEvent> {
-  await c.query('select pg_advisory_xact_lock($1)', [EVENTS_LOCK]);
+  await c.query(`select pg_advisory_xact_lock(${EVENTS_LOCK})`);
   const seq = e.missionId ? Number((await c.query('select coalesce(max(seq), 0) + 1 as s from events where mission_id=$1', [e.missionId])).rows[0].s) : null;
   const r = (await c.query(
     `insert into events(tenant_id, type, mission_id, seq, actor_kind, actor_id, subject_kind, subject_id, audience, audience_user, payload, correlation_id)

@@ -196,11 +196,11 @@ describe('fix round c31', () => {
       const A = await withAdmin(t.app);
       const { Browser } = await import('./helpers.ts');
       const b = new Browser(t.app);
-      await hold.query('select pg_advisory_lock($1)', [EVENTS_LOCK]); // a writer stuck holding the events lock
+      await hold.query(`select pg_advisory_lock(${EVENTS_LOCK})`); // a writer stuck holding the events lock
       const r = await b.connect('Luca', 'wrong-password');
       expect(r.status).toBe(401);
       expect(r.body.code).toBe('WRONG_PASSWORD');
-      await hold.query('select pg_advisory_unlock($1)', [EVENTS_LOCK]);
+      await hold.query(`select pg_advisory_unlock(${EVENTS_LOCK})`);
       expect((await verifyChain(t.pool, 't-1')).ok).toBe(true);
       void A;
     } finally { hold.release(); await t.close(); }
