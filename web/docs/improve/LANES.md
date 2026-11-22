@@ -20,6 +20,7 @@ Lane L lives in `/home/luca/AXION-wL` on its own branch. Port base B is 5000 + L
   shared PostgreSQL server (max 100 connections) also serves other apps. Never bypass it. Typecheck (`tsc`) and builds
   don't need it.
 - **Server tests:** `cd server && npx tsc --noEmit -p . && /home/luca/AXION-lanes/heavy.sh npx vitest run`
+  - The `axion` DB role is capped at 45 connections shared by every lane. If a full run fails with `too many connections for role "axion"` or `admin connect failed`, re-run serially: `heavy.sh npx vitest run --maxWorkers=1 --no-file-parallelism`, and name the failing tests (BACKLOG H14).
 - **Browser checks:** `cd web && E2E_API_PORT=$((B+92)) E2E_WEB_PORT=$((B+93)) /home/luca/AXION-lanes/heavy.sh ./scripts/api-e2e.sh <scripts>`
 - **Dev server:** `cd web && setsid node node_modules/vite/bin/vite.js --config /home/luca/AXION-lanes/vite-wL.config.ts --host 127.0.0.1 --port $((B+90)) --strictPort > /tmp/wL-vite.log 2>&1 &`
   - The override config only adds the symlinked `node_modules` to Vite's `fs.allow`. Never commit it.
