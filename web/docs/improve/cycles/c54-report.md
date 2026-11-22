@@ -89,3 +89,30 @@ Load average during runs was 9.6-23.5; verify-all and api-mobile took tens of mi
 - The shared 45-connection DB cap: no clean single full-vitest run was obtained (see threshold table).
 - H11b: remaining app-clock sites listed under item 1.
 - jobs.test "20 parallel claimers" and some staffing/events tests are flaky under connection pressure only.
+
+## Fix round (after the independent review, verdict CLEAR AFTER FIXES)
+Base 4f83abf. Each item is its own commit. Server tests for items 4, 5 and 7 are in `server/test/c54-fix-round.test.ts`.
+
+| # | Item | Commit | RED on 4f83abf | GREEN |
+|---|---|---|---|---|
+| 1 | Help and evidence wording | 3fcbc0c (+ a follow-up that escapes two apostrophes in the help string; the first version did not parse, caught by api-c46) | dimensions-verdicts: "expected '1 verified better, 1 inconclusive, 1 ...' to contain 'newest finished run'" | 64/64 dimensions tests. Help and evidence now say a proposal is placed by its newest finished run, a later run moves it, and verdicts are recomputed from the current stored runs, not as of the window end. |
+| 2 | Verdicts label cut | 1c2baa5 | review: "Evaluation verdicts (win / inconcl..." cut at 1366 | label is "Evaluation verdicts" (server spec and demo sample); api-c46 check "no cell label is cut off" passes. The win / inconclusive / loss split stays in the evidence line. |
+| 3 | Tab strip | 9d4f50e | api-c46 new check: `Agents views` over 53 px, `data-fade` absent | `Tabs.tsx` sets `data-fade` (l, r or lr) from scroll and resize (and after webfonts load), `base.css` masks that edge, and the selected tab is scrolled into view. Real fonts: nothing overflows, no fade. Fonts blocked: over by 62 px, left fade, the selected Dimensions tab visible. Applies to every `.tabs` strip, only while it overflows. |
+| 4 | Failure-modes bound | 5a1611f | "expected +0 to be 1": a tag created exactly at `to - 7 d` on the millisecond grid was excluded | lower bound is `date_trunc('milliseconds', created_at) >= date_trunc('milliseconds', now()) - len`, the closed convention of `company/clock.ts`; upper bound unchanged |
+| 5 | Approval order | 7734f7a | list gave `APR-fix-b, APR-fix-a, APR-fix-c` for three same-transaction approvals | `order by a.created_at desc, a.id desc` gives `c, b, a` |
+| 6 | Cell height | 2d0961c | api-c46 new check: 4 cells over their box by 2-3 px | cells 37 px; to keep one screen, cell and row vertical padding went 2 px to 1 px. 36/36; the fit line reads inner 1, noteBottom 693 of 768. |
+| 7 | Snapshot isolation | 69e058f | no `repeatable read` statement for any of the three routes | new `snapshotTx` in `company/clock.ts` (REPEATABLE READ, read only, before the first query); scorecard, throughput and departments use it |
+
+### Re-run results
+- tsc server and web: clean.
+- Full vitest, serial (`--maxWorkers=1 --no-file-parallelism`): the clean run is 73 files, 2134 tests passed, 0 failures, 0 connection errors. An earlier serial run in the same session, made while other lanes were loading the shared database (load about 20), failed about 38 tests in the first 40 lines I kept: ledger/proposal write tests, grants (revoke, expiry, append-only, issue), auth (rate limit, waiting device, avatar, devices), mission lifecycle (pause/resume, replay, approval-decided-while-paused) and sharing/stream tests. Every one failed in 3-5 ms, the signature of a refused connection; I did not keep the error text and the full list is not recorded. The rerun above is the evidence that they pass. A third run of the 11 fix-round-related files passed except `approval-binding` "20 concurrent consumes", which passed alone (28/28): connection-pressure flake.
+- api-c46 36/36 (33 earlier plus 3 new checks: no cell clips, no label cut, strip fade), api-c06 25/25, api-stage6 94/94.
+- fit-check 1366x768: ALL FIT.
+- a11y api mode: 41 views, 64 dialogs, 0 violations.
+
+### Screenshots
+- `web/docs/screenshots/improve-c54-fix-tabstrip-real-fonts.png`: the Operations and Agents strips with real fonts, nothing clipped.
+- `web/docs/screenshots/improve-c54-fix-tabstrip-fallback-fonts.png`: font files blocked, the Agents strip overflows by 62 px, fades on the left and keeps Dimensions in view.
+
+### Not in this round
+Grants issuance and the N+1 in `loadEvaluations` are in backlog H11b; the 390 px tab-strip overlap is in backlog H16.
