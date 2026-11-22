@@ -9,6 +9,7 @@ import {
 import type { DialogComponentProps } from '@/dialogs/DialogHost';
 import { Modal } from '@/components/ui/Modal';
 import { Field, Segmented, SwitchRow } from '@/components/ui/Form';
+import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { Chip, MissionStatusChip, InstanceStateChip, TaskStateChip, RoleChip } from '@/components/ui/Chips';
 import { RobotAvatar } from '@/components/art/RobotAvatar';
 import { useData, useMission } from '@/store/data';
@@ -26,6 +27,9 @@ import { ago, clock, cx } from '@/lib/format';
 import '@/theme/pages/missions.css';
 import { EvidenceThumb } from '@/features/mission/EvidenceThumb';
 import { Messenger } from '@/features/mission/Messenger';
+import { DelegationBriefCard, NoBrief, TIER_HUE } from '@/features/mission/DelegationBriefCard';
+import { useDelegationBriefs } from '@/api/delegationBriefs';
+import type { DelegationBriefDto } from '@contracts';
 
 /* ------------------------------------------------------------------ */
 /* Shared: attachment drop zone (image/text/file) — DL-09               */
@@ -311,10 +315,19 @@ function TaskReassign({ close, props }: DialogComponentProps<{ missionId: string
   const [to, setTo] = useState('');
   const [why, setWhy] = useState('');
   const [busy, setBusy] = useState(false);
+  const [goal, setGoal] = useState('');
+  const [accept, setAccept] = useState('');
+  const [caps, setCaps] = useState<string[]>(['read']);
+  const [deadline, setDeadline] = useState('');
+  const [esc, setEsc] = useState('Ask the mission owner when scope is unclear');
+  const [fe, setFe] = useState<Record<string, string>>({});
+  const kinds = useDelegationBriefs(props.missionId).data?.kinds;
   if (!m) return <Missing close={close} />;
   const tasks = getMissionControl(m).tasks;
   const taskId = props.taskId ?? tasks.find((t) => t.state !== 'passed')?.id ?? tasks[0]?.id;
   const task = tasks.find((t) => t.id === taskId);
+  const criteria = accept.split('\n').map((x) => x.trim()).filter(Boolean);
+  // api mode: with at least one acceptance criterion the reassignment carries a typed brief; without, it is recorded as before (legacy, no brief)
   // api mode: only agents that joined this mission can take a task (the server decides; a stranger is 422)
   const joined = isApi() ? new Set(getMissionControl(m).nodes.map((n) => n.agentId)) : null;
   const candidates = AGENTS.filter((a) => a.id !== task?.owner && a.id !== 'gm' && (!joined || joined.has(a.id))).slice(0, 14);
@@ -323,8 +336,10 @@ function TaskReassign({ close, props }: DialogComponentProps<{ missionId: string
     if (!task || busy) return;
     setBusy(true);
     const node = getMissionControl(m).nodes.find((n) => n.agentId === to);
-    const r = node ? await taskAction(m.id, task.id, 'reassign', { toInstanceId: node.instanceId, reason: why.trim() }) : { ok: false as const, message: 'This agent has not joined the mission.' };
+    const brief = criteria.length ? { goal: goal.trim() || task.title, acceptance: criteria, capabilities: (kinds ?? []).filter((k) => k.allowed && caps.includes(k.kind)).map((k) => ({ kind: k.kind })), escalation: esc.trim() || 'Ask the mission owner when scope is unclear', ...(deadline ? { deadline: new Date(deadline).toISOString() } : {}) } : undefined;
+    const r = node ? await taskAction(m.id, task.id, 'reassign', { toInstanceId: node.instanceId, reason: why.trim(), brief }) : { ok: false as const, message: 'This agent has not joined the mission.' };
     setBusy(false);
+    setFe(!r.ok && r.fieldErrors ? r.fieldErrors : {});
     if (r.ok) { toast({ tone: 'success', title: 'Task reassigned', body: `${AGENT_BY_ID[to]?.name} owns ${task.id} now. Audited.` }); close(); }
     else toast({ tone: 'error', title: 'Not reassigned', body: r.message });
   };
@@ -341,6 +356,26 @@ function TaskReassign({ close, props }: DialogComponentProps<{ missionId: string
         </div>
       </Field>
       <Field label="Reason" required><input className="input" value={why} onChange={(e) => setWhy(e.target.value)} placeholder="e.g. needs browser specialist" /></Field>
+      {isApi() && (
+        <div className="dbrief-form" data-testid="brief-form">
+          <div className="row" style={{ gap: 6 }}><span className="section-label">Hand-off brief</span><HelpTrigger k="delegation.brief" /></div>
+          <input className="input" aria-label="Goal" aria-invalid={!!fe.goal} maxLength={500} value={goal} onChange={(e) => setGoal(e.target.value)} placeholder={task ? `Goal (default: ${task.title})` : 'Goal'} />
+          <textarea className="input" aria-label="Acceptance criteria" aria-invalid={!!(fe.acceptance || Object.keys(fe).some((k) => k.startsWith('acceptance.')))} maxLength={3000} value={accept} onChange={(e) => setAccept(e.target.value)} placeholder="Acceptance criteria, one per line. Leave empty to delegate without a brief (legacy)." />
+          <div className="dbrief-hint">Each line 3 to 300 characters, at most 20 lines.</div>
+          {Object.entries(fe).filter(([k]) => k === 'goal' || k.startsWith('acceptance') || k === 'escalation' || k === 'deadline' || k === 'capabilities' || k === 'budget' || k === 'depth').map(([k, v]) => <div key={k} className="dbrief-err" role="alert">{k.replace(/\.\d+$/, '')}: {v}</div>)}
+          <div className="dbrief-pick" role="group" aria-label="Allowed capabilities">
+            {(kinds ?? []).filter((k) => k.tier === 'R0' || k.tier === 'R1' || k.tier === 'R2').map((k) => (
+              <button key={k.kind} type="button" disabled={!k.allowed} aria-pressed={caps.includes(k.kind)} title={`${k.why} (${k.tier})`} onClick={() => setCaps((c) => (c.includes(k.kind) ? c.filter((x) => x !== k.kind) : [...c, k.kind]))}>
+                <Chip hue={TIER_HUE[k.tier]} size="sm">{k.kind} · {k.tier}</Chip>
+              </button>
+            ))}
+          </div>
+          <div className="row" style={{ gap: 8 }}>
+            <input className="input" type="datetime-local" aria-label="Deadline" value={deadline} onChange={(e) => setDeadline(e.target.value)} style={{ maxWidth: 210 }} />
+            <input className="input" aria-label="Escalation" maxLength={300} aria-invalid={!!fe.escalation} value={esc} onChange={(e) => setEsc(e.target.value)} />
+          </div>
+        </div>
+      )}
       {to && <div className="callout"><Info size={16} /><div>{AGENT_BY_ID[to].name} has load {AGENT_BY_ID[to].load}%. Subtasks of {task?.id} move with it; evidence stays attached.</div></div>}
     </Modal>
   );
@@ -352,10 +387,12 @@ function TaskCriteria({ close, props }: DialogComponentProps<{ missionId: string
   useMissionControl(props.missionId); // api mode: fetch and follow this mission's server data
   const tagInfo = useFailureTags('task', props.taskId).data?.subject; // cycle 33: the server knows whether the task was retried (a retried task is no longer 'failed')
   const rv = useTaskReviews(isApi() ? props.taskId : undefined); // cycle 38: the independent reviews of this task
+  const bq = useDelegationBriefs(props.missionId);
   if (!m) return <Missing close={close} />;
   const t = getMissionControl(m).tasks.find((x) => x.id === props.taskId);
   if (!t) return <Missing close={close} />;
   const owner = AGENT_BY_ID[t.owner];
+  const mine = bq.data ? ([...bq.data.briefs].reverse().find((b) => b.taskId === t.id) ?? [...bq.data.briefs].reverse().find((b) => b.toInstanceId === `${m.id}:${t.owner}`)) as DelegationBriefDto | undefined : undefined;
   const run = async (action: 'retry' | 'cancel') => {
     if (busy) return;
     setBusy(true);
@@ -369,6 +406,8 @@ function TaskCriteria({ close, props }: DialogComponentProps<{ missionId: string
     <Modal title={t.title} icon={ListChecks} dialogId="DL-13" help="mission.progress.verified" onClose={close} drawer sub={`${t.id} · weight ${t.weight}`}
       footer={<>{api_ && (t.state === 'failed' || tagInfo?.retried) && <button className="btn" data-tag-failure onClick={() => openDialog('failure-tag', { missionId: m.id, taskId: t.id, label: t.title })}><Tags size={15} />Tag failure</button>}{api_ && t.state === 'failed' && <button className="btn" disabled={busy} onClick={() => void run('retry')}><RotateCcw size={15} />Retry</button>}{api_ && t.state !== 'passed' && t.state !== 'canceled' && <button className="btn danger" disabled={busy} onClick={() => void run('cancel')}>Cancel task</button>}<button className="btn" onClick={() => openDialog('task-reassign', { missionId: m.id, taskId: t.id })}>Reassign</button>{api_ && <ReviewAction missionId={m.id} taskId={t.id} rv={rv} api_={api_} />}</>}>
       <div className="row" style={{ gap: 8 }}><TaskStateChip state={t.state} /><span className="muted" style={{ fontSize: 12.5 }}>Owner</span><RobotAvatar role={owner?.role ?? 'dev'} size={26} /><b>{owner?.name}</b></div>
+      <div className="section-label">Delegation brief</div>
+      {mine && bq.data ? <DelegationBriefCard brief={mine} all={bq.data.briefs} /> : bq.loading ? <span className="dim">Loading…</span> : bq.error ? <span className="dim">{bq.error}</span> : <NoBrief demo={!api_} />}
       <div className="section-label">Expected result</div>
       <p style={{ fontSize: 13 }}>“{t.title}” is complete when its output is attached, tests pass and an independent verifier accepts the evidence.</p>
       <div className="section-label">Dependencies</div>

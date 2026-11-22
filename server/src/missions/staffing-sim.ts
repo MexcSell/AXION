@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { tx } from '../db.ts';
 import { emit } from '../events/hooks.ts';
+import { audit } from '../audit.ts';
 import { transition, toUiStatus, type MissionStatus } from './machine.ts';
 import { insertInstance, joinMission } from '../instances/service.ts';
 import { advance } from '../../../web/src/features/mission/staffing-plan.ts';
@@ -13,12 +14,32 @@ import { advance } from '../../../web/src/features/mission/staffing-plan.ts';
 export function startStaffingSim(app: FastifyInstance, stepMs = 1500) {
   const timers = new Map<string, NodeJS.Timeout>();
   let closed = false;
+  const fails = new Map<string, number>(); // consecutive failed steps per mission: back off, then stop (c42 fix round, I2)
 
   const schedule = (id: string, delay = stepMs) => {
     if (closed || timers.has(id)) return;
     timers.set(id, setTimeout(() => { timers.delete(id); void step(id); }, delay));
   };
   const stop = (id: string) => { const t = timers.get(id); if (t) clearTimeout(t); timers.delete(id); };
+
+  /** Give-up, in one transaction: the state on the mission, an audit row and a live event. Never silent. */
+  async function markStalled(id: string, e: unknown, attempts: number) {
+    const code = String((e as { code?: unknown })?.code ?? (e as Error)?.name ?? 'ERROR');
+    const message = String((e as Error)?.message ?? e).slice(0, 300);
+    const reason = `The staffing step failed ${attempts} times in a row (${code}).`;
+    await tx(app.db, async (c) => {
+      const r = (await c.query(`select tenant_id from missions where id=$1 and deleted_at is null for update`, [id])).rows[0];
+      if (!r) return;
+      const at = Date.now();
+      await c.query(`update missions set presentation = jsonb_set(presentation, '{staffing,stalled}', $2::jsonb, true), row_version=row_version+1, updated_at=now() where id=$1 and presentation->'staffing' is not null`,
+        [id, JSON.stringify({ code, reason, at, attempts })]);
+      await audit(c, { tenantId: r.tenant_id, actor: 'system', action: 'staffing.gave_up', subject: id, result: 'error', correlationId: 'staffing-' + id, detail: { code, attempts, message } });
+      await emit(c, { tenantId: r.tenant_id, type: 'staffing.stalled', subject: id, missionId: id, actor: 'system', actorKind: 'system', payload: { code, reason, at, attempts } });
+    });
+  }
+
+  /** Retry after a stall (called by the route, after it cleared the state): reset the backoff and run now. */
+  app.retryStaffing = (id: string) => { fails.delete(id); stop(id); schedule(id, Math.min(stepMs, 200)); };
 
   async function step(id: string) {
     if (closed) return;
@@ -28,7 +49,7 @@ export function startStaffingSim(app: FastifyInstance, stepMs = 1500) {
         const r = (await c.query('select * from missions where id=$1 and deleted_at is null for update', [id])).rows[0];
         if (!r || !['planning', 'running'].includes(r.status)) return false;
         const p = r.presentation ?? {};
-        if (!p.staffing || p.staffing.stage === 'working') return false;
+        if (!p.staffing || p.staffing.stage === 'working' || p.staffing.stalled) return false; // a stalled mission waits for a person's Retry
         const now = Date.now();
         // Stage 6: the team lives in agent_instances. The GM instance exists from the first step.
         const simulated = !!r.demo; // staffing of a real mission is the real record, even though nothing executes
@@ -67,9 +88,19 @@ export function startStaffingSim(app: FastifyInstance, stepMs = 1500) {
         return st.stage !== 'working';
       });
     } catch (e) {
-      app.log.warn({ err: e, mission: id }, 'staffing step failed; retrying');
-      more = true;
+      const n = (fails.get(id) ?? 0) + 1;
+      fails.set(id, n);
+      if (n > 12) {
+        app.log.error({ err: e, mission: id }, 'staffing step failed 13 times in a row; stalled');
+        fails.delete(id);
+        await markStalled(id, e, n).catch((err) => app.log.error({ err, mission: id }, 'could not record the staffing stall'));
+        return;
+      }
+      app.log.warn({ err: e, mission: id, attempt: n }, 'staffing step failed; retrying with backoff');
+      schedule(id, Math.min(stepMs * 2 ** n, 30_000));
+      return;
     }
+    fails.delete(id);
     if (more) schedule(id);
   }
 
@@ -77,7 +108,7 @@ export function startStaffingSim(app: FastifyInstance, stepMs = 1500) {
   app.onMissionChanged = (id, status) => { if (status === 'planning' || status === 'running') schedule(id); else stop(id); };
 
   // resume unfinished staffing after a restart
-  void app.db.query(`select id from missions where deleted_at is null and status in ('planning','running') and presentation->'staffing' is not null and presentation->'staffing'->>'stage' <> 'working'`)
+  void app.db.query(`select id from missions where deleted_at is null and status in ('planning','running') and presentation->'staffing' is not null and presentation->'staffing'->>'stage' <> 'working' and presentation->'staffing'->'stalled' is null`)
     .then((r) => r.rows.forEach((m, i) => schedule(m.id, Math.min(stepMs, 200) + i * 20)))
     .catch(() => {});
 

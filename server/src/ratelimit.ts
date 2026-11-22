@@ -41,6 +41,8 @@ export const LIMITED_ROUTES: Record<string, WriteBucket> = {
   'POST /api/v1/failure-tags/:id/decision': 'proposals',
   'POST /api/v1/missions/:id/ledgers/:kind': 'ledgers', // c39
   'POST /api/v1/tasks/:id/reviews': 'proposals', // c38: a review is a governance write
+  'POST /api/v1/missions/:id/delegation-briefs': 'proposals', // c42
+  'POST /api/v1/missions/:id/staffing/retry': 'proposals', // c42 fix round 2
   'POST /api/v1/uploads': 'uploads',
 };
 

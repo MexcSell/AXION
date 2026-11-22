@@ -348,9 +348,9 @@ export function flushMissionControlEvents() {
 }
 
 /* ------------------------------------------------------------------ task actions */
-export type TaskActionResult = { ok: true; task: Task } | { ok: false; message: string };
+export type TaskActionResult = { ok: true; task: Task } | { ok: false; message: string; fieldErrors?: Record<string, string> };
 /** retry / reassign / cancel a task (api mode). The server's message is returned as it is for an illegal move; the Task flow refreshes at once. */
-export async function taskAction(mid: string, taskId: string, action: 'retry' | 'reassign' | 'cancel', body: { toInstanceId?: string; reason?: string } = {}): Promise<TaskActionResult> {
+export async function taskAction(mid: string, taskId: string, action: 'retry' | 'reassign' | 'cancel', body: { toInstanceId?: string; reason?: string; brief?: unknown } = {}): Promise<TaskActionResult> {
   try {
     const r = await api<{ task: Task }>('POST', `/tasks/${encodeURIComponent(taskId)}/${action}`, action === 'reassign' ? body : {}, { idempotencyKey: newKey() });
     patchEntry(mid, (e) => (e.tasks ? { ...e, tasks: e.tasks.map((t) => (t.id === r.task.id ? r.task : t)) } : e));
@@ -359,7 +359,7 @@ export async function taskAction(mid: string, taskId: string, action: 'retry' | 
   } catch (e) {
     if (e instanceof ApiFailure && e.status === 404 && await confirmMissionGone(mid)) forget(mid);
     refreshSoon(mid, ['tasks']);
-    return { ok: false, message: msgOf(e) };
+    return { ok: false, message: msgOf(e), fieldErrors: e instanceof ApiFailure ? e.fieldErrors : undefined };
   }
 }
 
@@ -483,4 +483,10 @@ if (isApi()) {
     const ids = new Set(s.missions.map((m) => m.id));
     for (const mid of Object.keys(useMC.getState().byMission)) if (!ids.has(mid)) { forget(mid); memo.delete(mid); }
   });
+}
+
+/** Retry a stalled staffing run (administrator or mission owner). The mission follows through the `staffing.resumed` event. */
+export async function retryStaffing(mid: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  try { await api('POST', `/missions/${encodeURIComponent(mid)}/staffing/retry`, {}, { idempotencyKey: newKey() }); return { ok: true }; }
+  catch (e) { return { ok: false, message: msgOf(e) }; }
 }
