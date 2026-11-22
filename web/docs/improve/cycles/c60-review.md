@@ -48,3 +48,33 @@ Sound as designed: distinct `(agent_id, step_ref)` targets minus one (service.ts
 1. S1: stop default-export leakage (attribution agent/step, owner_agent, evidence_ref, error.type from raw error text, tool-name sanitizing) and add sentinel tests for each.
 2. S2: add the Apache-2.0 notice (THIRD_PARTY_NOTICES.md entry after c56 merges, or a LICENSE copy next to the pages).
 3. S3: enforce read-only, print which DB, ideally require an explicit DB choice.
+
+---
+
+# Re-review (fix round, a025aa5..df8c17e)
+
+Run: vitest (otel-export, otel-mapping, failure-attribution, contracts) 6 files / 66 tests pass with --maxWorkers=1 via heavy.sh; `tsc --noEmit` clean. Probes: scratchpad `probe2.ts`, `w.mts`.
+
+## S1 default-export leak: FIXED for the named fields; residual remains (minor)
+- Original probe (owner_agent, evidence_ref, attribution agent/step, tool name, error.type): all gone. Fixture with `SECRET` in task title/criteria/label/owner_agent/evidence_ref/note/attribution/step input/output: `SECRET present false`; span names are only `axion.mission`, `invoke_agent Researcher`, `execute_tool t`.
+- Tried 12 hostile values (`sk-live-..`, `ghp_..`, `AKIA..`, `eyJ..`, newline, RLO unicode, 16-digit number, 60 x's, `a@b.com`, `ab/cd`, spaces) as tool name, agent name, case id, dataset id, judge family and step error. Unicode, newline, `@`, spaces in tool names and the secret prefixes are all mapped to `_OTHER`; error.type only takes the fixed 8-word vocabulary. Resource attributes, event names and keys are constant or system ids. No link attributes exist.
+- Residual (minor, by design): anything shaped like a plain identifier still leaves. Observed leaking in default mode: a 16-digit string as case/dataset id/judge family/agent name, 60-char `xxxx...` as the same, `hunter2 pw` as an agent name (the agent-name regex allows spaces), `web-search`/`ab/cd` as case id. The tool-name rule (<=48, no hyphen) is stricter. Secret-shaped tokens without a known prefix and <=64 chars pass in these fields. Acceptable if the docs say "identifier-shaped names and ids are exported"; the usage/mapping text should say so (not yet claimed as zero text). Consider capping agent names/case ids and rejecting all-digit strings of 13+ chars.
+- Tool-name rule `^[A-Za-z][A-Za-z0-9_.]{0,47}$`: safe but too strict in practice. `web-search` becomes `_OTHER` (verified: not exported, raw name only in `axion.step.tool_name` with --include-content). Allowing `-` is safe: the charset adds no new leak channel beyond what `ident` already permits for case ids and agent names, `SECRET_SHAPE` still rejects `sk-`, `pk-`, `rk-`. Recommend allowing hyphens (MCP/tool names usually have them); also all tools sharing `_OTHER` collapse in the trace. Not blocking.
+- Changed assertions: legitimate. The removed lines asserted raw `attributed_agent_id`/`step_ref` values in default export (now contradicts S1); the replacement asserts pointers (and content under --include-content). The removed `parseExportArgs(['M-1'])` expectations are replaced because the flag is now required.
+
+## S2 licence: FIXED
+- `LICENSE` sha256 c71d239d... equals the raw LICENSE at commit d0e74ba6 (fetched and hashed myself). Repo has no NOTICE at that commit (404), as SOURCE.md states. SOURCE.md now states verbatim and unmodified, "The OpenTelemetry Authors", Apache-2.0, LICENSE hash, repo, tag, commit, and that no copyright header or NOTICE exists. A test checks these strings. Still worth a one-line entry in c56's THIRD_PARTY_NOTICES.md on merge (nice-to-have, not blocking).
+
+## S3 database and read-only: FIXED
+- `npm run export:otlp -- M-1` (no flag) prints `--database-url-env is required: there is no default database...` plus usage and exits 1; the URL is never printed anywhere (only `current_database()` name appears in `describeExport`).
+- Loads run in `withReadOnlySnapshot`: `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY` plus `SET LOCAL`; ROLLBACK on error. Test at otel-export.test.ts:290 checks a write fails ("read-only transaction") and that the shared pool shows `default_transaction_read_only = off` afterwards.
+- Nit: the CLI script also sets session-level read-only with a fire-and-forget `pool.on('connect', ...)` (no await, errors unhandled). It is queued ahead on the same connection so ordering holds, and the pool is the CLI's own; harmless.
+
+## Minors
+- Output file: mode 0600 on new file (new), on `--force` replacing a pre-existing 0644 file (`old forced mode 600`, via `fchmod`). Verified with `w.mts`.
+- Symlink at `--out`: refused with and without `--force` (both lines error "is a symlink; refusing..."); target file unchanged (`real untouched: hi`). Mechanism: `lstat` check then `open` with `O_NOFOLLOW` (ELOOP mapped to the same message), `O_EXCL` without force, so a swap between lstat and open is also caught. Only the final path component is protected (directory symlinks are followed) and a hard link would be truncated under `--force`; both acceptable for a local operator CLI.
+- `axion.export.linked_by = agent_version` is set on every eval-result span; usage text states the cross-mission linking, operator/no-visibility scope, 0600 and symlink rule.
+- `ATTRIBUTION_HELP` (shared/contracts/src/failures.ts) states all four rough edges (no retraction, agent-only vs agent+step, exact-string, 409 on flag change), accurate against `disagreementsOf` and the unique index; the dialog chip uses it as its title.
+
+## Verdict: CLEAR
+Remaining (none blocking): allow hyphens in tool names; document that identifier-shaped ids and names are exported by default (consider tightening the digit-only/long-token case); add the Apache-2.0 line to THIRD_PARTY_NOTICES.md at merge with c56.
