@@ -1,6 +1,6 @@
 import { nul, str, num, int, bool, iso, rec, lit, oneOf, nullable, opt, arr, either, obj, openObj, dict, type V } from './validate.ts';
 import {
-  ERROR_CODES, MISSION_STATUSES, SCORECARD_WINDOWS, REVIEW_VERDICTS, RUBRIC_RESULTS, EVIDENCE_KINDS, FAILURE_SUBJECT_KINDS, STEP_STATUSES, STALL_POLICY,
+  ERROR_CODES, ORIGIN_CHANNELS, ORIGIN_CLASSES, MISSION_STATUSES, SCORECARD_WINDOWS, REVIEW_VERDICTS, RUBRIC_RESULTS, EVIDENCE_KINDS, FAILURE_SUBJECT_KINDS, STEP_STATUSES, STALL_POLICY,
   type AccountDto, type PhaseDto, type StaffingDto, type AgentDto, type AgentVersionDto, type ApprovalDto, type RuleOfTwoDto, type DecisionRecordDto, type QualityCellDto, type ApprovalQualityDto, type ApproverQualityDto, type ApproverQualityBody, type AttachmentDto, type AuditVerifyDto, type AvatarDto, type BriefTier, type ChannelDto,
   type CompanyScorecardDto, type ConnectResult, type DelegableKind, type DelegationBriefDto, type DelegationBriefList, type DepartmentFacts, type DepartmentsDto, type DeviceDto,
   type ErrorEnvelope, type EvidenceRef, type FailureAttributionDto, type FailureCategoryCount, type FailureModeCount, type FailureModesDto, type FailureSubjectInfo, type FailureTagDto, type HealthDto,
@@ -12,6 +12,7 @@ import {
   type PolicyKindDto, type ProgressBody, type Provenance, type ReviewActor, type ReviewerAgreement, type RubricItem, type ScorecardRow, type SiteGrantDto, type SkillDto,
   type SkillStep, type SourceRef, type TaskBody, type TaskDto, type TaskReviewDto, type TaskReviewsDto, type ThreadDto, type ThreadPartnerDto, type ThroughputDto,
   type UploadDto, type VersionConfig, type VersionDiff, type VersionProposalDto, type AgentReliability, type QueueSummaryDto, type AnchorStatusDto, type AnchorTenantDto, ANCHOR_STATUS_NAMES, JOB_STATUS_NAMES,
+  type ContributionDto, type RetirementProposalsDto, type RetirementProposalDto, CONTRIBUTION_ACTIONS,
   type ProposalEvaluationDto, type EvalRefusalDto, type CompanyDimensionsDto, type DimensionRowDto, type DimensionCell, DIMENSION_KEYS, DIMENSION_WINDOWS,
 } from '../../../shared/contracts/src/index.ts';
 
@@ -273,20 +274,21 @@ export const planBody = obj<{ plan: MentoringPlanDto }>({ plan });
 export const plansBody = obj<{ plans: MentoringPlanDto[] }>({ plans: arr(plan) });
 
 // ---- playbooks and skills
-const sourceRef: V<SourceRef> = obj<SourceRef>({ kind: oneOf(['mission', 'failure_tag', 'review', 'task', 'note'] as const), id: str, note: opt(str), verified: opt(bool), hidden: opt(bool) });
+const sourceRef: V<SourceRef> = obj<SourceRef>({ kind: oneOf(['mission', 'failure_tag', 'review', 'task', 'note', 'lesson', 'skill'] as const), id: str, note: opt(str), verified: opt(bool), hidden: opt(bool) });
 const lesson: V<LessonCandidateDto> = obj<LessonCandidateDto>({
   id: str, agentId: str, agentName: str, role: str, text: str, sources: arr(sourceRef), proposedBy: str, proposedByName: str, proposedByKind: oneOf(['human', 'agent'] as const),
   submittedBy: nullable(str), status: oneOf(['proposed', 'accepted', 'rejected', 'superseded'] as const), sha256: str, reviewBy: nullable(str), createdAt: iso,
   decidedBy: nullable(str), decidedByName: nullable(str), decidedAt: nullable(iso), decisionNote: nullable(str), overrideNote: nullable(str), acceptedInVersion: nullable(int),
   withdrawnInVersion: nullable(int), inPlaybook: bool, conflicts: arr(obj<LessonConflict>({ lessonId: str, text: str })), canDecide: bool, cannotDecideWhy: nullable(str),
+  originChannel: oneOf(ORIGIN_CHANNELS), originClass: oneOf(ORIGIN_CLASSES),
 });
 const playbookItem: V<PlaybookItem> = obj<PlaybookItem>({
   lessonId: str, text: str, trust: lit('reviewed' as const), addedInVersion: int, sources: arr(sourceRef), sha256: str, reviewBy: nullable(str), contradiction: bool,
-  contradicts: arr(str), overrideNote: nullable(str), needsReReview: bool,
+  contradicts: arr(str), overrideNote: nullable(str), needsReReview: bool, originChannel: oneOf(ORIGIN_CHANNELS), originClass: oneOf(ORIGIN_CLASSES),
 });
 const playbook: V<PlaybookDto> = obj<PlaybookDto>({
   agentId: str, agentName: str, role: str, version: int, items: arr(playbookItem), kind: nullable(oneOf(['accept', 'rollback'] as const)), createdBy: nullable(str), createdByName: nullable(str),
-  createdAt: nullable(iso), rollbackTo: nullable(int), note: nullable(str),
+  createdAt: nullable(iso), rollbackTo: nullable(int), note: nullable(str), activeCap: int,
 });
 const playbookRow: V<PlaybookVersionRow> = obj<PlaybookVersionRow>({
   version: int, kind: oneOf(['accept', 'rollback'] as const), items: int, createdBy: str, createdByName: str, createdAt: iso, rollbackTo: nullable(int), note: nullable(str), lessonId: nullable(str),
@@ -302,8 +304,16 @@ const skillStep: V<SkillStep> = obj<SkillStep>({ kind: oneOf(['navigate', 'obser
 const skill: V<SkillDto> = obj<SkillDto>({
   id: str, name: str, version: int, description: str, steps: arr(skillStep), preconditions: arr(str), sources: arr(sourceRef), status: oneOf(['draft', 'approved', 'retired'] as const),
   proposedBy: str, proposedByName: str, createdAt: iso, approvedBy: nullable(str), approvedByName: nullable(str), approvedAt: nullable(iso), retiredBy: nullable(str), retiredAt: nullable(iso),
-  retireNote: nullable(str), canDecide: bool, cannotDecideWhy: nullable(str),
+  retireNote: nullable(str), canDecide: bool, cannotDecideWhy: nullable(str), originChannel: oneOf(ORIGIN_CHANNELS), originClass: oneOf(ORIGIN_CLASSES),
 });
+const originPair = { originChannel: oneOf(ORIGIN_CHANNELS), originClass: oneOf(ORIGIN_CLASSES) };
+const contribution: V<ContributionDto> = obj<ContributionDto>({
+  seq: int, recordKind: oneOf(['lesson', 'skill'] as const), recordId: str, action: oneOf(CONTRIBUTION_ACTIONS), actor: str, actorName: str, actorKind: oneOf(['human', 'agent', 'system'] as const), actorAsserted: bool, filedBy: nullable(str), filedByName: nullable(str),
+  ...originPair, sources: arr(sourceRef), version: nullable(int), note: nullable(str), at: iso,
+});
+export const contributionsBody = obj<{ contributions: ContributionDto[] }>({ contributions: arr(contribution) });
+const retirementProposal: V<RetirementProposalDto> = obj<RetirementProposalDto>({ skillId: str, name: str, version: int, score: num, n: int, outcomeId: int, recordedAt: iso, source: lit('fixture' as const) });
+export const retirementProposalsBody: V<RetirementProposalsDto> = obj<RetirementProposalsDto>({ floor: num, minN: int, dataState: oneOf(['none', 'fixture'] as const), proposals: arr(retirementProposal) });
 export const skillBody = obj<{ skill: SkillDto }>({ skill });
 export const skillsBody = obj<{ skills: SkillDto[] }>({ skills: arr(skill) });
 

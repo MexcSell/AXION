@@ -5,6 +5,7 @@ import {
   BookMarked, Plus, Check, X, ShieldCheck, CalendarClock, AlertTriangle, Undo2, History, Lock, Bot, User, Target, Tag, ClipboardCheck, ListChecks, StickyNote,
   Wand2, CheckCircle2, XCircle, Archive, Info, Layers, Minus, AlertOctagon, EyeOff, HelpCircle, Globe,
 } from 'lucide-react';
+import { OriginChip, CapChip, ContribLog, RetirementStrip } from './OriginRecords';
 import type { LessonCandidateDto, PlaybookItem, PlaybookVersionRow, SkillDto, SkillStatus, SkillStep, SourceKind, SourceRef } from '@contracts';
 import { Panel } from '@/components/ui/Panel';
 import { Segmented } from '@/components/ui/Form';
@@ -25,8 +26,8 @@ import '@/theme/pages/overview-org-agent.css';
    One panel: the current playbook of an agent role, the candidate lessons waiting for a person, the version history with
    diff and rollback, and the skill library. In demo mode the same panel shows DEMO samples, read only. */
 
-const SRC_ICON: Record<SourceKind, typeof Target> = { mission: Target, failure_tag: Tag, review: ClipboardCheck, task: ListChecks, note: StickyNote };
-export const SRC_LABEL: Record<SourceKind, string> = { mission: 'mission', failure_tag: 'failure tag', review: 'review', task: 'task', note: 'note' };
+const SRC_ICON: Record<SourceKind, typeof Target> = { mission: Target, failure_tag: Tag, review: ClipboardCheck, task: ListChecks, note: StickyNote, lesson: BookMarked, skill: Wand2 };
+export const SRC_LABEL: Record<SourceKind, string> = { mission: 'mission', failure_tag: 'failure tag', review: 'review', task: 'task', note: 'note', lesson: 'lesson', skill: 'skill' };
 const since = (iso: string) => ago((Date.now() - new Date(iso).getTime()) / 60_000);
 const fmtDate = (d: string) => new Date(d + 'T12:00:00Z').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 export const DEMO_WHY = 'DEMO samples are read only. Playbooks are stored on the server.';
@@ -53,10 +54,12 @@ function ItemRow({ it, n, index }: { it: PlaybookItem; n: number; index: number 
           <div style={{ fontSize: 13.5 }} data-item-text>{it.text}</div>
           <div className="row wrap" style={{ gap: 6, marginTop: 6 }}>
             <Chip hue={145} icon={ShieldCheck} size="sm" title="Accepted by a person who did not propose it">reviewed</Chip>
+            <OriginChip cls={it.originClass} channel={it.originChannel} />
             <Chip hue={225} size="sm" title="The playbook version that added this item">added in v{it.addedInVersion}</Chip>
             <SourceChips sources={it.sources} />
             {it.reviewBy && <Chip hue={it.needsReReview ? 38 : 225} icon={CalendarClock} size="sm" title="Review-by date (server clock)">review by {fmtDate(it.reviewBy)}</Chip>}
             {it.needsReReview && <Chip hue={38} icon={AlertTriangle} size="sm" solid>needs re-review</Chip>}
+            <ContribLog kind="lessons" id={it.lessonId} label={`playbook item ${n}`} />
             {it.contradiction && <Chip hue={0} icon={AlertOctagon} size="sm" title={`Contradicts ${it.contradicts.join(', ')}`}>contradiction · overridden</Chip>}
           </div>
           {it.contradiction && it.overrideNote && <div className="dim" style={{ fontSize: 12, marginTop: 5 }} data-override-note>Override: {it.overrideNote}</div>}
@@ -66,9 +69,10 @@ function ItemRow({ it, n, index }: { it: PlaybookItem; n: number; index: number 
   );
 }
 
-function CandidateCard({ l, admin, index, api_, baseVersion }: { l: LessonCandidateDto; admin: boolean; index: number; api_: boolean; baseVersion: number }) {
+function CandidateCard({ l, admin, index, api_, baseVersion, atCap }: { l: LessonCandidateDto; admin: boolean; index: number; api_: boolean; baseVersion: number; atCap: boolean }) {
   const why = !api_ ? DEMO_WHY : l.cannotDecideWhy;
   const can = api_ && l.canDecide;
+  const canAccept = can && !atCap; // the server refuses past the cap too (ACTIVE_CAP_REACHED); this only says so before you click
   return (
     <motion.li layout className="subpanel glass-card" style={{ padding: '10px 12px', listStyle: 'none' }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: Math.min(index, 8) * .04 }}
       data-lesson={l.id} data-status={l.status} data-conflicts={l.conflicts.length}>
@@ -78,6 +82,7 @@ function CandidateCard({ l, admin, index, api_, baseVersion }: { l: LessonCandid
           <div style={{ fontSize: 13.5 }} data-lesson-text>{l.text}</div>
           <div className="row wrap" style={{ gap: 6, marginTop: 6 }}>
             <span className="dim" style={{ fontSize: 11.5 }}>by <b>{l.proposedByName}</b>{l.proposedByKind === 'agent' ? ' (agent)' : ''} · {since(l.createdAt)}</span>
+            <OriginChip cls={l.originClass} channel={l.originChannel} />
             <SourceChips sources={l.sources} />
             {l.reviewBy && <Chip hue={225} icon={CalendarClock} size="sm">review by {fmtDate(l.reviewBy)}</Chip>}
             {l.conflicts.length > 0 && <Chip hue={0} icon={AlertOctagon} size="sm" solid title={l.conflicts.map((c) => c.text).join(' | ')}>contradicts {l.conflicts.length === 1 ? 'an item' : `${l.conflicts.length} items`}</Chip>}
@@ -86,14 +91,16 @@ function CandidateCard({ l, admin, index, api_, baseVersion }: { l: LessonCandid
         </div>
         {admin && (
           <div className="row" style={{ gap: 6, flex: 'none' }}>
-            <button className="btn sm primary" disabled={!can} title={can ? 'Accept: adds a new playbook version' : why ?? undefined} aria-label={`Accept lesson: ${l.text}`}
+            <button className="btn sm primary" disabled={!canAccept} title={canAccept ? 'Accept: adds a new playbook version' : can && atCap ? 'The playbook is at its cap of active items. Roll back to a shorter version first.' : why ?? undefined} aria-label={`Accept lesson: ${l.text}`}
               onClick={() => openDialog('lesson-decide', { lesson: l, mode: 'accept', baseVersion })}><Check size={13} />Accept</button>
             <button className="btn sm" disabled={!can} title={can ? 'Reject with a reason' : why ?? undefined} aria-label={`Reject lesson: ${l.text}`}
               onClick={() => openDialog('lesson-decide', { lesson: l, mode: 'reject', baseVersion })}><X size={13} />Reject</button>
             {!can && <HelpTrigger k="playbook.decider" />}
+            {can && atCap && <HelpTrigger k="playbook.cap" />}
           </div>
         )}
       </div>
+      <div style={{ marginTop: 4 }}><ContribLog kind="lessons" id={l.id} label={`lesson ${l.id}`} /></div>
       {admin && !can && why && api_ && <div className="dim row" style={{ gap: 6, fontSize: 11.5, marginTop: 6 }} data-cannot-decide><Lock size={12} aria-hidden />{why}</div>}
     </motion.li>
   );
@@ -180,7 +187,9 @@ function SkillRow({ s, admin, api_, index }: { s: SkillDto; admin: boolean; api_
       <ol className="col" style={{ gap: 2, margin: '2px 0 4px', paddingLeft: 18, fontSize: 12.5 }} aria-label={`Steps of ${s.name}`}>{s.steps.map((st, i) => <li key={i} data-step-kind={st.kind}><StepLine st={st} /></li>)}</ol>
       <div className="row wrap" style={{ gap: 6 }}>
         {s.preconditions.length > 0 && <Chip hue={225} icon={Info} size="sm" title={s.preconditions.join(' | ')}>{s.preconditions.length} precondition{s.preconditions.length === 1 ? '' : 's'}</Chip>}
+        <OriginChip cls={s.originClass} channel={s.originChannel} />
         <SourceChips sources={s.sources} />
+        <ContribLog kind="skills" id={s.id} label={`skill ${s.name}`} />
         {s.status === 'retired' && <span className="dim" style={{ fontSize: 12 }}>retired{s.retireNote ? ` · “${s.retireNote}”` : ''}</span>}
       </div>
       {s.status === 'draft' && admin && !s.canDecide && api_ && s.cannotDecideWhy && <div className="dim row" style={{ gap: 6, fontSize: 11.5, marginTop: 6 }}><Lock size={12} aria-hidden />{s.cannotDecideWhy}</div>}
@@ -212,6 +221,7 @@ export function PlaybookPanel() {
   const ls = api_ ? lsR : demoRead(DEMO_LESSONS(agent.id, agent.name));
   const sk = api_ ? skR : demoRead(DEMO_SKILLS);
   const version = pb.data?.playbook.version ?? 0;
+  const activeCount = pb.data?.playbook.items.length ?? 0, activeCap = pb.data?.playbook.activeCap ?? 25, atCap = pb.data !== null && activeCount >= activeCap;
   const waiting = (ls.data ?? []).filter((l) => l.status === 'proposed');
   const decided = (ls.data ?? []).filter((l) => l.status !== 'proposed');
   const err = view === 'skills' ? sk.error : view === 'candidates' ? ls.error : pb.error;
@@ -245,6 +255,7 @@ export function PlaybookPanel() {
             </label>
           )}
           <span className="spacer" />
+          {view !== 'skills' && pb.data && <CapChip count={activeCount} cap={activeCap} />}
           {!admin && api_ && <Chip hue={225} icon={Lock} size="sm" title="Anyone can propose; only administrators decide">Propose only</Chip>}
           <HelpTrigger k={view === 'playbook' ? 'playbook.current' : view === 'candidates' ? 'playbook.candidates' : view === 'history' ? 'playbook.history' : 'skills.panel'} />
         </div>
@@ -256,7 +267,7 @@ export function PlaybookPanel() {
         {!loading && view === 'candidates' && ls.data && (waiting.length === 0 && decided.length === 0
           ? <EmptyState icon={ListChecks} title={`No candidate lessons for ${agent.name}`} body="Lessons wait here until a person other than the proposer accepts or rejects them." />
           : <ol className="col" style={{ gap: 8, margin: 0, padding: 0 }} aria-label="Candidate lessons"><AnimatePresence>
-            {waiting.map((l, i) => <CandidateCard key={l.id} l={l} admin={admin} index={i} api_={api_} baseVersion={version} />)}
+            {waiting.map((l, i) => <CandidateCard key={l.id} l={l} admin={admin} index={i} api_={api_} baseVersion={version} atCap={atCap} />)}
             {decided.slice(0, 4).map((l) => (
               <li key={l.id} className="row dim" style={{ gap: 8, fontSize: 12, listStyle: 'none', padding: '2px 4px' }} data-lesson={l.id} data-status={l.status}>
                 {l.status === 'accepted' ? <CheckCircle2 size={14} style={{ color: 'var(--good)' }} aria-label="accepted" /> : <XCircle size={14} aria-label={l.status} />}
@@ -266,6 +277,7 @@ export function PlaybookPanel() {
         {!loading && view === 'history' && pb.data && (pb.data.versions.length === 0
           ? <EmptyState icon={History} title="No versions yet" body="Every accepted lesson and every rollback adds a version. None is ever edited or deleted." />
           : <ol className="col" style={{ gap: 8, margin: 0, padding: 0 }} aria-label="Playbook versions">{pb.data.versions.map((v, i) => <VersionRow key={v.version} v={v} current={v.version === version} agentId={agentId} admin={admin} api_={api_} index={i} />)}</ol>)}
+        {view === 'skills' && <RetirementStrip admin={admin} />}
         {!loading && view === 'skills' && sk.data && (sk.data.length === 0
           ? <EmptyState icon={Wand2} title="No skills yet" body="A skill is a named list of plain steps with its sources. Propose one; another administrator approves it." />
           : <ol className="col" style={{ gap: 8, margin: 0, padding: 0 }} aria-label="Skill library"><AnimatePresence>{sk.data.map((s, i) => <SkillRow key={s.id} s={s} admin={admin} api_={api_} index={i} />)}</AnimatePresence></ol>)}

@@ -50,6 +50,7 @@ export const LIMITED_ROUTES: Record<string, WriteBucket> = {
   'POST /api/v1/skills': 'proposals',
   'POST /api/v1/skills/:sid/approve': 'proposals',
   'POST /api/v1/skills/:sid/retire': 'proposals',
+  'POST /api/v1/skills/:sid/retirement-dismiss': 'proposals', // c59
   'POST /api/v1/uploads': 'uploads',
 };
 

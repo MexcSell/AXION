@@ -30,7 +30,7 @@ const port = Number(process.env.E2E_PORT || 5192);
 // message never arrived ("not interactive within the cap", "store has it NO"). 5,000 a minute covers them.
 const E2E_WRITE_LIMITS = { messages: { max: 5000, windowMs: 60_000 } };
 const start = async () => {
-  const a = await buildApp({ databaseUrl: url, logger: false, uploadDir, staffingStepMs: Number(process.env.STAFFING_STEP_MS || 600), demoSeed: process.env.DEMO_SEED !== '0', writeLimits: E2E_WRITE_LIMITS });
+  const a = await buildApp({ databaseUrl: url, logger: false, uploadDir, staffingStepMs: Number(process.env.STAFFING_STEP_MS || 600), demoSeed: process.env.DEMO_SEED !== '0', playbookActiveCap: process.env.PLAYBOOK_ACTIVE_CAP ? Number(process.env.PLAYBOOK_ACTIVE_CAP) : undefined, writeLimits: E2E_WRITE_LIMITS });
   await a.listen({ host: '127.0.0.1', port });
   return a;
 };
