@@ -55,3 +55,31 @@ No source gives a safe span of control; none is claimed. B7 is not cited. The ut
 5. c58's windows still use `make_interval(days)` (calendar days); c65 uses 24-hour multiples. The two views can differ by an hour across a DST change.
 6. The Little check uses the time-averaged open count, not the instantaneous backlog, because that is what the law states; the instantaneous count is shown separately as "Waiting now".
 7. Real volume is low today, so most cells will read "not enough evidence" until usage grows.
+
+## Fix round (review c65-review.md: F1 to F5 and the minors)
+Branch tip is recorded in the hand-back. RED was run on d0764e3 with the reviewer's probes (`server/test/c65-fix.test.ts`, committed first as c1e6da0: 10 failed, 2 passed), then the fixes.
+
+| Ruling | Result | Evidence |
+|---|---|---|
+| F1 Little check | Chose (b): informational. | Reviewer probe (10 approvals decided in 2 days, one pending 10 days, window 7) was `fail/mismatch` (RED), now not a fail. The 15% tolerance, `relError`, `relTol`, `absTol` and the `mismatch` reason are removed. Why not (a): on a finite window the exact relation is avgOpen = lambda*W + carryIn/T, and both sides are built from the same rows, so a comparison can only measure carry-in; it cannot see a lost arrival, a wrong timestamp or a duplicate, so it could not catch anything real. avgOpen and lambda*W stay on screen as information. The tests show the pure check has no tolerance (a 5 against 3 gap passes), healthy data passes for windows 7, 30 and 90 with long waits straddling every edge, and that what does fail is a lost record. |
+| F2 missing_open | Done | `MISSING_OPEN_SQL`: a task in `waiting_user` (not simulated, mission not demo or deleted) with no `task.stateChanged` event into `waiting_user`. Status `fail`, reason `missing_open`, `missingOpen` count in the DTO; alert text "N waiting task(s) lost a start record". Tests: reviewer probe, a task with its event is fine, a simulated one is not flagged, `missing_close` still wins. |
+| F3 privacy floor | Done | Below the floor a member gets `decided: null` and `people: null` (n stays); reviewer probe `{n:10, decided:5, people:1, shown:false}` now gives null, administrators keep the numbers. Span `openItems` is null for a member unless the items behind the row clear 5 items and 3 people and none sits in a department whose own cell is hidden, so adding rows cannot recover a suppressed backlog (test: 4 open items under the floor, cell and row both null for the member, 4 for the admin). The existing span test was updated to the new rule (6 open items with no deciders: member null, admin 6); it was not loosened for the admin. |
+| F4 390 px | Done | `api-c65` now measures the selector at 390x844. Before: `segR 456`, panel right 380, `FAIL`. After: `segR 158`, buttons 31..154, 90d tappable, no page scroll, PASS. Fix is CSS only (head wraps; sub goes under the title; the selector gets its own line). Screenshots `shots-c65/fix-390-before.png`, `fix-390-after.png`. `api-mobile` could not see this: its `MEASURE` does not flag the selector, so it passes before and after; I added the `queues` tab to its route list (no FAIL on the panel) and rely on the api-c65 measurement. The department table scrolls sideways inside its own box at 390. |
+| F5 department rule | Done | c54's rule: owner = `coalesce(owner instance's agent, owner_agent)` (join `agent_instances` on `owner_instance_id`), simulated tasks excluded (`not t.simulated`; demo missions were already excluded). Tests: a task owned through an instance (owner_agent Operations, instance agent coder-01) lands in coder-01's department and not Operations; a simulated waiting task counts 0. The department is the current catalogue department (stated in the help). |
+| Minors | Done | windowStart: the whole read model runs in one transaction (`now()` is one instant) and windowStart comes from the main query. `?` on every column of the department table (6) and the per-person table (3), asserted in api-c65. Median help says expired items are excluded and that pre-c58 decisions have no time and are excluded. Legacy null-latency decisions: chose "excluded from `decided`" (test: 25 legacy decisions give n 25, decided 0, no percentile). One cohort everywhere: arrivals in the window, decided with a stored time (people count and the per-person table moved from the close time to the arrival cohort, so people sum to decided); Waiting now and span open items are "open now, any age". Stated in each help entry. |
+
+Other changes: the span query now aggregates once per supervisor (a lateral version re-ran the items query per edge and took 60 s on the 1959-row simulation); the little test file lost its tolerance test (replaced by the no-tolerance test) and the simulation no longer asserts the reference lies inside a tolerance (the tolerance is gone; every other reference assertion is unchanged).
+Not done, by instruction: the clock.ts / snapshotTx alignment (integrator at merge; `reviewCapacity` already accepts a connection and runs on it unchanged).
+
+### Fix-round checks
+| Check | Result |
+|---|---|
+| tsc | server and web clean |
+| Full vitest, serial fallback (`--maxWorkers=1 --no-file-parallelism`) | 83 files, 2333 passed, 0 failed (was 2321; +12 in c65-fix) |
+| api-c65 | 0 FAIL (includes 390 px selector, member privacy, `?` on table columns) |
+| api-c58 | first run in the batch: `script error locator.waitFor: Timeout 10000ms` after the F7 checks (machine under load); rerun alone: `RESULT: all PASS` |
+| api-c48, api-stage6 | 31 PASS 0 FAIL; 94/94 |
+| api-mobile (390 and 900, all routes) | NO FAILURES |
+| a11y, api mode | 41 views, 66 dialogs, 0 violations |
+| fit-check 1366x768 (demo, dev server 11390) | ALL FIT (includes `/operations?tab=queues`) |
+| Servers | dev server on 11390 stopped by port; e2e stacks (11392, 11393) stopped by their script; no background job left |
