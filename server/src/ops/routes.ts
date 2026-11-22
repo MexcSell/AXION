@@ -4,12 +4,28 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { requireAdmin } from '../auth/session.ts';
 import { VERSION } from '../config.ts';
+import { ApiError } from '../errors.ts';
+import { SlidingWindow } from '../ratelimit.ts';
+import { verifyAnchors } from '../audit-anchor.ts';
 
 export const DEFAULT_BACKUP_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'backups');
 
 /** Read-only operational status for administrators (spec Stage 5: "read-only operational status"). */
 export default async function opsRoutes(app: FastifyInstance) {
   const started = Date.now();
+  const win = new SlidingWindow({ max: 12, windowMs: 60_000 });
+  /** c49: read-only status of the external audit anchor for the caller's own tenant. No key, no file path, no hashes leave the server. */
+  app.get('/operations/anchors', async (req, reply) => {
+    const ctx = await requireAdmin(req);
+    const wait = win.take(ctx.tokenHash);
+    if (wait) {
+      reply.header('retry-after', String(Math.ceil(wait / 1000)));
+      throw new ApiError('RATE_LIMITED', 429, `Too many anchor checks from this session. Wait ${Math.ceil(wait / 1000)} s and try again.`, { retryable: true });
+    }
+    const r = await verifyAnchors(app.db, { ...app.cfg.auditAnchor, tenant: ctx.tenantId });
+    return { configured: r.configured, ok: r.ok, lastAnchorAt: r.lastAnchorAt, reason: r.reason ?? null,
+      tenants: r.tenants.map((t) => ({ tenant: t.tenant, status: t.status, anchoredSeq: t.anchoredSeq, anchoredAt: t.anchoredAt, reason: t.reason ?? null })), checkedAt: new Date().toISOString() };
+  });
   app.get('/operations/health', async (req) => {
     const ctx = await requireAdmin(req);
     let db: { status: 'up' | 'down'; sizeBytes?: number; missions?: number } = { status: 'down' };
