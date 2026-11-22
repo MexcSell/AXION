@@ -39,3 +39,10 @@ web/src/features/agents/Mentoring.tsx, web/scripts/a11y-check.mjs, new: web/scri
   → conversation pane switches" (17/21) and "Delete (archive) from the far-right trash icon" (5/21), though verify-all's flows passed
   when run alone. They are load flakes and need their own cycle.
 - Rapid reopen within the 200 ms exit animation keeps the previous query (onExitComplete does not fire when the exit is cancelled).
+
+## Fix round (review I1)
+`pendingEnter` (an Enter waiting for the lazy help registry) is now cleared when the palette closes (effect on `open`, `reset`, and a click on a
+result), and the registry-arrived effect and the load-failure path act only if the palette is still open (`openRef`).
+Check `web/scripts/c28-palette-pending.mjs` holds the registry chunk: A) Enter then Escape then release, no navigation or dialog;
+B) Enter then click a result then release, exactly one navigation. RED (old code): A navigated, B navigated twice (history 2->4); GREEN: 2/2.
+Runs after the fix: flows 0 FAIL (inside verify-all), verify-all 10/10, api-flows all passed.
