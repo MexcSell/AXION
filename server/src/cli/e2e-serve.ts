@@ -24,7 +24,10 @@ const port = Number(process.env.E2E_PORT || 5192);
 // Cycle 14: api-stage6.mjs seeds a paged thread with 130 messages from one session in about two seconds, which the real
 // per-session limit (60 messages a minute) refuses. Only this throw-away e2e server lifts the message limit; proposals and
 // uploads keep the real defaults, and test/security.test.ts covers every real limit.
-const E2E_WRITE_LIMITS = { messages: { max: 1000, windowMs: 60_000 } };
+// The perf scripts post far more from one session within a minute: api-c22 N=1000 (1,000 + its probes) and api-c26
+// (FILL 1,000 + BURST 200 + a 240-message mixed thread). At 1,000 a minute their last posts got 429, so the newest
+// message never arrived ("not interactive within the cap", "store has it NO"). 5,000 a minute covers them.
+const E2E_WRITE_LIMITS = { messages: { max: 5000, windowMs: 60_000 } };
 const start = async () => {
   const a = await buildApp({ databaseUrl: url, logger: false, uploadDir, staffingStepMs: Number(process.env.STAFFING_STEP_MS || 600), demoSeed: process.env.DEMO_SEED !== '0', writeLimits: E2E_WRITE_LIMITS });
   await a.listen({ host: '127.0.0.1', port });
