@@ -90,6 +90,7 @@ export function NeedsYou() {
                         <span className="ny-ico"><Icon size={14} aria-hidden /></span>
                         <span className="ny-kind" style={r.tier ? { ['--h' as string]: TIER_HUE[r.tier] ?? 350 } : undefined}>{r.tier && <b>{r.tier}</b>}{def.short}</span>
                         <span className="ny-why ellipsis" title={r.why}>{r.why}</span>
+                        {isApi() && r.members.every((x) => x.demo) && <span className="ny-demo" title="Demonstration data, not a real request">DEMO</span>}
                         {r.count > 1 && <span className="ny-count tnum" title={`${r.count} items folded into this row`}><span aria-hidden>×</span>{r.count}<span className="vh"> items</span></span>}
                         <Time r={r} />
                       </button>

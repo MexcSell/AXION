@@ -183,6 +183,8 @@ try {
   check('light 1366x768: no page scroll, list region at least 200 px, 12 rows visible', f.page <= 1 && f.wide <= 0 && f.main <= 1 && f.list >= 200 && (await rowsInView(A.p)) >= 12, JSON.stringify(f));
   await A.p.screenshot({ path: `${SHOTS}/queue-1366-light.png` });
   await A.p.getByRole('radio', { name: /Evidence/ }).click();
+  await A.p.locator('.ny-evidence').waitFor({ timeout: 5000 });
+  await A.p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
   await A.p.screenshot({ path: `${SHOTS}/evidence-1366-light.png` });
 
   // ---- 390 px (the member's session; dark)
