@@ -1,6 +1,7 @@
 // Stage 5: what the owner sees when the API is down. Needs Vite on BASE (5193) proxying to 5192 with NO API running;
 // this script starts the e2e API itself half-way. Run: ./scripts/api-offline.sh
 import { chromium } from 'playwright';
+import { calm } from './_session.mjs';
 import { spawn } from 'node:child_process';
 const base = process.env.BASE || 'http://127.0.0.1:5193';
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
@@ -13,7 +14,7 @@ const p = await ctx.newPage();
 p.on('pageerror', (e) => errors.push(e.message));
 await p.goto(base + '/missions', { waitUntil: 'domcontentloaded' });
 check('API down → "Server not reachable" card', await until(async () => (await p.getByRole('heading', { name: 'Server not reachable' }).count()) > 0));
-await p.waitForTimeout(900); await p.screenshot({ path: new URL('../docs/screenshots/stage5-offline-dark.png', import.meta.url).pathname });
+await calm(p); await p.screenshot({ path: new URL('../docs/screenshots/stage5-offline-dark.png', import.meta.url).pathname });
 // the offline demo link (opens this tab in demo mode)
 const p2 = await ctx.newPage();
 await p2.goto(base + '/missions', { waitUntil: 'domcontentloaded' });

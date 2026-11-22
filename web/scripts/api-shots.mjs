@@ -1,6 +1,7 @@
 // Stage 5 screenshots (api mode, e2e stack): Connect, waiting, Missions live, Operations › AXION server — dark and light.
 // Run: ./scripts/api-e2e.sh api-shots.mjs   → docs/screenshots/stage5-*.png
 import { chromium } from 'playwright';
+import { calm } from './_session.mjs';
 const base = process.env.BASE || 'http://127.0.0.1:5193';
 const out = new URL('../docs/screenshots/', import.meta.url).pathname;
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
@@ -17,7 +18,7 @@ const connect = async (p, name, pass) => {
   await p.getByRole('button', { name: /Connect/ }).click();
 };
 const shots = [];
-const shot = async (p, name) => { await p.waitForTimeout(700); await p.screenshot({ path: out + `stage5-${name}.png` }); shots.push(name); };
+const shot = async (p, name) => { await calm(p); await p.screenshot({ path: out + `stage5-${name}.png` }); shots.push(name); };
 
 const A = await page('dark');
 await A.goto(base + '/missions', { waitUntil: 'domcontentloaded' });

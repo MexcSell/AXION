@@ -84,9 +84,9 @@ await step('Hierarchy: click agent → conversation pane beside the graph shows 
   await p.goto(base + '/missions/M-126?tab=hierarchy', { waitUntil: 'networkidle' });
   await p.waitForTimeout(800);
   await p.locator('.hnode', { hasText: 'Tester-01' }).click();
-  await p.waitForTimeout(500);
-  await expect(p.locator('.hier-conv .msg-head', { hasText: 'Tester-01' }).count(), 'hierarchy conversation pane did not switch');
-  await expect(p.locator('.hier-conv .cp-item', { hasText: 'Superior' }).count(), 'superior counterpart missing');
+  // condition waits (a fixed 500 ms sleep made this flaky under load)
+  await expect(await p.locator('.hier-conv .msg-head', { hasText: 'Tester-01' }).first().waitFor({ timeout: 8000 }).then(() => true, () => false), 'hierarchy conversation pane did not switch');
+  await expect(await p.locator('.hier-conv .cp-item', { hasText: 'Superior' }).first().waitFor({ timeout: 8000 }).then(() => true, () => false), 'superior counterpart missing');
   await expect((await p.locator('.modal, [role=dialog]').count()) === 0, 'a conversation drawer opened on node click');
 });
 
