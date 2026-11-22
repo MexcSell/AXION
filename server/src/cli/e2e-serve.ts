@@ -4,6 +4,7 @@
  * (and never take the real administrator seat).
  */
 import { buildApp } from '../app.ts';
+import { isE2eDatabaseUrl } from './e2e-url.ts';
 import { makePool } from '../db.ts';
 import { migrate } from '../migrate.ts';
 import { rmSync } from 'node:fs';
@@ -15,7 +16,7 @@ const uploadDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'dat
 rmSync(uploadDir, { recursive: true, force: true });
 
 const url = process.env.E2E_DATABASE_URL;
-if (!url || !/\/axion_e2e\d*(\?|$)/.test(url)) throw new Error('E2E_DATABASE_URL must point at axion_e2e or axion_e2e<N> (a parallel lane)');
+if (!isE2eDatabaseUrl(url)) throw new Error('E2E_DATABASE_URL must point at axion_e2e or axion_e2e<N> (a parallel lane)');
 const pool = makePool(url, undefined, 1);
 await migrate(pool, 'down', 0);
 await migrate(pool, 'up');

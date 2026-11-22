@@ -3,10 +3,11 @@
  * (the demo seed has four). Refuses any database that is not an axion_e2e one, like e2e-serve.ts.
  */
 import { makePool, tx } from '../db.ts';
+import { isE2eDatabaseUrl } from './e2e-url.ts';
 import { requestApproval } from '../approvals/service.ts';
 
 const url = process.env.E2E_DATABASE_URL;
-if (!url || !/\/axion_e2e\d*(\?|$)/.test(url)) throw new Error('E2E_DATABASE_URL must point at axion_e2e or axion_e2e<N>');
+if (!isE2eDatabaseUrl(url)) throw new Error('E2E_DATABASE_URL must point at axion_e2e or axion_e2e<N>');
 const n = Number(process.argv[2] || 4);
 const pool = makePool(url, undefined, 1);
 const m = (await pool.query(`select id, tenant_id from missions where deleted_at is null order by id limit 1`)).rows[0];
