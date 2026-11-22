@@ -33,14 +33,17 @@ Rewritten 2026-11-22T07:35Z by the controller. The old w2–w18 lane list is his
 ## Lanes in flight
 | Lane | Cycle | Status |
 |---|---|---|
-| w38 | c40 mobile debt | CLEARED at db34c42, batch 11b |
+| w38 | c40 mobile debt | MERGED (6c5a922) |
 | w42 | c43 flows hardening (H7) | MERGED (2aba0a0, 09dd6cb) |
-| w43 | c44 page/store perf | CLEARED-AS-PARTIAL at 0abda0c, queued batch 10 |
-| w44 | c45 job leases J1 | CLEARED at 17b6390, queued batch 10 |
-| w45 | c46 six-dimension scorecard M1 | CLEARED at f506a9a, batch 11c |
-| w46 | c47 E1b eval evidence | CLEARED at 15b1bd2, batch 11 |
-| w47 | c48 P3a approvals UI | CLEARED at d29339a, batch 11 |
-| w48 | c49 P5b audit anchor | CLEARED at 7b17bf6, batch 11 |
+| w43 | c44 page/store perf | MERGED (batch 10, partial) |
+| w44 | c45 job leases J1 | MERGED (batch 10) |
+| w45 | c46 six-dimension scorecard M1 | MERGED (feb5f96) |
+| w46 | c47 E1b eval evidence | MERGED (batch 11, ec6d8b3) |
+| w47 | c48 P3a approvals UI | MERGED (batch 11) |
+| w48 | c49 P5b audit anchor | MERGED (batch 11) |
+| w49 | c50 H9 contract coverage | CLEARED at 539eda5, batch 12 (merging) |
+| w50 | c51 O3a+O2a review hardening (migration 0039) | CLEARED at a9a41a6, batch 13 (after c52) |
+| w51 | c52 H10 merge minors | CLEARED at 078b41c, batch 13 |
 
 ## Next after that
 - H9 contract-test refresh, after batch 8.

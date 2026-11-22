@@ -582,3 +582,4 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
   - Results: vitest 2042, stage6, c42 and improve green, verify-all 10/10.
   - Minor: `independence()` takes `current?` as optional, so a future caller that omits it fails open. The only caller always sets it; noted in H10.
   - Queued in batch 13 after c52, with the BRIEF_REQUIRED follow-up for c50's flow.
+- 2026-11-22T16:08Z controller: restarted live 5190 Vite (stale watcher again after the c46 merge; contracts/index.ts lacked the dimensions export, so 5/10 verify-all steps failed with a DIMENSION_KEYS import error). PID recorded in /tmp/axion-5190.pid. Integrator #4: c40 merged (6c5a922, api-mobile 691 states 0 FAIL), c46 merged (api-c46 30/30, vitest 2016/2016); c50 merge in progress.
