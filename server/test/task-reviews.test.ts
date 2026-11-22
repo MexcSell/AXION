@@ -21,10 +21,10 @@ const body = (over: Record<string, unknown> = {}) => ({ verdict: 'accepted', rub
 const post = (b: Browser, task: string, o: Record<string, unknown> = body()) => b.req('POST', `/tasks/${task}/reviews`, o, key());
 let tk = 0;
 /** A task in `mission`, owned by the mission's coder-01 instance (the producer). */
-async function mkTask(mission: string, owner: string | null = `${mission}:coder-01`) {
+async function mkTask(mission: string, owner: string | null = `${mission}:coder-01`, status = 'passed') {
   const id = 'T-r' + ++tk + '-' + Math.random().toString(36).slice(2, 6);
   const tn = (await rows('select tenant_id from missions where id=$1', [mission]))[0].tenant_id;
-  await t.pool.query(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent, owner_instance_id) values ($1,$2,$3,'Write the report','passed',$4,$5)`, [id, tn, mission, owner ? owner.split(':')[1] : null, owner]);
+  await t.pool.query(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent, owner_instance_id) values ($1,$2,$3,'Write the report',$6,$4,$5)`, [id, tn, mission, owner ? owner.split(':')[1] : null, owner, status]);
   return id;
 }
 /** A message in a thread of `mission`, about `taskId` (evidence a reviewer may cite). */
@@ -58,10 +58,10 @@ describe('POST /tasks/:id/reviews', () => {
     const r = await post(ben, id);
     expect(r.status).toBe(201);
     expect(r.body.review).toMatchObject({ taskId: id, missionId: M1, verdict: 'accepted', reviewer: { id: benId, kind: 'user', name: 'Ben', modelFamily: null }, producer: { id: 'coder-01', kind: 'agent' } });
-    expect(r.body.review.producer.modelFamily).toBe('claude');
+    expect(r.body.review.producer.modelFamily).toBe('anthropic');
     expect(r.body.review.evidence).toEqual(EV);
     const [row] = await rows('select * from task_reviews where task_id=$1', [id]);
-    expect(row).toMatchObject({ reviewer_id: benId, reviewer_kind: 'user', producer_id: 'coder-01', producer_kind: 'agent', producer_model_family: 'claude', principal_id: miaId, verdict: 'accepted', mission_id: M1 });
+    expect(row).toMatchObject({ reviewer_id: benId, reviewer_kind: 'user', producer_id: 'coder-01', producer_kind: 'agent', producer_model_family: 'anthropic', principal_id: miaId, verdict: 'accepted', mission_id: M1 });
     expect(await count(`select count(*)::int n from events where type='task.reviewed' and subject_id=$1`, [id])).toBe(1);
     expect(await count(`select count(*)::int n from audit_events where action='task.review' and subject=$1`, [id])).toBe(1);
   });
@@ -114,12 +114,12 @@ describe('POST /tasks/:id/reviews', () => {
     await tx(t.app.db, (c) => addVersion(c, { agentId: 'tester-01', model: 'gpt-5-judge', skills: [], tools: [], createdBy: 'system' }));
     const asCtx = { tenantId: t.app.cfg.tenantId, user: { id: luId, role: 'admin', name: 'Luca' }, correlationId: 'c' } as never;
     const r = await tx(t.app.db, (c) => recordReview(c, asCtx, id, body() as never, { kind: 'agent', id: 'tester-01' }));
-    expect(r.review).toMatchObject({ reviewer: { id: 'tester-01', kind: 'agent', modelFamily: 'gpt' }, producer: { id: 'coder-01', modelFamily: 'claude' } });
+    expect(r.review).toMatchObject({ reviewer: { id: 'tester-01', kind: 'agent', modelFamily: 'openai' }, producer: { id: 'coder-01', modelFamily: 'anthropic' } });
     // the producer's family is the PINNED version of its instance, not the current active version of the definition
     const id2 = await mkTask(M1);
     await tx(t.app.db, (c) => addVersion(c, { agentId: 'coder-01', model: 'gpt-5-coder', skills: [], tools: [], createdBy: 'system' }));
     const r2 = await tx(t.app.db, (c) => recordReview(c, asCtx, id2, body() as never, { kind: 'agent', id: 'tester-01' }));
-    expect(r2.review.producer.modelFamily).toBe('claude');
+    expect(r2.review.producer.modelFamily).toBe('anthropic');
   });
 
   it('an accepted review needs evidence (400 VALIDATION); other verdicts may have none; a failed criterion cannot be accepted', async () => {
@@ -192,6 +192,51 @@ describe('POST /tasks/:id/reviews', () => {
   });
 });
 
+describe('which tasks can be reviewed (I2)', () => {
+  const ALL = ['created', 'ready', 'running', 'waiting_agent', 'waiting_user', 'verifying', 'passed', 'failed', 'retry_ready', 'canceled'];
+  it('passed takes any verdict; failed only rejected / changes_requested; every other status is 409 TASK_NOT_REVIEWABLE for every verdict', async () => {
+    for (const st of ALL) {
+      for (const verdict of ['accepted', 'rejected', 'changes_requested'] as const) {
+        const id = await mkTask(M1, undefined, st);
+        const r = await post(ben, id, body({ verdict, evidence: verdict === 'accepted' ? EV : [] }));
+        const ok = st === 'passed' || (st === 'failed' && verdict !== 'accepted');
+        expect(r.status, `${st} ${verdict}`).toBe(ok ? 201 : 409);
+        if (!ok) { expect(r.body.code, `${st} ${verdict}`).toBe('TASK_NOT_REVIEWABLE'); expect(await count('select count(*)::int n from task_reviews where task_id=$1', [id])).toBe(0); }
+      }
+    }
+  });
+  it('GET says so: canReview refuses with TASK_NOT_REVIEWABLE except for passed and failed, and canAccept is true only for passed', async () => {
+    for (const st of ALL) {
+      const g = (await ben.req('GET', `/tasks/${await mkTask(M1, undefined, st)}/reviews`)).body;
+      expect(g.taskStatus).toBe(st);
+      expect(g.canAccept).toBe(st === 'passed');
+      if (st === 'passed' || st === 'failed') expect(g.canReview.allowed, st).toBe(true);
+      else expect(g.canReview, st).toMatchObject({ allowed: false, code: 'TASK_NOT_REVIEWABLE' });
+    }
+  });
+});
+
+describe('agents that worked on an earlier attempt cannot review (M1)', () => {
+  it('an agent that received the task by delegation, or owned it before a reassign, is refused; an unrelated agent of another family may review', async () => {
+    const asCtx = { tenantId: t.app.cfg.tenantId, user: { id: luId, role: 'admin', name: 'Luca' }, correlationId: 'c' } as never;
+    const go = (id: string, agent: string) => tx(t.app.db, (c) => recordReview(c, asCtx, id, body() as never, { kind: 'agent', id: agent }));
+    const insts = (await rows(`select id, agent_id from agent_instances where mission_id=$1 and agent_id <> 'coder-01' order by seq`, [M1])) as { id: string; agent_id: string }[];
+    expect(insts.length).toBeGreaterThanOrEqual(2);
+    const [a, b] = insts;
+    for (const x of [a, b]) await tx(t.app.db, (c) => addVersion(c, { agentId: x.agent_id, model: 'gpt-5-judge', skills: [], tools: [], createdBy: 'system' }));
+    const viaDeleg = await mkTask(M1);
+    await t.pool.query(`insert into mission_delegations(mission_id, from_instance, to_instance, edge_kind, task_id) values ($1,$2,$3,'delegated',$4)`, [M1, `${M1}:coder-01`, a.id, viaDeleg]);
+    await expect(go(viaDeleg, a.agent_id)).rejects.toMatchObject({ code: 'REVIEW_NOT_INDEPENDENT', status: 403 });
+    const viaReassign = await mkTask(M1);
+    await t.pool.query(`insert into audit_events(tenant_id, actor, action, subject, result, correlation_id, detail) values ($1,'x','task.reassign',$2,'ok','c',$3::jsonb)`, [t.app.cfg.tenantId, viaReassign, JSON.stringify({ fromAgent: b.agent_id, fromInstanceId: b.id })]);
+    await expect(go(viaReassign, b.agent_id)).rejects.toMatchObject({ code: 'REVIEW_NOT_INDEPENDENT' });
+    expect(await count('select count(*)::int n from task_reviews where task_id = any($1)', [[viaDeleg, viaReassign]])).toBe(0);
+    // controls: the agent that did not touch the task may review it, and a person is not affected
+    expect((await go(viaDeleg, b.agent_id)).review.reviewer.id).toBe(b.agent_id);
+    expect((await post(ben, viaReassign)).status).toBe(201);
+  });
+});
+
 describe('GET /tasks/:id/reviews', () => {
   it('lists reviews oldest first with the producer, the mission criteria, evidence options and each reviewer\'s agreement (not enough evidence below 5)', async () => {
     await t.pool.query(`update mission_revisions set criteria=$2::jsonb where mission_id=$1`, [M1, JSON.stringify([{ text: 'Page loads', done: false }, { text: 'Copy is proofread', done: false }])]);
@@ -244,6 +289,22 @@ describe('append-only', () => {
     await clearDemo(t.app.db, t.app.cfg.tenantId);
     expect(await count('select count(*)::int n from task_reviews')).toBe(before);
     expect(await count(`select count(*)::int n from task_reviews where id='TR-demo1'`)).toBe(0);
+  });
+});
+
+describe('DEMO reviews and the switch (M5)', () => {
+  it('a review of a DEMO mission is in the numbers only with includeDemo=1', async () => {
+    await seedDemo(t.app.db, t.app.cfg.tenantId, luId);
+    const dm = MISSIONS.find((m) => m.shared !== false)!.id ?? MISSIONS[0].id;
+    const id = (await rows(`select t.id from tasks t join missions m on m.id=t.mission_id where m.demo and m.shared and t.owner_agent is not null order by t.id limit 1`))[0]?.id as string;
+    expect(id, dm).toBeTruthy();
+    await t.pool.query(`update tasks set status='passed' where id=$1`, [id]);
+    const val = async (demo: 0 | 1) => (await zed.req('GET', `/company/scorecard?window=30d&includeDemo=${demo}`)).body.rows.find((r: any) => r.key === 'tasks_verified_by_review') as { value: number; n: number };
+    const off0 = await val(0), on0 = await val(1);
+    expect((await post(ben, id)).status).toBe(201);
+    expect(await val(0)).toEqual(off0);
+    expect(await val(1)).toMatchObject({ value: on0.value + 1, n: on0.n + 1 });
+    await clearDemo(t.app.db, t.app.cfg.tenantId);
   });
 });
 

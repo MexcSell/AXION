@@ -3,13 +3,35 @@ import { MIN_AGREEMENT_N, type ReviewerAgreement, type ReviewVerdict } from '../
 /**
  * Improvement cycle 38: the pure rules of independent task review.
  *
- * Model family: the lower-cased leading letters of the model name ('claude-opus-5-5' -> 'claude', 'gpt-4o' -> 'gpt').
- * It is the vendor lineage, not the size tier: a model prefers output of its own lineage (2404.13076), so a claude-haiku
- * reviewer is not independent of a claude-opus producer. null when the name has no letters to go on (unknown: never independent).
+ * Model family = the VENDOR LINEAGE of a model name (a model prefers output of its own lineage, 2404.13076).
+ * THIS TABLE IS THE TRUST BOUNDARY of the independence rule. It is explicit, frozen and versioned; it is extended only by a
+ * code change (bump MODEL_FAMILY_TABLE_VERSION and add a test). A name that matches no entry has NO family (null), and null
+ * fails closed: an agent with an unknown family cannot review an agent, and cannot be reviewed by one.
+ * Normalising: lower-case, trim, drop any `xxx/` router prefix (`openai/`, `bedrock/`, `azure/`, ...) and a leading cloud-region
+ * and provider part (`us.anthropic.`). The lineage must then START the name (`my-claude-proxy` is unknown, not anthropic).
  */
+export const MODEL_FAMILY_TABLE_VERSION = 1;
+export const MODEL_FAMILY_TABLE: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  openai: ['gpt', 'chatgpt', 'o1', 'o3', 'o4', 'text-davinci', 'davinci', 'whisper', 'dall-e', 'codex'],
+  anthropic: ['claude'],
+  google: ['gemini', 'gemma', 'palm', 'text-bison', 'bison'],
+  meta: ['llama'],
+  mistral: ['mistral', 'mixtral', 'codestral', 'ministral', 'pixtral'],
+  cohere: ['command', 'aya'],
+  amazon: ['titan', 'nova'],
+  microsoft: ['phi'],
+  alibaba: ['qwen'],
+  deepseek: ['deepseek'],
+  xai: ['grok'],
+});
+const PROVIDER = '(?:anthropic|openai|meta|google|mistral|cohere|amazon|microsoft|deepseek|xai)';
+const PREFIX = new RegExp(`^(?:[a-z]{2,4}\\.)?${PROVIDER}\\.`);
+const lineages = Object.entries(MODEL_FAMILY_TABLE).flatMap(([vendor, ls]) => ls.map((l) => [vendor, new RegExp('^' + l.replace(/[-.]/g, '\\$&') + '(?![a-z])')] as const));
 export function modelFamily(model: string | null | undefined): string | null {
-  const m = /^[a-z]+/.exec(String(model ?? '').trim().toLowerCase());
-  return m ? m[0] : null;
+  let m = String(model ?? '').trim().toLowerCase();
+  m = m.slice(m.lastIndexOf('/') + 1).trim().replace(PREFIX, '');
+  for (const [vendor, re] of lineages) if (re.test(m)) return vendor;
+  return null;
 }
 
 export interface ReviewRef { taskId: string; reviewerKey: string; verdict: ReviewVerdict; seq: number }

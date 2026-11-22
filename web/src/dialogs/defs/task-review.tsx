@@ -42,7 +42,7 @@ function TaskReview({ close, props }: DialogComponentProps<{ missionId?: string;
   const filled = list.filter((r) => r.criterion.trim());
   const allowed = !!d?.canReview.allowed;
   const err = !api_ ? 'Reviews are stored on the server' : !d ? 'Reading the task' : !allowed ? (d.canReview.reason ?? 'You cannot review this task')
-    : !verdict ? 'Choose a verdict' : filled.length === 0 ? 'Write at least one criterion' : filled.some((r) => !r.result) ? 'Mark every criterion pass, fail or n/a'
+    : !verdict ? 'Choose a verdict' : verdict === 'accepted' && !d.canAccept ? `A ${d.taskStatus.replace(/_/g, ' ')} task cannot be accepted: record rejected or changes requested` : filled.length === 0 ? 'Write at least one criterion' : filled.some((r) => !r.result) ? 'Mark every criterion pass, fail or n/a'
     : verdict === 'accepted' && filled.some((r) => r.result === 'fail') ? 'A failed criterion cannot be accepted'
     : verdict === 'accepted' && picked.length === 0 ? 'Cite at least one piece of evidence to accept' : '';
   const touch = () => { setSrvErr(null); setFields({}); };

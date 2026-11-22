@@ -7,8 +7,11 @@ const D = 24 * 3_600_000;
 const at = (ago: number) => new Date(NOW.getTime() - ago);
 type Rv = NonNullable<ScoreInput['reviews']>[number];
 let seq = 0;
-const rv = (taskId: string, verdict: string, ago: number, over: Partial<Rv> = {}): Rv => ({ taskId, missionId: 'M-1', verdict, reviewerId: 'u-ben', producerId: 'coder-01', evidenceCount: 1, at: at(ago), seq: ++seq, ...over });
-const base = (reviews: Rv[]): ScoreInput => ({ missions: [{ id: 'M-1', ownerId: 'u-owner' }], runs: [], transitions: [], tasks: [], attempts: [], decisions: [], delegations: [], reviews });
+const rv = (taskId: string, verdict: string, ago: number, over: Partial<Rv> = {}): Rv => ({ taskId, missionId: 'M-1', verdict, reviewerId: 'u-ben', producerId: 'coder-01', principalId: 'u-owner', evidenceCount: 1, at: at(ago), seq: ++seq, ...over });
+const STATUS: Record<string, string> = {};
+/** tasks default to `passed`; a test lists the exceptions in STATUS */
+const base = (reviews: Rv[]): ScoreInput => ({ missions: [{ id: 'M-1', ownerId: 'u-owner' }], runs: [], transitions: [], attempts: [], decisions: [], delegations: [], reviews,
+  tasks: [...new Set(reviews.map((r) => r.taskId))].map((id) => ({ id, missionId: 'M-1', status: STATUS[id] ?? 'passed' })) });
 const W = windowOf('30d', NOW);
 const row = (i: ScoreInput, key: string, w = W) => computeScorecard(i, { window: w.window, from: w.from, to: w.to, includeDemo: false }).rows.find((r) => r.key === key)!;
 
@@ -22,7 +25,7 @@ describe('tasks_verified_by_review', () => {
       rv('T5', 'accepted', 6 * D), rv('T5', 'rejected', 5 * D),      // latest is a rejection: not verified
       rv('T6', 'accepted', 2 * D, { evidenceCount: 0 }),             // no evidence (cannot exist in the DB; never counted)
       rv('T7', 'accepted', 2 * D, { reviewerId: 'coder-01' }),       // reviewer = producer (cannot exist; never counted)
-      rv('T8', 'accepted', 2 * D, { reviewerId: 'u-owner' }),        // reviewer = mission owner (cannot exist; never counted)
+      rv('T8', 'accepted', 2 * D, { reviewerId: 'u-owner' }),        // reviewer = the stored principal (cannot exist; never counted)
       rv('T9', 'accepted', 40 * D),                                  // outside the 30-day window
     ];
     const r = row(base(rs), 'tasks_verified_by_review');
@@ -45,6 +48,27 @@ describe('tasks_verified_by_review', () => {
     const r = row(base(rs), 'tasks_verified_by_review');
     expect(r.previous).toEqual({ value: 2, n: 3 });
     expect(r.trend).toBe('up');
+  });
+});
+
+describe('review counting rules (fix round)', () => {
+  it('only accepted reviews on tasks that are STILL passed count, whatever the other statuses are', () => {
+    const statuses = ['created', 'ready', 'running', 'waiting_agent', 'waiting_user', 'verifying', 'passed', 'failed', 'retry_ready', 'canceled'];
+    const rs = statuses.map((st, i) => { STATUS['S' + st] = st; return rv('S' + st, 'accepted', (i + 1) * D / 4); });
+    const r = row(base(rs), 'tasks_verified_by_review');
+    expect(r).toMatchObject({ value: 1, n: 10 }); // only the passed one; the other nine are reviewed but not verified
+    for (const st of statuses) delete STATUS['S' + st];
+  });
+  it('a task retried after an accepted review is no longer verified', () => {
+    STATUS['TR'] = 'retry_ready';
+    expect(row(base([rv('TR', 'accepted', D)]), 'tasks_verified_by_review')).toMatchObject({ value: 0, n: 1 });
+    delete STATUS['TR'];
+  });
+  it('the mission owner is excluded by the principal STORED with the review, not by whoever owns the mission now', () => {
+    const rs = [rv('P1', 'accepted', D, { reviewerId: 'u-newowner', principalId: 'u-newowner' }), rv('P2', 'accepted', D, { reviewerId: 'u-newowner', principalId: 'u-old' })];
+    // the mission is now owned by u-newowner: P2 (reviewed by them while someone else was principal) still counts, P1 never does
+    const i = { ...base(rs), missions: [{ id: 'M-1', ownerId: 'u-newowner' }] };
+    expect(row(i, 'tasks_verified_by_review')).toMatchObject({ value: 1, n: 2 });
   });
 });
 

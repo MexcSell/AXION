@@ -33,6 +33,9 @@ export interface TaskReviewsDto {
   taskId: string;
   missionId: string;
   producer: ReviewActor | null;
+  /** the task's status; only `passed` tasks can be accepted, `failed` ones can only be rejected or sent back */
+  taskStatus: string;
+  canAccept: boolean;
   canReview: { allowed: boolean; code: string | null; reason: string | null };
   /** the mission's acceptance criteria (texts); empty when none were written */
   criteria: string[];

@@ -29,7 +29,7 @@ export interface ScoreInput {
   decisions: { missionId: string; decision: string; decidedBy: string; human: boolean; at: Date }[];
   delegations: { missionId: string; edgeKind: string; simulated: boolean }[];
   /** improvement cycle 38: independent task reviews (append-only rows), in recorded order */
-  reviews?: { taskId: string; missionId: string; verdict: string; reviewerId: string; producerId: string; evidenceCount: number; at: Date; seq: number }[];
+  reviews?: { taskId: string; missionId: string; verdict: string; reviewerId: string; producerId: string; principalId: string; evidenceCount: number; at: Date; seq: number }[];
 }
 
 export function windowOf(w: ScorecardWindow, now = new Date()) {
@@ -96,12 +96,13 @@ function computeRows(input: ScoreInput, optFrom: Date, optTo: Date): BaseRow[] {
   // cycle 38: the approval-based rule alone, kept as its own row so it never silently changes meaning
   const nApprovedNonOwner = done.filter((d) => d.outcome === 'completed' && decisions.some((x) => x.missionId === d.id && x.decision === 'approved' && x.human && x.decidedBy !== owner.get(d.id) && x.at.getTime() <= d.at)).length;
 
-  // ---- cycle 38: a task is verified by review when its LATEST review (as of `to`) is accepted, cites evidence and was written by
-  // someone who is neither its producer nor the mission owner. The task is placed in the window by that review's time.
+  // ---- cycle 38: a task is verified by review when its LATEST review (as of `to`) is accepted, cites evidence, was written by
+  // someone who is neither its producer nor the mission owner (the principal STORED with the review), and the task is still `passed`. The task is placed in the window by that review's time.
   const lastReview = new Map<string, NonNullable<ScoreInput['reviews']>[number]>();
   for (const r of mine(input.reviews ?? []).filter((x) => x.at.getTime() <= to).sort((a, b) => a.at.getTime() - b.at.getTime() || a.seq - b.seq)) lastReview.set(r.taskId, r);
+  const taskStatus = new Map(mine(input.tasks).map((t) => [t.id, t.status]));
   const reviewed = [...lastReview.values()].filter((r) => inWin(r.at.getTime()));
-  const nTaskVerified = reviewed.filter((r) => r.verdict === 'accepted' && r.evidenceCount >= 1 && r.reviewerId !== r.producerId && r.reviewerId !== owner.get(r.missionId)).length;
+  const nTaskVerified = reviewed.filter((r) => r.verdict === 'accepted' && r.evidenceCount >= 1 && r.reviewerId !== r.producerId && r.reviewerId !== r.principalId && taskStatus.get(r.taskId) === 'passed').length;
 
   // ---- cycle time: first run start → final moment (missions that never ran are left out)
   const cycles = done.filter((d) => firstRun.has(d.id) && firstRun.get(d.id)! <= d.at).map((d) => (d.at - firstRun.get(d.id)!) / HOUR);

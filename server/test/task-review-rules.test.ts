@@ -1,9 +1,21 @@
 import { describe, it, expect } from 'vitest';
-import { modelFamily, reviewerAgreement, type ReviewRef } from '../src/tasks/review-rules.ts';
+import { modelFamily, MODEL_FAMILY_TABLE, MODEL_FAMILY_TABLE_VERSION, reviewerAgreement, type ReviewRef } from '../src/tasks/review-rules.ts';
 
-describe('modelFamily (derived from the version model, never from the client)', () => {
-  it.each([['claude-opus-5-5', 'claude'], ['claude-haiku-5-5', 'claude'], ['  Claude-Sonnet-5-5 ', 'claude'], ['gpt-4o', 'gpt'], ['whisper-large-v4', 'whisper'], ['translate-ja-en-v2', 'translate'], ['llama3.1', 'llama']])('%s -> %s', (m, f) => expect(modelFamily(m)).toBe(f));
-  it.each([[''], ['   '], ['5-turbo'], [null], [undefined]])('%j has no family (unknown)', (m) => expect(modelFamily(m as never)).toBeNull());
+describe('modelFamily: an explicit vendor alias table; unknown fails closed (null)', () => {
+  it.each([
+    ['claude-opus-5-5', 'anthropic'], ['claude-haiku-5-5', 'anthropic'], ['  Claude-Sonnet-5-5 ', 'anthropic'], ['anthropic.claude-3-5-sonnet', 'anthropic'], ['us.anthropic.claude-3-haiku', 'anthropic'], ['bedrock/anthropic.claude-v2', 'anthropic'], ['anthropic/claude-3', 'anthropic'],
+    ['gpt-4o', 'openai'], ['gpt-4.1', 'openai'], ['chatgpt-4o-latest', 'openai'], ['o1-mini', 'openai'], ['o3', 'openai'], ['o4-mini', 'openai'], ['openai/gpt-4o', 'openai'], ['azure/gpt-4', 'openai'], ['text-davinci-003', 'openai'], ['whisper-large-v4', 'openai'],
+    ['gemini-2.0-flash', 'google'], ['gemma-3-27b', 'google'], ['palm-2', 'google'], ['text-bison-001', 'google'], ['vertex/gemini-pro', 'google'],
+    ['llama3.1', 'meta'], ['llama-3-70b', 'meta'], ['mistral-large', 'mistral'], ['mixtral-8x7b', 'mistral'], ['codestral-22b', 'mistral'], ['ministral-8b', 'mistral'],
+    ['qwen2.5', 'alibaba'], ['deepseek-v3', 'deepseek'], ['grok-2', 'xai'],
+  ])('%s -> %s', (m, f) => expect(modelFamily(m)).toBe(f));
+  it('one vendor is one family however it is spelled (the case that let self-judging through)', () => {
+    for (const group of [['gpt-4o', 'o3', 'o1-mini', 'chatgpt-4o', 'openai/gpt-4o', 'text-davinci-003'], ['gemini-2', 'gemma-3', 'palm-2', 'text-bison'], ['mistral-7b', 'mixtral-8x7b', 'codestral'], ['claude-3', 'anthropic.claude-3', 'us.anthropic.claude-3']])
+      expect(new Set(group.map((m) => modelFamily(m))).size, group.join()).toBe(1);
+    expect(modelFamily('text-davinci-003')).not.toBe(modelFamily('text-bison'));
+  });
+  it.each([[''], ['   '], ['5-turbo'], [null], [undefined], ['my-claude-proxy'], ['translate-ja-en-v2'], ['custom-model'], ['commander-x'], ['philosophy-1'], ['o'], ['o2'], ['gpt-proxy/my-claude'], ['openai/']])('%j has no family (unknown fails closed)', (m) => expect(modelFamily(m as never)).toBeNull());
+  it('the table is frozen and versioned', () => { expect(Object.isFrozen(MODEL_FAMILY_TABLE)).toBe(true); expect(MODEL_FAMILY_TABLE_VERSION).toBe(1); });
 });
 
 const R = (taskId: string, reviewerKey: string, verdict: ReviewRef['verdict'], seq: number): ReviewRef => ({ taskId, reviewerKey, verdict, seq });

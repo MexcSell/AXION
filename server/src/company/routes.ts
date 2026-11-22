@@ -34,7 +34,7 @@ async function loadInput(app: FastifyInstance, ctx: Awaited<ReturnType<typeof re
                   left join users u on u.id=d.decided_by and u.tenant_id=r.tenant_id
                  where r.tenant_id=$1 and r.mission_id = any($2::text[])`, [T, ids]),
       db.query(`select mission_id, edge_kind, simulated from mission_delegations where mission_id = any($1::text[]) and edge_kind='verifies'`, [ids]),
-      db.query(`select task_id, mission_id, verdict, reviewer_id, producer_id, jsonb_array_length(evidence) as ev, created_at, seq from task_reviews where tenant_id=$1 and mission_id = any($2::text[])`, [T, ids]),
+      db.query(`select task_id, mission_id, verdict, reviewer_id, producer_id, principal_id, jsonb_array_length(evidence) as ev, created_at, seq from task_reviews where tenant_id=$1 and mission_id = any($2::text[])`, [T, ids]),
     ]).then((rs) => rs.map((r) => r.rows)) : [[], [], [], [], [], [], []];
     return {
       missions: missions.map((m) => ({ id: m.id, ownerId: m.owner_id })),
@@ -44,7 +44,7 @@ async function loadInput(app: FastifyInstance, ctx: Awaited<ReturnType<typeof re
       attempts: attempts.map((a) => ({ taskId: a.task_id, attemptNo: a.attempt_no, startedAt: a.started_at ? new Date(a.started_at) : null, finishedAt: a.finished_at ? new Date(a.finished_at) : null })),
       decisions: decisions.map((d) => ({ missionId: d.mission_id, decision: d.decision, decidedBy: d.decided_by, human: d.human, at: new Date(d.decided_at) })),
       delegations: delegations.map((d) => ({ missionId: d.mission_id, edgeKind: d.edge_kind, simulated: d.simulated })),
-      reviews: reviews.map((r) => ({ taskId: r.task_id, missionId: r.mission_id, verdict: r.verdict, reviewerId: r.reviewer_id, producerId: r.producer_id, evidenceCount: Number(r.ev), at: new Date(r.created_at), seq: Number(r.seq) })),
+      reviews: reviews.map((r) => ({ taskId: r.task_id, missionId: r.mission_id, verdict: r.verdict, reviewerId: r.reviewer_id, producerId: r.producer_id, principalId: r.principal_id, evidenceCount: Number(r.ev), at: new Date(r.created_at), seq: Number(r.seq) })),
     };
 }
 
