@@ -97,7 +97,7 @@ export interface ApproverQualityBody { windowDays: number; minEvidence: number; 
  * `n` is the arrivals in the window; every cell shows it. Numbers are null when `shown` is false (a non-administrator below the floor).
  */
 export interface CapacityCellDto {
-  n: number; decided: number; people: number; shown: boolean;
+  n: number; /** null when `shown` is false (the floor): a count of one person would name a sole decider */ decided: number | null; people: number | null; shown: boolean;
   arrivalPerDay: number | null; openBacklog: number | null;
   /** null below `minPercentileN` decided items */
   p50Ms: number | null; p95Ms: number | null;
@@ -105,16 +105,19 @@ export interface CapacityCellDto {
   medianQueueSize: number | null;
 }
 export interface CapacityDeptDto extends CapacityCellDto { dept: string }
-/** Little's law as a data-quality check: L (average open) against lambda times W. `fail` = a close record is missing or the two sides differ by more than the stated tolerance. */
+/**
+ * Data-quality check on the stored rows. `fail` only when a record is lost: `missing_close` (closed state, no close record) or `missing_open`
+ * (a task waiting for a person with no event that started the wait). avgOpen and lambdaTimesW (Little's law) are informational and never compared.
+ */
 export interface LittleLawDto {
-  status: 'pass' | 'fail' | 'insufficient'; reason: 'ok' | 'missing_close' | 'mismatch' | 'no_arrivals';
-  avgOpen: number | null; lambdaTimesW: number | null; relError: number | null; relTol: number; absTol: number; missingClose: number; openNow: number;
+  status: 'pass' | 'fail' | 'insufficient'; reason: 'ok' | 'missing_close' | 'missing_open' | 'no_arrivals';
+  avgOpen: number | null; lambdaTimesW: number | null; missingClose: number; missingOpen: number; openNow: number;
 }
 /** GET /review-capacity/people (administrators only): one row per person who decided in the window. Never offered to anyone else. */
 export interface CapacityPersonDto { userId: string; name: string; decided: number; p50Ms: number | null; p95Ms: number | null; medianQueueSize: number | null }
 export interface CapacityPeopleBody { windowDays: number; minPercentileN: number; people: CapacityPersonDto[] }
 /** Observed span: one row per supervisor agent in the latest org revision. A measure only; no number is recommended anywhere. */
-export interface SpanRowDto { supervisorId: string; name: string; dept: string; agents: number; openItems: number }
+export interface SpanRowDto { supervisorId: string; name: string; dept: string; agents: number; /** null for a member when the items behind it are under the floor */ openItems: number | null }
 export interface SpanDto { rows: SpanRowDto[]; note: string }
 export interface ReviewCapacityDto {
   windowDays: number; windowStart: string;

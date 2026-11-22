@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { makeTestApp, withAdmin, type TestApp } from './helpers.ts';
 import { reviewCapacity } from '../src/capacity/model.ts';
-import { littlesLaw, assertLittle, LittleLawError, LITTLE_REL_TOL, LITTLE_ABS_TOL } from '../src/capacity/littles.ts';
+import { littlesLaw, assertLittle, LittleLawError } from '../src/capacity/littles.ts';
 import { DAY, addAgent, addApproval, decided, type Fx } from './c65-fixtures.ts';
 
 const HOUR = 3_600_000;
@@ -9,24 +9,21 @@ describe('c65 item 2: Little\'s law, pure', () => {
   const T = 30 * DAY;
   it('a steady system (one arrival an hour, three hours in the system) passes: L = 3 = lambda x W', () => {
     // 720 arrivals, each 3 h in the system; the average number in the system over the window is 3 (the boundary adds a small carry-in)
-    const r = littlesLaw({ arrivals: 720, sumTisMs: 720 * 3 * HOUR, sumOverlapMs: 720 * 3 * HOUR + 3 * 3 * HOUR / 2, windowMs: T, missingClose: 0, openNow: 3 });
+    const r = littlesLaw({ arrivals: 720, sumTisMs: 720 * 3 * HOUR, sumOverlapMs: 720 * 3 * HOUR + 3 * 3 * HOUR / 2, windowMs: T, missingClose: 0, missingOpen: 0, openNow: 3 });
     expect(r.status).toBe('pass'); expect(r.lambdaTimesW).toBeCloseTo(3, 9);
   });
-  it('the tolerance is stated: relative and absolute, and a gap above it fails as a mismatch', () => {
-    expect(LITTLE_REL_TOL).toBe(0.15); expect(LITTLE_ABS_TOL).toBe(0.25);
-    const bad = littlesLaw({ arrivals: 720, sumTisMs: 720 * 3 * HOUR, sumOverlapMs: 720 * 5 * HOUR, windowMs: T, missingClose: 0, openNow: 5 });
-    expect(bad.status).toBe('fail'); expect(bad.reason).toBe('mismatch');
-    const near = littlesLaw({ arrivals: 720, sumTisMs: 720 * 3 * HOUR, sumOverlapMs: 720 * 3.3 * HOUR, windowMs: T, missingClose: 0, openNow: 3 }); // 9% off
-    expect(near.status).toBe('pass');
+  it('there is no tolerance: a gap between the two sides is carry-in, not a fault, so it never fails (only lost records fail)', () => {
+    const gap = littlesLaw({ arrivals: 720, sumTisMs: 720 * 3 * HOUR, sumOverlapMs: 720 * 5 * HOUR, windowMs: T, missingClose: 0, missingOpen: 0, openNow: 5 });
+    expect(gap.status).toBe('pass'); expect(gap.reason).toBe('ok'); expect(gap.avgOpen).toBeCloseTo(5, 9); expect(gap.lambdaTimesW).toBeCloseTo(3, 9);
   });
   it('a missing close event fails LOUDLY (a thrown LittleLawError), even when the averages happen to agree', () => {
-    const r = littlesLaw({ arrivals: 10, sumTisMs: 10 * HOUR, sumOverlapMs: 10 * HOUR, windowMs: T, missingClose: 1, openNow: 0 });
+    const r = littlesLaw({ arrivals: 10, sumTisMs: 10 * HOUR, sumOverlapMs: 10 * HOUR, windowMs: T, missingClose: 1, missingOpen: 0, openNow: 0 });
     expect(r.status).toBe('fail'); expect(r.reason).toBe('missing_close');
     expect(() => assertLittle(r)).toThrow(LittleLawError);
     expect(() => assertLittle(r)).toThrow(/missing_close.*1 item/);
   });
   it('no arrivals: nothing to compare (insufficient), not a pass and not a failure', () => {
-    const r = littlesLaw({ arrivals: 0, sumTisMs: 0, sumOverlapMs: 0, windowMs: T, missingClose: 0, openNow: 0 });
+    const r = littlesLaw({ arrivals: 0, sumTisMs: 0, sumOverlapMs: 0, windowMs: T, missingClose: 0, missingOpen: 0, openNow: 0 });
     expect(r.status).toBe('insufficient'); expect(() => assertLittle(r)).not.toThrow();
   });
 });
@@ -89,7 +86,6 @@ describe('c65 item 2: Little\'s law on the real rows', () => {
     expect(Math.abs(got.littles.avgOpen! - refL) / refL).toBeLessThan(0.01);
     expect(Math.abs(got.littles.lambdaTimesW! - refLW) / refLW).toBeLessThan(0.01);
     expect(got.littles.status).toBe('pass');
-    expect(Math.abs(refL - refLW)).toBeLessThanOrEqual(Math.max(LITTLE_ABS_TOL, LITTLE_REL_TOL * Math.max(refL, refLW))); // the reference itself is inside the tolerance
     expect(refL).toBeGreaterThan(5); expect(refL).toBeLessThan(11); // about 2 an hour x 4 hours = 8 in the system
   });
 });

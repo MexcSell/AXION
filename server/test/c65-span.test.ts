@@ -44,13 +44,14 @@ describe('c65 item 4: observed span (a measure only)', () => {
     expect(SPAN_NOTE).toMatch(/measure only/i); expect(SPAN_NOTE).toMatch(/no recommended number/i);
     expect(r.span.note).toBe(SPAN_NOTE);
   });
-  it('rows are in a fixed alphabetical order, never by load, and members see them too (they describe agents, not people)', async () => {
+  it('rows are in a fixed alphabetical order, never by load, and members see the rows too (they describe agents, not people), with open items only above the floor', async () => {
     await revision([['c65-sup', 'c65-a'], ['c65-a', 'c65-b']]);
     for (let i = 0; i < 6; i++) await addApproval(f, 'q' + i, 'c65-b', HOUR);
     for (const admin of [true, false]) {
       const rows = (await reviewCapacity(t.app.db, 't-1', 30, admin)).span.rows;
       expect(rows.map((x) => x.name)).toEqual([...rows.map((x) => x.name)].sort((a, b) => a.localeCompare(b)));
-      expect(rows.find((x) => x.supervisorId === 'c65-a')!.openItems).toBe(6);
+      // F3 (fix round): the open items sit under the same floor as the cells; 6 items with no deciders do not clear 3 people for a member
+      expect(rows.find((x) => x.supervisorId === 'c65-a')!.openItems).toBe(admin ? 6 : null);
     }
   });
 });

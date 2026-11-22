@@ -87,12 +87,12 @@ export const approvalQuality: V<ApprovalQualityDto> = obj<ApprovalQualityDto>({ 
 export const qualityBody = obj<{ quality: ApprovalQualityDto }>({ quality: approvalQuality });
 export const approversBody: V<ApproverQualityBody> = obj<ApproverQualityBody>({ windowDays: int, minEvidence: int, approvers: arr(obj<ApproverQualityDto>({ userId: str, name: str, ...qualityCell })) });
 // ---- c65 review capacity
-const capCell = { n: int, decided: int, people: int, shown: bool, arrivalPerDay: nullable(num), openBacklog: nullable(int), p50Ms: nullable(num), p95Ms: nullable(num), medianQueueSize: nullable(num) };
+const capCell = { n: int, decided: nullable(int), people: nullable(int), shown: bool, arrivalPerDay: nullable(num), openBacklog: nullable(int), p50Ms: nullable(num), p95Ms: nullable(num), medianQueueSize: nullable(num) };
 const littleLaw: V<LittleLawDto> = obj<LittleLawDto>({
-  status: oneOf(['pass', 'fail', 'insufficient'] as const), reason: oneOf(['ok', 'missing_close', 'mismatch', 'no_arrivals'] as const),
-  avgOpen: nullable(num), lambdaTimesW: nullable(num), relError: nullable(num), relTol: num, absTol: num, missingClose: int, openNow: int,
+  status: oneOf(['pass', 'fail', 'insufficient'] as const), reason: oneOf(['ok', 'missing_close', 'missing_open', 'no_arrivals'] as const),
+  avgOpen: nullable(num), lambdaTimesW: nullable(num), missingClose: int, missingOpen: int, openNow: int,
 });
-const spanRow = obj<SpanRowDto>({ supervisorId: str, name: str, dept: str, agents: int, openItems: int });
+const spanRow = obj<SpanRowDto>({ supervisorId: str, name: str, dept: str, agents: int, openItems: nullable(int) });
 export const reviewCapacity: V<ReviewCapacityDto> = obj<ReviewCapacityDto>({
   windowDays: int, windowStart: iso, minItems: int, minPeople: int, minPercentileN: int,
   total: obj<CapacityCellDto>(capCell), departments: arr(obj<CapacityDeptDto>({ dept: str, ...capCell })),
