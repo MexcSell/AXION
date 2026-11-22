@@ -82,8 +82,8 @@ function QueueDecide({ a, decide }: { a: Approval; decide: (id: string, d: 'appr
   return (
     <>
       {gate.blocked && <GateNote id={gate.id} text={gate.text} compact />}
-      <IconButton icon={Check} label={`Approve: ${a.title}`} size="xs" variant="active" {...gate.bind(() => { decide(a.id, 'approved'); toast({ tone: 'success', title: 'Approved (demo)', body: a.title }); })} />
-      <IconButton icon={X} label={`Deny: ${a.title}`} size="xs" variant="danger" {...gate.bind(() => { decide(a.id, 'denied'); toast({ tone: 'warning', title: 'Denied (demo)', body: a.title }); })} />
+      <IconButton icon={Check} label={gate.blocked ? `Approve: ${a.title} (${gate.text})` : `Approve: ${a.title}`} size="xs" variant="active" {...gate.bind(() => { decide(a.id, 'approved'); toast({ tone: 'success', title: 'Approved (demo)', body: a.title }); })} />
+      <IconButton icon={X} label={gate.blocked ? `Deny: ${a.title} (${gate.text})` : `Deny: ${a.title}`} size="xs" variant="danger" {...gate.bind(() => { decide(a.id, 'denied'); toast({ tone: 'warning', title: 'Denied (demo)', body: a.title }); })} />
     </>
   );
 }

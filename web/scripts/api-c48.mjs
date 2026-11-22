@@ -107,6 +107,18 @@ try {
   check('card: requester_cannot_decide shows "You requested this; someone else must decide" and blocks', /someone else must decide/i.test(await reasonOf(B.p, rc.getByRole('button', { name: 'Approve' }))) && await gated(rc.getByRole('button', { name: 'Approve' })));
   await B.p.unroute('**/api/v1/approvals');
 
+  // ---- api mode fails closed when the server sends no flag (response rewritten in the browser)
+  await B.p.route('**/api/v1/approvals', async (route) => {
+    const res = await route.fetch(); const j = await res.json();
+    for (const a of j.approvals ?? []) { delete a.canDecide; delete a.decideBlockedReason; }
+    await route.fulfill({ response: res, json: j });
+  });
+  await B.p.goto(base + '/notifications?tab=pending', { waitUntil: 'domcontentloaded' });
+  const fc = B.p.locator('.nt-appr').filter({ has: B.p.locator('.chip', { hasText: /^R2$/ }) }).first();
+  await fc.waitFor({ timeout: 10000 });
+  check('no canDecide from the server: the R2 card is blocked with a generic reason, and a click sends nothing', await gated(fc.getByRole('button', { name: 'Approve' })) && /server/i.test(await reasonOf(B.p, fc.getByRole('button', { name: 'Approve' }))) && (await fc.getByRole('button', { name: 'Approve' }).click({ force: true }), await frame(B.p), net.decisions.length === 0));
+  await B.p.unroute('**/api/v1/approvals');
+
   // ---- surface 2: decision dialog
   await B.p.goto(base + '/notifications?tab=pending', { waitUntil: 'domcontentloaded' });
   await B.p.locator('.nt-appr').first().waitFor({ timeout: 10000 });
@@ -145,6 +157,12 @@ try {
   await bad.click({ force: true }); await frame(B.p);
   check('overview queue: clicking a blocked icon sends nothing', net.decisions.length === 0);
   check('overview fits 1366x768', await fits(B.p));
+  const clipped = await B.p.evaluate(() => [...document.querySelectorAll('.ov-row .panel')].flatMap((pn) => { const pr = pn.getBoundingClientRect(); return [...pn.querySelectorAll(':scope > .panel-head > *')].filter((c) => { const r = c.getBoundingClientRect(); return r.width > 0 && r.right > pr.right - 4 + 0.5 && !c.classList.contains('spacer'); }).map((c) => `${pn.getAttribute('aria-label') ?? pn.querySelector('.panel-title')?.textContent}: ${c.textContent?.trim() || c.className}`); }));
+  check('overview: no panel head item is clipped at the right edge (Open, DEMO)', clipped.length === 0, clipped.join(' | '));
+  const tipLabel = await B.p.locator('.oa-appr button[aria-label^="Approve"][aria-disabled="true"]').first().getAttribute('aria-label');
+  check('overview queue: a gated icon carries the reason as its label/tooltip text', /Needs an administrator/.test(tipLabel ?? ''), tipLabel ?? '');
+  await bad.hover(); 
+  check('overview queue: hovering a gated icon shows the reason tooltip', await until(async () => /Needs an administrator/.test(await B.p.locator('[role="tooltip"]').allInnerTexts().then((t) => t.join(' '))), 4000));
   await settled(B.p);
   await B.p.screenshot({ path: `${SHOTS}/member-overview-dark.png` });
 

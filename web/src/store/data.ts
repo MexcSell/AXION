@@ -293,7 +293,7 @@ async function apiDelete(id: string) {
 
 async function apiDecide(id: string, decision: 'approved' | 'denied') {
   const a = useData.getState().approvals.find((x) => x.id === id) as ServerApproval | undefined;
-  if (!a || a.canDecide === false) return; // the server said this user may not decide it: send nothing
+  if (!a || a.canDecide !== true) return; // the server said this user may not decide it: send nothing
   useData.setState((s) => ({ approvalDecisions: { ...s.approvalDecisions, [id]: decision }, lastEventAt: Date.now() }));
   try {
     await api('POST', `/approvals/${id}/decision`, { decision, digest: a.digest });

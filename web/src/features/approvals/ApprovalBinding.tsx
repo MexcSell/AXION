@@ -1,5 +1,6 @@
 import { Crosshair, Globe2, Lock, Zap } from 'lucide-react';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
+import { isApi } from '@/api/mode';
 import { useId, type ButtonHTMLAttributes } from 'react';
 import type { Approval } from '@/data/types';
 
@@ -17,8 +18,9 @@ const REASON: Record<string, string> = {
  * nothing here knows a tier or a role. A request without the flag (demo fixtures, an older server) is offered, and the server still decides.
  */
 export function gateOf(a: Pick<Approval, 'canDecide' | 'decideBlockedReason'>): { blocked: boolean; text: string } {
-  const blocked = a.canDecide === false;
-  return { blocked, text: blocked ? (REASON[a.decideBlockedReason ?? ''] ?? 'You cannot decide this') : '' };
+  // api mode fails closed: no flag from the server means no button (an older server, or a bug, never turns into a decision the server refuses). Demo fixtures carry `canDecide: true`.
+  const blocked = a.canDecide === false || (a.canDecide === undefined && isApi());
+  return { blocked, text: blocked ? (REASON[a.decideBlockedReason ?? ''] ?? (a.canDecide === undefined ? 'Waiting for the server to say whether you may decide' : 'You cannot decide this')) : '' };
 }
 
 /**
