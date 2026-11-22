@@ -3053,10 +3053,13 @@
    }
   },
   "expect": {
-   "outcome": "allow",
+   "outcome": "allow_with_obligations",
    "tier": "R1",
    "origin": "https://shop.example.com",
    "reasons": [
+    "quarantine"
+   ],
+   "obligations": [
     "quarantine"
    ]
   }
@@ -3090,10 +3093,13 @@
    }
   },
   "expect": {
-   "outcome": "allow",
+   "outcome": "allow_with_obligations",
    "tier": "R1",
    "origin": "https://shop.example.com",
    "reasons": [
+    "quarantine"
+   ],
+   "obligations": [
     "quarantine"
    ]
   }
@@ -3125,6 +3131,9 @@
    "reasons": [
     "quarantine",
     "ambiguous_effect"
+   ],
+   "obligations": [
+    "quarantine"
    ]
   }
  },
@@ -4657,6 +4666,2378 @@
   },
   "expect": {
    "parse": "reject"
+  }
+ },
+ {
+  "id": "inj-155",
+  "why": "click \"Post\" outside a form with unknown submit effect: R2 (ambiguity, not keyword luck)",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "unknown",
+    "name": "Post"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Post"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "ambiguous_effect"
+   ]
+  }
+ },
+ {
+  "id": "inj-156",
+  "why": "click \"Place order\" outside a form with unknown submit effect: R2 (ambiguity, not keyword luck)",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "unknown",
+    "name": "Place order"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Place order"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "ambiguous_effect"
+   ]
+  }
+ },
+ {
+  "id": "inj-157",
+  "why": "click \"Check out\" outside a form with unknown submit effect: R2 (ambiguity, not keyword luck)",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "unknown",
+    "name": "Check out"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Check out"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "ambiguous_effect"
+   ]
+  }
+ },
+ {
+  "id": "inj-158",
+  "why": "click \"Donate\" outside a form with unknown submit effect: R2 (ambiguity, not keyword luck)",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "unknown",
+    "name": "Donate"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Donate"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "ambiguous_effect"
+   ]
+  }
+ },
+ {
+  "id": "inj-159",
+  "why": "click \"Subscribe\" outside a form with unknown submit effect: R2 (ambiguity, not keyword luck)",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "unknown",
+    "name": "Subscribe"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Subscribe"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "ambiguous_effect"
+   ]
+  }
+ },
+ {
+  "id": "inj-160",
+  "why": "click \"Cancel subscription\" outside a form with unknown submit effect: R2 (ambiguity, not keyword luck)",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "unknown",
+    "name": "Cancel subscription"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Cancel subscription"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "ambiguous_effect"
+   ]
+  }
+ },
+ {
+  "id": "inj-161",
+  "why": "click \"Prepay\" outside a form with unknown submit effect: R2 (ambiguity, not keyword luck)",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "unknown",
+    "name": "Prepay"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Prepay"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "ambiguous_effect"
+   ]
+  }
+ },
+ {
+  "id": "inj-162",
+  "why": "click \"Autopay\" outside a form with unknown submit effect: R2 (ambiguity, not keyword luck)",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "unknown",
+    "name": "Autopay"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Autopay"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "ambiguous_effect"
+   ]
+  }
+ },
+ {
+  "id": "inj-163",
+  "why": "click \"Resend\" outside a form with unknown submit effect: R2 (ambiguity, not keyword luck)",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "unknown",
+    "name": "Resend"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Resend"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "ambiguous_effect"
+   ]
+  }
+ },
+ {
+  "id": "inj-164",
+  "why": "click \"Unsend\" outside a form with unknown submit effect: R2 (ambiguity, not keyword luck)",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "unknown",
+    "name": "Unsend"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Unsend"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "ambiguous_effect"
+   ]
+  }
+ },
+ {
+  "id": "inj-165",
+  "why": "click \"Resubmit\" outside a form with unknown submit effect: R2 (ambiguity, not keyword luck)",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "unknown",
+    "name": "Resubmit"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Resubmit"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "ambiguous_effect"
+   ]
+  }
+ },
+ {
+  "id": "inj-166",
+  "why": "click \"Close account\" outside a form with unknown submit effect: R2 (ambiguity, not keyword luck)",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "unknown",
+    "name": "Close account"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Close account"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "ambiguous_effect"
+   ]
+  }
+ },
+ {
+  "id": "inj-167",
+  "why": "click \"Log out\" outside a form with unknown submit effect: R2 (ambiguity, not keyword luck)",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "unknown",
+    "name": "Log out"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Log out"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "ambiguous_effect"
+   ]
+  }
+ },
+ {
+  "id": "inj-168",
+  "why": "click \"Add to cart\" outside a form with unknown submit effect: R2 (ambiguity, not keyword luck)",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "unknown",
+    "name": "Add to cart"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Add to cart"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "ambiguous_effect"
+   ]
+  }
+ },
+ {
+  "id": "inj-169",
+  "why": "click \"Go\" outside a form with unknown submit effect: R2 (ambiguity, not keyword luck)",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "unknown",
+    "name": "Go"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Go"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "ambiguous_effect"
+   ]
+  }
+ },
+ {
+  "id": "inj-170",
+  "why": "click \"Next\" outside a form with unknown submit effect: R2 (ambiguity, not keyword luck)",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "unknown",
+    "name": "Next"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Next"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "ambiguous_effect"
+   ]
+  }
+ },
+ {
+  "id": "inj-171",
+  "why": "click \"OK\" outside a form with unknown submit effect: R2 (ambiguity, not keyword luck)",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "unknown",
+    "name": "OK"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "OK"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "ambiguous_effect"
+   ]
+  }
+ },
+ {
+  "id": "inj-172",
+  "why": "click with submits absent entirely",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "name": "Go"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Go"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "ambiguous_effect"
+   ]
+  }
+ },
+ {
+  "id": "inj-173",
+  "why": "select with unknown submit effect outside a form",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "combobox",
+    "matches": 1,
+    "inForm": false,
+    "submits": "unknown",
+    "name": "Plan"
+   }
+  },
+  "action": {
+   "type": "select",
+   "target": {
+    "by": "label",
+    "label": "Plan"
+   },
+   "value": "pro"
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "ambiguous_effect"
+   ]
+  }
+ },
+ {
+  "id": "inj-174",
+  "why": "select with submit effect absent",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "combobox",
+    "matches": 1,
+    "name": "Plan"
+   }
+  },
+  "action": {
+   "type": "select",
+   "target": {
+    "by": "label",
+    "label": "Plan"
+   },
+   "value": "pro"
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "ambiguous_effect"
+   ]
+  }
+ },
+ {
+  "id": "inj-175",
+  "why": "click positively reported non-mutating (submits no) stays R1",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "name": "Expand"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Expand"
+   }
+  },
+  "expect": {
+   "outcome": "allow",
+   "tier": "R1",
+   "origin": "https://shop.example.com"
+  }
+ },
+ {
+  "id": "inj-176",
+  "why": "keyword evasion \"Ѕend\" (homoglyph or combining mark) is raised",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "name": "Ѕend"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Action"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "mixed_script_name"
+   ]
+  }
+ },
+ {
+  "id": "inj-177",
+  "why": "keyword evasion \"Sеnd\" (homoglyph or combining mark) is raised",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "name": "Sеnd"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Action"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "mixed_script_name"
+   ]
+  }
+ },
+ {
+  "id": "inj-178",
+  "why": "keyword evasion \"Śubmit\" (homoglyph or combining mark) is raised",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "name": "Śubmit"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Action"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "keyword_raise"
+   ]
+  }
+ },
+ {
+  "id": "inj-179",
+  "why": "keyword evasion \"Se̶nd\" (homoglyph or combining mark) is raised",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "name": "Se̶nd"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Action"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "keyword_raise"
+   ]
+  }
+ },
+ {
+  "id": "inj-180",
+  "why": "keyword evasion \"S̸end\" (homoglyph or combining mark) is raised",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "name": "S̸end"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Action"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "keyword_raise"
+   ]
+  }
+ },
+ {
+  "id": "inj-181",
+  "why": "keyword evasion \"Ｂuy\" (homoglyph or combining mark) is raised",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "name": "Ｂuy"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Action"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "keyword_raise"
+   ]
+  }
+ },
+ {
+  "id": "inj-182",
+  "why": "keyword evasion \"Ѕеnd\" (homoglyph or combining mark) is raised",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "name": "Ѕеnd"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Action"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "keyword_raise"
+   ]
+  }
+ },
+ {
+  "id": "inj-183",
+  "why": "keyword evasion \"Pаy now\" (homoglyph or combining mark) is raised",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "name": "Pаy now"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Action"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "mixed_script_name"
+   ]
+  }
+ },
+ {
+  "id": "inj-184",
+  "why": "keyword evasion \"Dеlete\" (homoglyph or combining mark) is raised",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "name": "Dеlete"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Action"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "mixed_script_name"
+   ]
+  }
+ },
+ {
+  "id": "inj-185",
+  "why": "keyword evasion \"Dеpłoy\" (homoglyph or combining mark) is raised",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "name": "Dеpłoy"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Action"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "mixed_script_name"
+   ]
+  }
+ },
+ {
+  "id": "inj-186",
+  "why": "keyword evasion \"ѕubmit\" (homoglyph or combining mark) is raised",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "name": "ѕubmit"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Action"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "mixed_script_name"
+   ]
+  }
+ },
+ {
+  "id": "inj-187",
+  "why": "keyword evasion \"Sénd\" (homoglyph or combining mark) is raised",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "name": "Sénd"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Action"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "keyword_raise"
+   ]
+  }
+ },
+ {
+  "id": "inj-188",
+  "why": "keyword evasion \"Ρay\" (homoglyph or combining mark) is raised",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "name": "Ρay"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Action"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "mixed_script_name"
+   ]
+  }
+ },
+ {
+  "id": "inj-189",
+  "why": "keyword evasion \"Sеnd\" (homoglyph or combining mark) is raised",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "name": "Sеnd"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Action"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "mixed_script_name"
+   ]
+  }
+ },
+ {
+  "id": "inj-190",
+  "why": "blank accessible name #0 is raised",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "name": " "
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Action"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "blank_name"
+   ]
+  }
+ },
+ {
+  "id": "inj-191",
+  "why": "blank accessible name #1 is raised",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "name": " "
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Action"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "blank_name"
+   ]
+  }
+ },
+ {
+  "id": "inj-192",
+  "why": "blank accessible name #2 is raised",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "name": "　"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Action"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "blank_name"
+   ]
+  }
+ },
+ {
+  "id": "inj-193",
+  "why": "blank accessible name #3 is raised",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "name": " "
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Action"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "blank_name"
+   ]
+  }
+ },
+ {
+  "id": "inj-194",
+  "why": "blank accessible name #4 is raised",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "name": "​"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Action"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "blank_name"
+   ]
+  }
+ },
+ {
+  "id": "inj-195",
+  "why": "blank accessible name #5 is raised",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "name": "  　 "
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Action"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "blank_name"
+   ]
+  }
+ },
+ {
+  "id": "inj-196",
+  "why": "blank accessible name #6 is raised",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "name": "ㅤ"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Action"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "blank_name"
+   ]
+  }
+ },
+ {
+  "id": "inj-197",
+  "why": "prefix keyword with a combining mark and zero width",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "name": "Rés​end"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Action"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "keyword_raise"
+   ]
+  }
+ },
+ {
+  "id": "inj-198",
+  "why": "download whose name says delete is raised to R2 and keeps the obligation",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "link",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "href": "https://shop.example.com/f.exe",
+    "name": "Delete everything"
+   }
+  },
+  "action": {
+   "type": "download",
+   "target": {
+    "by": "role",
+    "role": "link",
+    "name": "Delete everything"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "quarantine",
+    "keyword_raise"
+   ],
+   "obligations": [
+    "quarantine"
+   ]
+  }
+ },
+ {
+  "id": "inj-199",
+  "why": "download with a homoglyph keyword name is raised",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "link",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "href": "https://shop.example.com/f.pdf",
+    "name": "Ѕend"
+   }
+  },
+  "action": {
+   "type": "download",
+   "target": {
+    "by": "role",
+    "role": "link",
+    "name": "File"
+   }
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "quarantine",
+    "mixed_script_name"
+   ],
+   "obligations": [
+    "quarantine"
+   ]
+  }
+ },
+ {
+  "id": "inj-200",
+  "why": "download to a cross-origin ungranted href: deny, obligation still listed",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "link",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "href": "https://evil.example.org/f.exe",
+    "name": "Report"
+   }
+  },
+  "action": {
+   "type": "download",
+   "target": {
+    "by": "role",
+    "role": "link",
+    "name": "Report"
+   }
+  },
+  "expect": {
+   "outcome": "deny",
+   "tier": "R1",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "link_origin_ungranted"
+   ],
+   "obligations": [
+    "quarantine"
+   ]
+  }
+ },
+ {
+  "id": "inj-201",
+  "why": "val_ ref into an input type=password: denied",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "textbox",
+    "matches": 1,
+    "inForm": true,
+    "formMethod": "post",
+    "submits": "no",
+    "inputType": "password",
+    "name": "Secret"
+   }
+  },
+  "action": {
+   "type": "fill",
+   "target": {
+    "by": "label",
+    "label": "Field"
+   },
+   "valueRef": "val_abc12345"
+  },
+  "expect": {
+   "outcome": "deny",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "secret_via_value_ref"
+   ]
+  }
+ },
+ {
+  "id": "inj-202",
+  "why": "val_ ref into autocomplete=cc-number: denied",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "textbox",
+    "matches": 1,
+    "inForm": true,
+    "formMethod": "post",
+    "submits": "no",
+    "autocomplete": "cc-number",
+    "name": "Field"
+   }
+  },
+  "action": {
+   "type": "fill",
+   "target": {
+    "by": "label",
+    "label": "Field"
+   },
+   "valueRef": "val_abc12345"
+  },
+  "expect": {
+   "outcome": "deny",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "secret_via_value_ref"
+   ]
+  }
+ },
+ {
+  "id": "inj-203",
+  "why": "val_ ref into autocomplete=cc-csc: denied",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "textbox",
+    "matches": 1,
+    "inForm": true,
+    "formMethod": "post",
+    "submits": "no",
+    "autocomplete": "cc-csc",
+    "name": "Field"
+   }
+  },
+  "action": {
+   "type": "fill",
+   "target": {
+    "by": "label",
+    "label": "Field"
+   },
+   "valueRef": "val_abc12345"
+  },
+  "expect": {
+   "outcome": "deny",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "secret_via_value_ref"
+   ]
+  }
+ },
+ {
+  "id": "inj-204",
+  "why": "val_ ref into autocomplete=current-password: denied",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "textbox",
+    "matches": 1,
+    "inForm": true,
+    "formMethod": "post",
+    "submits": "no",
+    "autocomplete": "current-password",
+    "name": "Field"
+   }
+  },
+  "action": {
+   "type": "fill",
+   "target": {
+    "by": "label",
+    "label": "Field"
+   },
+   "valueRef": "val_abc12345"
+  },
+  "expect": {
+   "outcome": "deny",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "secret_via_value_ref"
+   ]
+  }
+ },
+ {
+  "id": "inj-205",
+  "why": "val_ ref into autocomplete=new-password: denied",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "textbox",
+    "matches": 1,
+    "inForm": true,
+    "formMethod": "post",
+    "submits": "no",
+    "autocomplete": "new-password",
+    "name": "Field"
+   }
+  },
+  "action": {
+   "type": "fill",
+   "target": {
+    "by": "label",
+    "label": "Field"
+   },
+   "valueRef": "val_abc12345"
+  },
+  "expect": {
+   "outcome": "deny",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "secret_via_value_ref"
+   ]
+  }
+ },
+ {
+  "id": "inj-206",
+  "why": "val_ ref into autocomplete=one-time-code: denied",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "textbox",
+    "matches": 1,
+    "inForm": true,
+    "formMethod": "post",
+    "submits": "no",
+    "autocomplete": "one-time-code",
+    "name": "Field"
+   }
+  },
+  "action": {
+   "type": "fill",
+   "target": {
+    "by": "label",
+    "label": "Field"
+   },
+   "valueRef": "val_abc12345"
+  },
+  "expect": {
+   "outcome": "deny",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "secret_via_value_ref"
+   ]
+  }
+ },
+ {
+  "id": "inj-207",
+  "why": "val_ ref into autocomplete=cc-exp: denied",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "textbox",
+    "matches": 1,
+    "inForm": true,
+    "formMethod": "post",
+    "submits": "no",
+    "autocomplete": "cc-exp",
+    "name": "Field"
+   }
+  },
+  "action": {
+   "type": "fill",
+   "target": {
+    "by": "label",
+    "label": "Field"
+   },
+   "valueRef": "val_abc12345"
+  },
+  "expect": {
+   "outcome": "deny",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "secret_via_value_ref"
+   ]
+  }
+ },
+ {
+  "id": "inj-208",
+  "why": "val_ ref into a field named \"Card number\": denied",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "textbox",
+    "matches": 1,
+    "inForm": true,
+    "formMethod": "post",
+    "submits": "no",
+    "name": "Card number"
+   }
+  },
+  "action": {
+   "type": "fill",
+   "target": {
+    "by": "label",
+    "label": "Field"
+   },
+   "valueRef": "val_abc12345"
+  },
+  "expect": {
+   "outcome": "deny",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "secret_via_value_ref"
+   ]
+  }
+ },
+ {
+  "id": "inj-209",
+  "why": "val_ ref into a field named \"CVV\": denied",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "textbox",
+    "matches": 1,
+    "inForm": true,
+    "formMethod": "post",
+    "submits": "no",
+    "name": "CVV"
+   }
+  },
+  "action": {
+   "type": "fill",
+   "target": {
+    "by": "label",
+    "label": "Field"
+   },
+   "valueRef": "val_abc12345"
+  },
+  "expect": {
+   "outcome": "deny",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "secret_via_value_ref"
+   ]
+  }
+ },
+ {
+  "id": "inj-210",
+  "why": "val_ ref into a field named \"cvc\": denied",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "textbox",
+    "matches": 1,
+    "inForm": true,
+    "formMethod": "post",
+    "submits": "no",
+    "name": "cvc"
+   }
+  },
+  "action": {
+   "type": "fill",
+   "target": {
+    "by": "label",
+    "label": "Field"
+   },
+   "valueRef": "val_abc12345"
+  },
+  "expect": {
+   "outcome": "deny",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "secret_via_value_ref"
+   ]
+  }
+ },
+ {
+  "id": "inj-211",
+  "why": "val_ ref into a field named \"IBAN\": denied",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "textbox",
+    "matches": 1,
+    "inForm": true,
+    "formMethod": "post",
+    "submits": "no",
+    "name": "IBAN"
+   }
+  },
+  "action": {
+   "type": "fill",
+   "target": {
+    "by": "label",
+    "label": "Field"
+   },
+   "valueRef": "val_abc12345"
+  },
+  "expect": {
+   "outcome": "deny",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "secret_via_value_ref"
+   ]
+  }
+ },
+ {
+  "id": "inj-212",
+  "why": "val_ ref into a field named \"SSN\": denied",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "textbox",
+    "matches": 1,
+    "inForm": true,
+    "formMethod": "post",
+    "submits": "no",
+    "name": "SSN"
+   }
+  },
+  "action": {
+   "type": "fill",
+   "target": {
+    "by": "label",
+    "label": "Field"
+   },
+   "valueRef": "val_abc12345"
+  },
+  "expect": {
+   "outcome": "deny",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "secret_via_value_ref"
+   ]
+  }
+ },
+ {
+  "id": "inj-213",
+  "why": "val_ ref into a field named \"Password\": denied",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "textbox",
+    "matches": 1,
+    "inForm": true,
+    "formMethod": "post",
+    "submits": "no",
+    "name": "Password"
+   }
+  },
+  "action": {
+   "type": "fill",
+   "target": {
+    "by": "label",
+    "label": "Field"
+   },
+   "valueRef": "val_abc12345"
+  },
+  "expect": {
+   "outcome": "deny",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "secret_via_value_ref"
+   ]
+  }
+ },
+ {
+  "id": "inj-214",
+  "why": "val_ ref into a field named \"Ｐassword\": denied",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "textbox",
+    "matches": 1,
+    "inForm": true,
+    "formMethod": "post",
+    "submits": "no",
+    "name": "Ｐassword"
+   }
+  },
+  "action": {
+   "type": "fill",
+   "target": {
+    "by": "label",
+    "label": "Field"
+   },
+   "valueRef": "val_abc12345"
+  },
+  "expect": {
+   "outcome": "deny",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "secret_via_value_ref"
+   ]
+  }
+ },
+ {
+  "id": "inj-215",
+  "why": "val_ ref into a field named \"Рassword\": denied",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "textbox",
+    "matches": 1,
+    "inForm": true,
+    "formMethod": "post",
+    "submits": "no",
+    "name": "Рassword"
+   }
+  },
+  "action": {
+   "type": "fill",
+   "target": {
+    "by": "label",
+    "label": "Field"
+   },
+   "valueRef": "val_abc12345"
+  },
+  "expect": {
+   "outcome": "deny",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "secret_via_value_ref"
+   ]
+  }
+ },
+ {
+  "id": "inj-216",
+  "why": "val_ ref into a field whose input name attribute is cvv",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "textbox",
+    "matches": 1,
+    "inForm": true,
+    "formMethod": "post",
+    "submits": "no",
+    "fieldName": "cvv",
+    "name": "Code"
+   }
+  },
+  "action": {
+   "type": "fill",
+   "target": {
+    "by": "label",
+    "label": "Field"
+   },
+   "valueRef": "val_abc12345"
+  },
+  "expect": {
+   "outcome": "deny",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "secret_via_value_ref"
+   ]
+  }
+ },
+ {
+  "id": "inj-217",
+  "why": "sec_ ref into a password field: R2 with secret_value",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "textbox",
+    "matches": 1,
+    "inForm": true,
+    "formMethod": "post",
+    "submits": "no",
+    "inputType": "password",
+    "name": "Secret"
+   }
+  },
+  "action": {
+   "type": "fill",
+   "target": {
+    "by": "label",
+    "label": "Field"
+   },
+   "valueRef": "sec_abc12345"
+  },
+  "expect": {
+   "outcome": "needs_approval",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "secret_value"
+   ]
+  }
+ },
+ {
+  "id": "inj-218",
+  "why": "val_ ref into an ordinary text field: R1",
+  "grantedOrigins": [
+   "https://shop.example.com"
+  ],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "textbox",
+    "matches": 1,
+    "inForm": true,
+    "formMethod": "post",
+    "submits": "no",
+    "inputType": "text",
+    "name": "City"
+   }
+  },
+  "action": {
+   "type": "fill",
+   "target": {
+    "by": "label",
+    "label": "City"
+   },
+   "valueRef": "val_abc12345"
+  },
+  "expect": {
+   "outcome": "allow",
+   "tier": "R1",
+   "origin": "https://shop.example.com"
+  }
+ },
+ {
+  "id": "inj-219",
+  "why": "keyword raise must not turn a no-grant denial into an approval request",
+  "grantedOrigins": [],
+  "page": {
+   "expectedOrigin": "https://shop.example.com",
+   "actualUrl": "https://shop.example.com/checkout",
+   "title": "Checkout",
+   "visibleText": "Your cart",
+   "element": {
+    "role": "button",
+    "matches": 1,
+    "inForm": false,
+    "submits": "no",
+    "name": "Send now"
+   }
+  },
+  "action": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": "Action"
+   }
+  },
+  "expect": {
+   "outcome": "deny",
+   "tier": "R2",
+   "origin": "https://shop.example.com",
+   "reasons": [
+    "keyword_raise",
+    "out_of_scope"
+   ]
   }
  }
 ]

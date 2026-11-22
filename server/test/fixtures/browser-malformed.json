@@ -720,5 +720,506 @@
     }
    ]
   }
+ },
+ {
+  "why": "css grammar rejects \"xpath=..\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "xpath=.."
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"xpath=//a\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "xpath=//a"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"//a\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "//a"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"text=Send >> nth=0\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "text=Send >> nth=0"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"css=a\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "css=a"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"internal:attr=[x]\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "internal:attr=[x]"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a >> xpath=..\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a >> xpath=.."
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a >> b\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a >> b"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a:text(\\\"x\\\")\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a:text(\"x\")"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a:nth-match(a,1)\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a:nth-match(a,1)"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a:right-of(b)\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a:right-of(b)"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a:near(b)\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a:near(b)"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a:has-text(\\\"x\\\")\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a:has-text(\"x\")"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a:is(b)\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a:is(b)"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a:not(b)\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a:not(b)"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"li:nth-child(2)\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "li:nth-child(2)"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a:first-child\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a:first-child"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"*\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "*"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a *\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a *"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a, b\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a, b"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a,b\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a,b"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"[value^=\\\"x\\\"]\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "[value^=\"x\"]"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a[name=x]\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a[name=x]"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a[name=\\\"x\\\"][value=\\\"y\\\"]\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a[name=\"x\"][value=\"y\"]"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a[href=\\\"x\\\"]\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a[href=\"x\"]"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a[name^=\\\"x\\\"]\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a[name^=\"x\"]"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a[name=\\\"x\\\" i]\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a[name=\"x\" i]"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \".\\\\6a avascript\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": ".\\6a avascript"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a  b\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a  b"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \" a\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": " a"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a \"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a "
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a>b\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a>b"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a > > b\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a > > b"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a + b\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a + b"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a ~ b\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a ~ b"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"id=foo\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "id=foo"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"role=button[name=\\\"x\\\"]\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "role=button[name=\"x\"]"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"data-testid=x\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "data-testid=x"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a[name=\\\"x\\\\\\\"]\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a[name=\"x\\\"]"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a[name=\\\"x\\\"\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a[name=\"x\""
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"#\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "#"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \".\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "."
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a.\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a."
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a..b\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a..b"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"1a\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "1a"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a#1\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a#1"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   }
+  }
+ },
+ {
+  "why": "css grammar rejects \"a b c d e f g h\"",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "css",
+    "selector": "a b c d e f g h"
+   }
+  }
+ },
+ {
+  "why": "locator name only whitespace (NBSP and ideographic)",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "role",
+    "role": "button",
+    "name": " 　 "
+   }
+  }
+ },
+ {
+  "why": "locator label only whitespace",
+  "raw": {
+   "type": "click",
+   "target": {
+    "by": "label",
+    "label": "   "
+   }
+  }
  }
 ]
