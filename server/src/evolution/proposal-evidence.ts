@@ -119,8 +119,9 @@ export async function loadEvaluations(c: Tx, tenantId: string, proposals: Eviden
        join agent_version_proposals me on me.id = u.pid
        join agent_version_proposals q on q.agent_id = me.agent_id and eval_canon_config(q.candidate) = eval_canon_config(me.candidate)
        join eval_datasets d1 on d1.id = u.ds
-       join eval_datasets d2 on d2.tenant_id = d1.tenant_id and d2.split = d1.split and d2.content_sha256 = d1.content_sha256
-       join eval_runs r on r.subject_proposal_id = q.id and r.dataset_id = d2.id and r.tenant_id = $1
+       join eval_runs r on r.subject_proposal_id = q.id and r.tenant_id = $1
+       join eval_datasets d2 on d2.id = r.dataset_id and d2.tenant_id = d1.tenant_id and d2.split = d1.split
+      where d2.id = d1.id or eval_cases_key(d2.id) = eval_cases_key(d1.id)
       group by u.pid`, [tenantId, pids, dsIds])).rows.map((r) => [r.pid as string, Number(r.n)] as const));
   const bases = new Map((await c.query(
     `select distinct on (u.pid) u.pid, r.id, r.k, r.judge_model_family, r.evaluator_id, r.grader_name, r.grader_version

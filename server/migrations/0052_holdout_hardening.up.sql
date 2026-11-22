@@ -15,6 +15,13 @@ create or replace function eval_canon_config(c jsonb) returns text language sql 
     'tools', coalesce((select jsonb_agg(x order by x) from (select distinct eval_canon_name(e) x from jsonb_array_elements_text(case when jsonb_typeof(c -> 'tools') = 'array' then c -> 'tools' else '[]'::jsonb end) e) q where x <> ''), '[]'::jsonb))::text
 $$;
 
+-- c70 fix round: the holdout CONTENT key hashes the cases' (input, expected) only, order independent, WITHOUT case ids (eval_dataset_sha
+-- hashes case_id, so renaming ids changed it). The dataset's own content_sha256 (c47 binding) is untouched.
+create or replace function eval_cases_key(ds text) returns text language sql volatile as $$
+  select encode(sha256(convert_to('[' || coalesce(string_agg('{"expected":' || eval_canon(expected) || ',"input":' || eval_canon(input) || '}', ',' order by '{"expected":' || eval_canon(expected) || ',"input":' || eval_canon(input) || '}' collate "C"), '') || ']', 'UTF8')), 'hex')
+    from eval_cases where dataset_id = ds
+$$;
+
 -- the holdout limit is also keyed on the dataset CONTENT hash: the same cases under a new dataset id is the same holdout
 alter table eval_runs add column holdout_content_key text;
 
@@ -27,10 +34,10 @@ update eval_runs r set holdout_key = k.key, holdout_content_key = k.ckey
                     then jsonb_build_array('candidate', r2.tenant_id, p.agent_id, eval_canon_config(p.candidate), r2.dataset_id)::text
                     else jsonb_build_array('base', r2.tenant_id, r2.subject_version_id, r2.dataset_id)::text end as key,
                case when r2.subject_proposal_id is not null
-                    then jsonb_build_array('candidate', r2.tenant_id, p.agent_id, eval_canon_config(p.candidate), d.content_sha256)::text
-                    else jsonb_build_array('base', r2.tenant_id, r2.subject_version_id, d.content_sha256)::text end as ckey,
+                    then jsonb_build_array('candidate', r2.tenant_id, p.agent_id, eval_canon_config(p.candidate), eval_cases_key(d.id))::text
+                    else jsonb_build_array('base', r2.tenant_id, r2.subject_version_id, eval_cases_key(d.id))::text end as ckey,
                row_number() over (partition by r2.tenant_id, r2.dataset_id, coalesce(p.agent_id, ''), coalesce(eval_canon_config(p.candidate), ''), coalesce(r2.subject_version_id::text, '') order by r2.started_at, r2.id) as rn_ds,
-               row_number() over (partition by r2.tenant_id, d.content_sha256, coalesce(p.agent_id, ''), coalesce(eval_canon_config(p.candidate), ''), coalesce(r2.subject_version_id::text, '') order by r2.started_at, r2.id) as rn_ct
+               row_number() over (partition by r2.tenant_id, eval_cases_key(d.id), coalesce(p.agent_id, ''), coalesce(eval_canon_config(p.candidate), ''), coalesce(r2.subject_version_id::text, '') order by r2.started_at, r2.id) as rn_ct
           from eval_runs r2
           join eval_datasets d on d.id = r2.dataset_id and d.split = 'holdout'
           left join agent_version_proposals p on p.id = r2.subject_proposal_id) k
@@ -42,7 +49,8 @@ create or replace function eval_runs_guard() returns trigger language plpgsql as
 declare fz timestamptz; tn text; vt text; sp text; ag text; cfg text; key text; ckey text; csha text; other eval_runs; miss int;
 begin
   if tg_op = 'INSERT' then
-    select frozen_at, tenant_id, split, content_sha256 into fz, tn, sp, csha from eval_datasets where id = new.dataset_id;
+    select frozen_at, tenant_id, split into fz, tn, sp from eval_datasets where id = new.dataset_id;
+    csha := case when fz is not null then eval_cases_key(new.dataset_id) end;
     if fz is null then raise exception 'eval dataset % is not frozen; a run needs a frozen dataset', new.dataset_id; end if;
     if tn <> new.tenant_id then raise exception 'eval run tenant differs from its dataset'; end if;
     if new.subject_version_id is not null then
@@ -66,7 +74,7 @@ begin
       -- c70 (E1d): the same CONTENT under another dataset id is the same holdout
       select * into other from eval_runs where holdout_content_key = ckey;
       if found then
-        raise exception 'holdout_rerun: holdout dataset % has the same content as dataset % (run %, %), which this subject already ran on; freeze a holdout with new cases',
+        raise exception 'holdout_rerun: holdout dataset % has the same content as dataset % (run %, %), which this subject already ran on; freeze a holdout with new cases (this copy can never get a base run: use the base run on the existing dataset)',
           new.dataset_id, other.dataset_id, other.id, case when other.finished_at is null then 'unfinished' else 'finished' end;
       end if;
       new.holdout_key := key; new.holdout_content_key := ckey;

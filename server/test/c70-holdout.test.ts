@@ -83,6 +83,22 @@ describe('1. the holdout limit is keyed on the dataset CONTENT too', () => {
     expect(r?.id).toBe('CH-R1');
     expect((await cx((c) => existingRun(c, { tenantId: 't-1', datasetId: 'CH-B', versionId: v1 })))?.id).toBe('CH-B1');
   });
+  it('fix round: renaming the case ids does not buy a fresh slot (the content key ignores case ids, and order)', async () => {
+    const mk = async (id: string, ids: string[]) => {
+      await q(`insert into eval_datasets(id, tenant_id, name, split) values ($1,'t-1',$1,'holdout')`, [id]);
+      for (const [i, cid] of ids.entries()) await q(`insert into eval_cases(dataset_id, case_id, input, expected) values ($1,$2,$3::jsonb,$4::jsonb)`, [id, cid, JSON.stringify({ q: i, text: 'rename probe ' + i }), JSON.stringify({ a: i })]);
+      await q(`select eval_freeze_dataset($1)`, [id]);
+    };
+    const ids = Array.from({ length: 10 }, (_, i) => 'c' + (i + 1));
+    await mk('RN-0', ids); await mk('RN-1', ids.map((c) => 'x-' + c)); await mk('RN-2', [...ids].reverse().map((c) => 'y-' + c));
+    const sha = (await q(`select id, content_sha256 from eval_datasets where id in ('RN-0','RN-1') order by id`)).rows;
+    expect(sha[0].content_sha256).not.toBe(sha[1].content_sha256); // the dataset's own hash (c47 binding) still covers case ids
+    await propC('RN-P', cand({ skills: ['rn'] }));
+    await run('RN-R0', 'RN-0', { proposal: 'RN-P' }); await run('RN-B0', 'RN-0', { version: v1 }).catch(() => undefined);
+    await expect(run('RN-R1', 'RN-1', { proposal: 'RN-P' })).rejects.toThrow(/holdout_rerun/);
+    await expect(run('RN-R2', 'RN-2', { proposal: 'RN-P' })).rejects.toThrow(/holdout_rerun/);
+    await expect(run('RN-R3', 'RN-1', { proposal: 'RN-P' })).rejects.toThrow(/never get a base run/);
+  });
   it('a lost race on the content key maps to the named refusal too', () => {
     expect(mapRunInsertError({ code: '23505', constraint: 'eval_runs_holdout_content_once' })).toMatchObject({ code: 'holdout_rerun' });
   });

@@ -84,3 +84,4 @@ update eval_runs r set holdout_key = k.key
 alter table eval_runs enable trigger eval_runs_guard;
 alter table eval_runs drop column if exists holdout_content_key;
 drop function if exists eval_canon_name(text);
+drop function if exists eval_cases_key(text);
