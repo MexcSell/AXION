@@ -195,11 +195,15 @@ describe('edit invalidates', () => {
 describe('v1 rows', () => {
   const v1 = async (missionId: string, id: string, payload = { fixture: 'F' }) => {
     // a legacy row, made the way it was before 0029: the insert guard is lifted for this one statement
+    // t.pool is bound to this test's own scratch schema (makeSchema), so the table is private to this test
     await t.pool.query('alter table approval_requests disable trigger approval_requests_insert_guard');
-    await t.pool.query(
-      `insert into approval_requests(id, tenant_id, mission_id, agent_id, kind, title, detail, risk, payload, action_digest, expires_at) values ($1,'t-1',$2,'release-01','release','Old','d','R3',$3,$4, now() + interval '1 hour')`,
-      [id, missionId, JSON.stringify(payload), digestOf(missionId, 'release', payload)]);
-    await t.pool.query('alter table approval_requests enable trigger approval_requests_insert_guard');
+    try {
+      await t.pool.query(
+        `insert into approval_requests(id, tenant_id, mission_id, agent_id, kind, title, detail, risk, payload, action_digest, expires_at) values ($1,'t-1',$2,'release-01','release','Old','d','R3',$3,$4, now() + interval '1 hour')`,
+        [id, missionId, JSON.stringify(payload), digestOf(missionId, 'release', payload)]);
+    } finally {
+      await t.pool.query('alter table approval_requests enable trigger approval_requests_insert_guard');
+    }
   };
   it('still display, decide with the v1 digest, and consume with the v1 digest', async () => {
     const m = await mission();
