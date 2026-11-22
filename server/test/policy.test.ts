@@ -271,6 +271,9 @@ describe('policy: reason codes', () => {
     add(ev(act('release')));
     add(ev(act('production_deploy')));
     add(ev(act('release', { effect: 'bogus' as any })));
+    const all3 = { untrustedInput: true, sensitiveAccess: true, canChangeState: true }; // c58: the Rule-of-Two reasons
+    add(evaluate(act('read'), [grant()], {}, NOW, all3));
+    add(evaluate(act('read'), [grant()], { ruleOfTwo: 'deny' }, NOW, all3));
     expect([...seen].sort()).toEqual([...REASON_CODES].sort());
   });
 });

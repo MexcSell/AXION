@@ -33,6 +33,7 @@ export const REASON_CODES = [
   'baseline_tier', 'effect_raises_tier', 'tenant_raised_tier', 'override_loosening_ignored',
   'unknown_action', 'unknown_effect', 'prohibited', 'tenant_deny', 'no_grant', 'grant_expired', 'out_of_scope', 'audit_required',
   'approval_user', 'approval_admin', 'approval_owner',
+  'rule_of_two', 'rule_of_two_deny',
 ] as const;
 export type ReasonCode = (typeof REASON_CODES)[number];
 
@@ -45,4 +46,5 @@ export interface Decision {
 }
 
 /** Owner/tenant policy. It can only tighten: raise a kind's tier or deny a kind. */
-export interface TenantPolicy { minTier?: Readonly<Record<string, RiskTier>>; deny?: readonly string[] }
+/** `ruleOfTwo: 'deny'` turns the Rule-of-Two escalation into a refusal. Any other value changes nothing (the rule only ever escalates). */
+export interface TenantPolicy { minTier?: Readonly<Record<string, RiskTier>>; deny?: readonly string[]; ruleOfTwo?: 'deny' }

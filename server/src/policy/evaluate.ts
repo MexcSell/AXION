@@ -1,6 +1,7 @@
 // evaluate(): one pure decision. No I/O, no clock reads (`now` is passed in), no model.
 // Deny overrides everything (Cedar). The policy lives outside the model and outside agent-editable storage (CaMeL).
 import { CURRENT_BASELINE, approverFor } from './baseline.ts';
+import type { RuleOfTwoFlags } from './rule-of-two.ts';
 import { EFFECT_FLOOR, isTier, maxTier, tierRank, type Action, type Decision, type Grant, type ReasonCode, type RiskTier, type TenantPolicy } from './types.ts';
 
 const NO_OVERRIDE: TenantPolicy = Object.freeze({});
@@ -13,7 +14,7 @@ function covering(action: Action, grants: readonly Grant[]) {
     && (g.missionId === undefined || g.missionId === action.missionId));
 }
 
-export function evaluate(action: Action, grants: readonly Grant[], tenantPolicy: TenantPolicy = NO_OVERRIDE, now: number): Decision {
+export function evaluate(action: Action, grants: readonly Grant[], tenantPolicy: TenantPolicy = NO_OVERRIDE, now: number, flags?: RuleOfTwoFlags): Decision {
   const policy = CURRENT_BASELINE;
   const policyVersion = policy.version;
   const rule = typeof action.kind === 'string' && Object.prototype.hasOwnProperty.call(policy.kinds, action.kind) ? policy.kinds[action.kind] : undefined;
@@ -33,15 +34,24 @@ export function evaluate(action: Action, grants: readonly Grant[], tenantPolicy:
     else if (!isTier(asked) || tierRank(asked) < tierRank(tier)) reasons.push('override_loosening_ignored');
   }
 
+  // Rule of Two (c58, a heuristic from a vendor blog): a configuration that reads untrusted input, reaches sensitive data or systems
+  // and can change state or communicate externally needs a person. `flags` comes from deriveFlags() on server-side facts, never from
+  // the action or its payload, and each flag counts only when it is exactly `true`. The floor is the external-effect tier of the
+  // existing table (no second tier source). The escalation only raises: the grant check below still uses the tier from before it.
+  const tierBeforeRule = tier;
+  const ruleFired = !!flags && flags.untrustedInput === true && flags.sensitiveAccess === true && flags.canChangeState === true;
+  if (ruleFired) { tier = maxTier(tier, EFFECT_FLOOR.external); reasons.push('rule_of_two'); }
+
   const denies: ReasonCode[] = [];
+  if (ruleFired && tenantPolicy.ruleOfTwo === 'deny') denies.push('rule_of_two_deny');
   if (rule.prohibited === 'any' || (rule.prohibited === 'agent' && action.requester.kind === 'agent')) denies.push('prohibited');
   if (tenantPolicy.deny?.includes(action.kind)) denies.push('tenant_deny');
 
   // R0 always, and R1 for an agent, need a grant that covers the kind, target and mission
-  const needsGrant = tier === 'R0' || (tier === 'R1' && action.requester.kind === 'agent');
+  const needsGrant = tierBeforeRule === 'R0' || (tierBeforeRule === 'R1' && action.requester.kind === 'agent');
   if (needsGrant && !denies.length) {
     const cover = covering(action, grants);
-    if (!cover.some((g) => g.expiresAt > now)) denies.push(cover.length ? 'grant_expired' : tier === 'R0' ? 'no_grant' : 'out_of_scope');
+    if (!cover.some((g) => g.expiresAt > now)) denies.push(cover.length ? 'grant_expired' : tierBeforeRule === 'R0' ? 'no_grant' : 'out_of_scope');
   }
 
   if (denies.length) return { outcome: 'deny', tier, approver: null, reasons: [...reasons, ...denies], policyVersion };
