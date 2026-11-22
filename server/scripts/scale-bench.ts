@@ -62,8 +62,9 @@ async function seed() {
              from tasks t cross join generate_series(1,2) a where t.id like 'TS-%'`);
   await q(`insert into mission_delegations (mission_id, from_instance, to_instance, edge_kind, at)
            select i.mission_id, min(i.id), max(i.id), 'verifies', now() from agent_instances i where i.mission_id like 'M-5%' group by i.mission_id having min(i.id) <> max(i.id)`);
-  await q(`insert into approval_requests (id, tenant_id, mission_id, agent_id, kind, title, risk, action_digest, state, created_at, expires_at)
-           select 'AP-' || id, $1, id, 'x', 'k', 'approve', 'R1', 'd', 'approved', created_at, now() + interval '1 day' from missions where id like 'M-5%'`, [T]);
+  // digest_version 2: migration 0029 (c35) refuses new v1 requests; the bench migrates the full schema first (c31)
+  await q(`insert into approval_requests (id, tenant_id, mission_id, agent_id, kind, title, risk, action_digest, digest_version, state, created_at, expires_at)
+           select 'AP-' || id, $1, id, 'x', 'k', 'approve', 'R1', 'd', 2, 'approved', created_at, now() + interval '1 day' from missions where id like 'M-5%'`, [T]);
   await q(`insert into approval_decisions (approval_id, decision, digest, decided_by, decided_at)
            select 'AP-' || id, 'approved', 'd', $1, created_at + interval '5 minutes' from missions where id like 'M-5%'`, [adminId]);
   // events: ~2 mission transitions x 300 (+ run), 6,000 task transitions, filler to 50,000 in total (insert only)
