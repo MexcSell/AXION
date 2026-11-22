@@ -18,12 +18,12 @@
 | Property test, 500 seeded triples: deterministic, never below baseline tier | PASS: 500 iterations (seed 20261122), 400+ known kinds; also checks allow never above R1 |
 | grep: no caller-supplied tier on any approval path | PASS (below) |
 | server tsc clean, full vitest green | PASS (668/668) |
-| api-flows.mjs and api-stage6.mjs pass | see E2E section |
+| api-flows.mjs and api-stage6.mjs pass | PASS: 23/23 and 94/94, 0 FAIL |
 
 Grep: `grep -rnE "risk\s*:\s*'R[0-4]'|TIER_OF|risk: *(a|input|req|body)\.risk|a\.risk\b" server/src shared/contracts/src` produced no output (exit 1). The only remaining `risk` in `server/src` outside policy/ is the local `const risk = d.tier` in `approvals/service.ts` and the DB column read in `approvalDto`.
 
 ## E2E
-See the section appended below (the database axion_e2e28 could not be created; the controller redirected this lane to axion_e2e2).
+api-flows.mjs 23/23 passed; api-stage6.mjs 94/94 passed; grep for FAIL: 0 lines (PASS). Ran against axion_e2e2 (axion_e2e28 could not be created; the controller redirected this lane).
 
 ## Files changed
 New: `server/src/policy/{types,baseline,evaluate,routes,index}.ts`, `server/test/policy.test.ts`, `server/test/policy-approvals.test.ts`, this report.
