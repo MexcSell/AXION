@@ -39,6 +39,7 @@ export const LIMITED_ROUTES: Record<string, WriteBucket> = {
   'POST /api/v1/site-grants/:id/revoke': 'proposals',
   'POST /api/v1/failure-tags': 'proposals', // c33
   'POST /api/v1/failure-tags/:id/decision': 'proposals',
+  'POST /api/v1/failure-tags/:id/attributions': 'proposals', // c60
   'POST /api/v1/missions/:id/ledgers/:kind': 'ledgers', // c39
   'POST /api/v1/tasks/:id/reviews': 'proposals', // c38: a review is a governance write
   'POST /api/v1/missions/:id/delegation-briefs': 'proposals', // c42

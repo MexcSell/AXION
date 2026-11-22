@@ -65,11 +65,23 @@ export const FAILURE_SUBJECT_KINDS = ['task', 'task_attempt', 'message', 'missio
 export type FailureSubjectKind = (typeof FAILURE_SUBJECT_KINDS)[number];
 export type FailureTagStatus = 'proposed' | 'confirmed' | 'rejected';
 
+/**
+ * One person's (or agent's) claim about where a failure came from (c60). Entries are append-only and listed oldest first; a later entry never
+ * replaces an earlier one. `agentId` and `stepRef` are free text the attributor wrote, not checked against stored agents or traces.
+ */
+export interface FailureAttributionDto {
+  id: string; agentId: string | null; stepRef: string | null; fullTraceAvailable: boolean;
+  attributedBy: string; attributedByName: string; attributedByKind: 'user' | 'agent'; createdAt: string;
+}
 export interface FailureTagDto {
   id: string; subjectKind: FailureSubjectKind; subjectId: string; missionId: string; taxonomyVersion: string;
   modeId: string; modeName: string; categoryId: string; categoryName: string; note: string | null;
   taggedBy: string; taggedByName: string; taggedByKind: 'user' | 'agent'; status: FailureTagStatus; selfConfirmed: boolean; createdAt: string;
   decidedBy: string | null; decidedByName: string | null; decidedAt: string | null;
+  /** c60: attribution entries, oldest first (empty when none) */
+  attributions: FailureAttributionDto[];
+  /** c60: number of distinct (agent, step) targets among the entries, minus one (0 when there are no entries or all agree). Never hides an entry. */
+  attributionDisagreements: number;
 }
 export interface FailureSubjectInfo { kind: FailureSubjectKind; id: string; missionId: string; demo: boolean; failed: boolean; retried: boolean }
 /** Counts per mode and category over CONFIRMED tags only; `count` is null (never 0) while n = 0 (nothing to count yet). */
@@ -79,3 +91,15 @@ export interface FailureModesDto {
   window: '7d' | '30d' | '90d'; from: string; to: string; includeDemo: boolean; taxonomyVersion: string; source: string;
   n: number; /** of n: tags on DEMO missions (0 unless includeDemo) */ demo: number; /** of n: confirmed by the person who tagged them */ selfConfirmed: number; proposed: number; categories: FailureCategoryCount[];
 }
+
+/**
+ * c60: what the "different views" count means, and where it is rough. Shown as the help text of the count; kept here so the wording is tested.
+ * (1) There is no retraction: entries are append-only, so a person who changes their mind adds a second entry and so counts as a disagreement with themselves.
+ * (2) An agent-only entry and an agent-plus-step entry are different views, although they are compatible.
+ * (3) Comparison is exact-string: "Agent-1" and "agent-1" are different views.
+ * (4) Sending the same target again with a different "full trace available" flag is refused with 409 (the flag is not part of the target).
+ */
+export const ATTRIBUTION_HELP =
+  'People attributed this failure differently. Every entry is kept; none replaces another. There is no retraction: a person who changes their mind adds a second entry, which counts as a disagreement. '
+  + 'An agent-only entry and an agent-plus-step entry count as different views. The comparison is exact-string, so "Agent-1" and "agent-1" differ. '
+  + 'Sending the same target again with a different "full trace available" flag returns 409.';

@@ -86,6 +86,7 @@ export const ROUTES: Record<string, RouteEntry> = {
   'POST /channels/admin/:userId/messages': { v: C.messageBody },
   'POST /failure-tags': { v: C.failureTagBody },
   'POST /failure-tags/:id/decision': { v: C.failureTagBody },
+  'POST /failure-tags/:id/attributions': { v: C.failureTagBody },
   'POST /lessons/:lid/decision': { v: C.lessonDecisionBody, admin: true },
   'POST /me/password': { v: C.okBody },
   'POST /mentoring/:pid/close': { v: C.planBody, admin: true },

@@ -3,7 +3,7 @@ import {
   ERROR_CODES, MISSION_STATUSES, SCORECARD_WINDOWS, REVIEW_VERDICTS, RUBRIC_RESULTS, EVIDENCE_KINDS, FAILURE_SUBJECT_KINDS, STEP_STATUSES, STALL_POLICY,
   type AccountDto, type PhaseDto, type StaffingDto, type AgentDto, type AgentVersionDto, type ApprovalDto, type AttachmentDto, type AuditVerifyDto, type AvatarDto, type BriefTier, type ChannelDto,
   type CompanyScorecardDto, type ConnectResult, type DelegableKind, type DelegationBriefDto, type DelegationBriefList, type DepartmentFacts, type DepartmentsDto, type DeviceDto,
-  type ErrorEnvelope, type EvidenceRef, type FailureCategoryCount, type FailureModeCount, type FailureModesDto, type FailureSubjectInfo, type FailureTagDto, type HealthDto,
+  type ErrorEnvelope, type EvidenceRef, type FailureAttributionDto, type FailureCategoryCount, type FailureModeCount, type FailureModesDto, type FailureSubjectInfo, type FailureTagDto, type HealthDto,
   type HierarchyDto, type HierarchyEdgeDto, type HierarchyNodeDto, type InstanceDto, type InstancesPageDto, type LedgerDto, type LedgerVersionDto, type LedgerVersionPageDto,
   type LedgersDto, type LessonCandidateDto, type LessonConflict, type MeDto, type MentoringMilestoneDto, type MentoringPlanDto, type MessageDto, type MessagePageDto,
   type MissionDto, type MissionFileDto, type MissionThreadsDto, type NoticeDto, type OpsHealthDto, type OriginCheckDto, type OrgCoverage, type OrgCoverageChange,
@@ -311,10 +311,13 @@ export const grantIssued = obj<{ grant: SiteGrantDto; decision: { tier: string; 
 });
 export const grantBody = obj<{ grant: SiteGrantDto }>({ grant });
 export const originCheck: V<OriginCheckDto> = obj<OriginCheckDto>({ ok: bool, origin: opt(str), reason: opt(str), message: opt(str) });
+const failureAttribution: V<FailureAttributionDto> = obj<FailureAttributionDto>({
+  id: str, agentId: nullable(str), stepRef: nullable(str), fullTraceAvailable: bool, attributedBy: str, attributedByName: str, attributedByKind: oneOf(['user', 'agent'] as const), createdAt: iso,
+});
 const failureTag: V<FailureTagDto> = obj<FailureTagDto>({
   id: str, subjectKind: oneOf(FAILURE_SUBJECT_KINDS), subjectId: str, missionId: str, taxonomyVersion: str, modeId: str, modeName: str, categoryId: str, categoryName: str, note: nullable(str),
   taggedBy: str, taggedByName: str, taggedByKind: oneOf(['user', 'agent'] as const), status: oneOf(['proposed', 'confirmed', 'rejected'] as const), selfConfirmed: bool, createdAt: iso,
-  decidedBy: nullable(str), decidedByName: nullable(str), decidedAt: nullable(iso),
+  decidedBy: nullable(str), decidedByName: nullable(str), decidedAt: nullable(iso), attributions: arr(failureAttribution), attributionDisagreements: int,
 });
 export const failureTagBody = obj<{ tag: FailureTagDto }>({ tag: failureTag });
 export const failureTagsBody = obj<{ subject: FailureSubjectInfo; tags: FailureTagDto[] }>({

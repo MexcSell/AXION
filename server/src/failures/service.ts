@@ -4,7 +4,7 @@ import { audit } from '../audit.ts';
 import { ApiError, notFound } from '../errors.ts';
 import { emit } from '../events/hooks.ts';
 import { VISIBLE_SQL } from '../missions/visibility.ts';
-import { failureModeOf, FAILURE_TAXONOMY, FAILURE_TAXONOMY_VERSION, FAILURE_TAXONOMY_SOURCE, type FailureSubjectKind, type FailureSubjectInfo, type FailureTagDto, type FailureModesDto } from './taxonomy.ts';
+import { failureModeOf, FAILURE_TAXONOMY, FAILURE_TAXONOMY_VERSION, FAILURE_TAXONOMY_SOURCE, type FailureSubjectKind, type FailureSubjectInfo, type FailureTagDto, type FailureAttributionDto, type FailureModesDto } from './taxonomy.ts';
 
 /**
  * Improvement cycle 33: failure-mode tags (MAST). A subject is a task, a task attempt, a message of a mission thread or a mission;
@@ -54,21 +54,90 @@ export function tagDto(r: any): FailureTagDto {
     modeName: m?.mode.name ?? r.mode_id, categoryId: m?.category.id ?? '', categoryName: m?.category.name ?? '', note: r.note,
     taggedBy: r.tagged_by, taggedByName: r.tagged_name ?? r.agent_name ?? r.tagged_by, taggedByKind: r.tagged_by_kind, status: r.status, selfConfirmed: !!r.self_confirmed, createdAt: iso(r.created_at)!,
     decidedBy: r.decided_by, decidedByName: r.decided_by ? (r.decided_name ?? r.decided_by) : null, decidedAt: iso(r.decided_at),
+    attributions: [], attributionDisagreements: 0,
   };
 }
-export const tagById = async (c: Q, tenantId: string, id: string) => { const r = (await c.query(`${SELECT} where f.id=$1 and f.tenant_id=$2`, [id, tenantId])).rows[0]; return r ? tagDto(r) : undefined; };
+
+/** Number of distinct (agent, step) targets among the entries, minus one. Every entry stays listed; this only counts how many different views there are. */
+export const disagreementsOf = (a: { agentId: string | null; stepRef: string | null }[]) => Math.max(0, new Set(a.map((x) => JSON.stringify([x.agentId, x.stepRef]))).size - 1);
+
+/** Fills the attribution entries (oldest first, ties by id) and the disagreement count of tags that were just read. */
+async function withAttributions(c: Q, tenantId: string, tags: FailureTagDto[]): Promise<FailureTagDto[]> {
+  if (!tags.length) return tags;
+  const rows = (await c.query(`select a.*, u.name as user_name, ta.name as agent_name from failure_attributions a
+      left join users u on u.id=a.attributed_by and a.attributed_by_kind='user'
+      left join agent_instances ai on ai.id=a.attributed_by and a.attributed_by_kind='agent' left join agent_definitions ta on ta.id=ai.agent_id
+      where a.tenant_id=$1 and a.tag_id = any($2::text[]) order by a.created_at, a.id`, [tenantId, tags.map((t) => t.id)])).rows;
+  const by = new Map<string, FailureAttributionDto[]>();
+  for (const r of rows) {
+    const list = by.get(r.tag_id) ?? [];
+    list.push({ id: r.id, agentId: r.agent_id, stepRef: r.step_ref, fullTraceAvailable: !!r.full_trace_available, attributedBy: r.attributed_by,
+      attributedByName: r.user_name ?? r.agent_name ?? r.attributed_by, attributedByKind: r.attributed_by_kind, createdAt: iso(r.created_at)! });
+    by.set(r.tag_id, list);
+  }
+  for (const t of tags) { t.attributions = by.get(t.id) ?? []; t.attributionDisagreements = disagreementsOf(t.attributions); }
+  return tags;
+}
+export const tagById = async (c: Q, tenantId: string, id: string) => {
+  const r = (await c.query(`${SELECT} where f.id=$1 and f.tenant_id=$2`, [id, tenantId])).rows[0];
+  return r ? (await withAttributions(c, tenantId, [tagDto(r)]))[0] : undefined;
+};
 
 export async function tagsOfSubject(c: Q, viewer: Viewer, kind: FailureSubjectKind, id: string) {
   const subject = await resolveSubject(c, viewer.tenantId, viewer, kind, id);
   const rows = (await c.query(`${SELECT} where f.tenant_id=$1 and f.subject_kind=$2 and f.subject_id=$3 order by f.created_at desc, f.id`, [viewer.tenantId, kind, id])).rows;
-  return { subject, tags: rows.map(tagDto) };
+  return { subject, tags: await withAttributions(c, viewer.tenantId, rows.map(tagDto)) };
 }
 
-export interface NewTag { kind: FailureSubjectKind; subjectId: string; modeId: string; note?: string | null }
+export interface NewAttribution { agentId?: string | null; stepRef?: string | null; fullTraceAvailable?: boolean }
+export interface NewTag { kind: FailureSubjectKind; subjectId: string; modeId: string; note?: string | null; attribution?: NewAttribution }
+
+/** True when the subject is a task or task attempt with a recorded failure (a failed task, a task with a failed attempt, a failed attempt). Same rule as the table's own trigger. */
+export async function hasRecordedFailure(c: Q, tenantId: string, kind: FailureSubjectKind, id: string): Promise<boolean> {
+  if (kind === 'task') return !!(await c.query(`select 1 from tasks t where t.id=$1 and t.tenant_id=$2 and (t.status='failed' or exists (select 1 from task_attempts a where a.task_id=t.id and a.result='failed'))`, [id, tenantId])).rows[0];
+  if (kind === 'task_attempt' && NUM.test(id)) return !!(await c.query(`select 1 from task_attempts a join tasks t on t.id=a.task_id where a.id=$1::bigint and t.tenant_id=$2 and a.result='failed'`, [id, tenantId])).rows[0];
+  return false;
+}
+const noFailure = () => new ApiError('ATTRIBUTION_NEEDS_FAILURE', 409, 'Attribution can only be recorded for a task or task attempt with a recorded failure.');
+const cleanAttribution = (a: NewAttribution) => {
+  const agentId = a.agentId?.trim() || null, stepRef = a.stepRef?.trim() || null;
+  if (!agentId && !stepRef) throw new ApiError('VALIDATION', 400, 'Some fields are not valid.', { fieldErrors: { attribution: 'Name an agent, a step, or both.' } });
+  return { agentId, stepRef, fullTraceAvailable: a.fullTraceAvailable === true };
+};
+type Attributor = { tenantId: string; attributedBy: string; attributedByKind: 'user' | 'agent'; correlationId?: string };
+async function insertAttribution(c: Tx, a: Attributor, tag: { id: string; missionId: string }, v: ReturnType<typeof cleanAttribution>) {
+  const id = 'FA-' + randomBytes(16).toString('hex').toUpperCase(); // 128-bit
+  try {
+    await c.query(`insert into failure_attributions(id, tenant_id, tag_id, mission_id, agent_id, step_ref, full_trace_available, attributed_by, attributed_by_kind) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [id, a.tenantId, tag.id, tag.missionId, v.agentId, v.stepRef, v.fullTraceAvailable, a.attributedBy, a.attributedByKind]);
+  } catch (e) {
+    if ((e as { code?: string }).code === '23505') throw new ApiError('FAILURE_ATTRIBUTION_DUPLICATE', 409, 'You already recorded this attribution on this tag. Add a different one to record another view.');
+    throw e;
+  }
+  await audit(c, { tenantId: a.tenantId, actor: a.attributedBy, action: 'failure.attribute', subject: tag.id, result: 'ok', correlationId: a.correlationId ?? '', detail: { attributionId: id, agentId: v.agentId, stepRef: v.stepRef, fullTraceAvailable: v.fullTraceAvailable, attributedByKind: a.attributedByKind } });
+}
+
+/**
+ * Adds one attribution entry to an existing tag (c60). A person needs to see the tag's mission (404 otherwise); `viewer: null` is the internal agent path (tenant only).
+ * Entries are never replaced: two views that differ both stay, and the tag's `attributionDisagreements` counts them.
+ */
+export async function createAttribution(c: Tx, a: Attributor & { viewer: Viewer | null }, tagId: string, n: NewAttribution): Promise<FailureTagDto> {
+  const v = cleanAttribution(n);
+  const vis = a.viewer ? `and ${VISIBLE_SQL('$3', '$4')}` : 'and $3::boolean is not null and $4::text is not null';
+  const f = (await c.query(`select f.id, f.mission_id, f.subject_kind, f.subject_id from failure_tags f join missions m on m.id=f.mission_id
+    where f.id=$1 and f.tenant_id=$2 and m.tenant_id=$2 and m.deleted_at is null ${vis} for share of f`, [tagId, a.tenantId, a.viewer ? a.viewer.user.role === 'admin' : true, a.viewer ? a.viewer.user.id : ''])).rows[0];
+  if (!f) throw notFound('No such failure tag, or its mission is not shared with you.');
+  if (!(await hasRecordedFailure(c, a.tenantId, f.subject_kind, f.subject_id))) throw noFailure();
+  await insertAttribution(c, a, { id: f.id, missionId: f.mission_id }, v);
+  return (await tagById(c, a.tenantId, tagId))!;
+}
+
 /** Records one tag as `proposed`. A person is checked against visibility (`viewer`); an agent (`taggedByKind: 'agent'`, `viewer` null) only against the tenant. The mode must be in the current taxonomy version. */
 export async function createTag(c: Tx, a: { tenantId: string; viewer: Viewer | null; taggedBy: string; taggedByKind: 'user' | 'agent'; correlationId?: string }, t: NewTag): Promise<FailureTagDto> {
   if (!failureModeOf(t.modeId)) throw new ApiError('VALIDATION', 400, 'Some fields are not valid.', { fieldErrors: { modeId: `Not a failure mode of ${FAILURE_TAXONOMY_VERSION}.` } });
   const s = await resolveSubject(c, a.tenantId, a.viewer, t.kind, t.subjectId);
+  const attribution = t.attribution ? cleanAttribution(t.attribution) : null;
+  if (attribution && !(await hasRecordedFailure(c, a.tenantId, t.kind, t.subjectId))) throw noFailure(); // refused before anything is stored
   const id = 'FT-' + randomBytes(16).toString('hex').toUpperCase(); // 128-bit
   try {
     await c.query(`insert into failure_tags(id, tenant_id, mission_id, subject_kind, subject_id, taxonomy_version, mode_id, note, tagged_by, tagged_by_kind)
@@ -77,6 +146,7 @@ export async function createTag(c: Tx, a: { tenantId: string; viewer: Viewer | n
     if ((e as { code?: string }).code === '23505') throw new ApiError('FAILURE_TAG_DUPLICATE', 409, 'This failure mode is already tagged on this subject (proposed or confirmed).');
     throw e;
   }
+  if (attribution) await insertAttribution(c, { tenantId: a.tenantId, attributedBy: a.taggedBy, attributedByKind: a.taggedByKind, correlationId: a.correlationId }, { id, missionId: s.missionId }, attribution);
   await audit(c, { tenantId: a.tenantId, actor: a.taggedBy, action: 'failure.tag', subject: id, result: 'ok', correlationId: a.correlationId ?? '', detail: { subjectKind: t.kind, subjectId: t.subjectId, modeId: t.modeId, taggedByKind: a.taggedByKind } });
   await emit(c, { tenantId: a.tenantId, actor: a.taggedBy, actorKind: a.taggedByKind === 'agent' ? 'agent' : 'human', correlationId: a.correlationId, type: 'failure.tagged', subject: id, subjectKind: 'failure_tag', missionId: s.missionId,
     payload: { tagId: id, subjectKind: t.kind, subjectId: t.subjectId, modeId: t.modeId, status: 'proposed', taggedByKind: a.taggedByKind } });

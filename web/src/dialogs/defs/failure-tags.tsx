@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { Tags, Check, X, Loader2, ShieldAlert, Info, Bot, UserRound, ListChecks, BarChart3 } from 'lucide-react';
-import { FAILURE_TAXONOMY, FAILURE_TAXONOMY_VERSION, failureModeOf, type FailureSubjectKind, type FailureTagDto } from '@contracts';
+import { ATTRIBUTION_HELP, FAILURE_TAXONOMY, FAILURE_TAXONOMY_VERSION, failureModeOf, type FailureSubjectKind, type FailureTagDto } from '@contracts';
 import { Modal } from '@/components/ui/Modal';
 import { Field } from '@/components/ui/Form';
 import { Chip, DemoTag } from '@/components/ui/Chips';
@@ -127,6 +127,20 @@ function TagFailure({ close, props }: DialogComponentProps<{ missionId?: string;
                     <span className="mono dim" style={{ fontSize: 11 }}>{t.modeId}</span><b style={{ fontSize: 12.5 }}>{t.modeName}</b>
                     <span className="dim row" style={{ gap: 3, fontSize: 11.5 }}>{t.taggedByKind === 'agent' ? <Bot size={12} /> : <UserRound size={12} />}{t.taggedByName} · {since(t.createdAt)}</span>
                     {t.note && <span className="dim" style={{ fontSize: 11.5, flexBasis: '100%' }}>“{t.note}”</span>}
+                    {t.attributions.length > 0 && (
+                      <span className="col dim" style={{ flexBasis: '100%', gap: 2, fontSize: 11.5 }} data-attributions={t.attributions.length} data-disagreements={t.attributionDisagreements}>
+                        <span className="row" style={{ gap: 6 }}>
+                          <b>Where it came from</b>
+                          {t.attributionDisagreements > 0 ? <Chip hue={45} size="sm" title={ATTRIBUTION_HELP}>{t.attributionDisagreements + 1} different views</Chip>
+                            : t.attributions.length > 1 ? <Chip hue={150} size="sm">views agree</Chip> : null}
+                        </span>
+                        {t.attributions.map((a) => (
+                          <span key={a.id} data-attribution className="row" style={{ gap: 4, flexWrap: 'wrap' }}>
+                            {a.attributedByKind === 'agent' ? <Bot size={11} aria-hidden /> : <UserRound size={11} aria-hidden />}
+                            {a.attributedByName} {a.agentId ? <>named agent <span className="mono">{a.agentId}</span></> : 'named no agent'}{a.stepRef ? <> at step <span className="mono">{a.stepRef}</span></> : null}
+                            {' · '}{a.fullTraceAvailable ? 'says the full trace is available' : 'full trace not claimed'} · {since(a.createdAt)}
+                          </span>))}
+                      </span>)}
                     {t.status === 'proposed' ? (
                       <span className="row" style={{ gap: 4, marginLeft: 'auto' }}>
                         <button className="btn sm primary" disabled={!!busy} data-decide="confirm" onClick={() => decide(t, 'confirm')}>{busy === t.id ? <Loader2 size={12} className="spin" /> : <Check size={12} />}Confirm</button>
