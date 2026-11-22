@@ -4,9 +4,9 @@ import { ORIGIN_CLASSES, originRank, type OriginChannel, type OriginClass, type 
 
 /**
  * Improvement cycle 59 (R2-5): the origin of a lesson or a skill. Pure rules plus one lookup.
- *  - The CHANNEL is decided by the code path that writes the record, never by a request body: the person route can only produce
- *    human_entry (or derived, when it cites other records); the service functions agents will use can produce agent_output,
- *    tool_output or derived, and can never produce human_entry.
+ *  - The CHANNEL is decided by the code path that writes the record, never by a request body: the person routes use the internal writers
+ *    (human_entry, or derived when they cite records); the EXPORTED writers are agent-side only (kind 'agent': agent_output, tool_output
+ *    or derived) and refuse kind 'human', so no caller outside a route with a session can write a human record.
  *  - The CLASS follows the channel. A derived record is never above its weakest record source and never above its writer's own class.
  *    Sources that are not records (mission, review, task, note...) carry no class and are not counted.
  *  - Review (accept, approve, rollback) is a different axis and never changes the class. The database holds the same rules
@@ -35,13 +35,14 @@ export async function recordClasses(c: Tx, tenantId: string, sources: SourceRef[
 export async function resolveOrigin(c: Tx, a: OriginArgs): Promise<Origin> {
   const refs = a.sources.filter(isRecordSource);
   const byAgent = a.kind === 'agent' || !!a.submittedBy;
-  const channel: OriginChannel = a.channel ?? (a.kind === 'agent' ? 'agent_output' : refs.length ? 'derived' : 'human_entry');
-  if (channel === 'human_entry' && (byAgent || refs.length))
-    throw new ApiError('ORIGIN_NOT_ALLOWED', 403, byAgent ? 'An agent-side write can never be a human entry.' : 'A typed entry that cites other records is a derived record.');
-  if (channel === 'derived') {
-    if (!refs.length) throw badRequest('A derived record must name the lessons or skills it comes from.', { sources: 'Add at least one lesson or skill source.' });
-    const ceiling: OriginClass = byAgent ? 'agent' : 'human';
-    return { channel, cls: weakest([ceiling, ...(await recordClasses(c, a.tenantId, a.sources))]) };
+  const requested: OriginChannel = a.channel ?? (a.kind === 'agent' ? 'agent_output' : 'human_entry');
+  if (requested === 'human_entry' && byAgent) throw new ApiError('ORIGIN_NOT_ALLOWED', 403, 'An agent-side write can never be a human entry.');
+  if (refs.length === 0) {
+    if (requested === 'derived') throw badRequest('A derived record must name the lessons or skills it comes from.', { sources: 'Add at least one lesson or skill source.' });
+    return { channel: requested, cls: classOfChannel(requested) };
   }
-  return { channel, cls: classOfChannel(channel) };
+  // Citing another record always makes a record derived, whatever channel the writer named: there is no way to cite a lower record and keep a higher class.
+  // The writer's own channel is also a ceiling (an agent_output summary is never above agent, a tool_output one never above tool).
+  const ceiling: OriginClass = requested === 'derived' ? (byAgent ? 'agent' : 'human') : classOfChannel(requested);
+  return { channel: 'derived', cls: weakest([ceiling, ...(await recordClasses(c, a.tenantId, a.sources))]) };
 }

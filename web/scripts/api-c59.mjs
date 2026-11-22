@@ -137,8 +137,8 @@ try {
   await A.p.goto(base + DEV, { waitUntil: 'domcontentloaded' });
   await view(A.p, /Skills/);
   const prop = A.p.locator(`[data-retirement-proposal="${skill.id}"]`);
-  check('with a fixture score below the floor a proposal appears (score and n labelled fixture) and the skill is still approved',
-    await until(async () => (await prop.count()) === 1 && (await prop.innerText()).includes('fixture'), 12000) && (await A.p.locator(`[data-skill="${skill.id}"]`).getAttribute('data-status')) === 'approved');
+  check('with a fixture score below the floor a proposal appears (score and n labelled fixture), the strip still says "no outcome data yet" and the skill is still approved',
+    await until(async () => (await prop.count()) === 1 && (await prop.innerText()).includes('fixture') && (await A.p.locator('[data-retirement]').innerText()).includes('no outcome data yet'), 12000) && (await A.p.locator(`[data-skill="${skill.id}"]`).getAttribute('data-status')) === 'approved');
   await A.p.screenshot({ path: `${SHOTS}/c59-retirement.png` });
   await prop.getByRole('button', { name: /^Keep skill/ }).click();
   check('Keep: the proposal goes away, the skill stays approved, and its log says kept', await until(async () => (await prop.count()) === 0, 10000)

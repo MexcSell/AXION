@@ -95,7 +95,7 @@ export function RetirementStrip({ admin }: { admin: boolean }) {
         <Archive size={15} aria-hidden />
         <b style={{ fontSize: 13 }}>Retirement proposals</b>
         <Chip hue={38} icon={ShieldQuestion} size="sm" title="No agent uses a skill yet, so the only scores are test fixtures">fixture only</Chip>
-        {none && <Chip hue={225} size="sm" title={`A proposal appears when a skill's latest fixture score is below ${d?.floor ?? 0.4} with at least ${d?.minN ?? 5} observations`}>no outcome data yet</Chip>}
+        <Chip hue={225} size="sm" title={`No agent has used a skill yet, so there is no outcome data from real use. A proposal appears when a skill's latest fixture score is below ${d?.floor ?? 0.4} with at least ${d?.minN ?? 5} observations`}>no outcome data yet</Chip>
         {!none && d && <Chip hue={d.proposals.length ? 0 : 145} size="sm">{d.proposals.length} proposed · floor {d.floor}, n ≥ {d.minN}</Chip>}
         <span className="spacer" />
         <HelpTrigger k="skills.retirement" />

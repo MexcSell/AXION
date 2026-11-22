@@ -148,6 +148,33 @@ describe('derivation: never above the weakest source', () => {
   });
 });
 
+describe('no way up: record sources always make a record derived, and the exported writers are agent-side only', () => {
+  it('an agent-side write that cites a lower record is derived and capped at that record, whichever channel it names (lessons and skills)', async () => {
+    const tool = await viaService({ channel: 'tool_output' });
+    for (const channel of [undefined, 'agent_output', 'tool_output', 'derived']) {
+      const id = await viaService({ ...(channel ? { channel } : {}), sources: [ref('lesson', tool)] });
+      expect(await cls(id), String(channel)).toEqual({ ch: 'derived', cl: 'tool' });
+      const sk = await viaServiceSkill({ ...(channel ? { channel } : {}), sources: [ref('lesson', tool)] });
+      expect(sk, String(channel)).toMatchObject({ originChannel: 'derived', originClass: 'tool' });
+    }
+  });
+
+  it('the database refuses a non-derived row that cites a lesson or skill (raw SQL), for lessons and skills', async () => {
+    const tool = await viaService({ channel: 'tool_output' });
+    for (const [ch, cl] of [['agent_output', 'agent'], ['tool_output', 'tool'], ['human_entry', 'human']]) {
+      await expect(t.pool.query(`insert into lesson_candidates(id,tenant_id,agent_id,role,text,sources,proposed_by,sha256,origin_channel,origin_class) values ($1,'t-1','coder-01','dev','x',$2,'u-raw',$3,$4,$5)`,
+        ['LC-NOTDER' + n++, JSON.stringify([ref('lesson', tool)]), 'e'.repeat(64), ch, cl]), ch).rejects.toThrow(/derived/);
+      await expect(t.pool.query(`insert into skills(id,tenant_id,name,version,description,steps,sources,proposed_by,origin_channel,origin_class) values ($1,'t-1',$2,1,'d','[{"kind":"note","detail":"x"}]',$3,'u-raw',$4,$5)`,
+        ['SK-NOTDER' + n++, 'Notder ' + n++, JSON.stringify([ref('lesson', tool)]), ch, cl]), ch).rejects.toThrow(/derived/);
+    }
+  });
+
+  it('the exported writers refuse kind human: a person can only write through a route with a session', async () => {
+    await expect(viaService({ kind: 'human', submittedBy: undefined })).rejects.toMatchObject({ code: 'ORIGIN_NOT_ALLOWED' });
+    await expect(tx(t.app.db, (c) => proposeSkill(c, { tenantId: 't-1', proposedBy: 'u-x', kind: 'human', ...skillBody(), correlationId: 'c59-h' } as any))).rejects.toMatchObject({ code: 'ORIGIN_NOT_ALLOWED' });
+  });
+});
+
 describe('review is a separate axis: it never changes the class', () => {
   it('accept, approve and rollback leave the origin as written; the playbook item reports it from the lesson row', async () => {
     const agentLesson = await viaService({ agentId: 'writer-01', text: 'Writer notes that headings need sentence case ' + n++ });

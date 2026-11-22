@@ -170,8 +170,13 @@ async function candidates(c: Tx, ctx: Ctx, where: string, params: unknown[]): Pr
 
 /* ---------- writes shared by the route and by an agent's proposal ---------- */
 export interface ProposeArgs { tenantId: string; agentId: string; proposedBy: string; kind: 'human' | 'agent'; submittedBy?: string; text: string; sources: SourceRef[]; reviewBy?: string; correlationId: string; /** c59: agent-side callers only; the person route never sets it */ channel?: OriginChannel }
-/** Records a candidate. For kind 'agent', proposedBy is the agent and submittedBy the person who filed it: neither can decide it. */
+/** Agent-side writer (what a future agent runtime calls): proposedBy is the agent and submittedBy the person who filed it, and neither can decide it.
+ *  It refuses kind 'human': the person route uses insertLesson, so no caller outside a route with a session can write a human record. */
 export async function proposeLesson(c: Tx, a: ProposeArgs): Promise<string> {
+  if (a.kind !== 'agent') throw new ApiError('ORIGIN_NOT_ALLOWED', 403, 'Only an agent-side write goes through proposeLesson; a person writes through the route.');
+  return insertLesson(c, a);
+}
+async function insertLesson(c: Tx, a: ProposeArgs): Promise<string> {
   const agent = await agentOf(c, a.tenantId, a.agentId);
   // the same text rules as the route, so a direct caller (a future agent runtime) cannot bypass them
   const txt = plain(1, 600).safeParse(a.text), srcs = Sources.safeParse(a.sources);
@@ -237,8 +242,12 @@ const skillVisible = (ctx: Ctx, r: { proposed_by: string; submitted_by: string |
 const skillLock = (c: Tx, tenantId: string, name: string) => advisoryXactLockLower(c, `skill:${tenantId}:`, name); // schema-scoped (src/locks.ts); the key is built from SQL lower(name)
 
 export interface ProposeSkillArgs { tenantId: string; proposedBy: string; kind: 'human' | 'agent'; submittedBy?: string; name: string; description: string; steps: z.infer<typeof Step>[]; preconditions?: string[]; sources: SourceRef[]; correlationId: string; /** c59: agent-side callers only */ channel?: OriginChannel }
-/** Records a draft skill. The route and any future agent runtime share it, so the same text rules and the same origin rules apply to both. */
+/** Agent-side writer for a draft skill: refuses kind 'human' (the person route uses insertSkill), and applies the same text and origin rules as the route. */
 export async function proposeSkill(c: Tx, a: ProposeSkillArgs): Promise<string> {
+  if (a.kind !== 'agent') throw new ApiError('ORIGIN_NOT_ALLOWED', 403, 'Only an agent-side write goes through proposeSkill; a person writes through the route.');
+  return insertSkill(c, a);
+}
+async function insertSkill(c: Tx, a: ProposeSkillArgs): Promise<string> {
   const parsed = SkillIn.safeParse({ name: a.name, description: a.description, steps: a.steps, preconditions: a.preconditions ?? [], sources: a.sources });
   if (!parsed.success) throw badRequest('Some fields are not valid.', { skill: parsed.error.issues[0].message });
   const b = parsed.data;
@@ -335,7 +344,7 @@ export default async function playbookRoutes(app: FastifyInstance) {
     const out = await idempotent(app.db, req, ctx, async (c) => {
       await agentOf(c, ctx.tenantId, id);
       await checkSources(c, ctx, b.sources);
-      const lid = await proposeLesson(c, { tenantId: ctx.tenantId, agentId: id, proposedBy: ctx.user.id, kind: 'human', text: b.text, sources: b.sources, reviewBy: b.reviewBy, correlationId: ctx.correlationId });
+      const lid = await insertLesson(c, { tenantId: ctx.tenantId, agentId: id, proposedBy: ctx.user.id, kind: 'human', text: b.text, sources: b.sources, reviewBy: b.reviewBy, correlationId: ctx.correlationId });
       return { status: 201, body: { lesson: (await candidates(c, ctx, 'c.id=$2', [lid]))[0] } };
     });
     return reply.status(out.status).send(out.body);
@@ -491,7 +500,7 @@ export default async function playbookRoutes(app: FastifyInstance) {
     if (Object.keys(bad).length) throw badRequest('Skills hold plain steps, never code.', bad);
     const out = await idempotent(app.db, req, ctx, async (c) => {
       await checkSources(c, ctx, b.sources);
-      const id = await proposeSkill(c, { tenantId: ctx.tenantId, proposedBy: ctx.user.id, kind: 'human', ...b, correlationId: ctx.correlationId });
+      const id = await insertSkill(c, { tenantId: ctx.tenantId, proposedBy: ctx.user.id, kind: 'human', ...b, correlationId: ctx.correlationId });
       return { status: 201, body: { skill: skillDto((await c.query(`${SKILL_SELECT} where s.id=$1`, [id])).rows[0], ctx) } };
     });
     return reply.status(out.status).send(out.body);

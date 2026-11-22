@@ -38,11 +38,12 @@ create function origin_before_insert() returns trigger language plpgsql as $$
 declare refs int; found int; floor_rank int; ceiling text;
 begin
   if new.origin_channel is null then new.origin_channel := case when new.proposed_by_kind = 'agent' then 'agent_output' else 'human_entry' end; end if;
+  select count(*) into refs from jsonb_array_elements(new.sources) s where s->>'kind' in ('lesson','skill');
   if new.origin_channel <> 'derived' then
+    if refs > 0 then raise exception 'a record that cites other records is derived'; end if;   -- no way to name a lower record and keep a higher class
     if new.origin_class is null then new.origin_class := case new.origin_channel when 'human_entry' then 'human' when 'agent_output' then 'agent' else 'tool' end; end if;
     return new;
   end if;
-  select count(*) into refs from jsonb_array_elements(new.sources) s where s->>'kind' in ('lesson','skill');
   select count(*), min(origin_rank(r.cls)) into found, floor_rank from (
     select lc.origin_class as cls from jsonb_array_elements(new.sources) s join lesson_candidates lc on s->>'kind' = 'lesson' and lc.id = s->>'id' and lc.tenant_id = new.tenant_id
     union all
