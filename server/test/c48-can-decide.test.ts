@@ -50,4 +50,24 @@ describe('canDecide equals the decision route outcome (tier x role x requester x
     expect(approvalDto(row, later, { id: A.adminId, role: 'admin' })).toMatchObject({ canDecide: false, decideBlockedReason: 'expired' });
     expect(approvalDto(row, Date.now(), { id: A.adminId, role: 'admin' })).toMatchObject({ canDecide: true });
   });
+
+  it('through the route: a request already past its expiry is refused as expired, and the flag said the same', async () => {
+    const mid = (await A.admin.req('POST', '/missions', { text: 'Send it.', files: [], shared: false }, { 'idempotency-key': 'x' + Date.now() })).body.mission.id as string;
+    const r = await ask(mid, 'submit_form', { expiresInMin: -5 }); // inserted already past its expiry (the bound expiry cannot be edited afterwards)
+    const row = (await t.pool.query('select *, (expires_at < now()) as db_expired from approval_requests where id=$1', [r.id])).rows[0];
+    expect(row.db_expired).toBe(true);
+    const dto = approvalDto(row, Date.now(), { id: A.adminId, role: 'admin' });
+    expect(dto).toMatchObject({ canDecide: false, decideBlockedReason: 'expired' });
+    const res = await A.admin.req('POST', `/approvals/${r.id}/decision`, { decision: 'approved', digest: row.action_digest, reason: 'ok' }, { 'idempotency-key': 'y' + Date.now() });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('APPROVAL_STALE');
+    expect((await t.pool.query('select state from approval_requests where id=$1', [r.id])).rows[0].state).toBe('expired');
+    expect((await t.pool.query('select count(*)::int n from approval_decisions')).rows[0].n).toBe(0);
+  });
+
+  it('expiry is the database clock: a row the database says is expired is expired whatever the JS clock says', () => {
+    const row = { id: 'A', risk: 'R2', state: 'pending', requested_by: null, expires_at: new Date(Date.now() + 3_600_000).toISOString(), db_expired: true };
+    expect(approvalDto(row, Date.now(), { id: 'u', role: 'admin' })).toMatchObject({ canDecide: false, decideBlockedReason: 'expired', state: 'expired' });
+    expect(approvalDto({ ...row, db_expired: false, expires_at: new Date(Date.now() - 1000).toISOString() }, Date.now(), { id: 'u', role: 'admin' })).toMatchObject({ canDecide: true });
+  });
 });

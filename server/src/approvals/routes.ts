@@ -17,7 +17,7 @@ export default async function approvalRoutes(app: FastifyInstance) {
     released.forEach((id) => app.onMissionChanged?.(id, 'running'));
     // expired requests are history: they can't be decided any more, so they leave the list
     const rows = (await app.db.query(
-      `select a.*, du.name as decided_by_name from approval_requests a join missions m on m.id=a.mission_id
+      `select a.*, (a.expires_at < now()) as db_expired, du.name as decided_by_name from approval_requests a join missions m on m.id=a.mission_id
         left join lateral (select decided_by from approval_decisions d where d.approval_id=a.id order by d.decided_at desc limit 1) dd on true
         left join users du on du.id=dd.decided_by
         where a.tenant_id=$1 and m.deleted_at is null and ${VISIBLE_SQL('$2', '$3')} and a.state <> 'expired' and not (a.state='pending' and a.expires_at <= now())
@@ -32,7 +32,7 @@ export default async function approvalRoutes(app: FastifyInstance) {
     const b = parse(z.object({ decision: z.enum(['approved', 'denied']), digest: z.string().max(128), reason: z.string().max(1000).default('') }), req.body);
     const out = await tx(app.db, async (c) => {
       const a = (await c.query(
-        `select a.*, m.status as mission_status from approval_requests a join missions m on m.id=a.mission_id
+        `select a.*, (a.expires_at < now()) as db_expired, m.status as mission_status from approval_requests a join missions m on m.id=a.mission_id
           where a.id=$1 and a.tenant_id=$2 and m.deleted_at is null and ${VISIBLE_SQL('$3', '$4')} for update of a, m`,
         [id, ctx.tenantId, ctx.user.role === 'admin', ctx.user.id])).rows[0];
       if (!a) throw notFound('No such approval, or its mission is not shared with you.');
@@ -52,7 +52,7 @@ export default async function approvalRoutes(app: FastifyInstance) {
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'approval.decide', subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { decision: b.decision, mission: a.mission_id } });
       await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'approval.decided', subject: a.mission_id, missionId: a.mission_id, payload: { approvalId: id, decision: b.decision, by: ctx.user.name } });
       const released = await settleMission(c, ctx.tenantId, a.mission_id, ctx.correlationId);
-      return { released, missionId: a.mission_id as string, approval: approvalDto((await c.query('select * from approval_requests where id=$1', [id])).rows[0], Date.now(), ctx.user) };
+      return { released, missionId: a.mission_id as string, approval: approvalDto((await c.query('select *, (expires_at < now()) as db_expired from approval_requests where id=$1', [id])).rows[0], Date.now(), ctx.user) };
     });
     if ('stale' in out) throw new ApiError('APPROVAL_STALE', 409, out.stale!);
     if (out.released) app.onMissionChanged?.(out.missionId, 'running'); // unfinished staffing continues

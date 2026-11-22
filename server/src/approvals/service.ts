@@ -81,13 +81,15 @@ export function decideRefusal(r: any, user: Decider, now = Date.now()): { reason
   if ((need === 'admin' || need === 'owner') && user.role !== 'admin') return { reason: 'tier_requires_admin', code: 'POLICY_DENIED', status: 403, message: `Policy: a ${r.risk} request can only be decided by an administrator.` };
   if (r.requested_by && r.requested_by === user.id && isTier(r.risk) && tierRank(r.risk) >= tierRank('R2')) return { reason: 'requester_cannot_decide', code: 'SELF_APPROVAL', status: 403, message: 'You made this request. Someone else must decide it.' };
   if (r.state === 'approved' || r.state === 'denied') return { reason: 'already_decided', code: 'APPROVAL_ALREADY_DECIDED', status: 409, message: 'Someone already decided this request.' };
-  if (r.state !== 'pending' || new Date(r.expires_at).getTime() < now) return { reason: 'expired', code: 'APPROVAL_STALE', status: 409, message: 'This request expired. The agent must ask again.' };
+  // expiry is judged by the database clock (`db_expired`, selected next to the row in the same statement); the JS clock is only a test override for rows read without it
+  const expired = typeof r.db_expired === 'boolean' ? r.db_expired : new Date(r.expires_at).getTime() < now;
+  if (r.state !== 'pending' || expired) return { reason: 'expired', code: 'APPROVAL_STALE', status: 409, message: 'This request expired. The agent must ask again.' };
   return null;
 }
 
-export function approvalDto(r: any, now = Date.now(), viewer?: Decider) {
-  const refusal = viewer ? decideRefusal(r, viewer, now) : null;
-  const expired = r.state === 'pending' && new Date(r.expires_at).getTime() < now;
+export function approvalDto(r: any, now: number, viewer: Decider) {
+  const refusal = decideRefusal(r, viewer, now);
+  const expired = r.state === 'pending' && (typeof r.db_expired === 'boolean' ? r.db_expired : new Date(r.expires_at).getTime() < now);
   const state = expired ? 'expired' : r.state;
   return {
     id: r.id, missionId: r.mission_id, agentId: r.agent_id, title: r.title, detail: r.detail, kind: r.kind,
@@ -99,7 +101,7 @@ export function approvalDto(r: any, now = Date.now(), viewer?: Decider) {
     expiresMin: Math.max(0, Math.round((new Date(r.expires_at).getTime() - now) / 60000)),
     agoMin: Math.max(0, Math.round((now - new Date(r.created_at).getTime()) / 60000)),
     expiresAt: new Date(r.expires_at).getTime(),
-    canDecide: !!viewer && !refusal, decideBlockedReason: viewer ? (refusal?.reason ?? null) : 'tier_requires_admin',
+    canDecide: !refusal, decideBlockedReason: refusal?.reason ?? null,
     decidedByName: (state === 'approved' || state === 'denied') ? (r.decided_by_name ?? null) : null,
   };
 }
