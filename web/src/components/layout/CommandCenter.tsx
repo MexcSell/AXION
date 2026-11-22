@@ -2,7 +2,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { LiveStatus } from '@/components/ui/LiveStatus';
 import { useAgentsCatalog, useAgentInstances } from '@/api/agents';
 import { useNavigate } from 'react-router-dom';
-import { Target, Users, ClipboardList, Trophy, Database, HeartPulse, CheckCircle2, Scale, PlayCircle, Flag, BadgeCheck, ShieldQuestion, Timer, XCircle, RotateCcw, Hourglass, UserCheck, ClipboardCheck } from 'lucide-react';
+import { Layers, Target, Users, ClipboardList, Trophy, Database, HeartPulse, CheckCircle2, Scale, PlayCircle, Flag, BadgeCheck, ShieldQuestion, Timer, XCircle, RotateCcw, Hourglass, UserCheck, ClipboardCheck } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { ScorecardRow, ScorecardWindow } from '@contracts';
@@ -19,6 +19,8 @@ import { isApi } from '@/api/mode';
 import { useScorecard, rowOf, fmtRow, trendOf } from '@/api/scorecard';
 import { useThroughput } from '@/api/throughput';
 import { ThroughputChart } from '@/components/viz/ThroughputChart';
+import { IconButton } from '@/components/ui/IconButton';
+import { openDialog } from '@/store/ui';
 
 /** Company-wide KPI tiles (40-4 command center) — rendered through the shared TopBoard. */
 export function useCompanyKpis(): KpiItem[] {
@@ -90,6 +92,7 @@ export function CompanyScorecard() {
         <HelpTrigger k="company.scorecard" />
         <AnimatePresence>{demo && <motion.span key="demo" initial={{ opacity: 0, scale: .8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: .8 }}><DemoTag title="DEMO missions are included in these numbers" /></motion.span>}</AnimatePresence>
         <span className="spacer" />
+        <IconButton icon={Layers} size="sm" variant="bordered" label="Six dimensions" data-six-dimensions onClick={() => openDialog('six-dimensions')} />
         <Segmented size="sm" ariaLabel="Scorecard window" value={win} onChange={setWin}
           options={(['7d', '30d', '90d'] as const).map((k) => ({ key: k, label: k, title: shown && k === win ? `${WINDOW_LABEL[k]}: ${range(shown)}` : WINDOW_LABEL[k] }))} />
       </header>
@@ -139,6 +142,8 @@ export function CompanyHealth() {
         <HeartPulse size={20} className="ph-icon" aria-hidden />
         <h2 className="panel-title">Company Health</h2>
         <HelpTrigger k="company.health" />
+        <span className="spacer" />
+        <IconButton icon={Layers} size="sm" variant="bordered" label="Six dimensions (sample)" data-six-dimensions onClick={() => openDialog('six-dimensions')} />
       </header>
       <div className="row" style={{ gap: 18, alignItems: 'center' }}>
         <RingGauge value={98} size={112} label="Company health" />
