@@ -65,11 +65,23 @@ export const FAILURE_SUBJECT_KINDS = ['task', 'task_attempt', 'message', 'missio
 export type FailureSubjectKind = (typeof FAILURE_SUBJECT_KINDS)[number];
 export type FailureTagStatus = 'proposed' | 'confirmed' | 'rejected';
 
+/**
+ * One person's (or agent's) claim about where a failure came from (c60). Entries are append-only and listed oldest first; a later entry never
+ * replaces an earlier one. `agentId` and `stepRef` are free text the attributor wrote, not checked against stored agents or traces.
+ */
+export interface FailureAttributionDto {
+  id: string; agentId: string | null; stepRef: string | null; fullTraceAvailable: boolean;
+  attributedBy: string; attributedByName: string; attributedByKind: 'user' | 'agent'; createdAt: string;
+}
 export interface FailureTagDto {
   id: string; subjectKind: FailureSubjectKind; subjectId: string; missionId: string; taxonomyVersion: string;
   modeId: string; modeName: string; categoryId: string; categoryName: string; note: string | null;
   taggedBy: string; taggedByName: string; taggedByKind: 'user' | 'agent'; status: FailureTagStatus; selfConfirmed: boolean; createdAt: string;
   decidedBy: string | null; decidedByName: string | null; decidedAt: string | null;
+  /** c60: attribution entries, oldest first (empty when none) */
+  attributions: FailureAttributionDto[];
+  /** c60: number of distinct (agent, step) targets among the entries, minus one (0 when there are no entries or all agree). Never hides an entry. */
+  attributionDisagreements: number;
 }
 export interface FailureSubjectInfo { kind: FailureSubjectKind; id: string; missionId: string; demo: boolean; failed: boolean; retried: boolean }
 /** Counts per mode and category over CONFIRMED tags only; `count` is null (never 0) while n = 0 (nothing to count yet). */

@@ -2,4 +2,4 @@
 export {
   FAILURE_TAXONOMY, FAILURE_TAXONOMY_VERSION, FAILURE_TAXONOMY_SOURCE, FAILURE_MODE_IDS, FAILURE_SUBJECT_KINDS, failureModeOf,
 } from '../../../shared/contracts/src/failures.ts';
-export type { FailureSubjectKind, FailureTagStatus, FailureTagDto, FailureSubjectInfo, FailureModesDto } from '../../../shared/contracts/src/failures.ts';
+export type { FailureSubjectKind, FailureTagStatus, FailureTagDto, FailureAttributionDto, FailureSubjectInfo, FailureModesDto } from '../../../shared/contracts/src/failures.ts';

@@ -322,8 +322,10 @@ describe('API coverage run', () => {
     await call(admin, 'GET', '/site-grants', '/site-grants');
     await call(admin, 'POST', '/site-grants/:id/revoke', `/site-grants/${gr.id}/revoke`, { body: { reason: 'No longer needed' } });
     await call(admin, 'GET', '/failure-tags', '/failure-tags', { query: '?subjectKind=task&subjectId=T-c50a' });
-    const tag = (await call(admin, 'POST', '/failure-tags', '/failure-tags', { status: 201, headers: key(), body: { subjectKind: 'task', subjectId: 'T-c50a', modeId: 'FM-1.1', note: 'It ignored the spec.' } })).body.tag;
+    const tag = (await call(admin, 'POST', '/failure-tags', '/failure-tags', { status: 201, headers: key(), body: { subjectKind: 'task', subjectId: 'T-c50a', modeId: 'FM-1.1', note: 'It ignored the spec.', attribution: { agentId: 'agent-c60', stepRef: 'step-2' } } })).body.tag;
     await call(admin, 'POST', '/failure-tags/:id/decision', `/failure-tags/${tag.id}/decision`, { body: { decision: 'confirm' } });
+    // a decision does not close attribution: a second view is appended after it (the response then shows the decided fields filled)
+    await call(admin, 'POST', '/failure-tags/:id/attributions', `/failure-tags/${tag.id}/attributions`, { status: 201, headers: key(), body: { agentId: 'agent-c60b', stepRef: 'step-4', fullTraceAvailable: true } });
     await call(admin, 'GET', '/failure-tags', '/failure-tags', { query: '?subjectKind=task&subjectId=T-c50a' });
     await call(admin, 'GET', '/site-grants', '/site-grants');
 
