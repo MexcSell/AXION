@@ -22,6 +22,7 @@ export type EventType =
   | 'agent.created' | 'agent.updated' | 'agent.versionCreated'
   | 'agent.versionProposed' | 'agent.versionPromoted' | 'agent.rolledBack' | 'agent.versionProposalDecided'
   | 'mentoring.planned' | 'mentoring.milestoneDone' | 'mentoring.closed'
+  | 'playbook.lessonProposed' | 'playbook.lessonDecided' | 'playbook.versionCreated' | 'skill.proposed' | 'skill.decided'
   | 'org.proposalCreated' | 'org.proposalDecided' | 'org.revisionApplied'
   | 'user.requested' | 'user.changed' | 'auth.approved';
 
