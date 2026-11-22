@@ -16,7 +16,7 @@ let aId = '', bId = '';
 let n = 0;
 const key = () => ({ 'idempotency-key': 'e' + n++ });
 const rows = async (sql: string, p: unknown[] = []) => (await t.pool.query(sql, p)).rows;
-const AG = 'coder-01';
+const AG = 'knowledge-01'; // not coder-01: version-proposals.test.ts holds that agent's advisory lock on purpose (the lock is global to the database, across test schemas)
 type Cfg = { model: string; skills: string[]; tools: string[] };
 let seq = 0;
 
