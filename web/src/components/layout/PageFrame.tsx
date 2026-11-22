@@ -35,6 +35,8 @@ export interface KpiItem {
   /** `text` is a loading (status) or failed-load (alert) message the screen reader should hear */
   live?: 'status' | 'alert';
   help?: string;
+  /** c66: the Goodhart guard button of a measured tile (top right, beside the ?) */
+  guard?: ReactNode;
   onClick?: () => void;
 }
 
@@ -66,6 +68,7 @@ export function KpiTile({ k, i = 0 }: { k: KpiItem; i?: number }) {
         {k.bar != null && <div className="bar thin good kt-bar"><motion.i initial={{ width: 0 }} animate={{ width: `${k.bar}%` }} transition={{ duration: 1.1, delay: .35 }} /></div>}
         {k.foot}
       </div>
+      {k.guard && <span className="kt-guard" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>{k.guard}</span>}
       {k.help && <span className="kt-help" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}><HelpTrigger k={k.help} /></span>}
     </motion.div>
   );
