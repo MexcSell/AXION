@@ -111,6 +111,7 @@ Not used on purpose: `gen_ai.provider.name`, `gen_ai.request.*`, `gen_ai.usage.*
 | `eval_runs.judge_model_family` | `axion.eval.judge_model_family` (AXION extension) |  | A family label of the judge (plain identifier only, otherwise "_OTHER"), not a model name; gen_ai.request.model is not used because no model call is recorded. |
 | `eval_runs.evaluator_id` | **no equivalent** |  | A person's or agent's identity is not exported. |
 | `eval_runs.k` | `axion.eval.k` (AXION extension) |  | No equivalent. |
+| `eval_runs.holdout_key` | **no equivalent** |  | An internal uniqueness key (c53) that makes a holdout count once. It names no behaviour of the agent and is not exported. |
 | `eval_runs.started_at` | **no equivalent** |  | A run has no span of its own; the span of a result starts at the result's recorded time. |
 | `eval_runs.finished_at` | **no equivalent** |  | A run has no span of its own. |
 
@@ -179,4 +180,4 @@ These describe the export itself (resource attributes, with the pinned version) 
 
 ## Counts
 
-96 AXION fields listed; 7 map to a pinned GenAI attribute; 25 have no equivalent and are not exported; the rest map to a span property or an `axion.*` extension attribute.
+97 AXION fields listed; 7 map to a pinned GenAI attribute; 26 have no equivalent and are not exported; the rest map to a span property or an `axion.*` extension attribute.
