@@ -86,13 +86,13 @@ try {
   const P = [];
   for (const [i, a] of agents.entries()) {
     const d = (await apiA('GET', `/agents/${a.id}`)).body.agent;
-    const r = await apiA('POST', `/agents/${a.id}/version-proposals`, { title: `${names[i]} candidate`, hypothesis: `Sample hypothesis ${i}.`, candidate: { model: d.model, skills: [...d.skills, 'C47-' + i], tools: d.tools }, baseVersionId: d.versionId }, key());
+    const r = await apiA('POST', `/agents/${a.id}/version-proposals`, { title: `${names[i]} candidate`, hypothesis: `Sample hypothesis ${i}.`, candidate: { model: 'claude-sonnet-4', skills: [...d.skills, 'C47-' + i], tools: d.tools }, baseVersionId: d.versionId }, key());
     P.push({ ...r.body.proposal, agent: d });
   }
   check('setup: four proposals on four agents, none has an evaluation yet', P.length === 4 && P.every((p) => p.id && p.evaluation === null));
   const tenant = (await db.query(`select tenant_id from agent_version_proposals where id=$1`, [P[0].id])).rows[0].tenant_id;
   await dataset('C47-HOLDOUT', 'holdout', tenant); await dataset('C47-DEV', 'dev', tenant);
-  const J = 'zzjudge-1';
+  const J = 'gpt-4o-judge'; // c53: the judge label must resolve through the vendor table (openai), the candidate below is anthropic
   // [0] verified better on the holdout; [1] no runs; [2] dev dataset + evaluator = author (refused); [3] significantly worse
   await run('C47-B0', tenant, 'C47-HOLDOUT', { version: P[0].baseVersionId }, LOW, J, bea.id); await run('C47-C0', tenant, 'C47-HOLDOUT', { proposal: P[0].id }, HIGH, J, bea.id);
   await run('C47-B2', tenant, 'C47-DEV', { version: P[2].baseVersionId }, LOW, J, luca.id); await run('C47-C2', tenant, 'C47-DEV', { proposal: P[2].id }, HIGH, J, luca.id);
