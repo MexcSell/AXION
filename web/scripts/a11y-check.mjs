@@ -174,15 +174,17 @@ if (API) {
     { v: '/missions/M-125?tab=task-flow', slow: /loading/i, fail: /could not load/i },
     { v: '/missions/M-125?tab=conversations', slow: /loading/i, fail: /could not load/i },
   ];
-  const hit = /\/api\/v1\/(.*instances|agent-instances|.*agent-versions|.*versions|.*proposals|.*versions|company\/scorecard|organization\/graph|missions\/[^/]+\/(hierarchy|tasks|threads)|organization\/revisions|threads\/|channels\/)/;
+  let holdRevisions = false; // only the history probe holds the revisions request (the proposals page reads it too)
+  const hit = /\/api\/v1\/(.*instances|agent-instances|.*agent-versions|.*versions|.*proposals|.*versions|company\/scorecard|organization\/graph|missions\/[^/]+\/(hierarchy|tasks|threads)|threads\/|channels\/|organization\/revisions)/;
   for (const mode of ['slow', 'fail']) {
     let release; const gate = new Promise((r) => { release = r; });
     await p.route(hit, async (route) => {
-      if (route.request().method() !== 'GET' || route.request().url().includes('/stream')) return route.continue();
+      if (route.request().method() !== 'GET' || route.request().url().includes('/stream') || (!holdRevisions && route.request().url().includes('organization/revisions'))) return route.continue();
       if (mode === 'slow') { await gate; return route.continue().catch(() => {}); }
       return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: { code: 'internal', message: 'mocked failure' } }) });
     });
     for (const { v, slow, fail, none, click } of probes) {
+      holdRevisions = !!click;
       await p.goto(base + v, { waitUntil: navWait() });
       await settle(p, mode === 'slow' ? 400 : 1000);
       if (click) { await p.locator('[aria-label="Proposals or history"]').getByText(click).click({ timeout: 8000 }).catch((e) => all.push({ where: `${v} (${mode})`, msg: `LIVEPROBE could not click ${click}: ${String(e.message).split('\n')[0]}` })); await settle(p, mode === 'slow' ? 400 : 1000); }
