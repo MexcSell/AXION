@@ -10,6 +10,7 @@ export const ERROR_CODES = [
   'NOTHING_TO_ROLL_BACK',
   'MENTORING_ACTIVE', 'PLAN_CLOSED', 'MILESTONE_DONE',
   'POLICY_DENIED',
+  'FAILURE_TAG_DUPLICATE', 'FAILURE_TAG_DECIDED',
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

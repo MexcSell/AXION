@@ -23,6 +23,7 @@ export type EventType =
   | 'agent.versionProposed' | 'agent.versionPromoted' | 'agent.rolledBack' | 'agent.versionProposalDecided'
   | 'mentoring.planned' | 'mentoring.milestoneDone' | 'mentoring.closed'
   | 'grant.issued' | 'grant.revoked'
+  | 'failure.tagged' | 'failure.decided'
   | 'org.proposalCreated' | 'org.proposalDecided' | 'org.revisionApplied'
   | 'user.requested' | 'user.changed' | 'auth.approved';
 

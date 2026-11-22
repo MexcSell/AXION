@@ -5,7 +5,7 @@ import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Pencil, Trash2, Play, Pause, Square, RotateCcw, LayoutTemplate, Paperclip, Sparkles, Bot, GitBranch, ListChecks, Info,
-  Image as ImageIcon, FileText, X, Check, ChevronRight, ShieldCheck, Users, AlertTriangle, Archive, Upload, MessageSquare, Send, Copy } from 'lucide-react';
+  Image as ImageIcon, FileText, X, Check, ChevronRight, ShieldCheck, Users, AlertTriangle, Archive, Upload, MessageSquare, Send, Copy, Tags } from 'lucide-react';
 import type { DialogComponentProps } from '@/dialogs/DialogHost';
 import { Modal } from '@/components/ui/Modal';
 import { Field, Segmented, SwitchRow } from '@/components/ui/Form';
@@ -16,6 +16,7 @@ import { toast, openDialog } from '@/store/ui';
 import { AGENTS, AGENT_BY_ID } from '@/data/agents';
 import { getMissionControl } from '@/data/missions';
 import { useMissionControl, sendMissionMessage, taskAction } from '@/api/missionControl';
+import { useFailureTags } from '@/api/failures';
 import { ROLES } from '@/data/roles';
 import type { Mission, Attachment } from '@/data/types';
 import { KIND_META } from '@/features/mission/MissionBits';
@@ -347,6 +348,7 @@ function TaskCriteria({ close, props }: DialogComponentProps<{ missionId: string
   const m = useMission(props.missionId);
   const [busy, setBusy] = useState(false);
   useMissionControl(props.missionId); // api mode: fetch and follow this mission's server data
+  const tagInfo = useFailureTags('task', props.taskId).data?.subject; // cycle 33: the server knows whether the task was retried (a retried task is no longer 'failed')
   if (!m) return <Missing close={close} />;
   const t = getMissionControl(m).tasks.find((x) => x.id === props.taskId);
   if (!t) return <Missing close={close} />;
@@ -362,7 +364,7 @@ function TaskCriteria({ close, props }: DialogComponentProps<{ missionId: string
   const api_ = isApi();
   return (
     <Modal title={t.title} icon={ListChecks} dialogId="DL-13" help="mission.progress.verified" onClose={close} drawer sub={`${t.id} · weight ${t.weight}`}
-      footer={<>{api_ && t.state === 'failed' && <button className="btn" disabled={busy} onClick={() => void run('retry')}><RotateCcw size={15} />Retry</button>}{api_ && t.state !== 'passed' && t.state !== 'canceled' && <button className="btn danger" disabled={busy} onClick={() => void run('cancel')}>Cancel task</button>}<button className="btn" onClick={() => openDialog('task-reassign', { missionId: m.id, taskId: t.id })}>Reassign</button></>}>
+      footer={<>{api_ && (t.state === 'failed' || tagInfo?.retried) && <button className="btn" data-tag-failure onClick={() => openDialog('failure-tag', { missionId: m.id, taskId: t.id, label: t.title })}><Tags size={15} />Tag failure</button>}{api_ && t.state === 'failed' && <button className="btn" disabled={busy} onClick={() => void run('retry')}><RotateCcw size={15} />Retry</button>}{api_ && t.state !== 'passed' && t.state !== 'canceled' && <button className="btn danger" disabled={busy} onClick={() => void run('cancel')}>Cancel task</button>}<button className="btn" onClick={() => openDialog('task-reassign', { missionId: m.id, taskId: t.id })}>Reassign</button></>}>
       <div className="row" style={{ gap: 8 }}><TaskStateChip state={t.state} /><span className="muted" style={{ fontSize: 12.5 }}>Owner</span><RobotAvatar role={owner?.role ?? 'dev'} size={26} /><b>{owner?.name}</b></div>
       <div className="section-label">Expected result</div>
       <p style={{ fontSize: 13 }}>“{t.title}” is complete when its output is attached, tests pass and an independent verifier accepts the evidence.</p>
