@@ -18,12 +18,12 @@ describe('psl test vectors', () => {
     expect(got).toBe(want === null ? null : ascii(want) ? want : domainToASCII(want));
   });
   describe('as grant origins', () => {
-    const host = vectors.filter(([i]) => i !== null && ascii(i) && !i.startsWith('.') && i.includes('.') && !i.includes('xn--') && !/[A-Z]/.test(i) && !RESERVED.has(i.split('.').pop()!));
+    const host = vectors.filter(([i]) => i !== null && ascii(i) && !i.startsWith('.') && i.includes('.') && !i.includes('xn--') && !RESERVED.has(i.split('.').pop()!));
     it('has vectors that apply to hostnames we accept', () => { expect(host.length).toBeGreaterThan(40); });
     it.each(host.map((v) => [v[0]!, v] as const))('https://%s', (_n, [input, want]) => {
       const r = normaliseOrigin('https://' + input);
       if (want === null) expect(r).toEqual({ ok: false, reason: 'public_suffix' }); // the host is itself a public suffix
-      else expect(r).toEqual({ ok: true, origin: 'https://' + input }); // a registrable domain or a name under one is accepted as the exact origin
+      else expect(r).toEqual({ ok: true, origin: 'https://' + input.toLowerCase() }); // (the normaliser lower-cases) a registrable domain or a name under one is accepted as the exact origin
     });
   });
   describe('IDN entries stay refused (c36; P4a is separate)', () => {
