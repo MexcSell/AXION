@@ -1,16 +1,22 @@
 // Cycle 44 fix round: a lone message right after a burst is not held back by the adaptive conversation flush.
 // A burst of BURST messages (default 200) is posted into an open thread; after a pause (PAUSE ms, default 150: longer than
 // the flush's stream gap) one more message is posted. The time from the start of that POST to the message being in the
-// app's store must be at most MAX_MS (default 200; the flush is 60 ms, the POST and the stream add the rest), and the same
-// probe on a quiet thread (no burst) is printed beside it. Run through scripts/api-e2e.sh. No fixed sleeps except the pause itself.
+// app's store must not be later than the same probe on a quiet thread by more than MARGIN ms (c55: the bar was an absolute
+// 200 ms, which a slow or loaded machine fails with no fault in the flush; the flush itself adds 60 ms). The quiet control
+// is measured in the same run, on the same thread, interleaved with the after-burst probes (quiet, burst, quiet, burst, ...), with
+// the same page, flags and CPU throttle (THROTTLE=N), and the bar compares the medians. A flush stuck at its burst delay
+// (the pre-c44 rule: 60 + 12 per event of the last batch, 60 + 12 per event of the last batch: +300 ms after a 30-message batch) adds more than MARGIN.
+// Run through scripts/api-e2e.sh. No fixed sleeps except the pause itself. Env: BURST (200), REBURST (30), PAUSE (150), MARGIN (80), PROBES (5), THROTTLE (1).
 import { chromium } from 'playwright';
+import { readFileSync } from 'node:fs';
 const base = process.env.BASE || 'http://127.0.0.1:5193';
-const BURST = Number(process.env.BURST || 200), PAUSE = Number(process.env.PAUSE || 150), MAX_MS = Number(process.env.MAX_MS || 200), PROBES = Number(process.env.PROBES || 5);
+const BURST = Number(process.env.BURST || 200), PAUSE = Number(process.env.PAUSE || 150), MARGIN = Number(process.env.MARGIN || 80), PROBES = Number(process.env.PROBES || 5), REBURST = Number(process.env.REBURST || 30), THROTTLE = Number(process.env.THROTTLE || 1);
 const until = async (f, ms = 10000, step = 100) => { const t0 = Date.now(); for (;;) { try { if (await f()) return true; } catch { /* retry */ } if (Date.now() - t0 > ms) return false; await new Promise((r) => setTimeout(r, step)); } };
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
 const ctx = await b.newContext({ viewport: { width: 1600, height: 940 } });
 await ctx.addInitScript(() => { try { localStorage.setItem('axion.data-mode', 'api'); localStorage.setItem('axion.testhook', '1'); } catch { /* ignore */ } });
 const p = await ctx.newPage();
+if (THROTTLE > 1) await (await ctx.newCDPSession(p)).send('Emulation.setCPUThrottlingRate', { rate: THROTTLE });
 const errors = []; p.on('pageerror', (e) => errors.push(e.message));
 await p.goto(base + '/missions', { waitUntil: 'domcontentloaded' });
 await p.getByRole('heading', { name: 'Connect' }).waitFor({ timeout: 20000 });
@@ -49,19 +55,21 @@ const probe = (text, pause) => p.evaluate(async ({ mid, tid, text, pause, csrf, 
 }, { mid, tid, text, pause, csrf, k: key() });
 const checks = []; const check = (name, ok, detail = '') => { checks.push(ok); console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ' — ' + detail : ''}`); };
 await api('GET', '/me'); // csrf
-const quiet = []; for (let i = 0; i < PROBES; i++) quiet.push((await probe(`c44 quiet ${i}`, 400)).ms);
+const load = () => readFileSync('/proc/loadavg', 'utf8').split(' ').slice(0, 3).join(' ');
+const burst = (n, tag) => Promise.all(Array.from({ length: n }, (_, j) => api('POST', `/threads/${tid}/messages`, { kind: 'command', text: `c44 ${tag} ${j}`, to: 'gm' }, { 'idempotency-key': key() })));
 for (let i = 0; i < BURST; i += 10) await Promise.all(Array.from({ length: 10 }, (_, j) => api('POST', `/threads/${tid}/messages`, { kind: 'command', text: `c44 burst ${i + j}`, to: 'gm' }, { 'idempotency-key': key() })));
-await until(async () => (await held()) >= BURST + 1 + PROBES, 60000, 100);
-const after = [];
+await until(async () => (await held()) >= BURST + 1, 60000, 100);
+const quiet = [], after = [];
 for (let i = 0; i < PROBES; i++) {
-  // bring the flush's adaptive state up again with a short burst, then pause and probe
-  await Promise.all(Array.from({ length: 10 }, (_, j) => api('POST', `/threads/${tid}/messages`, { kind: 'command', text: `c44 re-burst ${i}-${j}`, to: 'gm' }, { 'idempotency-key': key() })));
-  const r = await probe(`c44 after burst ${i}`, PAUSE); after.push(r.ms ?? Infinity);
+  quiet.push((await probe(`c44 quiet ${i}`, 400)).ms ?? Infinity); // a quiet control: a long pause, so the flush is back at its short delay
+  await burst(REBURST, `re-burst ${i}`); // bring the flush's adaptive state up again with a short burst, then pause and probe
+  after.push((await probe(`c44 after burst ${i}`, PAUSE)).ms ?? Infinity);
 }
+const med = (a) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
 const f = (a) => a.map((x) => x.toFixed(0)).join(' ');
-const worst = Math.max(...after), qmax = Math.max(...quiet);
-check(`a lone message ${PAUSE} ms after a burst is in the store within ${MAX_MS} ms`, worst <= MAX_MS, `after a burst: ${f(after)} ms · quiet control: ${f(quiet)} ms`);
-check('the burst arrived whole (no message lost)', (await held()) >= BURST + 1 + PROBES * 12, `held ${await held()}`);
+const excess = med(after) - med(quiet);
+check(`a lone message ${PAUSE} ms after a burst is in the store no later than ${MARGIN} ms over the same-run quiet control (medians)`, excess <= MARGIN, `after a burst: ${f(after)} ms (median ${med(after).toFixed(0)}) · interleaved quiet control: ${f(quiet)} ms (median ${med(quiet).toFixed(0)}) · excess ${excess.toFixed(0)} ms · load ${load()} · THROTTLE ${THROTTLE}`);
+check('the burst arrived whole (no message lost)', (await held()) >= BURST + 1 + PROBES * (REBURST + 2), `held ${await held()}`);
 check('no page errors', errors.length === 0, errors.join(' | '));
 await b.close();
 process.exit(checks.every(Boolean) ? 0 : 1);
