@@ -30,11 +30,12 @@ function SourcesEditor({ rows, onChange, error }: { rows: SourceRef[]; onChange:
           <select className="select" style={{ width: 130, height: 32 }} aria-label={`Source ${i + 1} kind`} value={r.kind} onChange={(e) => set(i, { kind: e.target.value as SourceKind })}>
             {KINDS.map((k) => <option key={k} value={k}>{SRC_LABEL[k]}</option>)}
           </select>
-          <input className="input" style={{ flex: 1, minWidth: 0, height: 32 }} aria-label={`Source ${i + 1} id`} maxLength={80} value={r.id} placeholder={r.kind === 'mission' ? 'M-126' : 'an id or short name'} onChange={(e) => set(i, { id: e.target.value })} />
+          <input className="input" style={{ flex: 1, minWidth: 0, height: 32 }} aria-label={`Source ${i + 1} id`} maxLength={80} value={r.id} placeholder={r.kind === 'mission' ? 'M-126' : r.kind === 'lesson' ? 'LC-… of a lesson you can open' : r.kind === 'skill' ? 'SK-… of a skill you can open' : 'an id or short name'} onChange={(e) => set(i, { id: e.target.value })} />
           <button type="button" className="icon-btn" style={{ width: 24, height: 24 }} aria-label={`Remove source ${i + 1}`} disabled={rows.length === 1} onClick={() => onChange(rows.filter((_, j) => j !== i))}><X size={12} /></button>
         </motion.div>
       ))}
       <div><button type="button" className="btn sm" disabled={rows.length >= 10} onClick={() => onChange([...rows, { kind: 'note', id: '' }])} aria-label="Add source"><Plus size={13} />Add source</button></div>
+      {rows.some((r) => r.kind === 'lesson' || r.kind === 'skill') && <span className="dim row" style={{ fontSize: 11.5, gap: 6 }} data-derived-note>This becomes a derived record: its origin is never above its weakest cited record.<HelpTrigger k="playbook.origin" /></span>}
       {error && <span className="dim" style={{ fontSize: 12 }}>{error}</span>}
     </div>
   );

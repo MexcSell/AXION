@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
-import type { LessonCandidateDto, PlaybookDiff, PlaybookDto, PlaybookVersionRow, SkillDto, SkillStep, SourceRef } from '@contracts';
+import type { ContributionDto, LessonCandidateDto, PlaybookDiff, PlaybookDto, PlaybookVersionRow, RetirementProposalsDto, SkillDto, SkillStep, SourceRef } from '@contracts';
 import { api, ApiFailure, newKey } from './client';
 import { isApi } from './mode';
 
@@ -29,6 +29,11 @@ function useTickedRead<T>(path: string | null, pick: (r: any) => T): Read<T> { /
 export interface PlaybookRead { playbook: PlaybookDto; versions: PlaybookVersionRow[] }
 export const usePlaybook = (agentId: string) => useTickedRead<PlaybookRead>(`/agents/${encodeURIComponent(agentId)}/playbook`, (r) => r);
 export const useLessons = (agentId?: string) => useTickedRead<LessonCandidateDto[]>(agentId ? `/lessons?agentId=${encodeURIComponent(agentId)}` : '/lessons', (r) => r.lessons ?? []);
+/** c59: the append-only contribution log of one lesson or skill (read when its Log is opened; null path = not asked). */
+export const useContributions = (kind: 'lessons' | 'skills', id: string | null) =>
+  useTickedRead<ContributionDto[]>(id ? `/${kind}/${encodeURIComponent(id)}/contributions` : null, (r) => r.contributions ?? []);
+/** c59: fixture-only retirement proposals (administrators; pass false to skip the request). */
+export const useRetirementProposals = (enabled: boolean) => useTickedRead<RetirementProposalsDto>(enabled ? '/skills/retirement-proposals' : null, (r) => r);
 export const useSkills = () => useTickedRead<SkillDto[]>('/skills', (r) => r.skills ?? []);
 /** What changed between two versions (from 0 = the empty playbook). */
 export const usePlaybookDiff = (agentId: string, from: number | null, to: number | null) =>
@@ -52,4 +57,5 @@ export const proposeSkill = (body: { name: string; description: string; steps: S
   write<{ skill: SkillDto }>('POST', '/skills', body, key);
 export const approveSkill = (id: string) => write<{ skill: SkillDto }>('POST', `/skills/${encodeURIComponent(id)}/approve`, {});
 export const retireSkill = (id: string, note: string) => write<{ skill: SkillDto }>('POST', `/skills/${encodeURIComponent(id)}/retire`, note.trim() ? { note: note.trim() } : {});
+export const keepSkill = (id: string, note: string) => write<{ ok: true }>('POST', `/skills/${encodeURIComponent(id)}/retirement-dismiss`, note.trim() ? { note: note.trim() } : {});
 export { newKey };
