@@ -22,6 +22,20 @@ export interface OpsHealthDto {
   checkedAt: string;
 }
 
+/** GET /operations/queues (administrators, c45): read-only job record counts. */
+export const JOB_STATUS_NAMES = ['queued', 'leased', 'succeeded', 'failed', 'canceled', 'dead'] as const;
+export interface QueueSummaryDto {
+  kinds: { kind: string; counts: Record<string, number>; total: number }[];
+  oldestQueuedAgeSec: number | null; expiredLeases: number; total: number;
+  execution: 'disabled'; recordsOnly: true; checkedAt: string;
+}
+
+/** GET /operations/anchors (administrators, c49): status of the external audit anchor. No key, file path or hash is ever included. */
+export const ANCHOR_STATUS_NAMES = ['ok', 'truncated', 'rewritten', 'bad_signature', 'anchor_missing', 'rolled_back', 'insecure_file', 'unreadable'] as const;
+export type AnchorStatusName = (typeof ANCHOR_STATUS_NAMES)[number];
+export interface AnchorTenantDto { tenant: string; status: AnchorStatusName; anchoredSeq: number | null; anchoredAt: string | null; reason: string | null }
+export interface AnchorStatusDto { configured: boolean; ok: boolean; lastAnchorAt: string | null; restartedAt: string | null; reason: string | null; tenants: AnchorTenantDto[]; checkedAt: string }
+
 /** GET /audit/verify: the audit hash chain walk. `firstBadSeq` and `reason` appear only when the chain is broken. */
 export interface AuditVerifyDto { ok: boolean; checked: number; firstBadSeq?: number; reason?: string }
 
@@ -67,6 +81,9 @@ export interface ApprovalDto {
   consumed: boolean; consumedAt: number | null;
   /** who decided (null while pending or expired) */
   decidedByName: string | null;
+  /** c48: whether the signed-in viewer may decide this request now, and when not, why (the server's own check, the same one the decision route runs) */
+  canDecide: boolean;
+  decideBlockedReason: 'tier_requires_admin' | 'requester_cannot_decide' | 'already_decided' | 'expired' | null;
   status: 'pending' | 'approved' | 'denied'; state: 'pending' | 'approved' | 'denied' | 'expired' | 'revoked';
   expiresMin: number; agoMin: number; expiresAt: number;
 }

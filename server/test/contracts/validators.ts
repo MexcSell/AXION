@@ -11,7 +11,8 @@ import {
   type OrgRevisionDto, type OrgRevisionSource, type OrgRevisionSummaryDto, type PlaybookDiff, type PlaybookDto, type PlaybookItem, type PlaybookVersionRow, type PolicyBaselineDto,
   type PolicyKindDto, type ProgressBody, type Provenance, type ReviewActor, type ReviewerAgreement, type RubricItem, type ScorecardRow, type SiteGrantDto, type SkillDto,
   type SkillStep, type SourceRef, type TaskBody, type TaskDto, type TaskReviewDto, type TaskReviewsDto, type ThreadDto, type ThreadPartnerDto, type ThroughputDto,
-  type UploadDto, type VersionConfig, type VersionDiff, type VersionProposalDto, type AgentReliability,
+  type UploadDto, type VersionConfig, type VersionDiff, type VersionProposalDto, type AgentReliability, type QueueSummaryDto, type AnchorStatusDto, type AnchorTenantDto, ANCHOR_STATUS_NAMES, JOB_STATUS_NAMES,
+  type ProposalEvaluationDto, type EvalRefusalDto, type CompanyDimensionsDto, type DimensionRowDto, type DimensionCell, DIMENSION_KEYS, DIMENSION_WINDOWS,
 } from '../../../shared/contracts/src/index.ts';
 
 export const errorEnvelope: V<ErrorEnvelope> = obj<ErrorEnvelope>({ code: oneOf(ERROR_CODES), message: str, correlationId: str, retryable: bool, fieldErrors: opt(dict(str)) });
@@ -25,6 +26,12 @@ export const opsHealth: V<OpsHealthDto> = obj<OpsHealthDto>({
   events: obj({ count: int, lastAt: nullable(iso) }), sse: obj({ clients: int }),
   backup: obj({ last: nullable(iso), file: nullable(str), count: int }), execution: lit('disabled' as const), checkedAt: iso,
 });
+export const queues: V<QueueSummaryDto> = obj<QueueSummaryDto>({
+  kinds: arr(obj<QueueSummaryDto['kinds'][number]>({ kind: str, counts: obj<Record<string, number>>(Object.fromEntries(JOB_STATUS_NAMES.map((k) => [k, int])) as never), total: int })),
+  oldestQueuedAgeSec: nullable(int), expiredLeases: int, total: int, execution: lit('disabled' as const), recordsOnly: lit(true as const), checkedAt: iso,
+});
+const anchorTenant: V<AnchorTenantDto> = obj<AnchorTenantDto>({ tenant: str, status: oneOf(ANCHOR_STATUS_NAMES), anchoredSeq: nullable(int), anchoredAt: nullable(iso), reason: nullable(str) });
+export const anchors: V<AnchorStatusDto> = obj<AnchorStatusDto>({ configured: bool, ok: bool, lastAnchorAt: nullable(iso), restartedAt: nullable(iso), reason: nullable(str), tenants: arr(anchorTenant), checkedAt: iso });
 export const auditVerify: V<AuditVerifyDto> = obj<AuditVerifyDto>({ ok: bool, checked: int, firstBadSeq: opt(int), reason: opt(str) });
 const policyKind: V<PolicyKindDto> = obj<PolicyKindDto>({ kind: str, tier: str, effect: str, approver: nullable(str), heldBy: opt(str), note: opt(str), prohibited: nullable(str), why: str });
 export const policyBaseline: V<PolicyBaselineDto> = obj<PolicyBaselineDto>({ version: int, source: str, tiers: arr(str), kinds: arr(policyKind) });
@@ -74,6 +81,7 @@ export const approval: V<ApprovalDto> = obj<ApprovalDto>({
   id: str, missionId: str, agentId: str, title: str, detail: str, kind: str, risk: str, riskTier: str, digest: str, digestVersion: int, demo: bool,
   taskId: nullable(str), origin: nullable(str), target: nullable(str), requestedBy: nullable(str), effect: nullable(str), effectWhy: nullable(str), approver: str,
   consumed: bool, consumedAt: nullable(num), decidedByName: nullable(str),
+  canDecide: bool, decideBlockedReason: nullable(oneOf(['tier_requires_admin', 'requester_cannot_decide', 'already_decided', 'expired'] as const)),
   status: oneOf(['pending', 'approved', 'denied'] as const), state: oneOf(['pending', 'approved', 'denied', 'expired', 'revoked'] as const), expiresMin: num, agoMin: num, expiresAt: num,
 });
 export const approvalsBody = obj<{ approvals: ApprovalDto[] }>({ approvals: arr(approval) });
@@ -188,11 +196,19 @@ export const agentsBody = obj<{ agents: AgentDto[] }>({ agents: arr(agent) });
 const versionConfig: V<VersionConfig> = obj<VersionConfig>({ model: str, skills: arr(str), tools: arr(str) });
 const versionDiff: V<VersionDiff> = obj<VersionDiff>({ skillsAdded: arr(str), skillsRemoved: arr(str), toolsAdded: arr(str), toolsRemoved: arr(str), model: nullable(obj({ from: str, to: str })), changed: bool });
 const nullOnly = nul;
+const evalRefusal: V<EvalRefusalDto> = obj<EvalRefusalDto>({ code: str, detail: str });
+const proposalEvaluation: V<ProposalEvaluationDto> = obj<ProposalEvaluationDto>({
+  outcome: oneOf(['verified_better', 'inconclusive', 'worse'] as const), n: int, wins: int, losses: int, ties: int, k: int,
+  delta: nullable(num), ci: obj<ProposalEvaluationDto['ci']>({ low: nullable(num), high: nullable(num) }), baselineMean: nullable(num), candidateMean: nullable(num),
+  passHatK: obj<ProposalEvaluationDto['passHatK']>({ baseline: arr(nullable(num)), candidate: arr(nullable(num)) }),
+  refusals: arr(evalRefusal), reasons: arr(str), notes: arr(str),
+  datasetId: str, datasetSha: nullable(str), baseRunId: nullable(str), candidateRunId: str, runCount: int,
+});
 const versionProposal: V<VersionProposalDto> = obj<VersionProposalDto>({
   id: str, agentId: str, agentName: str, title: str, hypothesis: str, baseVersionId: str, baseVersionLabel: str, baseSha: str, base: versionConfig, candidate: versionConfig, candidateSha: str,
   diff: versionDiff, sha: str, status: oneOf(['pending', 'promoted', 'rejected', 'withdrawn', 'expired'] as const), activeVersionId: str, stale: bool,
   createdBy: str, createdByName: str, createdAt: iso, expiresAt: iso, decidedBy: nullable(str), decidedByName: nullable(str), decidedAt: nullable(iso), note: nullable(str),
-  promotedVersionId: nullable(str), promotedVersionLabel: nullable(str), evaluation: nullOnly,
+  promotedVersionId: nullable(str), promotedVersionLabel: nullable(str), evaluation: nullable(proposalEvaluation), evaluationSha: str, overrideReason: nullable(str),
 });
 export const versionProposalBody = obj<{ proposal: VersionProposalDto }>({ proposal: versionProposal });
 export const versionProposalsBody = obj<{ proposals: VersionProposalDto[] }>({ proposals: arr(versionProposal) });
@@ -324,3 +340,14 @@ const deptFacts: V<DepartmentFacts> = obj<DepartmentFacts>({
   lastOrgChange: nullable(obj({ revision: int, at: iso })), evidence: str,
 });
 export const departments: V<DepartmentsDto> = obj<DepartmentsDto>({ window: oneOf(SCORECARD_WINDOWS), from: iso, to: iso, includeDemo: bool, departments: arr(deptFacts) });
+
+// ---- company dimensions (c46)
+const dimensionCell: V<DimensionCell> = obj<DimensionCell>({
+  key: str, label: str, value: nullable(num), unit: oneOf(['%', 'h', 'count'] as const), n: nullable(int), minN: int, basis: oneOf(['window', 'snapshot', 'none'] as const),
+  from: nullable(iso), to: nullable(iso), evidence: str, scope: oneOf(['missions', 'company'] as const), state: oneOf(['ok', 'none', 'hidden', 'unmeasured'] as const),
+  previous: obj<DimensionCell['previous']>({ value: nullable(num), n: int }), trend: nullable(oneOf(['up', 'down', 'flat'] as const)),
+});
+const dimensionRow: V<DimensionRowDto> = obj<DimensionRowDto>({ key: oneOf(DIMENSION_KEYS), label: str, cells: arr(dimensionCell) });
+export const dimensions: V<CompanyDimensionsDto> = obj<CompanyDimensionsDto>({
+  window: oneOf(DIMENSION_WINDOWS), from: iso, to: iso, previousFrom: iso, previousTo: iso, department: nullable(str), departments: arr(str), dimensions: arr(dimensionRow),
+});
