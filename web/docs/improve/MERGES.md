@@ -489,3 +489,43 @@ FAIL 900 /operations?tab=logs tab=Logs: clipped control button.icon-btn.xs[Dismi
 - **fit-check:** 78/78 ALL FIT. **ov-fit:** 32/32, NO SCROLL ANYWHERE.
 
 **Follow-up commits:** `9e958f3`, `bc53a1b`. Controller files committed with this entry: BACKLOG.md, LOG.md, QUEUE.md (modified); cycles/c45-review.md (new).
+
+## Batch 8 (Phase 2 · Wave 2): c36, c37, c33, c35, c34
+
+- **Merged:** 2026-11-22 ~08:20–08:55 UTC. Pre-batch commit `3ca733a`.
+- **Merge commits (`--no-ff`):**
+  - `6087760` c36-site-grants (719091a): migration 0030, per-site grants, DL-90.
+  - `59fc6fa` c37-browser-contract (1bd26fe): browser contract and corpora.
+  - `766f4cf` c33-failure-tags (66d5e35): migration 0028, failure tags, DL-78.
+  - `fd55ca4` c35-approval-binding (87b2263): migration 0029, approval digest v2 with a v2-only insert guard.
+  - `0fc4b98` c34-staffing-fresh (8e5bc03): demo staffing tick reads fresh store state.
+- **Conflicts (all list unions, both sides kept):**
+  - c36 `web/src/api/events.ts` sign-out cancels: c28's `versions.cancel()` and c36's `grants.cancel()`.
+  - c37: none (branched from c36).
+  - c33:
+    - `server/src/app.ts` registrations: policy, grants, failures.
+    - `server/src/ratelimit.ts` LIMITED_ROUTES: site-grants and failure-tags writes.
+    - `server/test/security.test.ts`: `LIMITED_KIND` now `/\/messages$|proposal|rollback|mentoring|site-grants|failure-tags|\/uploads$/`, and the expected-route list has both pairs.
+    - contracts `errors.ts`, `events.ts` and `index.ts` (browser and failures exports).
+    - `web/src/api/events.ts`: imports, refreshers, event routing, reconnect re-reads, event type list and sign-out cancels. The two sides were checked to differ only by the grant/failure tokens.
+  - c35 `shared/contracts/src/errors.ts`: failure-tag and approval codes.
+- **Dialog ids:** `dialogId=` values are unique except DL-48, which appears twice in the same dialog (its not-found branch, since init). c33 DL-78 and c36 DL-90 are new and unique.
+- **Migrations present:** 0026–0030. The only `insert into approval_requests` left without a version was scale-bench's.
+- **Per-merge server checks:** tsc OK after each. vitest: c36 971/971; c37 1385/1385 (`test/browser-contract.test.ts` **414/414**); c33 1403/1403; c35 1431/1431; c34 1436/1436 (includes c34's staffing tick tests). web tsc OK after each.
+- **Follow-up `db4eb49` (required, after c35):** scale-bench's approvals insert sets `digest_version` 2. Proven with a guard-free copy (`assertOwnLaneDb` removed, `search_path` set to a scratch schema `scale_tmp_*` in axion_test):
+  - RED on the old insert: "approval_requests: new requests must use digest v2".
+  - GREEN on the new one: seeded 300 missions, 3,000 tasks, 6,000 attempts, 50,000 events, 20,000 audit rows; audit chain ok (20,000); BEFORE/AFTER/AFTER2 timings printed; rc 0.
+  - Copy deleted and both scratch schemas dropped.
+
+**Batch checks on `db4eb49`… `0fc4b98`:**
+- **api-e2e (exit 0):** api-auth-flow 15/15; api-flows 23/23; api-stage6 94/94; api-improve 107/107; api-c33 41/41; api-c35 16 PASS, 0 FAIL; api-c36 35/35; a11y-check (api) 40 views, 58 dialogs, 0 violations.
+- **5190 had gone stale.** The first verify-all failed 6/10 steps. 5190 served a `shared/contracts/src/index.ts` without c37's `browser.ts` and c33's `failures.ts` exports, so every page logged "Dialog module failed ./defs/failure-tags.tsx … does not provide an export named 'FAILURE_TAXONOMY'". The build step passed; the file on disk was right; a `touch` did not wake the watcher. **The controller restarted 5190 at about 09:16Z.** The demo-mode checks below were re-run on the restarted server.
+- **verify-all (restarted 5190):** exit 1, "1 of 10 STEPS FAILED" (flows 19/21; load ~9). FAIL lines:
+  - `FAIL  u1 · News: post news, it appears for everyone: page.waitForSelector: Timeout 4000ms exceeded.`
+  - `FAIL  u1 · Chat dock: GM answers: locator.click: Timeout 30000ms exceeded.`
+  - Second time in a row (batch 6 too); both are BACKLOG H7 steps, which c43 (batch 8b) hardens. `flows.mjs` alone (load 4.6): exit 0, 21/21. Recorded as load.
+  - All other steps PASS. **Dialog smoke 58 dialogs, 116 checks, 0 failures.** The regenerated ledger adds only c36's two DL-90 lines (`site-grant` no-props/props), which were missing from the tracked file. **The updated `web/docs/dialog-ledger.txt` is committed with this entry.**
+- **fit-check:** 78/78 ALL FIT. **ov-fit:** 32/32, NO SCROLL ANYWHERE. **a11y-check (demo):** 50 views, 58 dialogs, 0 violations (141 s).
+- **Race checks against 5190:** `c34-archive-race.mjs` STOP=archived 14/14 clean, STOP=paused 14/14 clean; `c29-archive-race.mjs` archived 14/14.
+
+**Follow-up commits:** `db4eb49`. Controller files committed with this entry: LOG.md (modified), cycles/c44-review.md (new).

@@ -100,6 +100,8 @@ PASS  send-command               no-props
 PASS  send-command               props    DL-18   
 PASS  service-restart            no-props DL-60   
 PASS  service-restart            props    DL-60   
+PASS  site-grant                 no-props DL-90   
+PASS  site-grant                 props    DL-90   
 PASS  task-criteria              no-props         
 PASS  task-criteria              props    DL-13   
 PASS  task-reassign              no-props         

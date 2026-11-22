@@ -312,3 +312,22 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
   - Deviation accepted: a live lease may go back to queued when the holder records a failure (last_error), which the holder's own retry needs. The token still bumps, so fencing holds.
   - The test-only trigger disable is transactional and rolls back on error.
   - Queued as batch 10.
+- 2026-11-22T08:49Z · c44 review: **FAIL**.
+  - Regression: api-c26 I2 "older page keeps the visible message in place (±8 px)" fails on the tip (150–436 px, 3/3 at load 6–8) and passes on the base (2/2). It is isolated to `useMissionNodes` in Missions.tsx; the mechanism is not yet found.
+  - Interleaved timing with the same flags:
+    - floor 960 → 336 ms (−65 %, PASS);
+    - full burst 1,684 → 1,084 ms (bar 887 ms, NOT MET);
+    - worst period 3/6 reps ≤ 250 ms (NOT MET).
+  - Fix round dispatched:
+    - find and fix the anchor mechanism without loosening ±8 px;
+    - remove the lastEventAt hunk (no gain, timer not cleared on sign-out);
+    - adaptive flush falls back to 60 ms after a burst (a lone message waited up to 400 ms).
+- 2026-11-22T09:07Z · c40 mobile debt (w38) reported at 38306f5.
+  - The real gate, `DATA_MODE=api` api-mobile, went from 37 FAIL to 0. The brief's bare form runs in demo mode: noted, and the gate form fixed for the queue row.
+  - Fixes: Activity cards min(), help popovers scroll inside the available height, `.modal-layer` minmax(0,1fr) (DL-75 is 852 px at 900), Conversations wraps ≤800 px, and a toast exit marker that the harness skips.
+  - Concern: the Activity KPI strip is cramped at 390 px.
+  - Independent reviewer dispatched. Focus: can the exit-marker skip hide a real overflow, plus a desktop pixel diff.
+- 2026-11-22T09:16Z · Batch 8 merged (tip around 0fc4b98, scale-bench follow-up db4eb49).
+  - Green: vitest 1436/1436, browser-contract 414/414; api auth/flows/stage6/improve/c33/c35/c36 all pass; a11y 0 violations.
+  - verify-all showed 6/10 red because the live web dev server 5190 had a stale watcher: it served an old contracts/index.ts without the c33/c37 exports, and a `touch` didn't refresh it.
+  - Controller restarted 5190 (kill by pid, same command, log /tmp/axion-web-5190.log). It now serves the new exports. Integrator re-running the demo checks.
