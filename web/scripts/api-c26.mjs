@@ -315,7 +315,7 @@ async function widths(mid, tid, label) {
     return out;
   }, kinds);
   const off = r.reduce((q, x) => q + x.off, 0), bad = r.reduce((q, x) => q + x.bad, 0);
-  check(`I1 ${label}: minimap blocks of rows not on screen are within ±25 % of the measured mean width of their kind`, off > 0 && bad === 0,
+  check(`I1 ${label}: minimap blocks of rows not on screen are within ±25 % of the measured mean width of their kind`, off > 0 && bad === 0 && r.every((x) => x.mean > 4),
     r.map((x) => `${x.k}: mean ${x.mean} px, ${x.off} off-screen ${x.min}–${x.max} px, ${x.bad} outside`).join(' · '));
 }
 
@@ -372,12 +372,14 @@ async function mixed() {
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       const box = el.getBoundingClientRect();
       const first = [...el.querySelectorAll('[data-mid]')].find((n) => n.getBoundingClientRect().bottom > box.top + 1);
-      return first ? { id: first.getAttribute('data-mid'), top: first.getBoundingClientRect().top - box.top } : null;
+      return first ? { id: first.getAttribute('data-mid'), top: first.getBoundingClientRect().top - box.top, rows: [...el.querySelectorAll('[data-mid]')].map((x) => x.getAttribute('data-mid') + '@' + Math.round(x.getBoundingClientRect().top - box.top)).join(','), st: el.scrollTop } : null;
     });
+    if (process.env.DEBUG_PIN) console.log('DEBUG test capture', JSON.stringify(a));
     await until(async () => heldRoutes.length > 0, 5000, 50);
+    for (const r of heldRoutes) await r.continue().catch(() => undefined);
     await p.unroute(olderRe);
-    for (const r of heldRoutes) await r.continue();
     await until(async () => (await held(mid, tid)) > before, 8000);
+    if (process.env.DEBUG_PIN && a) console.log('DEBUG anchor trail', JSON.stringify(await body.evaluate(async (el, id) => { const out = []; const t0 = performance.now(); while (performance.now() - t0 < 900) { const x = el.querySelector(`[data-mid="${id}"]`); out.push([Math.round(performance.now() - t0), x ? +(x.getBoundingClientRect().top - el.getBoundingClientRect().top).toFixed(1) : null, Math.round(el.scrollTop), el.querySelectorAll('[data-mid]').length]); await new Promise((r) => setTimeout(r, 40)); } return out; }, a.id)), 'captured', a.id, a.top, JSON.stringify(await p.evaluate(() => window.__dbg?.slice(-6))));
     await p.waitForTimeout(700); // measurements of the new rows land (≤ 400 ms) and are absorbed
     const after = a ? await body.evaluate((el, id) => { const x = el.querySelector(`[data-mid="${id}"]`); return x ? x.getBoundingClientRect().top - el.getBoundingClientRect().top : null; }, a.id) : null;
     shifts.push(after == null || !a ? 999 : Math.abs(after - a.top));
@@ -460,7 +462,10 @@ if (process.env.CHECKS !== '0') {
     }
     await widths(last.mid, last.tid, 'reader at the bottom');
     // the same after the thread's width changes (cached heights and estimates are learned again)
-    await p.setViewportSize({ width: 1360, height: 940 });
+    const w0 = await p.locator('.conv-main .thread-body').evaluate((el) => el.clientWidth);
+    await p.setViewportSize({ width: 1480, height: 940 });
+    await p.waitForTimeout(300);
+    console.log(`  (thread width ${w0} → ${await p.locator('.conv-main .thread-body').evaluate((el) => el.clientWidth)} px)`);
     await widths(last.mid, last.tid, 'after the thread got narrower');
     await p.setViewportSize({ width: 1600, height: 940 });
     await behaviour(last.mid, last.tid);

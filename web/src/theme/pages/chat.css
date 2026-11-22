@@ -49,5 +49,6 @@
 /* Improvement cycle 26: virtualised threads (features/chat/ChatView.tsx). Spacers stand in for rows outside the rendered
    window and must keep their height in the flex column; a message row can take keyboard focus (↑ ↓ PgUp PgDn Home End). */
 .thread-spacer { flex: none; pointer-events: none; }
+.thread-body { overflow-anchor: none; } /* fix round I2: the thread keeps its own scroll anchor (ChatView `hold`) */
 .thread-row { flex: none; border-radius: 14px; outline: none; }
 .thread-row:focus-visible { box-shadow: 0 0 0 2px rgba(var(--accent-rgb), .75), 0 0 14px rgba(var(--accent-rgb), .35); }

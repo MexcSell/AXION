@@ -252,6 +252,31 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
   useLayoutEffect(() => { vpRef.current = vp; }, [vp]);
   const moveVp = (el: HTMLElement) => { const v = { top: el.scrollTop, h: el.clientHeight }; vpRef.current = v; setVp(v); };
 
+  // Fix round I2: the thread keeps its own scroll anchor (the browser's is off, overflow-anchor: none). The first visible
+  // row and where it sat are recorded on every scroll and after every change; when rows above it are mounted with their
+  // real height, measured, or resized, and nobody scrolled meanwhile, the scroll position follows that row. (The browser's
+  // anchoring missed the case of a programmatic scroll followed at once by rows mounting above: an older page landing.)
+  const vis = useRef<{ id: string; top: number; st: number } | null>(null);
+  const atBottomRef = useRef(true);
+  const record = () => {
+    const el = scroller.current;
+    if (!el) return;
+    const box = el.getBoundingClientRect();
+    const r = Array.from(el.querySelectorAll<HTMLElement>('[data-mid]')).find((x) => x.getBoundingClientRect().bottom > box.top + 1);
+    vis.current = r ? { id: r.dataset.mid!, top: r.getBoundingClientRect().top - box.top, st: el.scrollTop } : null;
+  };
+  const hold = () => {
+    const el = scroller.current, v = vis.current;
+    if (!el) return;
+    if (v && !atBottomRef.current && el.scrollTop === v.st) {
+      const r = el.querySelector<HTMLElement>(`[data-mid="${CSS.escape(v.id)}"]`);
+      if (r) { const d = r.getBoundingClientRect().top - el.getBoundingClientRect().top - v.top; if (Math.abs(d) >= .5) el.scrollTop += d; }
+    }
+    record();
+  };
+  const holdRef = useRef(hold);
+  holdRef.current = hold;
+
   // an older page landed at the top: keep the window on the same rows (they moved down by the new rows' height). Only in
   // the same view: switching Full / Compact re-reads the scroll position from the DOM instead (below).
   const firstShown = shown[0]?.id;
@@ -322,7 +347,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
               if (sc.clientHeight !== vpRef.current.h) moveVp(sc);
             } else if (me.row(t)) changed = true;
           }
-          if (changed) me.bump(wide);
+          if (changed) { holdRef.current(); me.bump(wide); } // a row above the reader changed size: keep the reader's row in place
         }));
       },
       // a measurement re-renders the thread (window, spacers, minimap) at most every GEO_WAIT ms, and within GEO_MAX_WAIT
@@ -421,7 +446,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
     if (!row) return;
     pendingFocus.current = null;
     row.focus({ preventScroll: true });
-    row.scrollIntoView({ block: 'nearest' }); // the estimate may have been off
+    row.scrollIntoView({ block: row.offsetHeight > el.clientHeight ? 'start' : 'nearest' }); // the estimate may have been off; a message taller than the view shows its start
   });
   const onKeyDown = (ev: React.KeyboardEvent<HTMLDivElement>) => {
     const t = ev.target as HTMLElement;
@@ -433,6 +458,9 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
     if (to >= 0 && to < n) { if (to !== i) focusRow(to); }
     else if (to < 0 && scroller.current) requestOlder(scroller.current);
   };
+
+  // after every change: keep the reader's row in place (declared after the other layout effects, so it runs last)
+  useLayoutEffect(() => { atBottomRef.current = atBottom; hold(); });
 
   const rows: ReactNode[] = [];
   let at = 0, sp = 0;
@@ -480,6 +508,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
           }}
           onScroll={(ev) => {
             const el = ev.currentTarget; const b = el.scrollHeight - el.scrollTop - el.clientHeight < 40; setAtBottom(b); if (b) setNewCount(0);
+            atBottomRef.current = b; record(); // the reader's position now: later changes keep this row in place
             const far = Math.abs(el.scrollTop - vpRef.current.top) > DRIFT || el.clientHeight !== vpRef.current.h;
             // at the top: the rows there are rendered first (a jump to the top leaves only a spacer in view until then), so
             // the older-page anchor is a row the reader can see
