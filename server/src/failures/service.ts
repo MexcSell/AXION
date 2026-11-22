@@ -226,19 +226,20 @@ export async function failureModeCounts(c: Q, ctx: Viewer, w: { window: '7d' | '
         and f.taxonomy_version=$5 and f.status in ('confirmed','proposed') and f.created_at > now() - make_interval(days => $6::int) and f.created_at <= now() group by 1, 2, 3, 4, 5, 6, 7, 8, 9`,
     [ctx.tenantId, ctx.user.role === 'admin', ctx.user.id, includeDemo, FAILURE_TAXONOMY_VERSION, WINDOW_DAYS[w.window]])).rows;
   const by = new Map<string, number>();
-  let n = 0, proposed = 0, demo = 0, selfConfirmed = 0;
+  let n = 0, proposed = 0, demo = 0, selfConfirmed = 0, noFailureTime = 0;
   const have: Record<DetectionFieldKey, number> = { channel: 0, detectedAfter: 0, mechanism: 0, controlExpected: 0, controlCaught: 0 };
   const channels = Object.fromEntries(DETECTION_CHANNELS.map((x) => [x.id, 0])) as Record<DetectionChannel, number>;
   for (const r of rows) {
     if (r.status !== 'confirmed') { proposed += r.n; continue; }
     by.set(r.mode_id, (by.get(r.mode_id) ?? 0) + r.n); n += r.n; if (r.demo) demo += r.n; if (r.self_confirmed) selfConfirmed += r.n;
     if (r.detection_channel) { have.channel += r.n; channels[r.detection_channel as DetectionChannel] += r.n; }
+    if (r.detection_channel && !r.has_after) noFailureTime += r.n;
     if (r.has_after) have.detectedAfter += r.n; if (r.has_mech) have.mechanism += r.n; if (r.has_ce) have.controlExpected += r.n; if (r.has_cc) have.controlCaught += r.n;
   }
   const some = n > 0;
   const fields = Object.fromEntries(DETECTION_FIELD_KEYS.map((k) => [k, { have: have[k], missing: n - have[k], missingShare: some ? (n - have[k]) / n : null } satisfies DetectionFieldCount])) as Record<DetectionFieldKey, DetectionFieldCount>;
   const detection: FailureDetectionDto = {
-    n, fields, channels,
+    n, fields, noFailureTime, channels,
     humanOnly: { humanReview: channels.human_review, withChannel: have.channel, missing: n - have.channel, share: have.channel >= HUMAN_ONLY_MIN_N ? channels.human_review / have.channel : null, minN: HUMAN_ONLY_MIN_N, window: w.window },
   };
   return {

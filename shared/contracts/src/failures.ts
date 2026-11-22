@@ -137,6 +137,8 @@ export const DETECTION_FIELD_KEYS = ['channel', 'detectedAfter', 'mechanism', 'c
 export type DetectionFieldKey = (typeof DETECTION_FIELD_KEYS)[number];
 export interface FailureDetectionDto {
   n: number; fields: Record<DetectionFieldKey, DetectionFieldCount>;
+  /** of the confirmed tags that have a channel: how many have no detected-after because no failure time is stored for the subject. (`fields.detectedAfter.missing` also counts the tags with no channel, for which it does not apply.) */
+  noFailureTime: number;
   /** confirmed tags per detection channel (only tags that carry one) */
   channels: Record<DetectionChannel, number>;
   /** "Found only by a person": of the confirmed tags with a recorded channel (`withChannel`), how many were found by a person looking at the result. `share` is null below `minN` tags with a channel; `missing` tags have no channel and are not in the share. */

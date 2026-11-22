@@ -332,7 +332,7 @@ const modeCount: V<FailureModeCount> = obj<FailureModeCount>({ id: str, name: st
 const categoryCount: V<FailureCategoryCount> = obj<FailureCategoryCount>({ id: str, name: str, count: nullable(int), modes: arr(modeCount) });
 const detectionField: V<DetectionFieldCount> = obj<DetectionFieldCount>({ have: int, missing: int, missingShare: nullable(num) });
 const detection: V<FailureDetectionDto> = obj<FailureDetectionDto>({
-  n: int,
+  n: int, noFailureTime: int,
   fields: obj<FailureDetectionDto['fields']>({ channel: detectionField, detectedAfter: detectionField, mechanism: detectionField, controlExpected: detectionField, controlCaught: detectionField }),
   channels: obj<FailureDetectionDto['channels']>({ test: int, audit: int, human_review: int, other_agent: int, reported_later: int }),
   humanOnly: obj<FailureDetectionDto['humanOnly']>({ humanReview: int, withChannel: int, missing: int, share: nullable(num), minN: int, window: oneOf(SCORECARD_WINDOWS) }),

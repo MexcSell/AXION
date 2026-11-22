@@ -184,6 +184,9 @@ describe('the counts view reports the missing share and the "found only by a per
       expect(d.humanOnly).toMatchObject({ withChannel: 4, humanReview: 4, missing: 3, share: null, minN: 5, window: '30d' });
       expect(d.fields.channel).toMatchObject({ have: 4, missing: 3 });
       expect(d.fields.channel.missingShare).toBeCloseTo(3 / 7, 10);
+      // the missing detected-after is split: tags with a channel but no stored failure time (here all 4: the tasks have no attempt) are counted apart from tags with no channel
+      expect(d.noFailureTime).toBe(4);
+      expect(d.fields.detectedAfter).toMatchObject({ have: 0, missing: 7 });
     } finally { await T.close(); }
   });
 });
