@@ -15,6 +15,13 @@ const ctx = await b.newContext({ viewport: { width: 1672, height: 941 } });
 await signIn(ctx);
 await ctx.addInitScript(() => { try { localStorage.setItem('axion.testhook', '1'); localStorage.setItem('axion.settings.v1', JSON.stringify({ state: { motion: 'reduced' }, version: 0 })); } catch { /* ignore */ } });
 const p = await ctx.newPage();
+// c57 (H12) race hunting knobs, all off by default: A11Y_ROUTE=<one view> A11Y_REPEAT=<n> A11Y_THROTTLE=<cpu slowdown factor>
+const ROUTE = process.env.A11Y_ROUTE || '';
+const DELAY_MAIN = Number(process.env.A11Y_DELAY_MAIN) || 0; // simulates a slow dev server: the app entry module arrives this many ms late
+if (DELAY_MAIN) await p.route(/\/src\/main\.tsx(\?|$)/, async (r) => { await new Promise((res) => setTimeout(res, DELAY_MAIN)); await r.continue().catch(() => {}); });
+const REPEAT = Math.max(1, Number(process.env.A11Y_REPEAT) || 1);
+const THROTTLE = Number(process.env.A11Y_THROTTLE) || 0;
+if (THROTTLE > 1 || process.env.A11Y_NOCACHE) { const cdp = await ctx.newCDPSession(p); if (THROTTLE > 1) await cdp.send('Emulation.setCPUThrottlingRate', { rate: THROTTLE }); if (process.env.A11Y_NOCACHE) { await cdp.send('Network.enable'); await cdp.send('Network.setCacheDisabled', { cacheDisabled: true }); } }
 const slug = (s) => s.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 const missionId = API ? '' : 'M-126';
 const views = [];
@@ -95,19 +102,48 @@ const walk = async () => {
   return p.evaluate(() => window.__a11yTabbable.filter((e) => e.isConnected && !e.disabled && !window.__a11yReached.has(e)).map((e) => `NOTAB ${e.tagName.toLowerCase()}${e.className ? '.' + String(e.className).split(/\s+/)[0] : ''} "${(e.getAttribute('aria-label') || e.innerText || '').trim().slice(0, 30)}" never received focus in a Tab walk`));
 };
 
+// c57 (H12): the audit must run on a settled document. A fixed wait before one evaluate can land on a document that is
+// still booting or being replaced (a dev-server full reload, a re-optimised dependency), which has no live region yet and
+// reports `LIVE page has no live region` (backlog H12; it passed on re-run). The wait is on conditions: the app shell is
+// mounted, and the document is the same one before and after the audit (else the audit is repeated). A settled page
+// without a live region still fails exactly as before; a shell that never mounts is its own violation, not a false LIVE.
+let injectReload = !!process.env.A11Y_INJECT_RELOAD; // test knob: replace the document right under the first audit
+const auditStable = async (v) => {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try { await p.waitForFunction(() => !!document.querySelector('.rail-nav') && !!document.querySelector('.conn-badge'), null, { timeout: 20000 }); }
+    catch { return [`SHELL the app shell did not mount within 20 s (attempt ${attempt + 1}): ${await p.evaluate(() => JSON.stringify({ root: document.getElementById('root')?.children.length ?? null, auth: !!document.querySelector('.auth-card'), text: document.body.innerText.slice(0, 80) })).catch(() => 'page was navigating')}`]; }
+    await settle(p, 400);
+    try {
+      const id0 = await p.evaluate(() => performance.timeOrigin);
+      if (injectReload) { injectReload = false; const nav = p.waitForEvent('framenavigated'); await p.evaluate(() => { setTimeout(() => location.reload(), 0); }); await nav; }
+      if (process.env.A11Y_STRIP_LIVE) await p.evaluate(() => document.querySelectorAll('[aria-live],[role=status],[role=alert],[role=log]').forEach((e) => e.remove())); // test knob: a settled page with no live region must still fail
+      const found = await p.evaluate(audit);
+      if (id0 === await p.evaluate(() => performance.timeOrigin)) return found;
+    } catch { /* the document was replaced under the audit: wait for the new one */ }
+    await p.waitForLoadState('domcontentloaded').catch(() => {});
+    console.log(`note: ${v} the document was replaced during the audit; auditing the new one (attempt ${attempt + 2})`);
+  }
+  return [`SHELL the page kept reloading during the audit: ${v}`];
+};
 const all = []; // {where, msg}
 const probed = [];
 const pageErrs = [];
 p.on('pageerror', (e) => pageErrs.push(e.message));
 const t0 = Date.now();
 let vi = 0;
-for (const v of views) {
+const runViews = ROUTE ? Array.from({ length: REPEAT }, () => ROUTE) : views;
+for (const v of runViews) {
   const walkIt = !FAST && (vi++ % 3 === 0 || /assignments|conversations|appearance/.test(v)); // the Tab walk is the slow part: every third view plus the dense ones
   await p.goto(base + v, { waitUntil: navWait() }); await settle(p, 400);
   await p.waitForTimeout(150);
-  const found = await p.evaluate(audit);
+  const found = await auditStable(v);
   for (const m of found) all.push({ where: v, msg: m });
   if (walkIt) { const nt = await walk(); for (const m of nt) all.push({ where: v, msg: m }); }
+}
+if (ROUTE) { // race-hunting mode stops after the repeated route: no dialogs, no probes
+  for (const { where, msg } of all) console.log(`VIOLATION ${msg}\n    e.g. ${where}`);
+  console.log(`a11y-check ROUTE ${ROUTE} x${REPEAT} throttle ${THROTTLE || 'off'}: ${all.length} violations`);
+  await b.close(); process.exit(all.length ? 1 : 0);
 }
 // dialogs
 const bag = {
@@ -207,6 +243,6 @@ for (const { where, msg } of all) { const k = /^LIVE/.test(msg) ? msg : msg.repl
 for (const [k, w] of uniq) console.log(`VIOLATION x${w.length} ${k}\n    e.g. ${w.slice(0, 3).join(' | ')}`);
 if (pageErrs.length) console.log('page errors:', pageErrs.slice(0, 3).join(' | '));
 for (const l of probed) console.log('probe', l);
-console.log(`a11y-check (${API ? 'api' : 'demo'}): ${views.length} views, ${ids.length} dialogs, ${all.length} violations ${JSON.stringify(byKind)} in ${secs}s`);
+console.log(`a11y-check (${API ? 'api' : 'demo'}): ${runViews.length} views, ${ids.length} dialogs, ${all.length} violations ${JSON.stringify(byKind)} in ${secs}s`);
 await b.close();
 process.exit(all.length ? 1 : 0);
