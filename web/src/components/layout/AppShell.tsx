@@ -48,6 +48,8 @@ function useGlobalShortcuts() {
   }, [setPalette, set, nav]);
 }
 
+const freshMission = (id: string) => useData.getState().missions.find((m) => m.id === id);
+
 /** Moves every newly added mission through GM → executor → agents (owner update u1). */
 function StaffingDriver() {
   const missions = useData((s) => s.missions);
@@ -55,7 +57,7 @@ function StaffingDriver() {
   const me = useMe();
   // Only the owner's tab advances its missions: with several tabs open (several users), each step happens once.
   const staffing = useMemo(() => missions.filter((m) => m.staffing && m.staffing.stage !== 'working' && m.ownerId === me?.id), [missions, me?.id]);
-  useStaffingDriver(staffing, update);
+  useStaffingDriver(staffing, update, freshMission);
   return null;
 }
 

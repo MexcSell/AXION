@@ -119,3 +119,15 @@ export function advance(m: Mission, now: number): Partial<Mission> | null {
     lastEvent: 'Staffing complete · work started', lastEventAgoMin: 0,
   };
 }
+
+/**
+ * One driver tick (demo mode). `captured` only says which missions to consider; each one is re-read through `fresh`
+ * right before its step, so a mission archived or paused after the caller's render-time list was taken never advances.
+ */
+export function tickStaffing(captured: Mission[], fresh: (id: string) => Mission | undefined, update: (id: string, patch: Partial<Mission>) => void, now: number) {
+  for (const c of captured) {
+    const m = fresh(c.id);
+    const p = m && advance(m, now);
+    if (p) update(c.id, p);
+  }
+}
