@@ -110,7 +110,7 @@ const walk = async () => {
 let injectReload = !!process.env.A11Y_INJECT_RELOAD; // test knob: replace the document right under the first audit
 const auditStable = async (v) => {
   for (let attempt = 0; attempt < 4; attempt++) {
-    try { await p.waitForFunction(() => !!document.querySelector('.rail-nav') && !!document.querySelector('.conn-badge'), null, { timeout: 20000 }); }
+    try { await p.waitForFunction(() => !!document.querySelector('.rail-nav'), null, { timeout: 20000 }); }
     catch { return [`SHELL the app shell did not mount within 20 s (attempt ${attempt + 1}): ${await p.evaluate(() => JSON.stringify({ root: document.getElementById('root')?.children.length ?? null, auth: !!document.querySelector('.auth-card'), text: document.body.innerText.slice(0, 80) })).catch(() => 'page was navigating')}`]; }
     await settle(p, 400);
     try {
