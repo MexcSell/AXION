@@ -300,7 +300,7 @@ const skill: V<SkillDto> = obj<SkillDto>({
 });
 const originPair = { originChannel: oneOf(ORIGIN_CHANNELS), originClass: oneOf(ORIGIN_CLASSES) };
 const contribution: V<ContributionDto> = obj<ContributionDto>({
-  seq: int, recordKind: oneOf(['lesson', 'skill'] as const), recordId: str, action: oneOf(CONTRIBUTION_ACTIONS), actor: str, actorName: str, actorKind: oneOf(['human', 'agent', 'system'] as const),
+  seq: int, recordKind: oneOf(['lesson', 'skill'] as const), recordId: str, action: oneOf(CONTRIBUTION_ACTIONS), actor: str, actorName: str, actorKind: oneOf(['human', 'agent', 'system'] as const), filedBy: nullable(str), filedByName: nullable(str),
   ...originPair, sources: arr(sourceRef), version: nullable(int), note: nullable(str), at: iso,
 });
 export const contributionsBody = obj<{ contributions: ContributionDto[] }>({ contributions: arr(contribution) });

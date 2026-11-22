@@ -1,4 +1,7 @@
 -- Down for 0044: restores the c41 guard bodies exactly as 0033 wrote them, then removes the c59 objects.
+drop trigger if exists lesson_candidates_contribution on lesson_candidates;
+drop trigger if exists skills_contribution on skills;
+drop function if exists contribution_trigger();
 drop table if exists skill_outcomes;
 drop table if exists record_contributions;
 drop function if exists c59_append_only();

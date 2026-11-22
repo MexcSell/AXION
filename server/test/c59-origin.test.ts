@@ -141,7 +141,9 @@ describe('derivation: never above the weakest source', () => {
     // immutable: no UPDATE can raise (or lower) the class or channel, on a proposed row or a decided one
     for (const set of ["origin_class='human'", "origin_class='agent'", "origin_channel='human_entry', origin_class='human'"])
       await expect(t.pool.query(`update lesson_candidates set ${set} where id='LC-OK'`), set).rejects.toThrow(/can only be decided/);
-    await t.pool.query(`update lesson_candidates set status='rejected', decided_by='u-other', decided_at=now() where id='LC-OK'`);
+    const dc = await t.pool.connect(); // a raw decision now needs a named actor (the contribution trigger fails closed without one)
+    try { await dc.query('begin'); await dc.query(`select set_config('axion.actor','u-other',true)`);
+      await dc.query(`update lesson_candidates set status='rejected', decided_by='u-other', decided_at=now() where id='LC-OK'`); await dc.query('commit'); } finally { dc.release(); }
     await expect(t.pool.query(`update lesson_candidates set origin_class='human' where id='LC-OK'`)).rejects.toThrow(/never changes/);
     const sk = (await A.req('POST', '/skills', skillBody(), key())).body.skill;
     await expect(t.pool.query(`update skills set origin_class='agent' where id=$1`, [sk.id])).rejects.toThrow(/can only be approved or retired/);
@@ -209,7 +211,7 @@ async function viaServiceSkill(over: Record<string, unknown>): Promise<any> {
 }
 
 describe('migration 0044 on a database that already has decided rows', () => {
-  it('backfills agent rows (also the decided and retired ones the c41 guard would refuse to touch), keeps human rows, and down restores the 0033 guard bodies', async () => {
+  it('backfills agent rows to the lowest class (also the decided and retired ones the c41 guard would refuse to touch), keeps human rows, and down restores the 0033 guard bodies', async () => {
     const s = await makeSchema({ migrate: false });
     try {
       await migrate(s.pool, 'up', 43);
@@ -224,8 +226,8 @@ describe('migration 0044 on a database that already has decided rows', () => {
       await s.pool.query(`insert into skills(id,tenant_id,name,version,description,steps,sources,proposed_by,proposed_by_kind,status,retired_by,retired_at) values ('SK-A','t-1','S',1,'d','[{"kind":"note","detail":"x"}]','[{"kind":"note","id":"n"}]','ag-1','agent','retired','u-2',now())`);
       await migrate(s.pool, 'up');
       const rows = (await s.pool.query(`select id, origin_channel, origin_class from lesson_candidates order by id`)).rows;
-      expect(rows).toEqual([{ id: 'LC-A1', origin_channel: 'agent_output', origin_class: 'agent' }, { id: 'LC-A2', origin_channel: 'agent_output', origin_class: 'agent' }, { id: 'LC-H', origin_channel: 'human_entry', origin_class: 'human' }]);
-      expect((await s.pool.query(`select origin_channel, origin_class from skills`)).rows).toEqual([{ origin_channel: 'agent_output', origin_class: 'agent' }]);
+      expect(rows).toEqual([{ id: 'LC-A1', origin_channel: 'tool_output', origin_class: 'tool' }, { id: 'LC-A2', origin_channel: 'tool_output', origin_class: 'tool' }, { id: 'LC-H', origin_channel: 'human_entry', origin_class: 'human' }]);
+      expect((await s.pool.query(`select origin_channel, origin_class from skills`)).rows).toEqual([{ origin_channel: 'tool_output', origin_class: 'tool' }]); // fail closed: unprovable origin is the lowest class
       // the guards are live again afterwards: a decided row is still immutable
       await expect(s.pool.query(`update lesson_candidates set origin_class='human' where id='LC-A1'`)).rejects.toThrow(/never changes/);
       await migrate(s.pool, 'down', 43);

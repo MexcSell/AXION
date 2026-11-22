@@ -11,8 +11,13 @@ alter table lesson_candidates add column origin_channel text not null default 'h
 alter table skills add column origin_channel text not null default 'human_entry', add column origin_class text not null default 'human';
 alter table lesson_candidates disable trigger lesson_candidates_no_edit;
 alter table skills disable trigger skills_no_edit;
-update lesson_candidates set origin_channel = 'agent_output', origin_class = 'agent' where proposed_by_kind = 'agent';
-update skills set origin_channel = 'agent_output', origin_class = 'agent' where proposed_by_kind = 'agent';
+-- Fail closed: what cannot be proven gets the LOWEST class, so a down then up round trip can never raise one. An agent-kind row is not human, but whether it
+-- was agent or tool output is not recorded before 0044 (or is dropped by `down`), so it becomes tool. A person's row that cites lessons or skills was derived: tool.
+-- Only a person's row with no record source is provably a typed entry (the only code path that writes it), and it stays human_entry.
+update lesson_candidates set origin_channel = 'tool_output', origin_class = 'tool' where proposed_by_kind = 'agent';
+update skills set origin_channel = 'tool_output', origin_class = 'tool' where proposed_by_kind = 'agent';
+update lesson_candidates set origin_channel = 'derived', origin_class = 'tool' where proposed_by_kind = 'human' and exists (select 1 from jsonb_array_elements(sources) s where lower(s->>'kind') in ('lesson','skill'));
+update skills set origin_channel = 'derived', origin_class = 'tool' where proposed_by_kind = 'human' and exists (select 1 from jsonb_array_elements(sources) s where lower(s->>'kind') in ('lesson','skill'));
 alter table lesson_candidates enable trigger lesson_candidates_no_edit;
 alter table skills enable trigger skills_no_edit;
 alter table lesson_candidates alter column origin_channel drop default, alter column origin_class drop default;
@@ -38,16 +43,16 @@ create function origin_before_insert() returns trigger language plpgsql as $$
 declare refs int; found int; floor_rank int; ceiling text;
 begin
   if new.origin_channel is null then new.origin_channel := case when new.proposed_by_kind = 'agent' then 'agent_output' else 'human_entry' end; end if;
-  select count(*) into refs from jsonb_array_elements(new.sources) s where s->>'kind' in ('lesson','skill');
+  select count(*) into refs from jsonb_array_elements(new.sources) s where lower(s->>'kind') in ('lesson','skill');
   if new.origin_channel <> 'derived' then
     if refs > 0 then raise exception 'a record that cites other records is derived'; end if;   -- no way to name a lower record and keep a higher class
     if new.origin_class is null then new.origin_class := case new.origin_channel when 'human_entry' then 'human' when 'agent_output' then 'agent' else 'tool' end; end if;
     return new;
   end if;
   select count(*), min(origin_rank(r.cls)) into found, floor_rank from (
-    select lc.origin_class as cls from jsonb_array_elements(new.sources) s join lesson_candidates lc on s->>'kind' = 'lesson' and lc.id = s->>'id' and lc.tenant_id = new.tenant_id
+    select lc.origin_class as cls from jsonb_array_elements(new.sources) s join lesson_candidates lc on lower(s->>'kind') = 'lesson' and lc.id = s->>'id' and lc.tenant_id = new.tenant_id
     union all
-    select sk.origin_class from jsonb_array_elements(new.sources) s join skills sk on s->>'kind' = 'skill' and sk.id = s->>'id' and sk.tenant_id = new.tenant_id) r;
+    select sk.origin_class from jsonb_array_elements(new.sources) s join skills sk on lower(s->>'kind') = 'skill' and sk.id = s->>'id' and sk.tenant_id = new.tenant_id) r;
   if refs = 0 or found <> refs then raise exception 'a derived record needs lesson or skill sources that exist'; end if;
   ceiling := case when new.proposed_by_kind = 'agent' then 'agent' else 'human' end;  -- the writer's own class is also a ceiling
   if new.origin_class is null then new.origin_class := case least(floor_rank, origin_rank(ceiling)) when 1 then 'tool' when 2 then 'agent' else 'human' end; end if;
@@ -103,6 +108,7 @@ create table record_contributions (
   sources jsonb not null default '[]'::jsonb check (jsonb_typeof(sources) = 'array'),
   version int,
   note text,
+  filed_by text,                                         -- the person who filed an agent's proposal (the actor is then the agent)
   ref text,                                              -- a retirement_kept line names the skill_outcomes row it dismissed
   at timestamptz not null default now()
 );
@@ -128,3 +134,37 @@ create trigger record_contributions_no_edit before update or delete on record_co
 create trigger record_contributions_no_truncate before truncate on record_contributions for each statement execute function c59_append_only();
 create trigger skill_outcomes_no_edit before update or delete on skill_outcomes for each row execute function c59_append_only();
 create trigger skill_outcomes_no_truncate before truncate on skill_outcomes for each statement execute function c59_append_only();
+
+-- 5. completeness by construction: every status or content change of a lesson or skill writes its own log row, so no raw UPDATE can skip the log.
+-- The actor comes from transaction-local settings (axion.actor, axion.actor_kind; optional axion.contrib_note, axion.contrib_action). An UPDATE without an actor
+-- is refused (fail closed). An INSERT without one falls back to the row's own proposer, which is data on the row, not a guess.
+create function contribution_trigger() returns trigger language plpgsql as $$
+declare act text; actor text := nullif(current_setting('axion.actor', true), ''); akind text := nullif(current_setting('axion.actor_kind', true), '');
+        note text := nullif(current_setting('axion.contrib_note', true), ''); over text := nullif(current_setting('axion.contrib_action', true), '');
+        kind text; ver int; filed text;
+begin
+  if tg_table_name = 'lesson_candidates' then
+    kind := 'lesson';
+    if tg_op = 'INSERT' then act := 'proposed'; filed := new.submitted_by;
+    elsif old.status = 'proposed' and new.status = 'accepted' then act := 'accepted'; ver := new.accepted_in_version; note := coalesce(note, new.decision_note);
+    elsif old.status = 'proposed' and new.status = 'rejected' then act := 'rejected'; note := coalesce(note, new.decision_note);
+    elsif old.status = 'proposed' and new.status = 'superseded' then act := 'closed_duplicate'; note := coalesce(note, new.decision_note);
+    elsif old.status = 'accepted' and new.status = 'superseded' then act := 'withdrawn'; ver := new.withdrawn_in_version;
+    else return null; end if;
+  else
+    kind := 'skill'; ver := new.version;
+    if tg_op = 'INSERT' then act := 'proposed'; filed := new.submitted_by;
+    elsif old.status = 'draft' and new.status = 'approved' then act := 'approved';
+    elsif old.status <> 'retired' and new.status = 'retired' then act := coalesce(over, 'retired'); note := coalesce(note, new.retire_note);
+    else return null; end if;
+  end if;
+  if actor is null then
+    if tg_op = 'INSERT' then actor := new.proposed_by; akind := new.proposed_by_kind;
+    else raise exception 'contribution actor not set (axion.actor)'; end if;
+  end if;
+  insert into record_contributions(tenant_id, record_kind, record_id, action, actor, actor_kind, origin_channel, origin_class, sources, version, note, filed_by)
+  values (new.tenant_id, kind, new.id, act, actor, coalesce(akind, 'human'), new.origin_channel, new.origin_class, new.sources, ver, note, filed);
+  return null;
+end $$;
+create trigger lesson_candidates_contribution after insert or update on lesson_candidates for each row execute function contribution_trigger();
+create trigger skills_contribution after insert or update on skills for each row execute function contribution_trigger();

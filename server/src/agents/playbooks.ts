@@ -12,7 +12,7 @@ import { getVisibleRow } from '../missions/service.ts';
 import type { ContributionDto, LessonCandidateDto, LessonConflict, PlaybookDiff, PlaybookDto, PlaybookItem, PlaybookVersionRow, SkillDto, SourceRef } from '../../../shared/contracts/src/index.ts';
 import { advisoryXactLock, advisoryXactLockLower } from '../locks.ts';
 import { resolveOrigin } from './origin.ts';
-import { logContribution, CONTRIBUTION_SELECT } from './contributions.ts';
+import { logContribution, setActor, CONTRIBUTION_SELECT } from './contributions.ts';
 import type { OriginChannel } from '../../../shared/contracts/src/index.ts';
 
 /**
@@ -121,7 +121,7 @@ const playbookDto = (r: any, agent: { id: string; name: string; role: string }, 
   kind: r?.kind ?? null, createdBy: r?.created_by ?? null, createdByName: r ? (r.created_by_name ?? r.created_by) : null, createdAt: r ? iso(r.created_at) : null,
   rollbackTo: r?.rollback_to ?? null, note: admin ? (r?.note ?? null) : null, activeCap: cap,
 });
-/** c59: the cap on active items per playbook (per role: one active agent holds a role). An operator setting, never a route; a bad value falls back to 25. */
+/** c59: the cap on active items per agent playbook (playbooks are keyed by agent; c41). An operator setting, never a route; a bad value falls back to 25. */
 export const DEFAULT_ACTIVE_CAP = 25;
 export const activeCapOf = (cfg: { playbookActiveCap?: number }): number => (Number.isInteger(cfg.playbookActiveCap) && cfg.playbookActiveCap! >= 1 && cfg.playbookActiveCap! <= 200 ? cfg.playbookActiveCap! : DEFAULT_ACTIVE_CAP);
 const agentOf = async (c: Tx, tenantId: string, id: string) => {
@@ -186,11 +186,11 @@ async function insertLesson(c: Tx, a: ProposeArgs): Promise<string> {
   const text = txt.data, sources = srcs.data;
   const origin = await resolveOrigin(c, { tenantId: a.tenantId, kind: a.kind, submittedBy: a.submittedBy, channel: a.channel, sources });
   const id = 'LC-' + randomBytes(16).toString('hex').toUpperCase(); // 128-bit
+  await setActor(c, a.proposedBy, a.kind); // the trigger writes the 'proposed' log line from this
   await c.query(
     `insert into lesson_candidates(id, tenant_id, agent_id, role, text, sources, proposed_by, proposed_by_kind, submitted_by, sha256, review_by, origin_channel, origin_class) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
     [id, a.tenantId, a.agentId, agent.role, text, JSON.stringify(sources), a.proposedBy, a.kind, a.submittedBy ?? null, sha([a.agentId, text, sources, a.reviewBy ?? null]), a.reviewBy ?? null, origin.channel, origin.cls]);
   const actor = a.submittedBy ?? a.proposedBy;
-  await logContribution(c, { tenantId: a.tenantId, kind: 'lesson', recordId: id, action: 'proposed', actor: a.proposedBy, actorKind: a.kind });
   await audit(c, { tenantId: a.tenantId, actor, action: 'playbook.propose', subject: id, result: 'ok', correlationId: a.correlationId, detail: { agentId: a.agentId, kind: a.kind, proposedBy: a.proposedBy, sources: sources.length, text, originChannel: origin.channel, originClass: origin.cls } });
   // audience 'user' = administrators plus that one person (the proposer, or whoever filed an agent's proposal)
   await emit(c, { tenantId: a.tenantId, actor: a.proposedBy, actorKind: a.kind, correlationId: a.correlationId, type: 'playbook.lessonProposed', subject: a.agentId, subjectKind: 'agent', audience: 'user', audienceUser: a.submittedBy ?? a.proposedBy, payload: { lessonId: id } });
@@ -257,10 +257,10 @@ async function insertSkill(c: Tx, a: ProposeSkillArgs): Promise<string> {
   await skillLock(c, a.tenantId, b.name); // b.name is already squashed and NFC (the schema), the same value that is stored
   const version = ((await c.query('select coalesce(max(version), 0)::int as v from skills where tenant_id=$1 and lower(name)=lower($2)', [a.tenantId, b.name])).rows[0].v as number) + 1;
   const id = 'SK-' + randomBytes(16).toString('hex').toUpperCase();
+  await setActor(c, a.proposedBy, a.kind);
   await c.query(`insert into skills(id, tenant_id, name, version, description, steps, preconditions, sources, proposed_by, proposed_by_kind, submitted_by, origin_channel, origin_class) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
     [id, a.tenantId, b.name, version, b.description, JSON.stringify(b.steps), JSON.stringify(b.preconditions), JSON.stringify(b.sources), a.proposedBy, a.kind, a.submittedBy ?? null, origin.channel, origin.cls]);
   const actor = a.submittedBy ?? a.proposedBy;
-  await logContribution(c, { tenantId: a.tenantId, kind: 'skill', recordId: id, action: 'proposed', actor: a.proposedBy, actorKind: a.kind });
   await audit(c, { tenantId: a.tenantId, actor, action: 'skill.propose', subject: id, result: 'ok', correlationId: a.correlationId, detail: { name: b.name, version, steps: b.steps.length, sources: b.sources.length, kind: a.kind, originChannel: origin.channel, originClass: origin.cls } });
   await emit(c, { tenantId: a.tenantId, actor: a.proposedBy, actorKind: a.kind, correlationId: a.correlationId, type: 'skill.proposed', subject: id, subjectKind: 'skill', audience: 'user', audienceUser: actor, payload: { skillId: id, version } });
   return id;
@@ -365,8 +365,8 @@ export default async function playbookRoutes(app: FastifyInstance) {
       const agent = await agentOf(c, ctx.tenantId, l.agent_id);
       const note = b.note || null;
       if (b.decision === 'reject') {
+        await setActor(c, ctx.user.id, 'human');
         await c.query(`update lesson_candidates set status='rejected', decided_by=$2, decided_at=now(), decision_note=$3 where id=$1`, [lid, ctx.user.id, note]);
-        await logContribution(c, { tenantId: ctx.tenantId, kind: 'lesson', recordId: lid, action: 'rejected', actor: ctx.user.id, actorKind: 'human', note });
         await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: A, subject: lid, result: 'ok', correlationId: ctx.correlationId, detail: { decision: 'reject', agentId: l.agent_id, note } });
         await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'playbook.lessonDecided', subject: l.agent_id, subjectKind: 'agent', payload: { lessonId: lid, status: 'rejected' } });
         return { lesson: (await candidates(c, ctx, 'c.id=$2', [lid]))[0], playbook: null };
@@ -381,7 +381,7 @@ export default async function playbookRoutes(app: FastifyInstance) {
         return refuse(c, ctx, A, lid, new ApiError('DUPLICATE_PROPOSAL', 409, 'The playbook already holds this lesson. Reject this candidate.'));
       const cap = activeCapOf(app.cfg);
       if (items.length + 1 > cap)
-        return refuse(c, ctx, A, lid, new ApiError('ACTIVE_CAP_REACHED', 409, `The playbook for ${agent.role} already holds ${items.length} active items and the cap is ${cap}. Roll back or replace an item first.`));
+        return refuse(c, ctx, A, lid, new ApiError('ACTIVE_CAP_REACHED', 409, `The playbook of ${agent.name} already holds ${items.length} active items and the cap is ${cap}. Roll back or replace an item first.`));
       const clash = findConflicts(l.text, items);
       if (clash.length && !b.overrideNote)
         return refuse(c, ctx, A, lid, new ApiError('CONFLICT', 409, `This lesson seems to contradict ${clash.length === 1 ? 'an item' : clash.length + ' items'} already in the playbook. Accept it only with an override note that says why both can stand.`, { fieldErrors: { overrideNote: 'An override note is required: this contradicts an existing item.' } }));
@@ -407,14 +407,14 @@ export default async function playbookRoutes(app: FastifyInstance) {
         throw e;
       }
       await c.query('release savepoint pb_insert');
+      await setActor(c, ctx.user.id, 'human');
       await c.query(`update lesson_candidates set status='accepted', decided_by=$2, decided_at=now(), decision_note=$3, override_note=$4, accepted_in_version=$5 where id=$1`, [lid, ctx.user.id, note, item.overrideNote, version]);
       // another proposal with the very same text is now redundant: closed by the system, never silently dropped
+      await setActor(c, 'system', 'system');
       const dup = (await c.query(
         `update lesson_candidates set status='superseded', decided_by='system', decided_at=now(), decision_note=$3
           where tenant_id=$1 and agent_id=$2 and status='proposed' and id <> $4 and lower(regexp_replace(btrim(text), '\\s+', ' ', 'g')) = $5 returning id`,
         [ctx.tenantId, l.agent_id, 'Same text as ' + lid, lid, squash(l.text).toLowerCase()])).rows.map((r) => r.id as string);
-      await logContribution(c, { tenantId: ctx.tenantId, kind: 'lesson', recordId: lid, action: 'accepted', actor: ctx.user.id, actorKind: 'human', version, note });
-      for (const d of dup) await logContribution(c, { tenantId: ctx.tenantId, kind: 'lesson', recordId: d, action: 'closed_duplicate', actor: 'system', actorKind: 'system', note: 'Same text as ' + lid });
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: A, subject: lid, result: 'ok', correlationId: ctx.correlationId, detail: { decision: 'accept', agentId: l.agent_id, version, fromVersion: curVersion, contradicts: item.contradicts, overrideNote: item.overrideNote, note, superseded: dup } });
       await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'playbook.lessonDecided', subject: l.agent_id, subjectKind: 'agent', payload: { lessonId: lid, status: 'accepted', version } });
       await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'playbook.versionCreated', subject: l.agent_id, subjectKind: 'agent', payload: { version, lessonId: lid } });
@@ -442,7 +442,7 @@ export default async function playbookRoutes(app: FastifyInstance) {
       const cap = activeCapOf(app.cfg);
       const tgtN = (target.items as PlaybookItem[]).length;
       if (tgtN > cap && tgtN > (cur.items as PlaybookItem[]).length) // only activating MORE than the cap allows is refused; going down is always allowed
-        return refuse(c, ctx, A, id, new ApiError('ACTIVE_CAP_REACHED', 409, `Version ${target.version} holds ${tgtN} active items and the cap for ${agent.role} is ${cap}.`));
+        return refuse(c, ctx, A, id, new ApiError('ACTIVE_CAP_REACHED', 409, `Version ${target.version} holds ${tgtN} active items and the cap for the playbook of ${agent.name} is ${cap}.`));
       // decider != proposer holds for a rollback too: it must not put back a lesson the actor proposed
       const curIds = new Set((cur.items as PlaybookItem[]).map((i) => i.lessonId)), tgtIds = new Set((target.items as PlaybookItem[]).map((i) => i.lessonId));
       const back = [...tgtIds].filter((x) => !curIds.has(x)), gone = [...curIds].filter((x) => !tgtIds.has(x));
@@ -462,8 +462,8 @@ export default async function playbookRoutes(app: FastifyInstance) {
         throw e;
       }
       await c.query('release savepoint pb_insert');
+      await setActor(c, ctx.user.id, 'human', { note: b.why });
       if (gone.length) await c.query(`update lesson_candidates set status='superseded', withdrawn_in_version=$2 where id = any($1) and status='accepted'`, [gone, version]); // withdrawn by this rollback
-      for (const g of gone) await logContribution(c, { tenantId: ctx.tenantId, kind: 'lesson', recordId: g, action: 'withdrawn', actor: ctx.user.id, actorKind: 'human', version, note: b.why });
       for (const r of back) await logContribution(c, { tenantId: ctx.tenantId, kind: 'lesson', recordId: r, action: 'restored', actor: ctx.user.id, actorKind: 'human', version, note: b.why });
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: A, subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { why: b.why, fromVersion: cur.version, toVersion: target.version, newVersion: version, withdrawn: gone, restored: back } });
       await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'playbook.versionCreated', subject: id, subjectKind: 'agent', payload: { version, rollbackTo: target.version } }); // the reason stays in the audit row
@@ -508,7 +508,7 @@ export default async function playbookRoutes(app: FastifyInstance) {
 
   /* ----- c59: the contribution log of a record, readable by whoever can open the record (404 otherwise) ----- */
   const contributionDto = (r: any, ctx: Ctx, self: boolean): ContributionDto => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
-    seq: Number(r.seq), recordKind: r.record_kind, recordId: r.record_id, action: r.action, actor: r.actor, actorName: r.actor_name, actorKind: r.actor_kind,
+    seq: Number(r.seq), recordKind: r.record_kind, recordId: r.record_id, action: r.action, actor: r.actor, actorName: r.actor_name, actorKind: r.actor_kind, filedBy: r.filed_by, filedByName: r.filed_by ? (r.filed_name ?? r.filed_by) : null,
     originChannel: r.origin_channel, originClass: r.origin_class, sources: (r.sources as SourceRef[]).map((x) => shapeSource(x, ctx.user.role === 'admin' || self)),
     version: r.version, note: ctx.user.role === 'admin' ? r.note : null, at: iso(r.at)!,
   });
@@ -547,16 +547,16 @@ export default async function playbookRoutes(app: FastifyInstance) {
         if (mine(s, ctx.user.id)) return refuse(c, ctx, A, sid, new ApiError('SELF_APPROVAL', 403, 'You proposed this skill. Another administrator must approve it.'));
         if (s.status !== 'draft') return refuse(c, ctx, A, sid, new ApiError('PROPOSAL_NOT_PENDING', 409, `This skill is already ${s.status}.`));
         // one approved version per name: the previous one is retired, never edited or deleted
+        await setActor(c, ctx.user.id, 'human', { action: 'replaced' });
         const old = (await c.query(`update skills set status='retired', retired_by=$3, retired_at=now(), retire_note=$4 where tenant_id=$1 and lower(name)=lower($2) and status='approved' returning id`,
           [ctx.tenantId, s.name, ctx.user.id, `Replaced by version ${s.version}`])).rows.map((r) => r.id as string);
+        await setActor(c, ctx.user.id, 'human');
         await c.query(`update skills set status='approved', approved_by=$2, approved_at=now() where id=$1`, [sid, ctx.user.id]);
-        for (const o of old) await logContribution(c, { tenantId: ctx.tenantId, kind: 'skill', recordId: o, action: 'replaced', actor: ctx.user.id, actorKind: 'human', note: `Replaced by version ${s.version}` });
-        await logContribution(c, { tenantId: ctx.tenantId, kind: 'skill', recordId: sid, action: 'approved', actor: ctx.user.id, actorKind: 'human', version: s.version });
         await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: A, subject: sid, result: 'ok', correlationId: ctx.correlationId, detail: { name: s.name, version: s.version, retired: old } });
       } else {
         if (s.status === 'retired') return refuse(c, ctx, A, sid, new ApiError('PROPOSAL_NOT_PENDING', 409, 'This skill is already retired.'));
+        await setActor(c, ctx.user.id, 'human');
         await c.query(`update skills set status='retired', retired_by=$2, retired_at=now(), retire_note=$3 where id=$1`, [sid, ctx.user.id, b.note || null]);
-        await logContribution(c, { tenantId: ctx.tenantId, kind: 'skill', recordId: sid, action: 'retired', actor: ctx.user.id, actorKind: 'human', version: s.version, note: b.note || null });
         await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: A, subject: sid, result: 'ok', correlationId: ctx.correlationId, detail: { name: s.name, version: s.version, note: b.note || null } });
       }
       await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'skill.decided', subject: sid, subjectKind: 'skill', payload: { skillId: sid, status: action === 'approve' ? 'approved' : 'retired' } });

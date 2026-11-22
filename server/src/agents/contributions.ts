@@ -12,7 +12,7 @@ export interface Contribution {
   actor: string; actorKind: 'human' | 'agent' | 'system'; version?: number | null; note?: string | null; ref?: string | null;
 }
 
-/** The record's own origin and sources are read from its row, so a caller cannot write a line that disagrees with the record. */
+/** Lines the database trigger cannot see (the record's row did not change): a rollback restoring a lesson, a kept skill. The record's own origin and sources are read from its row, so a caller cannot write a line that disagrees with the record. */
 export async function logContribution(c: Tx, x: Contribution): Promise<void> {
   const table = x.kind === 'lesson' ? 'lesson_candidates' : 'skills';
   const r = (await c.query(`select origin_channel, origin_class, sources from ${table} where id=$1 and tenant_id=$2`, [x.recordId, x.tenantId])).rows[0] as { origin_channel: OriginChannel; origin_class: OriginClass; sources: SourceRef[] } | undefined;
@@ -22,5 +22,16 @@ export async function logContribution(c: Tx, x: Contribution): Promise<void> {
     [x.tenantId, x.kind, x.recordId, x.action, x.actor, x.actorKind, r.origin_channel, r.origin_class, JSON.stringify(r.sources), x.version ?? null, x.note ?? null, x.ref ?? null]);
 }
 
-export const CONTRIBUTION_SELECT = `select rc.*, coalesce(u.name, a.name, rc.actor) as actor_name from record_contributions rc
+/**
+ * Names who is about to change a lesson or skill, for the rest of this transaction. The database trigger (migration 0044) writes the log row
+ * for every status change from these settings and refuses an UPDATE when no actor is set, so a raw change cannot skip the log. Call it before
+ * each write; `action` and `note` are optional and cleared by every call.
+ */
+export async function setActor(c: Tx, actor: string, kind: 'human' | 'agent' | 'system', o: { action?: ContributionAction; note?: string | null } = {}): Promise<void> {
+  await c.query(`select set_config('axion.actor', $1, true), set_config('axion.actor_kind', $2, true), set_config('axion.contrib_action', $3, true), set_config('axion.contrib_note', $4, true)`,
+    [actor, kind, o.action ?? '', o.note ?? '']);
+}
+
+export const CONTRIBUTION_SELECT = `select rc.*, coalesce(u.name, a.name, rc.actor) as actor_name, fu.name as filed_name from record_contributions rc
+  left join users fu on fu.id = rc.filed_by
   left join users u on u.id = rc.actor and rc.actor_kind = 'human' left join agent_definitions a on a.id = rc.actor and rc.actor_kind = 'agent'`;

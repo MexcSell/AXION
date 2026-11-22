@@ -49,7 +49,7 @@ export interface PlaybookItem {
 }
 export interface PlaybookDto {
   agentId: string; agentName: string; role: string; version: number; items: PlaybookItem[];
-  kind: 'accept' | 'rollback' | null; createdBy: string | null; createdByName: string | null; createdAt: string | null; rollbackTo: number | null; note: string | null;  /** c59: the most active items one agent's playbook may hold (one active agent per role). An accept or rollback past it is refused with ACTIVE_CAP_REACHED. */
+  kind: 'accept' | 'rollback' | null; createdBy: string | null; createdByName: string | null; createdAt: string | null; rollbackTo: number | null; note: string | null;  /** c59: the most active items one agent's playbook may hold (a cap per agent playbook). An accept or rollback past it is refused with ACTIVE_CAP_REACHED. */
   activeCap: number;
 }
 export interface PlaybookVersionRow { version: number; kind: 'accept' | 'rollback'; items: number; createdBy: string; createdByName: string; createdAt: string; rollbackTo: number | null; note: string | null; lessonId: string | null }
@@ -71,6 +71,8 @@ export type ContributionAction = (typeof CONTRIBUTION_ACTIONS)[number];
 export interface ContributionDto {
   seq: number; recordKind: 'lesson' | 'skill'; recordId: string; action: ContributionAction;
   actor: string; actorName: string; actorKind: 'human' | 'agent' | 'system';
+  /** the person who filed an agent's proposal (the actor is then the agent), otherwise null */
+  filedBy: string | null; filedByName: string | null;
   originChannel: OriginChannel; originClass: OriginClass;
   /** the record's sources when the line was written (private ids hidden from a member) */
   sources: SourceRef[];
