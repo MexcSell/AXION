@@ -10,8 +10,9 @@ import { idempotent } from '../idempotency.ts';
 import { emit } from '../events/hooks.ts';
 import { createOrgRevision, edgesOf, latestRevision as latest, lockOrg } from '../agents/org.ts';
 import { validateOrg, type EdgeIn } from './validate.ts';
-import { dryRunCoverage } from './coverageRoutes.ts';
-import type { OrgDryRun, OrgProposalDto } from '../../../shared/contracts/src/index.ts';
+import { dryRunCoverage, coverageAgents } from './coverageRoutes.ts';
+import { computeEvidence } from './evidence.ts';
+import { RESTRUCTURE_TRIGGERS, type OrgDryRun, type OrgProposalDto, type RestructureTrigger } from '../../../shared/contracts/src/index.ts';
 import { advisoryXactLock } from '../locks.ts';
 
 /**
@@ -24,7 +25,11 @@ const STORED_EDGE = z.object({ supervisor: z.string(), subordinate: z.string(), 
 type StoredEdge = z.infer<typeof STORED_EDGE>;
 const Id = z.string().trim().min(1).max(60);
 const EdgesIn = z.array(z.object({ supervisorId: Id, subordinateId: Id, edgeType: z.literal('reports_to').default('reports_to') }).strict()).max(500); // the only edge type there is
-const CreateIn = z.object({ title: z.string().trim().min(1).max(120), why: z.string().trim().max(2000).default(''), baseRevision: z.number().int().min(0), edges: EdgesIn }).strict();
+/** c64: the proposer only PICKS triggers from a closed list; every count is computed by the server (a typed count or an `evidence` key is refused by .strict()). */
+const Triggers = z.array(z.enum(RESTRUCTURE_TRIGGERS)).max(RESTRUCTURE_TRIGGERS.length * 2).default([]);
+const CreateIn = z.object({ title: z.string().trim().min(1).max(120), why: z.string().trim().max(2000).default(''), baseRevision: z.number().int().min(0), edges: EdgesIn, triggers: Triggers }).strict();
+/** The picked triggers once each, in the canonical order of the closed list. */
+export const canonTriggers = (t: readonly RestructureTrigger[]) => RESTRUCTURE_TRIGGERS.filter((k) => t.includes(k));
 const DecisionIn = z.object({ decision: z.enum(['approve', 'reject']), note: z.string().trim().max(1000).optional(), sha: z.string().max(128) }).strict();
 
 /** Locale-independent order (it feeds the sha). */
@@ -33,17 +38,25 @@ const toStored = (edges: EdgeIn[]): StoredEdge[] => edges
   .map((e) => ({ supervisor: e.supervisorId, subordinate: e.subordinateId, edge_type: e.edgeType ?? 'reports_to' }))
   .sort((a, b) => cmp(a.subordinate, b.subordinate) || cmp(a.supervisor, b.supervisor) || cmp(a.edge_type, b.edge_type));
 const fromStored = (edges: StoredEdge[]): EdgeIn[] => edges.map((e) => ({ supervisorId: e.supervisor, subordinateId: e.subordinate, edgeType: e.edge_type }));
-/** sha256 of the canonical title + why + base revision + sorted edges. */
-export function payloadSha(p: { title: string; why: string; baseRevision: number; edges: StoredEdge[] }) {
+/**
+ * sha256 of the canonical title + why + base revision + sorted edges. c64: the picked triggers, the baseline and the expected cost
+ * are what the approver reviews, so they are bound too, but only when any of them is present: a proposal made before c64 (none of
+ * them) keeps the old formula and still verifies.
+ */
+export function payloadSha(p: { title: string; why: string; baseRevision: number; edges: StoredEdge[]; triggers?: readonly RestructureTrigger[]; baseline?: string; expectedCost?: string }) {
   const edges = toStored(fromStored(p.edges)).map((e) => [e.supervisor, e.subordinate, e.edge_type]);
-  return createHash('sha256').update(JSON.stringify([p.title, p.why, p.baseRevision, edges])).digest('hex');
+  const triggers = canonTriggers(p.triggers ?? []);
+  const extra = triggers.length || p.baseline || p.expectedCost ? [triggers, p.baseline ?? '', p.expectedCost ?? ''] : [];
+  return createHash('sha256').update(JSON.stringify([p.title, p.why, p.baseRevision, edges, ...extra])).digest('hex');
 }
 
-async function dryRun(c: Tx | Db, tenantId: string, edges: EdgeIn[], currentId: number | null): Promise<OrgDryRun> {
+async function dryRun(c: Tx | Db, tenantId: string, edges: EdgeIn[], currentId: number | null, triggers: readonly RestructureTrigger[] = []): Promise<OrgDryRun> {
   const agents = (await c.query('select id, status, dept, role from agent_definitions where tenant_id=$1', [tenantId])).rows;
   const current = currentId === null ? [] : await edgesOf(c, currentId);
   // cycle 20: the coverage block is facts for the reader (its own key); it never adds an error or a warning, so `ok` is unchanged
-  return { ...validateOrg(edges, agents, current), coverage: await dryRunCoverage(c, tenantId, edges, current) };
+  // c64: the evidence block is counts for the reader too (it never changes `ok`)
+  const evidence = await computeEvidence(c, tenantId, triggers, { current, proposed: edges, agents: await coverageAgents(c, tenantId) });
+  return { ...validateOrg(edges, agents, current), coverage: await dryRunCoverage(c, tenantId, edges, current), evidence };
 }
 
 const SELECT = `select p.*, cu.name as created_by_name, du.name as decided_by_name from org_proposals p
@@ -54,6 +67,7 @@ const dto = (r: any): OrgProposalDto => ({ // eslint-disable-line @typescript-es
   status: r.status, createdBy: r.created_by, createdByName: r.created_by_name ?? r.created_by, createdAt: iso(r.created_at)!, expiresAt: iso(r.expires_at)!,
   decidedBy: r.decided_by, decidedByName: r.decided_by ? (r.decided_by_name ?? r.decided_by) : null, decidedAt: iso(r.decided_at), decisionNote: r.decision_note,
   appliedRevision: r.applied_revision, result: r.result,
+  triggers: r.triggers, baseline: r.baseline, expectedCost: r.expected_cost, linesChanged: r.lines_changed,
 });
 const one = async (c: Tx, tenantId: string, id: string) => dto((await c.query(`${SELECT} where p.id=$1 and p.tenant_id=$2`, [id, tenantId])).rows[0]);
 
@@ -77,20 +91,21 @@ export const lockProposals = (c: Tx, tenantId: string) => advisoryXactLock(c, 'o
  * stale-base check, duplicate check (same sha pending), server dry run, insert, audit, announce. Runs inside idempotent().
  * `rollbackTo` (cycle 4) only adds the target revision to the audit detail and the event payload.
  */
-export async function createProposal(c: Tx, ctx: Ctx, b: { title: string; why: string; baseRevision: number; edges: EdgeIn[] }, opts: { rollbackTo?: number } = {}) {
+export async function createProposal(c: Tx, ctx: Ctx, b: { title: string; why: string; baseRevision: number; edges: EdgeIn[]; triggers?: readonly RestructureTrigger[]; baseline?: string; expectedCost?: string }, opts: { rollbackTo?: number } = {}) {
   await lockProposals(c, ctx.tenantId);
   await expireDue(c, ctx.tenantId);
   const cur = await latest(c, ctx.tenantId);
   if (cur.seq !== b.baseRevision) throw staleBase(cur.seq, b.baseRevision);
   const edges = toStored(b.edges);
-  const sha = payloadSha({ title: b.title, why: b.why, baseRevision: b.baseRevision, edges });
+  const triggers = canonTriggers(b.triggers ?? []);
+  const sha = payloadSha({ title: b.title, why: b.why, baseRevision: b.baseRevision, edges, triggers, baseline: b.baseline, expectedCost: b.expectedCost });
   if ((await c.query(`select 1 from org_proposals where tenant_id=$1 and payload_sha=$2 and status='pending'`, [ctx.tenantId, sha])).rowCount)
     throw new ApiError('DUPLICATE_PROPOSAL', 409, 'The same proposal is already waiting for a decision.');
-  const result = await dryRun(c, ctx.tenantId, b.edges, cur.id);
+  const result = await dryRun(c, ctx.tenantId, b.edges, cur.id, triggers);
   const id = 'OP-' + randomBytes(16).toString('hex').toUpperCase(); // 128-bit
   await c.query(
-    `insert into org_proposals(id, tenant_id, title, why, base_revision, edges, payload_sha, created_by, result) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-    [id, ctx.tenantId, b.title, b.why, b.baseRevision, JSON.stringify(edges), sha, ctx.user.id, JSON.stringify(result)]);
+    `insert into org_proposals(id, tenant_id, title, why, base_revision, edges, payload_sha, created_by, result, triggers, baseline, expected_cost) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+    [id, ctx.tenantId, b.title, b.why, b.baseRevision, JSON.stringify(edges), sha, ctx.user.id, JSON.stringify(result), JSON.stringify(triggers), b.baseline ?? '', b.expectedCost ?? '']);
   const rb = opts.rollbackTo !== undefined ? { rollbackTo: opts.rollbackTo } : {};
   const detail = { baseRevision: b.baseRevision, added: result.added.length, removed: result.removed.length, errors: result.errors.length, warnings: result.warnings.length, ...rb };
   await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'org.proposal.create', subject: id, result: 'ok', correlationId: ctx.correlationId, detail });
@@ -120,7 +135,7 @@ export default async function proposalRoutes(app: FastifyInstance) {
     if ((req.query as { dryRun?: string }).dryRun === '1') { // stores nothing, needs no Idempotency-Key
       const cur = await latest(app.db, ctx.tenantId);
       if (cur.seq !== b.baseRevision) throw staleBase(cur.seq, b.baseRevision);
-      return { result: await dryRun(app.db, ctx.tenantId, b.edges, cur.id), baseRevision: cur.seq };
+      return { result: await dryRun(app.db, ctx.tenantId, b.edges, cur.id, b.triggers), baseRevision: cur.seq };
     }
     const out = await idempotent(app.db, req, ctx, (c) => createProposal(c, ctx, b));
     return reply.status(out.status).send(out.body);
@@ -147,7 +162,7 @@ export default async function proposalRoutes(app: FastifyInstance) {
       if (p.status === 'expired') return refuse(c, ctx, A, id, new ApiError('PROPOSAL_EXPIRED', 409, 'This proposal expired without a decision. Make a new one from the current chart.'));
       if (p.status !== 'pending') return refuse(c, ctx, A, id, new ApiError('PROPOSAL_NOT_PENDING', 409, `This proposal is already ${p.status}.`));
       const edges = STORED_EDGE.array().parse(p.edges);
-      if (b.sha !== p.payload_sha || payloadSha({ title: p.title, why: p.why, baseRevision: p.base_revision, edges }) !== p.payload_sha)
+      if (b.sha !== p.payload_sha || payloadSha({ title: p.title, why: p.why, baseRevision: p.base_revision, edges, triggers: p.triggers, baseline: p.baseline, expectedCost: p.expected_cost }) !== p.payload_sha)
         return refuse(c, ctx, A, id, new ApiError('PROPOSAL_CHANGED', 409, 'This proposal is not the one you reviewed. Reload it and review it again.'));
       const note = b.note || null;
       if (b.decision === 'reject') {

@@ -10,7 +10,7 @@ import { edgesOf, latestRevision, revDto } from '../agents/org.ts';
 import { diffLines } from './validate.ts';
 import { coverageAgents, revisionCoverage } from './coverageRoutes.ts';
 import { createProposal, lockProposals, pendingWithEdges, expireDue } from './proposals.ts';
-import type { OrgDiffDto, OrgEdgeDto, OrgImpactDto, OrgRevisionDetailDto, OrgRevisionSource, OrgRevisionSummaryDto } from '../../../shared/contracts/src/index.ts';
+import { RESTRUCTURE_TRIGGERS, type OrgDiffDto, OrgEdgeDto, OrgImpactDto, OrgRevisionDetailDto, OrgRevisionSource, OrgRevisionSummaryDto } from '../../../shared/contracts/src/index.ts';
 
 /**
  * Improvement cycle 4: the organisation's history. Every revision with who made it and where it came from (a proposal,
@@ -22,7 +22,7 @@ import type { OrgDiffDto, OrgEdgeDto, OrgImpactDto, OrgRevisionDetailDto, OrgRev
 const Seq = z.coerce.number().int().min(1).max(2_147_483_647);
 const SeqParam = z.object({ seq: Seq });
 const DiffQs = z.object({ against: z.coerce.number().int().min(0).max(2_147_483_647).optional() }).strict();
-const RollbackIn = z.object({ why: z.string().trim().max(2000).optional() }).strict();
+const RollbackIn = z.object({ why: z.string().trim().max(2000).optional(), triggers: z.array(z.enum(RESTRUCTURE_TRIGGERS)).max(RESTRUCTURE_TRIGGERS.length * 2).optional() }).strict(); // c64: a rollback can name why too
 /** Missions in a final state (or archived) are not running: they are never listed as affected. */
 const FINAL = ['completed', 'failed', 'canceled', 'archived'];
 
@@ -139,7 +139,7 @@ export default async function historyRoutes(app: FastifyInstance) {
         throw new ApiError('NOTHING_TO_ROLL_BACK', 422, `Revision ${seq} has the same reporting lines as the active revision ${cur.seq}: there is nothing to roll back.`);
       if ((await pendingWithEdges(c, ctx.tenantId, edges, cur.seq)).length)
         throw new ApiError('DUPLICATE_PROPOSAL', 409, `A proposal with the reporting lines of revision ${seq} is already waiting for a decision.`);
-      return createProposal(c, ctx, { title: `Roll back to revision ${seq}`, why: b.why || `Restores the reporting lines of revision ${seq}.`, baseRevision: cur.seq, edges }, { rollbackTo: seq });
+      return createProposal(c, ctx, { title: `Roll back to revision ${seq}`, why: b.why || `Restores the reporting lines of revision ${seq}.`, baseRevision: cur.seq, edges, triggers: b.triggers }, { rollbackTo: seq });
     });
     return reply.status(out.status).send(out.body);
   });

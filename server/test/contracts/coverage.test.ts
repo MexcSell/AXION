@@ -263,8 +263,8 @@ describe('API coverage run', () => {
     await call(admin, 'GET', '/organization/coverage', '/organization/coverage');
     const moved = (edges: any[], sub: string, sup: string) => edges.map((e) => (e.subordinateId === sub ? { ...e, supervisorId: sup } : e));
     const baseRev = async () => (await admin.req('GET', '/organization/graph')).body.revision.seq as number;
-    await call(admin, 'POST', '/organization/proposals', '/organization/proposals', { status: 200, query: '?dryRun=1', body: { title: 'dry', why: 'x', baseRevision: await baseRev(), edges: moved(g.edges, 'tester-01', 'coder-01') } });
-    const p1 = (await call(admin, 'POST', '/organization/proposals', '/organization/proposals', { status: 201, body: { title: 'Move tester', why: 'Shorter path.', baseRevision: await baseRev(), edges: moved(g.edges, 'tester-01', 'coder-01') }, headers: key() })).body.proposal;
+    await call(admin, 'POST', '/organization/proposals', '/organization/proposals', { status: 200, query: '?dryRun=1', body: { title: 'dry', why: 'x', baseRevision: await baseRev(), edges: moved(g.edges, 'tester-01', 'coder-01'), triggers: ['repeated_reassigns'] } });
+    const p1 = (await call(admin, 'POST', '/organization/proposals', '/organization/proposals', { status: 201, body: { title: 'Move tester', why: 'Shorter path.', baseRevision: await baseRev(), edges: moved(g.edges, 'tester-01', 'coder-01'), triggers: ['coverage_gap', 'load_imbalance'] }, headers: key() })).body.proposal;
     await call(bea.b, 'POST', '/organization/proposals/:id/decision', `/organization/proposals/${p1.id}/decision`, { body: { decision: 'approve', sha: p1.sha, note: 'ok' } });
     const g2 = (await admin.req('GET', '/organization/graph')).body;
     const p2 = (await admin.req('POST', '/organization/proposals', { title: 'Move writer', why: 'x', baseRevision: g2.revision.seq, edges: moved(g2.edges, 'writer-01', 'ops-01') }, key())).body.proposal;
@@ -284,7 +284,7 @@ describe('API coverage run', () => {
     await call(admin, 'GET', '/organization/revisions/:seq', `/organization/revisions/${last}`);
     await call(admin, 'GET', '/organization/revisions/:seq/diff', `/organization/revisions/${last}/diff`, { query: `?against=${first}` });
     await call(admin, 'GET', '/organization/revisions/:seq/diff', `/organization/revisions/${first}/diff`, { query: `?against=${last}` });
-    await call(admin, 'POST', '/organization/revisions/:seq/rollback-proposal', `/organization/revisions/${first}/rollback-proposal`, { status: 201, headers: key(), body: { why: 'Back to the start.' } });
+    await call(admin, 'POST', '/organization/revisions/:seq/rollback-proposal', `/organization/revisions/${first}/rollback-proposal`, { status: 201, headers: key(), body: { why: 'Back to the start.', triggers: ['failure_concentration'] } });
 
     // ---- mentoring
     await call(admin, 'GET', '/mentoring', '/mentoring');

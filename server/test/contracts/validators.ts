@@ -7,7 +7,7 @@ import {
   type HierarchyDto, type HierarchyEdgeDto, type HierarchyNodeDto, type InstanceDto, type InstancesPageDto, type LedgerDto, type LedgerVersionDto, type LedgerVersionPageDto,
   type LedgersDto, type LessonCandidateDto, type LessonConflict, type MeDto, type MentoringMilestoneDto, type MentoringPlanDto, type MessageDto, type MessagePageDto,
   type MissionDto, type MissionFileDto, type MissionThreadsDto, type NoticeDto, type OpsHealthDto, type OriginCheckDto, type OrgCoverage, type OrgCoverageChange,
-  type OrgDiffDto, type OrgDryRun, type OrgDryRunCoverage, type OrgEdgeDto, type OrgImpactDto, type OrgIssue, type OrgMoveDto, type OrgProposalDto, type OrgRevisionDetailDto,
+  type OrgDiffDto, type OrgDryRun, type OrgDryRunCoverage, type OrgEdgeDto, type OrgImpactDto, type OrgIssue, type OrgMoveDto, type OrgProposalDto, type OrgEvidence, type OrgContractCheck, type OrgChurn, type TriggerEvidence, type TriggerFact, RESTRUCTURE_TRIGGERS, type OrgRevisionDetailDto,
   type OrgRevisionDto, type OrgRevisionSource, type OrgRevisionSummaryDto, type PlaybookDiff, type PlaybookDto, type PlaybookItem, type PlaybookVersionRow, type PolicyBaselineDto,
   type PolicyKindDto, type ProgressBody, type Provenance, type ReviewActor, type ReviewerAgreement, type RubricItem, type ScorecardRow, type SiteGrantDto, type SkillDto,
   type SkillStep, type SourceRef, type TaskBody, type TaskDto, type TaskReviewDto, type TaskReviewsDto, type ThreadDto, type ThreadPartnerDto, type ThroughputDto,
@@ -241,12 +241,20 @@ export const orgDiff: V<OrgDiffDto> = obj<OrgDiffDto>({
   impact: arr(obj<OrgImpactDto>({ missionId: str, title: str, agentId: str, instanceId: str, demo: bool })),
 });
 const orgIssue: V<OrgIssue> = obj<OrgIssue>({ code: str, message: str, agentId: opt(str), dept: opt(str) });
-const dryRun: V<OrgDryRun> = obj<OrgDryRun>({ ok: bool, errors: arr(orgIssue), warnings: arr(orgIssue), added: arr(orgEdge), removed: arr(orgEdge), coverage: opt(dryRunCoverage) });
+const triggerEvidence: V<TriggerEvidence> = obj<TriggerEvidence>({ kind: oneOf(RESTRUCTURE_TRIGGERS), supported: bool, facts: arr(obj<TriggerFact>({ label: str, value: num })), subjects: arr(str) });
+const orgEvidence: V<OrgEvidence> = obj<OrgEvidence>({ triggers: arr(triggerEvidence), windowDays: int });
+const contractCheck: V<OrgContractCheck> = obj<OrgContractCheck>({ code: str, title: str, ok: bool, reasons: arr(str) });
+const orgChurn: V<OrgChurn> = obj<OrgChurn>({ linesChanged: int, budget: nullable(int), windowHours: nullable(int), usedInWindow: int, overBudget: bool, cooldownHours: nullable(int), cooldownEndsInMinutes: nullable(int) });
+const dryRun: V<OrgDryRun> = obj<OrgDryRun>({
+  ok: bool, errors: arr(orgIssue), warnings: arr(orgIssue), added: arr(orgEdge), removed: arr(orgEdge), coverage: opt(dryRunCoverage),
+  evidence: opt(orgEvidence), contracts: opt(arr(contractCheck)), churn: opt(orgChurn),
+});
 const proposal: V<OrgProposalDto> = obj<OrgProposalDto>({
   id: str, title: str, why: str, baseRevision: int, edges: arr(orgEdge), sha: str,
   status: oneOf(['pending', 'approved', 'rejected', 'applied', 'failed', 'expired', 'withdrawn'] as const),
   createdBy: str, createdByName: str, createdAt: iso, expiresAt: iso, decidedBy: nullable(str), decidedByName: nullable(str), decidedAt: nullable(iso), decisionNote: nullable(str),
   appliedRevision: nullable(int), result: dryRun,
+  triggers: arr(oneOf(RESTRUCTURE_TRIGGERS)), baseline: str, expectedCost: str, linesChanged: int,
 });
 export const proposalBody = obj<{ proposal: OrgProposalDto }>({ proposal });
 export const proposalsBody = obj<{ proposals: OrgProposalDto[]; activeRevision: number }>({ proposals: arr(proposal), activeRevision: int });

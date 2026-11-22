@@ -53,7 +53,29 @@ export interface OrgRevisionDto { id: number; seq: number; note: string; created
 export type OrgProposalStatus = 'pending' | 'approved' | 'rejected' | 'applied' | 'failed' | 'expired' | 'withdrawn';
 export interface OrgIssue { code: string; message: string; agentId?: string; dept?: string }
 /** The server's dry run (validateOrg): stored facts only, no estimates. */
-export interface OrgDryRun { ok: boolean; errors: OrgIssue[]; warnings: OrgIssue[]; added: OrgEdgeDto[]; removed: OrgEdgeDto[]; coverage?: OrgDryRunCoverage }
+export interface OrgDryRun {
+  ok: boolean; errors: OrgIssue[]; warnings: OrgIssue[]; added: OrgEdgeDto[]; removed: OrgEdgeDto[]; coverage?: OrgDryRunCoverage;
+  /** c64: the evidence for the triggers the proposer picked (counts computed by the server). Absent on proposals made before c64. */
+  evidence?: OrgEvidence;
+  /** c64: the new contract checks (pass or fail, with reasons). Absent on proposals made before c64. */
+  contracts?: OrgContractCheck[];
+  /** c64: the churn budget and cooldown status at the time of the check. Absent on proposals made before c64. */
+  churn?: OrgChurn;
+}
+/** c64 (R3-6): why a restructure is proposed. The proposer picks triggers from this closed list; the server computes the counts. No trigger is a valid, honest answer. */
+export const RESTRUCTURE_TRIGGERS = ['load_imbalance', 'coverage_gap', 'repeated_reassigns', 'failure_concentration'] as const;
+export type RestructureTrigger = (typeof RESTRUCTURE_TRIGGERS)[number];
+export interface TriggerFact { label: string; value: number }
+/** `supported` = the recorded counts back the trigger (rule per kind in server/src/organization/evidence.ts); a picked trigger the data does not support is shown, not hidden. */
+export interface TriggerEvidence { kind: RestructureTrigger; supported: boolean; facts: TriggerFact[]; subjects: string[] }
+export interface OrgEvidence { triggers: TriggerEvidence[]; windowDays: number }
+/** One contract a restructure must keep. Orphan duty and a manager without reports were checked before c64 and are not listed here. */
+export interface OrgContractCheck { code: string; title: string; ok: boolean; reasons: string[] }
+/** Operator settings (never routes): 0 or unset = not enforced. `cooldownEndsInMinutes` and `usedInWindow` are computed with the database clock. */
+export interface OrgChurn {
+  linesChanged: number; budget: number | null; windowHours: number | null; usedInWindow: number; overBudget: boolean;
+  cooldownHours: number | null; cooldownEndsInMinutes: number | null;
+}
 /** Improvement cycle 20: does the structure cover the company's needs. Facts about the structure, never errors. */
 export interface OrgCoverage {
   /** every role of the catalog with the placed active agents that hold it (empty = missing) */
@@ -74,6 +96,8 @@ export interface OrgProposalDto {
   createdBy: string; createdByName: string; createdAt: string; expiresAt: string;
   decidedBy: string | null; decidedByName: string | null; decidedAt: string | null; decisionNote: string | null;
   appliedRevision: number | null; result: OrgDryRun;
+  /** c64 */
+  triggers: RestructureTrigger[]; baseline: string; expectedCost: string; linesChanged: number;
 }
 
 /** Improvement cycle 5: agent version proposals (a candidate model/skills/tools against the active version). */
