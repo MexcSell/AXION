@@ -10,6 +10,7 @@ import { idempotent } from '../idempotency.ts';
 import { emit } from '../events/hooks.ts';
 import { createOrgRevision, edgesOf, latestRevision as latest, lockOrg } from '../agents/org.ts';
 import { validateOrg, type EdgeIn } from './validate.ts';
+import { dryRunCoverage } from './coverageRoutes.ts';
 import type { OrgDryRun, OrgProposalDto } from '../../../shared/contracts/src/index.ts';
 
 /**
@@ -39,7 +40,9 @@ export function payloadSha(p: { title: string; why: string; baseRevision: number
 
 async function dryRun(c: Tx | Db, tenantId: string, edges: EdgeIn[], currentId: number | null): Promise<OrgDryRun> {
   const agents = (await c.query('select id, status, dept, role from agent_definitions where tenant_id=$1', [tenantId])).rows;
-  return validateOrg(edges, agents, currentId === null ? [] : await edgesOf(c, currentId));
+  const current = currentId === null ? [] : await edgesOf(c, currentId);
+  // cycle 20: the coverage block is facts for the reader (its own key); it never adds an error or a warning, so `ok` is unchanged
+  return { ...validateOrg(edges, agents, current), coverage: await dryRunCoverage(c, tenantId, edges, current) };
 }
 
 const SELECT = `select p.*, cu.name as created_by_name, du.name as decided_by_name from org_proposals p

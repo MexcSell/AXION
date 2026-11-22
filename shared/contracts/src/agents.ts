@@ -51,7 +51,22 @@ export interface OrgRevisionDto { id: number; seq: number; note: string; created
 export type OrgProposalStatus = 'pending' | 'approved' | 'rejected' | 'applied' | 'failed' | 'expired' | 'withdrawn';
 export interface OrgIssue { code: string; message: string; agentId?: string; dept?: string }
 /** The server's dry run (validateOrg): stored facts only, no estimates. */
-export interface OrgDryRun { ok: boolean; errors: OrgIssue[]; warnings: OrgIssue[]; added: OrgEdgeDto[]; removed: OrgEdgeDto[] }
+export interface OrgDryRun { ok: boolean; errors: OrgIssue[]; warnings: OrgIssue[]; added: OrgEdgeDto[]; removed: OrgEdgeDto[]; coverage?: OrgDryRunCoverage }
+/** Improvement cycle 20: does the structure cover the company's needs. Facts about the structure, never errors. */
+export interface OrgCoverage {
+  /** every role of the catalog with the placed active agents that hold it (empty = missing) */
+  roles: { role: string; agentIds: string[] }[];
+  missingRoles: string[];
+  duplicateRoles: { role: string; agentIds: string[] }[];
+  deptsWithoutHead: string[];
+  managersWithoutReports: string[];
+  agentsWithoutDuty: string[];
+  span: { max: number; agentId: string | null; managers: number };
+  depth: number;
+}
+export interface OrgCoverageChange { code: string; message: string; role?: string; dept?: string; agentId?: string }
+/** The coverage of the active revision, of the proposed lines, and what the proposal changes. */
+export interface OrgDryRunCoverage { current: OrgCoverage; proposed: OrgCoverage; changes: OrgCoverageChange[] }
 export interface OrgProposalDto {
   id: string; title: string; why: string; baseRevision: number; edges: OrgEdgeDto[]; sha: string; status: OrgProposalStatus;
   createdBy: string; createdByName: string; createdAt: string; expiresAt: string;
@@ -87,7 +102,7 @@ export type OrgRevisionSource =
   | { kind: 'other' };
 /** A revision with who made it, its source and how many reporting lines changed against the revision before it. */
 export interface OrgRevisionSummaryDto extends OrgRevisionDto {
-  createdByName: string; source: OrgRevisionSource; appliedFromProposal: string | null; changed: number;
+  createdByName: string; source: OrgRevisionSource; appliedFromProposal: string | null; changed: number; coverage?: OrgCoverage;
 }
 export interface OrgRevisionDetailDto extends OrgRevisionSummaryDto { edges: OrgEdgeDto[] }
 /** A line whose subordinate is in both revisions with another manager. */
