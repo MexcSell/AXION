@@ -5,6 +5,7 @@ import { migrate } from '../src/migrate.ts';
 import { tx } from '../src/db.ts';
 import { audit, verifyChain } from '../src/audit.ts';
 import { seedDemo } from '../src/seed/demo.ts';
+import { EVENTS_LOCK } from '../src/events/log.ts';
 
 const T = 't-1';
 const put = (c: any, n: number, tenantId = T, detail: Record<string, unknown> = { n }) =>
@@ -184,5 +185,35 @@ describe('GET /audit/verify', () => {
     const codes: number[] = [];
     for (let i = 0; i < 12; i++) codes.push((await A.admin.req('GET', '/audit/verify')).status);
     expect(codes).toContain(429);
+  });
+});
+
+describe('fix round c31', () => {
+  it('M1: a lock timeout while auditing a denied sign-in still returns the 401 (and the failed audit write is not hidden)', async () => {
+    const t = await makeTestApp({ staffingStepMs: 60_000 });
+    const hold = await t.pool.connect();
+    try {
+      const A = await withAdmin(t.app);
+      const { Browser } = await import('./helpers.ts');
+      const b = new Browser(t.app);
+      await hold.query('select pg_advisory_lock($1)', [EVENTS_LOCK]); // a writer stuck holding the events lock
+      const r = await b.connect('Luca', 'wrong-password');
+      expect(r.status).toBe(401);
+      expect(r.body.code).toBe('WRONG_PASSWORD');
+      await hold.query('select pg_advisory_unlock($1)', [EVENTS_LOCK]);
+      expect((await verifyChain(t.pool, 't-1')).ok).toBe(true);
+      void A;
+    } finally { hold.release(); await t.close(); }
+  }, 30_000);
+
+  it('M2: rows written in one transaction keep their id order when sorted by at (reliability orders handovers by at, id)', async () => {
+    const s = await makeSchema();
+    try {
+      await tx(s.pool, async (c) => { for (let i = 1; i <= 5; i++) await put(c, i, 't-ord'); });
+      const rows = (await s.pool.query(`select id, at, seq from audit_events where tenant_id='t-ord' order by at, id`)).rows;
+      expect(rows.map((r) => Number(r.seq))).toEqual([1, 2, 3, 4, 5]);
+      const asc = (await s.pool.query(`select id from audit_events where tenant_id='t-ord' order by id`)).rows.map((r) => r.id);
+      expect(rows.map((r) => r.id)).toEqual(asc);
+    } finally { await s.drop(); }
   });
 });

@@ -77,7 +77,9 @@ export default async function authRoutes(app: FastifyInstance) {
       if ('existing' in r) u = r.existing; else created = r.created;
     }
     if (!created && !(await checkPassword(u.pass_hash, b.password))) {
-      await audit(app.db, { tenantId, actor: 'anonymous', action: 'auth.connect', subject: u.id, result: 'denied', correlationId: cid, detail: { reason: 'wrong password' } });
+      // c31 fix round: the chain write takes locks (events + tenant) and can time out under load; the caller still gets the 401, and the failed audit write is logged
+      try { await audit(app.db, { tenantId, actor: 'anonymous', action: 'auth.connect', subject: u.id, result: 'denied', correlationId: cid, detail: { reason: 'wrong password' } }); }
+      catch (err) { req.log.error({ err, correlationId: cid }, 'audit write failed for a denied sign-in'); }
       throw new ApiError('WRONG_PASSWORD', 401, 'Wrong password for this name. A new name registers a new user.'); // the reserved attempt stays counted
     }
     limiter.release(lk, attempt);

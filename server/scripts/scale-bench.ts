@@ -11,7 +11,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { assertOwnLaneDb } from './scale-guard.ts';
 import { buildApp } from '../src/app.ts';
-import { migrate } from '../src/migrate.ts';
+import { migrate, listMigrations } from '../src/migrate.ts';
+import { chainHash, GENESIS, verifyChain } from '../src/audit.ts';
 import { Browser } from '../test/helpers.ts';
 
 const url = process.env.E2E_DATABASE_URL;
@@ -22,7 +23,10 @@ const T = 't-1';
 
 const pool = new pg.Pool({ connectionString: url, max: 3 });
 await migrate(pool, 'down', 0);
-await migrate(pool, 'up', 16);
+await migrate(pool, 'up'); // the whole schema: the app writes the audit chain from the first sign-in on (0026)
+// BEFORE = without the 0017 indexes (its down file), AFTER = with them (its up file); everything else stays as it is
+const m17 = listMigrations().find((m) => m.version === 17)!;
+await pool.query(m17.down);
 
 const app = await buildApp({ databaseUrl: url, logger: false, uploadDir: mkdtempSync(join(tmpdir(), 'axion-scale-')), demoSeed: false });
 const admin = new Browser(app);
@@ -73,18 +77,40 @@ async function seed() {
   const have = Number((await q(`select count(*) from events where tenant_id=$1`, [T])).rows[0].count);
   await q(`insert into events (tenant_id, type, subject_kind, subject_id, payload, occurred_at)
            select $1, (array['instance.stateChanged','message.sent','note.added'])[1 + g % 3], 'x', 'x' || g, '{}'::jsonb, now() - (g % 40 || ' days')::interval from generate_series(1, 50000 - $2::int) g`, [T, have]);
-  await q(`insert into audit_events (tenant_id, at, actor, action, subject, result, correlation_id, detail)
-           select $1, now() - (g % 40 || ' days')::interval, $2, 'task.reassign', t.id, 'ok', 'c' || g,
-                  jsonb_build_object('from','running','fromAgent', t.owner_agent)
-             from (select id, owner_agent, row_number() over () g from tasks where id like 'TS-%' limit 3000) t`, [T, adminId]);
-  await q(`insert into audit_events (tenant_id, at, actor, action, subject, result, correlation_id, detail)
-           select $1, now() - (g % 40 || ' days')::interval, $2, (array['auth.login','mission.update','approval.decide'])[1 + g % 3], 'x' || g, 'ok', 'f' || g, '{}'::jsonb
-             from generate_series(1, 20000 - 3000 - (select count(*) from audit_events where tenant_id=$1)::int + 3000) g`, [T, adminId]);
+  // audit rows: 3,000 task.reassign + filler to 20,000. Built as a valid hash chain (0026) with the app's own chainHash and
+  // inserted in bulk, so `npm run audit:verify` passes on this data; the append-only triggers stay on.
+  const ts = (await q(`select id, owner_agent from tasks where id like 'TS-%' order by id limit 3000`)).rows;
+  const head = (await q('select seq, row_hash from audit_events where tenant_id=$1 order by seq desc limit 1', [T])).rows[0];
+  let seq = head ? Number(head.seq) : 0;
+  let prev: string = head ? head.row_hash : GENESIS;
+  const total = 20000 - Number((await q('select count(*) from audit_events where tenant_id=$1', [T])).rows[0].count);
+  const rows: unknown[][] = [];
+  for (let g = 1; g <= total; g++) {
+    const t = g <= ts.length ? ts[g - 1] : null;
+    const at = new Date(Date.now() - (g % 40) * 86_400_000).toISOString().replace('Z', '000Z'); // .sss000: exact in the microsecond text the chain uses
+    const action = t ? 'task.reassign' : ['auth.login', 'mission.update', 'approval.decide'][g % 3];
+    const subject = t ? t.id : 'x' + g;
+    const detail = t ? { from: 'running', fromAgent: t.owner_agent } : {};
+    seq++;
+    const cid = (t ? 'c' : 'f') + g;
+    const rowHash = chainHash(prev, { tenantId: T, seq, at, actor: adminId, action, subject, result: 'ok', correlationId: cid, detail: JSON.parse(JSON.stringify(detail)) });
+    rows.push([T, at, adminId, action, subject, 'ok', cid, JSON.stringify(detail), seq, prev, rowHash]);
+    prev = rowHash;
+  }
+  const cols = ['tenant_id', 'at', 'actor', 'action', 'subject', 'result', 'correlation_id', 'detail', 'seq', 'prev_hash', 'row_hash'];
+  const types = ['text', 'timestamptz', 'text', 'text', 'text', 'text', 'text', 'jsonb', 'bigint', 'text', 'text'];
+  for (let i = 0; i < rows.length; i += 2000) {
+    const chunk = rows.slice(i, i + 2000);
+    await q(`insert into audit_events (${cols.join(',')}) select * from unnest(${cols.map((_, k) => `$${k + 1}::${types[k]}[]`).join(',')})`, cols.map((_, k) => chunk.map((r) => r[k])));
+  }
   await q('analyze');
 }
 await seed();
 const counts = (await pool.query(`select (select count(*) from missions where id like 'M-5%') m, (select count(*) from tasks where id like 'TS-%') t, (select count(*) from task_attempts) a, (select count(*) from events) e, (select count(*) from audit_events) au, (select count(*) from agent_instances) i`)).rows[0];
 console.log('seeded', JSON.stringify(counts));
+const chk = await verifyChain(pool, T);
+console.log('audit chain', JSON.stringify(chk));
+if (!chk.ok) throw new Error('seeded audit chain does not verify');
 
 const ENDPOINTS = ['/company/scorecard', '/agents', '/missions', '/agent-instances'];
 async function bench(label: string) {
@@ -118,7 +144,7 @@ async function explain(label: string) {
 }
 await bench('BEFORE');
 await explain('BEFORE');
-await migrate(pool, 'up');
+await pool.query(m17.up);
 await pool.query('analyze');
 await bench('AFTER');
 await explain('AFTER');
