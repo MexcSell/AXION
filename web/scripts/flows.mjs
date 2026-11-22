@@ -127,7 +127,8 @@ await step('Dividers: drag resizes panes, clamps, and persists across reload', a
     await p.mouse.move(b.x + b.width / 2 + dx / 2, b.y + b.height / 2, { steps: 4 });
     await p.mouse.move(b.x + b.width / 2 + dx, b.y + b.height / 2, { steps: 4 });
     await p.mouse.up();
-    await frames(); // the pane width follows the pointer on the next painted frame
+    // condition wait: the splitter (and so the pane beside it) has moved from where it was once the drag has been applied
+    await until(([q, x]) => Math.abs(document.querySelector(q).getBoundingClientRect().x - x) > 0.5, [sel, b.x]);
   };
   const w = async (sel) => (await p.locator(sel).first().boundingBox()).width;
   await p.goto(base + '/missions/M-126?tab=conversations', { waitUntil: 'networkidle' });

@@ -55,3 +55,10 @@ NOT DONE, by the brief's own condition: `c34-archive-race.mjs` is not in this tr
 - The palette fix changes hover selection to pointer movement; a keyboard-only user is unaffected, a mouse user sees the highlight follow real movement as before.
 - The Modal change touches every dialog; verify-all (dialog smoke, ids, focus trap flow) passes.
 - The palette race has no separate deterministic script; its check is the flows step under 4x throttle.
+
+## Fix round (controller review PASS, two follow-ups)
+1. **Deterministic palette check: `web/scripts/c43-palette-hover.mjs`.** Real mouse, CPU throttle 4x, 6 tries (alternating "hover then type" and "hover racing the typing"): open the palette, `mouse.move` onto row 10 of the long list, `fill('settings navigation')` (4 results), Enter, assert the palette closes (Enter ran a row).
+   - RED, only `CommandPalette.tsx` reverted to ac1a48c: `FAIL try 1: Enter did nothing after a hover on row 10 and a shorter result list (palette still open)`, 2/2 runs. Only try 1 fails each time (the others pass on old code), so it is a reliable detector but not a stress test.
+   - GREEN, the fix restored: `PASS ... 6/6`, 2 runs.
+   - First draft asserted the URL `/settings?tab=navigation`. That failed on the fix too: the hover legitimately highlights the row under the pointer and Enter ran it (it went to the Help row). The assertion is now "Enter runs the highlighted row (the palette closes)", which is what the old code violated. `CommandPalette.tsx` was restored afterwards (`git status` clean for src).
+2. **Dividers step:** the two-frame settle is now `until` the splitter has moved from its pre-drag x (the pane beside it resizes with it). Same assertions. Verified flows: 3 runs at 4x and 2 plain, 21 PASS each, 0 FAIL.
