@@ -31,7 +31,7 @@ Lane w41, branch `c42-delegation-brief` (from c30-policy-service f483e2d). Migra
 | `web/scripts/api-c42.mjs` shows the brief on a delegation | PASS | 13/13 |
 | server tsc, vitest | PASS | tsc clean; vitest 40 files, 692 tests passed (includes the c42 file and the security route-table test) |
 | web tsc | PASS | clean |
-| a11y | PASS (demo) | `a11y-check (demo): 50 views, 56 dialogs, 0 violations`; api mode result below |
+| a11y | PASS | demo: `50 views, 56 dialogs, 0 violations`; api mode: `40 views, 56 dialogs, 0 violations` |
 | fit-check ALL FIT | PASS | `ALL FIT`, 77 views ok, 0 failures |
 
 E2E command: `E2E_API_PORT=9192 E2E_WEB_PORT=9193 heavy.sh ./scripts/api-e2e.sh api-flows.mjs api-stage6.mjs api-c42.mjs`: counted `FAIL` lines = 0, passes 23 + 94 + 13 = 130, "no page errors" for all three.
