@@ -461,3 +461,31 @@ FAIL 900 /operations?tab=logs tab=Logs: clipped control button.icon-btn.xs[Dismi
 - **fit-check:** 78/78 ALL FIT (c17 adds the New Features help view). **ov-fit:** 32/32, NO SCROLL ANYWHERE.
 
 **Follow-up commits:** `2247ec6`. Controller files committed with this entry: LANES.md, LOG.md, PHASE2.md, STATE.md (modified); cycles/c43-review, c44–c46 briefs (new).
+
+## Batch 7 (Phase 2 · Wave 1): c32, c31, c30
+
+- **Merged:** 2026-11-22 ~07:57–08:15 UTC. Pre-batch commit `3740292`.
+- **Merge commits (`--no-ff`):**
+  - `e9af1a3` c32-eval-model (e5c148a): migration 0027 eval tables, stats.ts, verdict-v2.ts.
+  - `728994f` c31-audit-chain (06c25bb): migration 0026 audit hash chain, `GET /audit/verify`, `npm run audit:verify`.
+  - `683a15c` c30-policy-service (f483e2d): policy module, approval tiers from policy.
+- **Conflicts:** none in any of the three. The only raw `insert into audit_events` left on the merged tree are audit.ts (chained), c31's own tests and the fixed scale-bench.ts. c30 adds only `GET /policy/baseline`, so no rate-limit entry is needed.
+- **Live API untouched:** 5191 runs `node --import tsx src/main.ts` with no watch, so nothing migrates until the controller restarts it.
+- **Per-merge server checks** (web tsc OK after each):
+  - **After c32:** server tsc OK; vitest 40 files 633/633.
+  - **After c31:**
+    - Unpatched: vitest at 2 workers red in 3/3 runs, one different test each time, a sign-in 500 at ~5.3 s (events.test "is append-only", auth.test "a second name waits…", review-fixes "avatar images…"). `--maxWorkers=1`: 653/653.
+    - Cause: c31's `audit()` takes `EVENTS_LOCK`, a database-wide constant advisory key, and pool audits run with a 5 s `lock_timeout`. c31's own test M1 (`audit-chain.test.ts:199`) parks a writer on that key until a sign-in's audit times out. Every test schema in axion_test (and every lane) shares the key, so all their audits time out for those 5 s.
+    - The batch 5f "transient" vitest red had the same 5 s signature.
+  - **Follow-up `9e958f3`** (**ACCEPTED by the controller**): `EVENTS_LOCK` is `hashtextextended(current_schema() || ':axion-events', 0)`, used in events/log.ts, audit.ts and the M1 test, the way c31 already scopes its tenant lock. Production has one schema, so exclusivity there is unchanged. After: 3/3 runs at 2 workers, 41 files 653/653.
+  - **Follow-up `bc53a1b`** (controller's hardening): M1 asserts the denied sign-in waited ≥ 4.5 s. RED when the holder locks the old constant key ("expected 40 to be greater than or equal to 4500"); GREEN with the scoped key.
+  - **After c30:** server tsc OK; vitest 746/746.
+- **Controller note:** c31's global events lock in production (pool audits wait on it with a 5 s timeout) is recorded as backlog P5c; no further product lock change in the merge.
+
+**Batch checks on `bc53a1b`:**
+- **api-e2e (exit 0):** api-auth-flow 15/15; api-flows 23/23; api-stage6 94/94 (both decide as admin A under c30's tiers); api-improve 107/107.
+- **`npm run audit:verify`** against axion_e2e (`DATABASE_URL` set to the e2e URL explicitly; the default .env points at the live DB, which has no 0026 yet): exit 0, "audit chain OK for t-1: 45 rows".
+- **verify-all:** exit 0, "ALL 10 STEPS PASSED", no FAIL lines; flows 21/21; dialog smoke 112 checks, 0 failures.
+- **fit-check:** 78/78 ALL FIT. **ov-fit:** 32/32, NO SCROLL ANYWHERE.
+
+**Follow-up commits:** `9e958f3`, `bc53a1b`. Controller files committed with this entry: BACKLOG.md, LOG.md, QUEUE.md (modified); cycles/c45-review.md (new).

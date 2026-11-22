@@ -281,3 +281,34 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
   - Honest note: the work was not strictly test-first. Token mutation turns 23 tests red.
   - Audit uses the plain helper, because c31 is not in the tree.
   - Independent reviewer dispatched.
+- 2026-11-22T08:00Z · c45 review: **PASS-WITH-FIXES**, 6 minors confirmed by running, none blocker or major.
+  - Checks: vitest 649 green, api-c45 10/10, the reviewer's own 8-worker stress clean, and merge-tree against c30/c31 clean.
+  - Gaps found:
+    - The trigger lets raw SQL move or shorten a lease and requeue an unexpired lease.
+    - There is no INSERT guard.
+    - Cancel without the flag is allowed.
+    - Non-integer tokens throw raw PG errors.
+    - Claim and reclaim span all tenants by default.
+    - The static no-execution greps are bypassable.
+  - Fix round dispatched, adding a reclaim batch limit, the null-means-retry comment and a DEMO label on the old Queues mock.
+- 2026-11-22T08:12Z · c44 page perf (w43) reported at 69bca39.
+  - Floor: 847 → 492 ms (−42 %, **PASS**). The win comes from the `useMissionNodes` selector replacing the whole-entry `useMissionControl` at Missions.tsx:136/:476.
+  - Full burst: 1,528 → 1,367 ms against a bar of 887 ms, **NOT MET**.
+  - Worst merged period: 509–1,013 → 233–318 ms against a bar of 250 ms, **NOT MET**.
+  - Adaptive flush runs at 60–400 ms. The lastEventAt coalescing was kept with no measured gain.
+  - Loads differed (base 9–11, after 12–22) and so did CHECKS (on for the base, 0 after), so the reviewer re-measures interleaved. Independent reviewer dispatched.
+- 2026-11-22T08:13Z · Batch 7: c32 (e9af1a3) and c31 (728994f) merged.
+  - Integrator follow-up 9e958f3: EVENTS_LOCK is now schema-scoped (`hashtextextended(current_schema()||':axion-events',0)`). The c31 M1 test parked a writer on the database-wide key, and every test schema's audit then hit the 5 s lock_timeout, giving one random 500 per 2-worker run. This also explains batch 5f's "transient" red.
+  - Controller ruling: **accepted**. No unmerged branch uses the key. Required: M1 must prove it actually blocks (elapsed ≥ 4.5 s, or a pg_locks waiter), so it can't pass vacuously.
+  - The production exposure (pool audits wait up to 5 s on the global events lock) goes to backlog **P5c**.
+  - c30 next, then batch 8.
+- 2026-11-22T08:18Z · **c43 CLEARED** at 2cd883d (controller check of the fix round).
+  - `c43-palette-hover.mjs` (real mouse, 4× throttle) FAILS on the old CommandPalette (2/2 runs) and passes 6/6 on the fix.
+  - Dividers waits for the splitter to move. flows ran 3× at 4× and 2× plain, 21/21 each.
+  - Queued as batch 8b, after c34, with the archive-script merge and the dialog re-run follow-ups.
+- 2026-11-22T08:21Z · **c45 CLEARED** at 17b6390 (controller check of the fix round).
+  - Fix-round tests: 13 new tests, 10 RED before the fix. jobs 76/76, full vitest 662, api-c45 11/11, verify-all 10/10.
+  - Trigger: lease edges only move forward and only while unexpired, with an INSERT guard and cancel only when the flag is set. Non-integer tokens give stale_token. Claim and reclaim fail closed without a tenantId or `allTenants`, and reclaim has a limit.
+  - Deviation accepted: a live lease may go back to queued when the holder records a failure (last_error), which the holder's own retry needs. The token still bumps, so fencing holds.
+  - The test-only trigger disable is transactional and rolls back on error.
+  - Queued as batch 10.
