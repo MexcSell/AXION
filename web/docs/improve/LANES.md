@@ -75,6 +75,8 @@ Migrations 0001–0013 are on `improve-30h`. Reserved numbers, so lanes never co
 | w58 (c59 origin records, only if needed) | 0044 |
 | w59 (c60 attribution and OTel, only if needed) | 0045 |
 | w60 (c61 eval instruments) | 0046 |
+| w61 (c63 failure learning) | 0047 |
+| w62 (c64 restructure guardrails) | 0048 |
 
 Use your number only if you really need a migration.
 
@@ -90,4 +92,4 @@ Use your number only if you really need a migration.
   condition waits.
 
 ## Test databases for lanes 28 and up
-The `axion` role can't create databases, and nobody uses sudo for that. New lanes reuse a retired lane's e2e DB, which the harness empties and re-migrates on every start: w28 → axion_e2e2, w29 → axion_e2e3, w30 → axion_e2e4. w31 → axion_e2e5, w32 → axion_e2e6, w33 → axion_e2e7, w34 → axion_e2e8, w35 → axion_e2e9, w36 → axion_e2e10, w37 → axion_e2e11, w38 → axion_e2e12, w39 → axion_e2e13, w41 → axion_e2e14, w42 → axion_e2e15, w43 → axion_e2e16, w44 → axion_e2e17, w46 → axion_e2e2 (reused again; c30 merged), w47 → axion_e2e3 (c31 merged), w48 → axion_e2e4 (c32 merged), w45 → axion_e2e18, w49 → axion_e2e15 (c43 merged), w50 → axion_e2e16 (c44 merged), w51 → axion_e2e17 (c45 merged). Wave 5 (all earlier branches merged): w52 → axion_e2e18, w53 → axion_e2e2, w54 → axion_e2e3, w55 → axion_e2e4, w56 → axion_e2e15. Wave 6: w57 → axion_e2e16, w58 → axion_e2e17, w59 → axion_e2e14, w60 → axion_e2e13. Next free: axion_e2e18 (reserved for the M1 lane), then the DBs of lanes whose branches have merged (check with the controller). Edit the new lane's `server/.env` after `new-lane.sh`.
+The `axion` role can't create databases, and nobody uses sudo for that. New lanes reuse a retired lane's e2e DB, which the harness empties and re-migrates on every start: w28 → axion_e2e2, w29 → axion_e2e3, w30 → axion_e2e4. w31 → axion_e2e5, w32 → axion_e2e6, w33 → axion_e2e7, w34 → axion_e2e8, w35 → axion_e2e9, w36 → axion_e2e10, w37 → axion_e2e11, w38 → axion_e2e12, w39 → axion_e2e13, w41 → axion_e2e14, w42 → axion_e2e15, w43 → axion_e2e16, w44 → axion_e2e17, w46 → axion_e2e2 (reused again; c30 merged), w47 → axion_e2e3 (c31 merged), w48 → axion_e2e4 (c32 merged), w45 → axion_e2e18, w49 → axion_e2e15 (c43 merged), w50 → axion_e2e16 (c44 merged), w51 → axion_e2e17 (c45 merged). Wave 5 (all earlier branches merged): w52 → axion_e2e18, w53 → axion_e2e2, w54 → axion_e2e3, w55 → axion_e2e4, w56 → axion_e2e15. Wave 6: w57 → axion_e2e16, w58 → axion_e2e17, w59 → axion_e2e14, w60 → axion_e2e13, w61 → axion_e2e12, w62 → axion_e2e11. Next free: axion_e2e18 (reserved for the M1 lane), then the DBs of lanes whose branches have merged (check with the controller). Edit the new lane's `server/.env` after `new-lane.sh`.

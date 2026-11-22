@@ -154,3 +154,20 @@ Verdicts: R2-4 is DROPPED (it duplicates pass^k and the six-dimension reliabilit
 - P2c, the reader not pinned after fast bursts, if the c55 review confirms it predates c55.
 
 The cut-off stands: no new lane after 2026-11-23T13:45Z.
+
+### Wave 7 from research round 3 (verified 2026-11-22 ~20:20Z)
+The verifier found 27 sources CONFIRMED and 2 CORRECTED (B5 "matched at 11x lower cost" is really about 5% lower; C4 has an empirical claim). A8 is low trust because of its date. R3-1 is folded into R3-7, and R3-2 is not scheduled.
+
+Build order:
+1. **c63** R3-8, failure learning. Lane w61, from c60's tip. Running.
+2. **c64** R3-6, restructure guardrails. Lane w62, from improve-30h. Running.
+3. R3-10, queue and latency metrics, after c58 merges.
+4. R3-4, metric-gaming guard, after c54 merges.
+5. R3-9, the operator attention queue, after c58 and c63.
+6. R3-5, operational metrics, after R3-4.
+7. R3-7 with R3-1, difficulty-adjusted ratings: fixture-only, no ranked list, late.
+8. R3-3, the earned-autonomy ladder: display-only, last, and only after Q13.
+
+**New owner questions:**
+- **Q13:** may an agent's autonomy level (R3-3) ever be an input to the policy service, or is it display-only?
+- **Q14:** should AXION define a "read private company data" capability? Without one, the Rule of Two's flag (b) covers only live systems and credentials (c58), so an agent reading untrusted pages, reading company records and sending messages doesn't trigger it.

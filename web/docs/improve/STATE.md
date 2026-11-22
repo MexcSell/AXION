@@ -58,7 +58,7 @@ Rewritten 2026-11-22T07:35Z by the controller and again at 17:50Z after the live
 | w55 | c56 public suffix list (P4b), e2e4 (no migration) | CLEARED at 3480bff, batch 14 |
 | w56 | c57 test hygiene (H12, H13), e2e15 | CLEARED at 38d807d, batch 14 |
 | — | Research round 2: research-r2.md plus research-r2-verified.md (22 CONFIRMED, 4 CORRECTED; R2-4 dropped) | done |
-| w57 | c58 Rule-of-Two profile + approval quality (R2-6, R2-9), e2e16, mig 0043, DL-100 | fix round (review CLEAR AFTER FIXES) |
+| w57 | c58 Rule-of-Two profile + approval quality (R2-6, R2-9), e2e16, mig 0043, DL-100 | re-review of fix round (tip 7f31c94) |
 | w58 | c59 origin-bound memory and skill records (R2-5), e2e17, mig 0044 | fix round (review CLEAR AFTER FIXES) |
 | w60 | c61 eval instruments (R2-2, R2-3, R2-1), from c53 tip 2d23cca, e2e13, mig 0046 | fix round (review CLEAR AFTER FIXES) |
 | w59 | c60 failure attribution + OTel mapping (R2-10, R2-8), e2e14, mig 0045 | CLEARED at df8c17e, batch 16 |
