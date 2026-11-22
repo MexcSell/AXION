@@ -81,3 +81,4 @@ Each item was test-first. RED: after editing the tests, 18 of 54 c46 server test
 Re-runs: server and web tsc clean; full vitest 1730 passed; `api-c46.mjs` 30/30 (extended for hidden, unmeasured, one-line layout, small-n size, tap-for-evidence, scope); API-mode a11y 41 views, 65 dialogs, 0 violations.
 
 Not done (out of scope as instructed): sourcing `verdict_outcomes` from c47 (follow-up c46b) and moving the dialog to a page tab.
+verify-all after the fix round: ALL 10 STEPS PASSED (own OUT dir /tmp/axion-verify-w45b, dev server on 9590).
