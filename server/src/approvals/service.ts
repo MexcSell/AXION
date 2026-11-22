@@ -4,7 +4,7 @@ import { emit } from '../events/hooks.ts';
 import { ApiError, notFound } from '../errors.ts';
 import { evaluate } from '../policy/evaluate.ts';
 import { CURRENT_BASELINE, approverFor } from '../policy/baseline.ts';
-import { isTier, type RiskTier } from '../policy/types.ts';
+import { isTier, tierRank, type RiskTier } from '../policy/types.ts';
 
 export type { RiskTier };
 export const RISK_UI: Record<RiskTier, 'low' | 'medium' | 'high' | 'critical'> = { R0: 'low', R1: 'low', R2: 'medium', R3: 'high', R4: 'critical' };
@@ -69,8 +69,27 @@ export async function requestApproval(c: Tx, a: ApprovalInput) {
 
 const kindRule = (k: string) => (CURRENT_BASELINE.kinds as Record<string, { effect: string; why: string }>)[k];
 
-export function approvalDto(r: any, now = Date.now()) {
-  const expired = r.state === 'pending' && new Date(r.expires_at).getTime() < now;
+export type DecideBlockedReason = 'tier_requires_admin' | 'requester_cannot_decide' | 'already_decided' | 'expired';
+export interface Decider { id: string; role: string }
+/**
+ * The one place that decides whether this user may decide this request. The decision route throws from it and the DTO
+ * reports it (canDecide), so the UI can never disagree with the server. Order matters and is the route's order:
+ * policy tier, self-approval, already decided, expired. (A stale digest depends on what the client saw, so it is not here.)
+ */
+export function decideRefusal(r: any, user: Decider, now = Date.now()): { reason: DecideBlockedReason; code: 'POLICY_DENIED' | 'SELF_APPROVAL' | 'APPROVAL_ALREADY_DECIDED' | 'APPROVAL_STALE'; status: number; message: string } | null {
+  const need = isTier(r.risk) ? approverFor(r.risk) : 'owner'; // an unreadable tier fails closed
+  if ((need === 'admin' || need === 'owner') && user.role !== 'admin') return { reason: 'tier_requires_admin', code: 'POLICY_DENIED', status: 403, message: `Policy: a ${r.risk} request can only be decided by an administrator.` };
+  if (r.requested_by && r.requested_by === user.id && isTier(r.risk) && tierRank(r.risk) >= tierRank('R2')) return { reason: 'requester_cannot_decide', code: 'SELF_APPROVAL', status: 403, message: 'You made this request. Someone else must decide it.' };
+  if (r.state === 'approved' || r.state === 'denied') return { reason: 'already_decided', code: 'APPROVAL_ALREADY_DECIDED', status: 409, message: 'Someone already decided this request.' };
+  // expiry is judged by the database clock (`db_expired`, selected next to the row in the same statement); the JS clock is only a test override for rows read without it
+  const expired = typeof r.db_expired === 'boolean' ? r.db_expired : new Date(r.expires_at).getTime() < now;
+  if (r.state !== 'pending' || expired) return { reason: 'expired', code: 'APPROVAL_STALE', status: 409, message: 'This request expired. The agent must ask again.' };
+  return null;
+}
+
+export function approvalDto(r: any, now: number, viewer: Decider) {
+  const refusal = decideRefusal(r, viewer, now);
+  const expired = r.state === 'pending' && (typeof r.db_expired === 'boolean' ? r.db_expired : new Date(r.expires_at).getTime() < now);
   const state = expired ? 'expired' : r.state;
   return {
     id: r.id, missionId: r.mission_id, agentId: r.agent_id, title: r.title, detail: r.detail, kind: r.kind,
@@ -82,6 +101,7 @@ export function approvalDto(r: any, now = Date.now()) {
     expiresMin: Math.max(0, Math.round((new Date(r.expires_at).getTime() - now) / 60000)),
     agoMin: Math.max(0, Math.round((now - new Date(r.created_at).getTime()) / 60000)),
     expiresAt: new Date(r.expires_at).getTime(),
+    canDecide: !refusal, decideBlockedReason: refusal?.reason ?? null,
     decidedByName: (state === 'approved' || state === 'denied') ? (r.decided_by_name ?? null) : null,
   };
 }

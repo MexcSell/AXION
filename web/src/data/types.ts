@@ -209,6 +209,9 @@ export interface Approval {
   riskTier?: 'R0' | 'R1' | 'R2' | 'R3' | 'R4';
   target?: string | null; origin?: string | null; effect?: string | null; effectWhy?: string | null;
   approver?: 'user' | 'admin' | 'owner' | null; consumed?: boolean;
+  /** api mode (server): may the signed-in user decide this request right now? Computed by the same policy path that refuses decisions; never derived on the client. */
+  canDecide?: boolean;
+  decideBlockedReason?: 'tier_requires_admin' | 'requester_cannot_decide' | 'already_decided' | 'expired' | null;
 }
 
 export interface TimelineEvent {

@@ -103,3 +103,8 @@
 .ov-tagged .panel-head { min-width: 0; flex-wrap: nowrap; }
 .ov-tagged .panel-head .panel-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ov-tagged .panel-head .demo-tag, .ov-tagged .panel-head .btn { flex: none; }
+
+/* Panel heads on the Overview never clip their action: the long sub text gives way first, then the title (ellipsis); icon, ?, tag and button keep their size. */
+.ov-row .panel-head > :not(.panel-title):not(.panel-sub):not(.spacer) { flex: none; }
+.ov-row .panel-head .panel-sub { flex: 0 100 auto; min-width: 0; }
+.ov-row .panel-head .panel-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }

@@ -7,9 +7,7 @@ import { requireUser } from '../auth/session.ts';
 import { parse } from '../auth/routes.ts';
 import { emit } from '../events/hooks.ts';
 import { VISIBLE_SQL } from '../missions/visibility.ts';
-import { approverFor } from '../policy/baseline.ts';
-import { isTier, tierRank } from '../policy/types.ts';
-import { approvalDto, rowDigest, settleMission, sweepExpired } from './service.ts';
+import { approvalDto, decideRefusal, rowDigest, settleMission, sweepExpired } from './service.ts';
 import { tx as txRun } from '../db.ts';
 
 export default async function approvalRoutes(app: FastifyInstance) {
@@ -19,13 +17,13 @@ export default async function approvalRoutes(app: FastifyInstance) {
     released.forEach((id) => app.onMissionChanged?.(id, 'running'));
     // expired requests are history: they can't be decided any more, so they leave the list
     const rows = (await app.db.query(
-      `select a.*, du.name as decided_by_name from approval_requests a join missions m on m.id=a.mission_id
+      `select a.*, (a.expires_at < now()) as db_expired, du.name as decided_by_name from approval_requests a join missions m on m.id=a.mission_id
         left join lateral (select decided_by from approval_decisions d where d.approval_id=a.id order by d.decided_at desc limit 1) dd on true
         left join users du on du.id=dd.decided_by
         where a.tenant_id=$1 and m.deleted_at is null and ${VISIBLE_SQL('$2', '$3')} and a.state <> 'expired' and not (a.state='pending' and a.expires_at <= now())
         order by a.created_at desc`,
       [ctx.tenantId, ctx.user.role === 'admin', ctx.user.id])).rows;
-    return { approvals: rows.map((r) => approvalDto(r)) };
+    return { approvals: rows.map((r) => approvalDto(r, Date.now(), ctx.user)) };
   });
 
   app.post('/approvals/:id/decision', async (req) => {
@@ -34,19 +32,16 @@ export default async function approvalRoutes(app: FastifyInstance) {
     const b = parse(z.object({ decision: z.enum(['approved', 'denied']), digest: z.string().max(128), reason: z.string().max(1000).default('') }), req.body);
     const out = await tx(app.db, async (c) => {
       const a = (await c.query(
-        `select a.*, m.status as mission_status from approval_requests a join missions m on m.id=a.mission_id
+        `select a.*, (a.expires_at < now()) as db_expired, m.status as mission_status from approval_requests a join missions m on m.id=a.mission_id
           where a.id=$1 and a.tenant_id=$2 and m.deleted_at is null and ${VISIBLE_SQL('$3', '$4')} for update of a, m`,
         [id, ctx.tenantId, ctx.user.role === 'admin', ctx.user.id])).rows[0];
       if (!a) throw notFound('No such approval, or its mission is not shared with you.');
-      // the decider must match the policy's approver for the stored tier (R3/R4: admin; no owner role exists yet, so an admin acts as owner)
-      const need = isTier(a.risk) ? approverFor(a.risk) : 'owner'; // an unreadable tier fails closed
-      if ((need === 'admin' || need === 'owner') && ctx.user.role !== 'admin') throw new ApiError('POLICY_DENIED', 403, `Policy: a ${a.risk} request can only be decided by an administrator.`);
-      // nobody decides a request they made themselves (R2 and above)
-      if (a.requested_by && a.requested_by === ctx.user.id && isTier(a.risk) && tierRank(a.risk) >= tierRank('R2')) throw new ApiError('SELF_APPROVAL', 403, 'You made this request. Someone else must decide it.');
-      if (a.state === 'approved' || a.state === 'denied') throw new ApiError('APPROVAL_ALREADY_DECIDED', 409, 'Someone already decided this request.');
-      if (a.state !== 'pending' || new Date(a.expires_at).getTime() < Date.now()) {
+      // one policy path for refusing and for the canDecide flag the lists show (decideRefusal)
+      const refusal = decideRefusal(a, ctx.user);
+      if (refusal && refusal.reason !== 'expired') throw new ApiError(refusal.code, refusal.status, refusal.message);
+      if (refusal) {
         if (a.state === 'pending') { await c.query(`update approval_requests set state='expired' where id=$1`, [id]); await settleMission(c, ctx.tenantId, a.mission_id, ctx.correlationId); }
-        return { stale: 'This request expired. The agent must ask again.' };
+        return { stale: refusal.message };
       }
       // the stored digest must still match the row, and the client must have seen it (the client's value is only compared, never used)
       if (rowDigest(a) !== a.action_digest || b.digest !== a.action_digest) return { stale: 'This request changed since you opened it. Review it again.' };
@@ -57,7 +52,7 @@ export default async function approvalRoutes(app: FastifyInstance) {
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'approval.decide', subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { decision: b.decision, mission: a.mission_id } });
       await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'approval.decided', subject: a.mission_id, missionId: a.mission_id, payload: { approvalId: id, decision: b.decision, by: ctx.user.name } });
       const released = await settleMission(c, ctx.tenantId, a.mission_id, ctx.correlationId);
-      return { released, missionId: a.mission_id as string, approval: approvalDto((await c.query('select * from approval_requests where id=$1', [id])).rows[0]) };
+      return { released, missionId: a.mission_id as string, approval: approvalDto((await c.query('select *, (expires_at < now()) as db_expired from approval_requests where id=$1', [id])).rows[0], Date.now(), ctx.user) };
     });
     if ('stale' in out) throw new ApiError('APPROVAL_STALE', 409, out.stale!);
     if (out.released) app.onMissionChanged?.(out.missionId, 'running'); // unfinished staffing continues

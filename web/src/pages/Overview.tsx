@@ -22,10 +22,11 @@ import { AreaChart, ColumnBars, Sparkline } from '@/components/viz/Charts';
 import { AGENTS, AGENT_BY_ID, seeded } from '@/data/agents';
 import { ROLES } from '@/data/roles';
 import { getMissionControl } from '@/data/missions';
-import type { Mission, Priority, TimelineEvent } from '@/data/types';
+import type { Approval, Mission, Priority, TimelineEvent } from '@/data/types';
 import { useTab } from '@/hooks/useTab';
 import { useFitCount, useHeight } from '@/hooks/useFit';
 import { useData, allApprovals, useVisibleMissions } from '@/store/data';
+import { GateNote, useGate } from '@/features/approvals/ApprovalBinding';
 import { openDialog, toast } from '@/store/ui';
 import { ago, cx } from '@/lib/format';
 import '@/theme/pages/overview-org-agent.css';
@@ -74,6 +75,18 @@ const PIPE: { key: string; label: string; icon: LucideIcon; hue: number; match: 
   { key: 'evolve', label: 'Evolve', icon: Dna, hue: 280, match: (m) => m.status === 'completed' },
   { key: 'sustain', label: 'Sustain', icon: RefreshCw, hue: 255, match: (m) => m.status === 'paused' || m.status === 'archived' },
 ];
+
+/** The two quick icons of an Approval Queue row; they follow the server's canDecide flag and never offer a refused decision. */
+function QueueDecide({ a, decide }: { a: Approval; decide: (id: string, d: 'approved' | 'denied') => void }) {
+  const gate = useGate(a);
+  return (
+    <>
+      {gate.blocked && <GateNote id={gate.id} text={gate.text} compact />}
+      <IconButton icon={Check} label={gate.blocked ? `Approve: ${a.title} (${gate.text})` : `Approve: ${a.title}`} size="xs" variant="active" {...gate.bind(() => { decide(a.id, 'approved'); toast({ tone: 'success', title: 'Approved (demo)', body: a.title }); })} />
+      <IconButton icon={X} label={gate.blocked ? `Deny: ${a.title} (${gate.text})` : `Deny: ${a.title}`} size="xs" variant="danger" {...gate.bind(() => { decide(a.id, 'denied'); toast({ tone: 'warning', title: 'Denied (demo)', body: a.title }); })} />
+    </>
+  );
+}
 
 function Pulse() {
   const nav = useNavigate();
@@ -174,8 +187,7 @@ function Pulse() {
                       <div className="ellipsis" style={{ fontWeight: 600, fontSize: 13 }}>{a.title}</div>
                       <div className="dim ellipsis" style={{ fontSize: 11.5 }}>{AGENT_BY_ID[a.agentId]?.name} · {a.missionId} · {ago(a.agoMin)}</div>
                     </div>
-                    <IconButton icon={Check} label={`Approve: ${a.title}`} size="xs" variant="active" onClick={() => { decide(a.id, 'approved'); toast({ tone: 'success', title: 'Approved (demo)', body: a.title }); }} />
-                    <IconButton icon={X} label={`Deny: ${a.title}`} size="xs" variant="danger" onClick={() => { decide(a.id, 'denied'); toast({ tone: 'warning', title: 'Denied (demo)', body: a.title }); }} />
+                    <QueueDecide a={a} decide={decide} />
                   </motion.div>
                 ))}
               </AnimatePresence>
