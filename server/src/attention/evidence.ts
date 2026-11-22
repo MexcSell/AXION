@@ -38,7 +38,7 @@ export function evidenceOf(reason: AttentionReasonCode, f: Record<string, Fact>)
       };
     case 'failure_no_detection':
       return {
-        check: `Ask how this ${s(f, 'modeId')} failure was found. No detection channel is recorded, so it is unknown whether a test, an audit or a person caught it. Tag the task again with the channel.`,
+        check: `Ask how this ${s(f, 'modeId')} failure was found. No detection channel is recorded, so it is unknown whether a test, an audit or a person caught it. A decided tag cannot be changed, so record the channel when you tag failures like it from now on.`,
         facts: [fact('Failure mode', `${s(f, 'modeId')} ${s(f, 'modeName')}`), fact('Detection channel', 'not recorded'), fact('Mechanism', rec(f.mechanism)), fact('Control expected', rec(f.controlExpected)), fact('Control caught', rec(f.controlCaught)),
           fact('Confirmed by the tagger', f.selfConfirmed), fact('Subject', `${s(f, 'subjectKind')} ${s(f, 'subjectId')}`)],
       };
@@ -68,7 +68,7 @@ export function evidenceOf(reason: AttentionReasonCode, f: Record<string, Fact>)
 }
 
 const LABELS: Record<AttentionReasonCode, string> = {
-  approval_pending: 'Review and decide', review_stale: 'Review the latest attempt', task_waiting_person: 'Open the task', failure_no_detection: 'Add the detection channel',
+  approval_pending: 'Review and decide', review_stale: 'Review the latest attempt', task_waiting_person: 'Open the task', failure_no_detection: 'Open the task',
   org_proposal_expiring: 'Open the proposal', version_proposal_expiring: 'Open the proposal', lesson_awaiting_review: 'Review the lesson', lesson_system_derived: 'Review the lesson',
 };
 export const actionOf = (reason: AttentionReasonCode, o: { canAct: boolean; note: string | null; route: string }): AttentionAction => ({ label: LABELS[reason], route: o.route, canAct: o.canAct, note: o.canAct ? null : o.note });

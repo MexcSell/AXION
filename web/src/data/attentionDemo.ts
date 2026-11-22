@@ -29,7 +29,7 @@ const row = (reason: AttentionReasonCode, why: string, members: AttentionMemberD
   };
 };
 const MIN = 60, H = 3600;
-const fail = (mode: string, name: string) => ev(`Ask how this ${mode} failure was found. No detection channel is recorded, so it is unknown whether a test, an audit or a person caught it. Tag the task again with the channel.`,
+const fail = (mode: string, name: string) => ev(`Ask how this ${mode} failure was found. No detection channel is recorded, so it is unknown whether a test, an audit or a person caught it. A decided tag cannot be changed, so record the channel when you tag failures like it from now on.`,
   [['Failure mode', `${mode} ${name}`], ['Detection channel', 'not recorded'], ['Mechanism', 'not recorded'], ['Control expected', 'not recorded'], ['Control caught', 'not recorded'], ['Confirmed by the tagger', 'no'], ['Subject', 'task T-12501']]);
 const stale = (a: number, b: number, age: string) => ev(`Open the task and check which attempt the review judged: it judged attempt ${a}, and attempt ${b} started later, so the old review does not count for the new attempt.`,
   [['Attempt that was reviewed', String(a)], ['Latest attempt', String(b)], ['Verdict of that review', 'accepted'], ['Stale for', age], ['Freshness rule', 'A review counts only for the attempt it judged, and only if it was written after that attempt started.']]);
@@ -53,8 +53,8 @@ const unranked: AttentionRowDto[] = [
   row('task_waiting_person', 'Task T-12507 has been waiting for a person for 31 h, past the expected 24 h.', [member('waiting', 'Confirm the brand colour', 31 * H, null, null, wait('31 h'), true, '/missions/M-129?tab=task-flow')], { label: 'Open the task' }),
   row('failure_no_detection', '12 confirmed FM-3.2 (No or incomplete verification) failures have no recorded detection channel.',
     [...Array(12)].map((_, i) => member('failure', 'No or incomplete verification', (26 - i) * H, null, null, fail('FM-3.2', 'No or incomplete verification'), true, '/missions/M-126?tab=task-flow')),
-    { groupedBy: 'mode:FM-3.2', label: 'Add the detection channel' }),
-  row('failure_no_detection', 'A confirmed FM-1.3 (Step repetition) failure has no recorded detection channel.', [member('failure', 'Step repetition', 20 * H, null, null, fail('FM-1.3', 'Step repetition'), true, '/missions/M-129?tab=task-flow')], { label: 'Add the detection channel' }),
+    { groupedBy: 'mode:FM-3.2', label: 'Open the task' }),
+  row('failure_no_detection', 'A confirmed FM-1.3 (Step repetition) failure has no recorded detection channel.', [member('failure', 'Step repetition', 20 * H, null, null, fail('FM-1.3', 'Step repetition'), true, '/missions/M-129?tab=task-flow')], { label: 'Open the task' }),
   row('lesson_system_derived', 'The system opened 1 candidate lesson for agent tester-01 after FM-3.2 recurred, and it has waited 6 h for review.',
     [member('lesson', 'System-derived from tool records: FM-3.2 on 6 failed tasks in 3 departments', 6 * H, null, null, ev('Open the failures behind this candidate and check that they share a cause; the system opened it from stored tags, so no person has yet judged it. Read the cited sources before accepting.', [['Written by', 'the system, from tool records (failure pattern)'], ['Pattern', '6 failures of FM-3.2 in 3 departments'], ['Sources cited', '6'], ['Agent', 'tester-01'], ['Waiting for', '6 h']]), true, '/agents/tester-01?tab=memory')], { label: 'Review the lesson' }),
   row('lesson_awaiting_review', 'A candidate lesson for agent coder-01 has waited 2 days 4 h for review.', [member('lesson', 'Prefer role locators over css selectors', 52 * H, null, null, ev('Read the 2 cited sources, not only the lesson text, and look for a conflict with the agent\'s current playbook before accepting.', [['Sources cited', '2'], ['Written by', 'human (human_entry)'], ['Agent', 'coder-01'], ['Waiting for', '2 days 4 h']]), true, '/agents/coder-01?tab=memory')], { label: 'Review the lesson' }),
