@@ -23,7 +23,7 @@ describe('psl test vectors', () => {
     it.each(host.map((v) => [v[0]!, v] as const))('https://%s', (_n, [input, want]) => {
       const r = normaliseOrigin('https://' + input);
       if (want === null) expect(r).toEqual({ ok: false, reason: 'public_suffix' }); // the host is itself a public suffix
-      else expect(r).toEqual({ ok: true, origin: 'https://' + input.toLowerCase() }); // (the normaliser lower-cases) a registrable domain or a name under one is accepted as the exact origin
+      else expect(r).toEqual({ ok: true, origin: 'https://' + input!.toLowerCase() }); // (the normaliser lower-cases) a registrable domain or a name under one is accepted as the exact origin
     });
   });
   describe('IDN entries stay refused (c36; P4a is separate)', () => {
