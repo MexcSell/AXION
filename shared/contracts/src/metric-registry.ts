@@ -146,3 +146,7 @@ export function registryProblems(metrics: readonly MetricMeta[], liveIds: readon
   }
   return out;
 }
+
+/** GET /company/metric-guard (c66). The flag is display only; the promotion-input rule waits for R3-3 and is recorded as this note, nothing more. */
+export const PROMOTION_NOTE = 'The "gameable" flag is display only. Whether a gameable row may ever be an input to a promotion decision belongs to R3-3, which waits for the owner\'s answer to Q13. Nothing in AXION changes because of this flag.';
+export interface MetricGuardDto { rows: MetricGuard[]; promotionNote: string }

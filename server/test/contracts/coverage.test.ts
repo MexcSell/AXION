@@ -335,6 +335,8 @@ describe('API coverage run', () => {
     const dim = (await call(admin, 'GET', '/company/dimensions', '/company/dimensions', { query: '?window=30d' })).body;
     await call(admin, 'GET', '/company/dimensions', '/company/dimensions', { query: `?window=7d&department=${encodeURIComponent(dim.departments[0])}` });
     await call(mina, 'GET', '/company/dimensions', '/company/dimensions');
+    await call(admin, 'GET', '/company/metric-guard', '/company/metric-guard');
+    await call(mina, 'GET', '/company/metric-guard', '/company/metric-guard');
     await call(mina, 'GET', '/departments', '/departments');
     await call(admin, 'GET', '/departments', '/departments', { query: '?window=7d&includeDemo=1' });
     await call(admin, 'GET', '/operations/health', '/operations/health');
