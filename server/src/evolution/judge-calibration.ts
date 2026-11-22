@@ -29,8 +29,8 @@ export const ESTIMATOR_SCOPE = 'binary judge verdicts, mapped to one pass/fail v
 
 /** Human-labelled items needed in EACH class (human-positive and human-negative) before a corrected estimate is made. Ours, chosen from the coverage grid (fix round): with 10 per class the interval under-covers. (A1's "10 per class" is the size of its pilot allocation sample, not an inference minimum.) */
 export const MIN_CALIBRATION_PER_CLASS = 20;
-/** The adjusted q̃0 + q̃1 − 1 must be at least this, or the judge is too close to a coin to correct (the correction divides by it). Ours, chosen from the coverage grid. No gate on the observed margin removes the selection bias for a judge whose true margin is near it: see the report (2 of 48 cells NOT MET). */
-export const MIN_JUDGE_MARGIN = 0.3;
+/** POLICY (controller ruling, c61 fix round): fail closed. A corrected verdict is issued only for a judge whose adjusted q̃0 + q̃1 − 1 (sensitivity + specificity − 1) is at least this; below it the verdict is inconclusive with `judge_too_weak`. The coverage guarantee holds only for judges that clearly pass it. Selection on the observed margin biases the interval for a judge whose true margin is near any floor, so weak judges are unreliable even when they pass a gate (see the report). */
+export const MIN_JUDGE_MARGIN = 0.5;
 const Z95 = 1.959963984540054;
 
 export interface Calibration { tp: number; fn: number; tn: number; fp: number }

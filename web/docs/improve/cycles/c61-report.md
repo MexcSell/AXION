@@ -113,3 +113,13 @@ Load average 16-19 during every run below (heavy.sh). tsc: server and web clean.
 - **a11y** (UI changed: re-graded chip, unvalidated help, tooltips): `41 views, 65 dialogs, 0 violations`.
 - Concern added: the c47 layout check is load-sensitive and the card now has up to two more chips (unvalidated, re-graded) on its first row; it wraps, but the check has failed once on this lane and once on c53.
 
+
+### Fix round 2: controller ruling on item 4 (fail closed at margin 0.5)
+Ruling: a corrected verdict is issued only for a judge whose adjusted sensitivity + specificity - 1 is at least **0.5** (`MIN_JUDGE_MARGIN`, a named policy constant in `judge-calibration.ts`); below it the verdict is inconclusive with `judge_too_weak`. The 72-cell grid was re-run on both seeds (RED: the pinned `NOT_MET` lists no longer matched, then pinned again).
+- Seed 424242: 27 cells assessed (gate passes at least 30 of 1000), 45 refused regimes, pooled conditional coverage 94.46%, **12 cells under 93%**. Seed 77031: 27 assessed, 45 refused, pooled 94.64%, **13 under 93%**. Both lists are pinned in `NOT_MET` and the test fails if they change.
+- **Honest reading.** The weak judges (true margin 0.2) are now refused almost everywhere. What still misses 93% is the judge of true margin about 0.35 (specificity .7, sensitivity .65) and 0.45 (.55, .9) when a lucky calibration set carries it over the 0.5 floor: selection bias again, only moved. The ruling is therefore **fail closed by policy, not a coverage guarantee for those judges**: the 93% target holds in the assessed cells of judges that clearly pass the margin (the specificity .9, sensitivity .9 judge, true margin 0.8, meets it in every cell on both seeds), and selection bias makes weak or middling judges unreliable even when they pass a gate. The help text for the evaluation card says so. Item 4 remains NOT MET for the cells marked below.
+
+Per cell (cells where the gate passes fewer than 30 draws are refused regimes and omitted; per-cell skip rates are in the test output):
+
+| cell (theta/specificity/sensitivity/n/m0+m1) | seed 424242: gate passes, conditional coverage | seed 77031: gate passes, conditional coverage |
+|---|---|---|
