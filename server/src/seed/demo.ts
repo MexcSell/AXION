@@ -3,6 +3,7 @@ import { tx } from '../db.ts';
 import { audit } from '../audit.ts';
 import { requestApproval } from '../approvals/service.ts';
 import { backfillMissionControl } from '../instances/backfill.ts';
+import { demoLedgers } from '../../../shared/contracts/src/ledger-demo.ts';
 import { MISSIONS, FIXTURE_OWNERS, getMissionControl } from '../../../web/src/data/missions.ts';
 
 const SERVER_STATUS: Record<string, string> = { waiting: 'waiting_approval', queued: 'queued', canceled: 'canceled' };
@@ -28,6 +29,11 @@ export async function seedDemo(db: Db, tenantId: string, adminId: string) {
         [id, tenantId, adminId, FIXTURE_OWNERS[id]?.shared ?? false, SERVER_STATUS[status] ?? status, JSON.stringify({ ...presentation, ...(status === 'archived' ? { preArchive: 'completed' } : {}) }), m.createdAgoDays]);
       await c.query(`insert into mission_revisions(mission_id, revision, title, kind, priority, text, files, criteria, created_by) values ($1,1,$2,$3,$4,$5,$6,$7,$8)`,
         [id, title, kind, priority, content?.text || objective, JSON.stringify(content?.files ?? []), JSON.stringify(criteria), adminId]);
+      let version = { task: 0, progress: 0 };
+      for (const l of demoLedgers({ title, objective, status: SERVER_STATUS[status] ?? status, criteria })) { // DEMO sample ledgers (cycle 39), flagged demo=true
+        await c.query(`insert into mission_ledgers(tenant_id, mission_id, kind, version, body, author_id, author_kind, demo) values ($1,$2,$3,$4,$5,'demo','system',true)`,
+          [tenantId, id, l.kind, ++version[l.kind], JSON.stringify(l.body)]);
+      }
       missions++;
       for (const a of getMissionControl(m).approvals) {
         await requestApproval(c, {

@@ -4,7 +4,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Target, Plus, Search, Pencil, Trash2, Sparkles, Globe, Package, Users, Cpu, Clock3, CheckCircle2, MoreHorizontal, Play, Pause,
   Square, RotateCcw, Copy, ArrowUpDown, ListChecks, Gavel, FileText, ShieldCheck, ArchiveRestore, Inbox, Crown, LayoutTemplate,
-  LayoutDashboard, Network, Workflow, Gauge, Share2, Lock, EyeOff, UserRound, MessagesSquare, History, PanelLeftClose, PanelLeftOpen, Archive, Pin, AlertTriangle, ChevronsDownUp, ChevronsUpDown,
+  LayoutDashboard, Network, Workflow, Gauge, Share2, Lock, EyeOff, UserRound, MessagesSquare, History, PanelLeftClose, PanelLeftOpen, Archive, Pin, AlertTriangle, ChevronsDownUp, ChevronsUpDown, ScrollText,
 } from 'lucide-react';
 import { Panel } from '@/components/ui/Panel';
 import { Tabs } from '@/components/ui/Tabs';
@@ -40,6 +40,7 @@ import { Messenger } from '@/features/mission/Messenger';
 import { MissionAgents } from '@/features/mission/MissionAgents';
 import { TaskFlow } from '@/features/mission/TaskFlow';
 import { BrowserMini } from '@/features/mission/BrowserMini';
+import { LedgerTab } from '@/features/mission/LedgerTab';
 import { OverviewTab, ResultsTab, ApprovalsTab, ReportsTab, TimelineTab } from '@/features/mission/WorkspaceTabs';
 import '@/theme/pages/missions.css';
 import '@/theme/pages/mission-control.css';
@@ -64,7 +65,7 @@ const FILTER_META: Record<string, { test: (m: Mission) => boolean; icon: typeof 
 
 const TAB_ICONS: Record<string, typeof Target> = {
   Overview: LayoutDashboard, Activity: Gauge, Hierarchy: Network, 'Task Flow': Workflow, Browser: Globe, Conversations: MessagesSquare,
-  Results: Package, Approvals: Gavel, Reports: FileText, Timeline: History,
+  Results: Package, Approvals: Gavel, Reports: FileText, Timeline: History, Ledger: ScrollText,
 };
 
 type Sort = 'recent' | 'priority' | 'progress' | 'due';
@@ -196,6 +197,7 @@ export default function MissionsPage() {
                     {tab === 'Approvals' && <ApprovalsTab m={m} />}
                     {tab === 'Reports' && <ReportsTab m={m} />}
                     {tab === 'Timeline' && <TimelineTab m={m} />}
+                    {tab === 'Ledger' && <LedgerTab m={m} />}
                   </motion.div>
                 </AnimatePresence>
               </section>

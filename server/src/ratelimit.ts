@@ -8,12 +8,13 @@ import { requireUser } from './auth/session.ts';
  * hash), in a sliding window; every attempt counts, also a refused one. Reads are never limited.
  * Sign-in has its own limiter (FailLimiter in auth/service.ts).
  */
-export type WriteBucket = 'messages' | 'proposals' | 'uploads';
+export type WriteBucket = 'messages' | 'proposals' | 'uploads' | 'ledgers';
 export interface WriteLimit { max: number; windowMs: number }
 export const DEFAULT_WRITE_LIMITS: Record<WriteBucket, WriteLimit> = {
   messages: { max: 60, windowMs: 60_000 },
   proposals: { max: 30, windowMs: 60_000 },
   uploads: { max: 30, windowMs: 60_000 },
+  ledgers: { max: 30, windowMs: 60_000 }, // c39: its own budget, so a ledger retry loop never uses up proposal creation
 };
 
 /** Which write routes are limited, and in which (shared) bucket. Keys: `METHOD route-pattern` as registered. */
@@ -38,6 +39,7 @@ export const LIMITED_ROUTES: Record<string, WriteBucket> = {
   'POST /api/v1/site-grants/:id/revoke': 'proposals',
   'POST /api/v1/failure-tags': 'proposals', // c33
   'POST /api/v1/failure-tags/:id/decision': 'proposals',
+  'POST /api/v1/missions/:id/ledgers/:kind': 'ledgers', // c39
   'POST /api/v1/uploads': 'uploads',
 };
 

@@ -31,7 +31,7 @@ export const NAV: NavItem[] = [
 export const ROUTE_TABS: Record<string, string[]> = {
   overview: ['Pulse', 'Portfolio', 'Activity', 'Health'],
   /** Missions = list + Mission Control workspace merged into one page: these are the workspace tabs (?tab=). */
-  missions: ['Overview', 'Activity', 'Hierarchy', 'Task Flow', 'Browser', 'Conversations', 'Results', 'Approvals', 'Reports', 'Timeline'],
+  missions: ['Overview', 'Activity', 'Hierarchy', 'Task Flow', 'Browser', 'Conversations', 'Results', 'Approvals', 'Reports', 'Timeline', 'Ledger'],
   /** Agents + former Organization page merged (owner 2026-11-20). Directory has List / Cards / Hierarchy views (?view=). */
   agents: ['Directory', 'Development', 'Lineage', 'Live Instances', 'Departments', 'Assignments', 'Policies', 'Proposals'],
   agentProfile: ['Profile', 'Capabilities', 'Tools', 'Instances', 'Conversations', 'Memory', 'Performance', 'Mentoring', 'Evolution', 'Audit'],

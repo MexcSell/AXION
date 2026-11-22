@@ -21,6 +21,7 @@ export type EventType =
   | 'conversation.messageCreated' | 'conversation.receipt' | 'instance.created' | 'instance.stateChanged' | 'task.delegated' | 'task.stateChanged'
   | 'agent.created' | 'agent.updated' | 'agent.versionCreated'
   | 'agent.versionProposed' | 'agent.versionPromoted' | 'agent.rolledBack' | 'agent.versionProposalDecided'
+  | 'ledger.updated'
   | 'mentoring.planned' | 'mentoring.milestoneDone' | 'mentoring.closed'
   | 'grant.issued' | 'grant.revoked'
   | 'failure.tagged' | 'failure.decided'

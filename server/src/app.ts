@@ -6,6 +6,7 @@ import { type Config, VERSION, DEFAULT_TENANT } from './config.ts';
 import cookie from '@fastify/cookie';
 import authRoutes from './auth/routes.ts';
 import missionRoutes from './missions/routes.ts';
+import ledgerRoutes from './missions/ledger-routes.ts';
 import uploadRoutes from './missions/uploads.ts';
 import multipart from '@fastify/multipart';
 import streamRoutes, { startListener } from './events/stream.ts';
@@ -86,6 +87,7 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   await app.register(multipart, { preservePath: true, limits: { fileSize: 25 * 1024 * 1024, files: 1, fields: 4 } });
   await app.register(authRoutes, { prefix: '/api/v1' });
   await app.register(missionRoutes, { prefix: '/api/v1' });
+  await app.register(ledgerRoutes, { prefix: '/api/v1' });
   await app.register(uploadRoutes, { prefix: '/api/v1' });
   app.decorate('eventBus', startListener(app, cfg.databaseUrl));
   app.decorate('sse', { clients: 0 });
