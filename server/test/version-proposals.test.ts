@@ -27,8 +27,10 @@ async function propose(by: Browser, change: (c: Cfg) => Cfg, extra: Record<strin
   return by.req('POST', `/agents/${id}/version-proposals`, { title: 'Add a skill', hypothesis: 'Fewer review rounds on frontend tasks.', candidate, baseVersionId: a.versionId, ...extra }, key());
 }
 const addSkill = (s: string) => (c: Cfg) => ({ ...c, skills: [...c.skills, s] });
-const decide = (by: Browser, p: { id: string; sha: string }, decision: 'promote' | 'reject', extra: Record<string, unknown> = {}) =>
-  by.req('POST', `/version-proposals/${p.id}/decision`, { decision, sha: p.sha, ...extra });
+// c47: a promotion without a verified evaluation needs a written reason; these cycle-5 tests have no evaluation runs, so the
+// override path applies (tests/eval-evidence.test.ts covers the gate itself).
+const decide = (by: Browser, p: { id: string; sha: string; evaluationSha?: string }, decision: 'promote' | 'reject', extra: Record<string, unknown> = {}) =>
+  by.req('POST', `/version-proposals/${p.id}/decision`, { decision, sha: p.sha, ...(decision === 'promote' ? { overrideReason: 'No evaluation yet; reviewed by hand.', evaluationSha: p.evaluationSha } : {}), ...extra });
 const pinned = async () => rows(`select id, agent_version_id from agent_instances where agent_id=$1 order by id`, [AG]);
 
 beforeAll(async () => {
@@ -139,6 +141,14 @@ describe('propose → another admin promotes', () => {
     expect((await decide(A, p, 'reject')).body.code).toBe('SELF_APPROVAL');
     expect(await count(`select count(*)::int n from audit_events where action='agent.version.decide' and subject=$1 and result='denied'`, [p.id])).toBe(2);
     expect((await rows('select status from agent_version_proposals where id=$1', [p.id]))[0].status).toBe('pending');
+  });
+
+  it('c47: promoting a proposal with no evaluation and no override reason is 409 EVAL_OVERRIDE_REQUIRED (nothing changes)', async () => {
+    const q = await propose(A, addSkill('Gate-check'));
+    const r = await decide(B, q.body.proposal, 'promote', { overrideReason: undefined });
+    expect(r.status).toBe(409); expect(r.body.code).toBe('EVAL_OVERRIDE_REQUIRED');
+    expect((await rows('select status from agent_version_proposals where id=$1', [q.body.proposal.id]))[0].status).toBe('pending');
+    expect((await decide(B, q.body.proposal, 'reject')).status).toBe(200); // clean up: it must not leave a pending duplicate behind
   });
 
   it('a member deciding is 403', async () => {

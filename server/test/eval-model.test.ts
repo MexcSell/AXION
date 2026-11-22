@@ -46,7 +46,7 @@ describe('datasets and cases', () => {
     await q(`insert into eval_datasets(id, tenant_id, name, version, split) values ('DS-2','t-1','two',1,'dev')`);
     await q(`insert into eval_cases(dataset_id, case_id, input, expected) values ('DS-2','c1','1','1')`);
     await expect(q(`update eval_datasets set frozen_at = now() where id='DS-2'`)).rejects.toThrow();
-    await q(`update eval_datasets set frozen_at = now(), content_sha256 = $1 where id='DS-2'`, ['a'.repeat(64)]);
+    await q(`select eval_freeze_dataset('DS-2')`); // c47: the hash is computed from the stored cases (a made-up hash is refused now)
     await expect(q(`insert into eval_cases(dataset_id, case_id, input, expected) values ('DS-2','c2','1','1')`)).rejects.toThrow(/frozen/);
     await expect(q(`update eval_cases set expected='2' where dataset_id='DS-2'`)).rejects.toThrow(/frozen/);
     await expect(q(`delete from eval_cases where dataset_id='DS-2'`)).rejects.toThrow(/frozen/);
@@ -70,7 +70,7 @@ describe('fix round', () => {
     await q(`insert into tenants(id,name) values ('t-2','Other')`);
     await q(`insert into agent_definitions(id, tenant_id, name, role, dept, duty, created_by) values ('a-2','t-2','B','r','D','duty2','u')`);
     const v2 = (await q(`insert into agent_versions(agent_id, seq, label, model, prompt_hash, created_by) values ('a-2',1,'v1','m','h','u') returning id`)).rows[0].id;
-    await q(`update eval_datasets set frozen_at = now(), content_sha256 = $1 where id='DS-1' and frozen_at is null`, ['c'.repeat(64)]);
+    await q(`select eval_freeze_dataset('DS-1')`);
     await expect(q(`insert into eval_runs(id, tenant_id, dataset_id, subject_version_id, k) values ('ER-T','t-1','DS-1',$1,1)`, [v2])).rejects.toThrow(/tenant/);
   });
 });
@@ -78,7 +78,7 @@ describe('fix round', () => {
 describe('runs and results', () => {
   let run: string;
   beforeAll(async () => {
-    await q(`update eval_datasets set frozen_at = now(), content_sha256 = $1 where id='DS-1' and frozen_at is null`, ['c'.repeat(64)]);
+    await q(`select eval_freeze_dataset('DS-1')`).catch((e: Error) => { if (!/already frozen/.test(e.message)) throw e; }); // already frozen by the tenant test above when it ran first (any other freeze error is real)
     run = 'ER-1';
     await q(`insert into eval_runs(id, tenant_id, dataset_id, subject_version_id, k) values ($1,'t-1','DS-1',$2,2)`, [run, vid]);
   });
