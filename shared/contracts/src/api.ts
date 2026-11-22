@@ -91,6 +91,26 @@ export interface ApprovalQualityDto extends QualityCellDto { medianQueueSize: nu
 export interface ApproverQualityDto extends QualityCellDto { userId: string; name: string }
 export interface ApproverQualityBody { windowDays: number; minEvidence: number; approvers: ApproverQualityDto[] }
 
+/**
+ * c65 (R3-10): review capacity. Items that need a person: approvals, and tasks waiting for a person ("waiting_user").
+ * Task reviews and delegations have no "awaiting a decision" state in the data, so they are not counted (see the report).
+ * `n` is the arrivals in the window; every cell shows it. Numbers are null when `shown` is false (a non-administrator below the floor).
+ */
+export interface CapacityCellDto {
+  n: number; decided: number; people: number; shown: boolean;
+  arrivalPerDay: number | null; openBacklog: number | null;
+  /** null below `minPercentileN` decided items */
+  p50Ms: number | null; p95Ms: number | null;
+  /** c58's stored queue size at decision time, approvals only */
+  medianQueueSize: number | null;
+}
+export interface CapacityDeptDto extends CapacityCellDto { dept: string }
+export interface ReviewCapacityDto {
+  windowDays: number; windowStart: string;
+  minItems: number; minPeople: number; minPercentileN: number;
+  total: CapacityCellDto; departments: CapacityDeptDto[];
+}
+
 export interface ApprovalDto {
   id: string; missionId: string; agentId: string; title: string; detail: string; kind: string;
   risk: string; riskTier: string; digest: string; digestVersion: number; demo: boolean;
