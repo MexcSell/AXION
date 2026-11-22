@@ -66,7 +66,9 @@ describe('the proposer picks triggers; the server computes the counts', () => {
   it('no trigger picked: an empty evidence list, stored honestly (the UI says "no recorded trigger")', async () => {
     const r = await A.req('POST', '/organization/proposals?dryRun=1', await body());
     expect(r.status).toBe(200);
-    expect(r.body.result.evidence).toEqual({ triggers: [], windowDays: 30 });
+    // c64 fix round (S4): the four triggers are still computed and shown, as `others`, none of them picked
+    expect(r.body.result.evidence).toMatchObject({ triggers: [], windowDays: 30 });
+    expect(r.body.result.evidence.others.map((x: any) => x.kind)).toEqual(['load_imbalance', 'coverage_gap', 'repeated_reassigns', 'failure_concentration']);
   });
 
   it('load imbalance: open tasks per agent from recorded rows (simulated, demo and finished tasks do not count)', async () => {

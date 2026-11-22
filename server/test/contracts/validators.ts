@@ -241,10 +241,10 @@ export const orgDiff: V<OrgDiffDto> = obj<OrgDiffDto>({
   impact: arr(obj<OrgImpactDto>({ missionId: str, title: str, agentId: str, instanceId: str, demo: bool })),
 });
 const orgIssue: V<OrgIssue> = obj<OrgIssue>({ code: str, message: str, agentId: opt(str), dept: opt(str) });
-const triggerEvidence: V<TriggerEvidence> = obj<TriggerEvidence>({ kind: oneOf(RESTRUCTURE_TRIGGERS), supported: bool, facts: arr(obj<TriggerFact>({ label: str, value: num })), subjects: arr(str) });
-const orgEvidence: V<OrgEvidence> = obj<OrgEvidence>({ triggers: arr(triggerEvidence), windowDays: int });
+const triggerEvidence: V<TriggerEvidence> = obj<TriggerEvidence>({ kind: oneOf(RESTRUCTURE_TRIGGERS), scope: oneOf(['now', 'window'] as const), supported: bool, facts: arr(obj<TriggerFact>({ label: str, value: num })), subjects: arr(str) });
+const orgEvidence: V<OrgEvidence> = obj<OrgEvidence>({ triggers: arr(triggerEvidence), others: opt(arr(triggerEvidence)), windowDays: int });
 const contractCheck: V<OrgContractCheck> = obj<OrgContractCheck>({ code: str, title: str, ok: bool, reasons: arr(str) });
-const orgChurn: V<OrgChurn> = obj<OrgChurn>({ linesChanged: int, budget: nullable(int), windowHours: nullable(int), usedInWindow: int, overBudget: bool, cooldownHours: nullable(int), cooldownEndsInMinutes: nullable(int) });
+const orgChurn: V<OrgChurn> = obj<OrgChurn>({ linesChanged: int, budget: nullable(int), windowHours: nullable(int), usedInWindow: int, overBudget: bool, cooldownHours: nullable(int), cooldownEndsInMinutes: nullable(int), exempt: opt(bool) });
 const dryRun: V<OrgDryRun> = obj<OrgDryRun>({
   ok: bool, errors: arr(orgIssue), warnings: arr(orgIssue), added: arr(orgEdge), removed: arr(orgEdge), coverage: opt(dryRunCoverage),
   evidence: opt(orgEvidence), contracts: opt(arr(contractCheck)), churn: opt(orgChurn),

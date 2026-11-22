@@ -67,14 +67,22 @@ export const RESTRUCTURE_TRIGGERS = ['load_imbalance', 'coverage_gap', 'repeated
 export type RestructureTrigger = (typeof RESTRUCTURE_TRIGGERS)[number];
 export interface TriggerFact { label: string; value: number }
 /** `supported` = the recorded counts back the trigger (rule per kind in server/src/organization/evidence.ts); a picked trigger the data does not support is shown, not hidden. */
-export interface TriggerEvidence { kind: RestructureTrigger; supported: boolean; facts: TriggerFact[]; subjects: string[] }
-export interface OrgEvidence { triggers: TriggerEvidence[]; windowDays: number }
+export interface TriggerEvidence { kind: RestructureTrigger;
+  /** 'now' = a point-in-time count (open tasks today, today's chart); 'window' = counted over `windowDays` */
+  scope: 'now' | 'window'; supported: boolean; facts: TriggerFact[]; subjects: string[] }
+export interface OrgEvidence {
+  /** the triggers the proposer picked */
+  triggers: TriggerEvidence[];
+  /** the other triggers, with their counts, so the picked ones can't be cherry-picked. Absent on results stored before the c64 fix round. */
+  others?: TriggerEvidence[]; windowDays: number }
 /** One contract a restructure must keep. Orphan duty and a manager without reports were checked before c64 and are not listed here. */
 export interface OrgContractCheck { code: string; title: string; ok: boolean; reasons: string[] }
 /** Operator settings (never routes): 0 or unset = not enforced. `cooldownEndsInMinutes` and `usedInWindow` are computed with the database clock. */
 export interface OrgChurn {
   linesChanged: number; budget: number | null; windowHours: number | null; usedInWindow: number; overBudget: boolean;
   cooldownHours: number | null; cooldownEndsInMinutes: number | null;
+  /** true on the one rollback that is exempt from the cooldown and the budget: the undo of the last applied change */
+  exempt?: boolean;
 }
 /** Improvement cycle 20: does the structure cover the company's needs. Facts about the structure, never errors. */
 export interface OrgCoverage {

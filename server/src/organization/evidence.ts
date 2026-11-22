@@ -20,7 +20,7 @@ export const LOAD_MIN_TASKS = 3;       // the busiest agent holds at least this 
 export const LOAD_MIN_RATIO = 2;       // ... and at least this many times the average of the agents that hold any
 export const REASSIGN_MIN = 2;         // at least this many reassigns away from agents of the affected roles
 export const FAILURE_MIN_TAGS = 3;     // at least this many confirmed tags in the window ...
-export const FAILURE_MIN_SHARE = 0.5;  // ... and the top role holds at least this share of those it can be attributed to
+export const FAILURE_MIN_SHARE = 0.5;  // ... and the top role holds at least this share of ALL of them (tags not attributed to a role count in the denominator)
 
 const OPEN = `('created','ready','running','waiting_agent','waiting_user','verifying','retry_ready')`;
 const REAL = `m.tenant_id = $1 and m.deleted_at is null and not m.demo and not t.simulated`;
@@ -52,7 +52,7 @@ async function loadImbalance(c: Q, tenantId: string): Promise<TriggerEvidence> {
   const top = rows[0];
   const avg = rows.length ? rows.reduce((s, r) => s + r.n, 0) / rows.length : 0;
   return {
-    kind: 'load_imbalance',
+    kind: 'load_imbalance', scope: 'now',
     supported: !!top && top.n >= LOAD_MIN_TASKS && top.n >= LOAD_MIN_RATIO * avg && rows.length > 1,
     facts: [
       { label: 'Open tasks of the busiest agent', value: top?.n ?? 0 },
@@ -72,23 +72,25 @@ function coverageGap(current: CoverageEdge[], agents: CoverageAgent[]): TriggerE
     { label: 'Managers without reports', value: cov.managersWithoutReports.length },
     { label: 'Agents without a duty', value: cov.agentsWithoutDuty.length },
   ];
-  return { kind: 'coverage_gap', supported: facts.some((f) => f.value > 0), facts, subjects: [...cov.missingRoles, ...cov.deptsWithoutHead].sort(cmp) };
+  return { kind: 'coverage_gap', scope: 'now', supported: facts.some((f) => f.value > 0), facts, subjects: [...cov.missingRoles, ...cov.deptsWithoutHead].sort(cmp) };
 }
 
-/** Reassign counts per role: audit `task.reassign` rows that succeeded in the window, by the role of the agent the task was taken from. */
+/** Reassign counts per role: audit `task.reassign` rows that succeeded in the window, on tasks of real missions (demo, deleted and simulated work is left out, like the other counts), by the role of the agent the task was taken from. */
 async function repeatedReassigns(c: Q, tenantId: string, affectedRoles: string[]): Promise<TriggerEvidence> {
   const rows = (await c.query(
     `select lower(d.role) as role, count(*)::int as n
        from audit_events a
        left join agent_instances i on i.id = a.detail->>'fromInstanceId' and i.tenant_id = a.tenant_id
        join agent_definitions d on d.id = coalesce(a.detail->>'fromAgent', i.agent_id) and d.tenant_id = a.tenant_id
-      where a.tenant_id = $1 and a.action = 'task.reassign' and a.result = 'ok' and a.at > now() - make_interval(days => $2)
+       join tasks t on t.id = a.subject and t.tenant_id = a.tenant_id
+       join missions m on m.id = t.mission_id
+      where m.deleted_at is null and not m.demo and not t.simulated and a.tenant_id = $1 and a.action = 'task.reassign' and a.result = 'ok' and a.at > now() - make_interval(days => $2)
       group by 1`, [tenantId, EVIDENCE_WINDOW_DAYS])).rows as { role: string; n: number }[];
   const set = new Set(affectedRoles.map((r) => r.toLowerCase()));
   const all = rows.reduce((s, r) => s + r.n, 0);
   const hit = rows.filter((r) => set.has(r.role)).reduce((s, r) => s + r.n, 0);
   return {
-    kind: 'repeated_reassigns', supported: hit >= REASSIGN_MIN,
+    kind: 'repeated_reassigns', scope: 'window', supported: hit >= REASSIGN_MIN,
     facts: [{ label: 'Reassigns away from agents of the affected roles', value: hit }, { label: 'Reassigns away from agents of all roles', value: all }],
     subjects: [...set].sort(cmp),
   };
@@ -111,8 +113,8 @@ async function failureConcentration(c: Q, tenantId: string): Promise<TriggerEvid
   const attributed = rows.reduce((s, r) => s + r.n, 0);
   const top = rows[0];
   return {
-    kind: 'failure_concentration',
-    supported: !!top && total >= FAILURE_MIN_TAGS && top.n / Math.max(1, attributed) >= FAILURE_MIN_SHARE,
+    kind: 'failure_concentration', scope: 'window',
+    supported: !!top && total >= FAILURE_MIN_TAGS && top.n / total >= FAILURE_MIN_SHARE, // the share is of ALL confirmed tags in the window, not only the attributed ones
     facts: [
       { label: 'Confirmed failure tags', value: total },
       { label: 'Of these on tasks of a known role', value: attributed },
@@ -122,16 +124,18 @@ async function failureConcentration(c: Q, tenantId: string): Promise<TriggerEvid
   };
 }
 
-/** The evidence block for the picked triggers (duplicates dropped, canonical order). No trigger gives an empty list. */
+/** The evidence block: all four triggers are computed from recorded rows. `triggers` = the ones the proposer picked (duplicates dropped,
+    canonical order; none is a valid, honest answer); `others` = the rest, so a proposer cannot show only the trigger that happens to be backed. */
 export async function computeEvidence(c: Q, tenantId: string, picked: readonly RestructureTrigger[], a: { current: CoverageEdge[]; proposed: CoverageEdge[]; agents: CoverageAgent[] }): Promise<OrgEvidence> {
-  const want = RESTRUCTURE_TRIGGERS.filter((k) => picked.includes(k));
   const roles = [...new Set(affectedAgents(a.current, a.proposed).map((id) => a.agents.find((x) => x.id === id)?.role).filter((r): r is string => !!r))];
   const triggers: TriggerEvidence[] = [];
-  for (const k of want) {
-    triggers.push(k === 'load_imbalance' ? await loadImbalance(c, tenantId)
+  const others: TriggerEvidence[] = [];
+  for (const k of RESTRUCTURE_TRIGGERS) {
+    const ev = k === 'load_imbalance' ? await loadImbalance(c, tenantId)
       : k === 'coverage_gap' ? coverageGap(a.current, a.agents)
         : k === 'repeated_reassigns' ? await repeatedReassigns(c, tenantId, roles)
-          : await failureConcentration(c, tenantId));
+          : await failureConcentration(c, tenantId);
+    (picked.includes(k) ? triggers : others).push(ev);
   }
-  return { triggers, windowDays: EVIDENCE_WINDOW_DAYS };
+  return { triggers, others, windowDays: EVIDENCE_WINDOW_DAYS };
 }

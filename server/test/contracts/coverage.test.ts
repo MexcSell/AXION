@@ -286,8 +286,17 @@ describe('API coverage run', () => {
     await call(admin, 'GET', '/organization/revisions/:seq', `/organization/revisions/${last}`);
     await call(admin, 'GET', '/organization/revisions/:seq/diff', `/organization/revisions/${last}/diff`, { query: `?against=${first}` });
     await call(admin, 'GET', '/organization/revisions/:seq/diff', `/organization/revisions/${first}/diff`, { query: `?against=${last}` });
-    (t.app.cfg as { orgGuardrails?: object }).orgGuardrails = { churnBudget: 100, churnWindowHours: 24, cooldownHours: 24 }; // p1 was approved above: a rollback is exempt but its churn status shows the running cooldown
-    await call(admin, 'POST', '/organization/revisions/:seq/rollback-proposal', `/organization/revisions/${first}/rollback-proposal`, { status: 201, headers: key(), body: { why: 'Back to the start.', triggers: ['failure_concentration'] } });
+    // c64 fix round (S1): a rollback is exempt only as the undo of the last change a proposal made, so the running cooldown is shown on a dry run, and the rollback below runs with the cooldown off
+    (t.app.cfg as { orgGuardrails?: object }).orgGuardrails = { churnBudget: 100, churnWindowHours: 24, cooldownHours: 24 };
+    const g3 = (await admin.req('GET', '/organization/graph')).body;
+    await call(admin, 'POST', '/organization/proposals', '/organization/proposals', { status: 200, query: '?dryRun=1', body: { title: 'dry cooldown', why: 'x', baseRevision: g3.revision.seq, edges: moved(g3.edges, 'writer-01', 'ops-01') } });
+    (t.app.cfg as { orgGuardrails?: object }).orgGuardrails = { churnBudget: 100, churnWindowHours: 24 };
+    const p4 = (await admin.req('POST', '/organization/proposals', { ...ST, title: 'Move writer again', why: 'x', baseRevision: g3.revision.seq, edges: moved(g3.edges, 'writer-01', 'ops-01') }, key())).body.proposal;
+    expect((await bea.b.req('POST', `/organization/proposals/${p4.id}/decision`, { decision: 'approve', sha: p4.sha })).status).toBe(200);
+    // the undo of that change is the one exempt rollback: it is stored with the cooldown running and marked exempt
+    (t.app.cfg as { orgGuardrails?: object }).orgGuardrails = { churnBudget: 100, churnWindowHours: 24, cooldownHours: 24 };
+    const undo = await baseRev() - 1;
+    await call(admin, 'POST', '/organization/revisions/:seq/rollback-proposal', `/organization/revisions/${undo}/rollback-proposal`, { status: 201, headers: key(), body: { why: 'Back to the start.', triggers: ['failure_concentration'] } });
 
     // ---- mentoring
     await call(admin, 'GET', '/mentoring', '/mentoring');

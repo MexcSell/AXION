@@ -72,6 +72,7 @@ async function dryRun(c: Tx | Db, tenantId: string, edges: EdgeIn[], currentId: 
   const cc = contractChecks(edges, agents, current, settings);
   const churn = await churnStatus(c, tenantId, linesChanged(current, edges), settings);
   const errors = [...base.errors, ...cc.errors];
+  if (!o.gate) churn.exempt = true; // the exempt undo: the stored card must not show a cooldown that does not apply to it
   if (o.gate) {
     if (churn.cooldownEndsInMinutes !== null) errors.push({ code: 'COOLDOWN', message: cooldownMessage(churn) });
     if (churn.overBudget) errors.push({ code: 'CHURN_BUDGET', message: budgetMessage(churn) });
