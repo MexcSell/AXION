@@ -150,10 +150,11 @@ try {
   await A.p.keyboard.press('Enter');
   await A.p.locator('.ny-evidence').waitFor({ timeout: 5000 });
   const shown = await A.p.locator('.ny-detail-why').innerText();
-  check('keyboard: focus row 3, press Enter: the detail pane shows row 3 (not the row selected before) at the Evidence level', shown === whys[2] && (await A.p.getByRole('radio', { name: /Evidence/ }).getAttribute('aria-checked')) === 'true' && (await A.p.locator('.ny-evidence').count()) === 1, `shown: ${shown} | row: ${whys[2]}`);
+  const selIdx = () => A.p.evaluate(() => [...document.querySelectorAll('.ny-row')].findIndex((e) => e.getAttribute('aria-selected') === 'true'));
+  check('keyboard: focus row 3, press Enter: row 3 becomes the selected row (not the one selected before) and its evidence shows', (await selIdx()) === 2 && shown === whys[2] && (await A.p.getByRole('radio', { name: /Evidence/ }).getAttribute('aria-checked')) === 'true' && (await A.p.locator('.ny-evidence').count()) === 1, `shown: ${shown} | row: ${whys[2]}`);
   await A.p.locator('.ny-row').nth(4).focus();
   await A.p.keyboard.press('ArrowRight');
-  check('keyboard: ArrowRight on row 5 also selects row 5', (await A.p.locator('.ny-detail-why').innerText()) === whys[4]);
+  check('keyboard: ArrowRight on row 5 also selects row 5', (await selIdx()) === 4);
   await A.p.locator('.ny-row[aria-selected="true"]').focus();
   let tabs = 0, reached = false;
   for (; tabs < 6 && !reached; ) { await A.p.keyboard.press('Tab'); tabs++; reached = await A.p.evaluate(() => document.activeElement?.getAttribute('role') === 'radio'); }
