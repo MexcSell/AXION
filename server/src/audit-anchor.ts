@@ -20,7 +20,7 @@ import { audit, verifyChain } from './audit.ts';
  * Whoever holds the key can recreate a whole file. Keep the key off the database host and copy the file's last line off-host.
  */
 export const MIN_KEY_BYTES = 32;
-export const MIN_DISTINCT_BYTES = 16;
+export const MIN_DISTINCT_BYTES = 8; // not 16: a hex key (openssl rand -hex 32) has only 16 symbols, and a random one often shows 14 or 15
 export const DEFAULT_ANCHOR_FILE = join(dirname(fileURLToPath(import.meta.url)), '..', 'data', 'audit-anchors.jsonl');
 
 export type AnchorStatus = 'ok' | 'truncated' | 'rewritten' | 'bad_signature' | 'anchor_missing' | 'rolled_back' | 'insecure_file' | 'unreadable';

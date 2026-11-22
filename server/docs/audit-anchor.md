@@ -16,7 +16,7 @@ The anchor is a signed checkpoint kept outside the database.
 ## Key
 - `AUDIT_ANCHOR_KEY` lives only in the server environment (`server/.env`, mode 600). At least 32 bytes: `openssl rand -hex 32`.
   A missing or short key fails closed: nothing is written, and verify says `anchor_missing` (not verifiable), never ok.
-- Never put it in the database, a log or a response. Do not reuse another secret. At least 16 distinct bytes (a repeated
+- Never put it in the database, a log or a response. Do not reuse another secret. At least 8 distinct bytes (a repeated
   character is refused). Rotating the key invalidates the old file: archive it (see Recovery) and start a new one.
 - The MAC also covers a deployment id: `AUDIT_ANCHOR_DOMAIN`, and when it is not set `axion-audit-anchor-v1:<database>:<schema>`.
   A file signed for another deployment never verifies. **Set `AUDIT_ANCHOR_DOMAIN` explicitly in production** (for example

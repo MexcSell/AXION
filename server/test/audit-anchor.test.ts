@@ -59,8 +59,10 @@ describe('audit anchor (c49)', () => {
     });
     it('requireKey accepts exactly 32 bytes of varied content', () => { expect(requireKey('abcdefghijklmnopqrstuvwxyz012345').length).toBe(32); });
     it('counts bytes, not characters: 16 different two-byte characters are 32 bytes', () => { expect(requireKey('àáâãäåæçèéêëìíîï').length).toBe(32); expect(() => requireKey('àáâãäåæçèéêëìíî')).toThrow(/too short/); });
-    it('P5: a repeated character or pattern meets the length but not the distinct-byte rule', () => {
-      for (const k of ['a'.repeat(32), 'ab'.repeat(16), '0123'.repeat(16)]) expect(() => requireKey(k)).toThrow(/too repetitive/);
+    it('P5: a repeated character or pattern meets the length but not the distinct-byte rule (8; a hex key has at most 16 symbols, so 16 would refuse good keys)', () => {
+      for (const k of ['a'.repeat(32), 'ab'.repeat(16), '0123'.repeat(16), 'abcdefg'.repeat(5)]) expect(() => requireKey(k)).toThrow(/too repetitive/);
+      expect(requireKey('0123456789abcd'.repeat(3)).length).toBe(42); // 14 distinct hex symbols: a normal random hex key
+      for (let i = 0; i < 200; i++) expect(() => requireKey(randomBytes(32).toString('hex'))).not.toThrow();
       expect(requireKey(randomBytes(32).toString('hex')).length).toBe(64);
     });
     it('anchorSettings reads the key and file from the environment, and an override wins', () => {
