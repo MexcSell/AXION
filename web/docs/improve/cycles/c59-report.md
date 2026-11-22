@@ -84,7 +84,24 @@ Between commits 2 and 5 the contract suite is red by design (new routes without 
 1. **Cap is per playbook, skills are uncapped.** The brief says per role; playbooks are keyed by agent. If you want a role-wide count across agents sharing a role string, or a cap on approved skills, say so.
 2. **Cap value 25 is a choice**, an operator setting; no source gives the number.
 3. **Origin order and non-record sources.** A person who types an agent's text by hand into a new lesson (human_entry, no record source) is undetectable; the rule governs recorded links only. Non-record sources (mission, review, note) carry no class.
-4. **Migration number.** 0044 assumes 0040-0043 land first; the migration test uses `migrate(...,'up',43)` so it works either way. I edited 0044 in place after its first commit (not yet merged anywhere).
+4. **Migration number.** 0044 assumes 0040-0043 land first; the migration test uses `migrate(...,'up',43)` so it works either way. I edited 0044 in place twice (a6b1615, then the fix round d00b04a); it is not yet merged anywhere, so a lane DB that applied an earlier draft must run `down` then `up`.
 5. **Shared-machine flakiness.** Parallel vitest fails on connection exhaustion at the current load; the serial run is the authoritative one. LANES.md says nothing about `--no-file-parallelism`; you may want it for heavy lanes.
 6. **No agent runtime exists**, so agent_output and tool_output records can only be created by service functions in tests and fixtures; the browser check seeds one with psql (like the skill outcome scores).
 7. **Contract suite red between commits 2 and 5** (design of per-item commits); squash if you prefer.
+
+## Fix round (independent review: CLEAR AFTER FIXES)
+RED was taken on aa28be9 with `c59-fix.test.ts` (5 failed, load 15.8 area): F1 "derived, tool and agent rows come back at the lowest class": `LC-D: expected 3 to be less than or equal to 2`;
+F6 "raw row citing Lesson is refused": `promise resolved … instead of rejecting`; F5 "raw status change without an actor is refused": `promise resolved`; "person who files an agent proposal is recorded": `expected {…} to match object { actor: 'tester-01', … }`;
+"second rollback does not write a withdrawn line": `expected [ 'proposed', 'accepted', …(3) ] to deeply equal […(2)]`. All 5 GREEN afterwards (221 passed across the c59, c41, contracts and security files).
+Commits: d00b04a (F1, F5, F6 together: they share the migration and the log writer, so they were not separable) and 7152984 (F2, F3, F4). Not one commit per item.
+
+| Item | Result |
+|---|---|
+| F1 round trip | Fixed. 0044 backfill fails closed: agent-kind rows become tool_output/tool, a person's row citing lessons or skills becomes derived/tool, only a person's row with no record source stays human_entry/human. Test checks no class rises across down 43 then up. Cost: pre-existing c41 agent rows are now class tool, not agent (their agent-vs-tool origin is unprovable). The old migration test expectation was changed for this stated reason. |
+| F2 wording | "per agent playbook" in the chip tooltip, `playbook.cap` help, DTO doc, server comment and the two ACTIVE_CAP_REACHED messages (they name the agent now). |
+| F3 limit | Chip tooltip and `playbook.origin` help now say human means entered by a signed-in person, agent text typed by hand is not detected, the rule follows recorded links to lessons and skills only, and mission, review and note sources carry no class. |
+| F4 `?` | `HelpTrigger k="playbook.origin"` beside every origin chip. |
+| F5 log completeness | A trigger on both tables writes the log row for every status change (proposed, accepted, rejected, closed_duplicate, withdrawn, approved, replaced, retired) from transaction-local `axion.actor`, `axion.actor_kind` (optional note, action). An UPDATE without an actor is refused. An INSERT without one falls back to the row's own proposer, because the unchanged c41 tests insert raw rows. App code now calls `setActor` before each write instead of writing log rows. `record_contributions.filed_by` and the DTO fields `filedBy`/`filedByName` record who filed an agent proposal. A repeated rollback no longer logs withdrawn for an already superseded lesson (so a lesson withdrawn, restored and withdrawn again shows only the first withdrawal). `restored` and `retirement_kept` stay application-written (no row changes). One of my own earlier tests did a raw decision update and now names an actor. |
+| F6 case | Trigger matches `lower(kind)`; tested with Lesson, LESSON, Skill. |
+
+Re-runs: server and web tsc clean. Full vitest serial (`--no-file-parallelism`, load 15.3): 74 files; first run had 2 files fail on connection exhaustion (`c48-can-decide`, `conversations`: `too many connections for role "axion"` / `admin connect failed … INTERNAL`), and both passed (48 tests) when re-run serially; the other 72 files passed. api-c41 45/45 and api-stage6 94/94 (default cap), api-c59 26/26 (cap 3, 1366x768), a11y api 41 views, 65 dialogs, 0 violations. Servers on 10890-10893 are stopped. verify-all and fit-check were not re-run (no page layout changed beyond one more small chip).
