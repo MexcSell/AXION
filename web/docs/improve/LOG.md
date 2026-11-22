@@ -197,3 +197,9 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
 ### Cycle 27: sweep of merged minors (lane w25)
 - Fixed with RED/GREEN: c05 m7 (rollback reason removed from the public event), c05 m6 (refused rollback audited as denied), c11 m3 (help generated from KIND_DEPT), c06 DEMO tags on Operations tiles, ?chat=admin keeps the URL. Listed: c05 m8, c04 m6, c22 M2 (files owned by unmerged branches). Server 475; stage6 94/94; verify-all all 10 steps pass.
 - Review: PASS/PASS, minors only. Cleared (batch 5d).
+
+### Integration progress (00:10Z)
+- Batches 1, 2, 2b, 2c, 2d and 3 merged and checked; batch 4 (c14 plus the rate-limit follow-up 6876fab covering every governance write, with a route-table test) merged, checks being re-run. Server tests 331 (start of the parallel phase) → 560. api-stage6 94/94 since c22. fit-check ALL FIT at all 3 desktop sizes since c18.
+- Integrator #2 stopped after a long run; integrator #3 took over from QUEUE.md and MERGES.md.
+- New lane w26 (c28): root cause of the flows palette/theme flake, plus 2 small gaps found during integration.
+- Batch 4 verify-all (predecessor run): NEW flows FAIL "Modal focus trap + Escape returns focus: dialog not closed" (plus the known Hierarchy flake). Integrator #3 is classifying it (3 solo runs, then bisect 0ce1391 / 1358f91; suspects c16 Modal.tsx, c23).

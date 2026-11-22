@@ -193,7 +193,7 @@ Integrator log: one entry per merge request. Times are UTC.
 
 **Follow-up commits:** none.
 
-## Batch 4: c14 (IN PROGRESS when the integrator stopped; batch checks not finished)
+## Batch 4: c14 (security hardening)
 
 - **Merged:** 2026-11-21 ~23:45 UTC. Pre-batch commit `f00fda5`.
 - **Merge commit:** `d0f877d` c14-security-hardening (14e1124), `--no-ff`.
@@ -212,4 +212,27 @@ Integrator log: one entry per merge request. Times are UTC.
     - The new routes share the budget (429 on the 4th).
   - `version-proposals.test.ts` hit 429 (the suite makes more than 30 governance writes per admin session per minute). Its fixture now lifts only the proposals budget (`writeLimits.proposals.max 1000`), the same way c14's e2e server lifts messages for stage6. No assertion changed. **Controller to confirm.**
 - **Server:** tsc OK. vitest after the merge 35 files 558/558; after the follow-up 35 files 560/560. **web:** tsc OK.
-- **Batch checks:** running when stopped (outputs in the integrator scratchpad `b4/`). Re-run the standard set, api-c05 and api-c19 under `scripts/api-e2e-preview.sh` (with api-c14) before calling batch 4 done.
+- **Controller ruling (a):** lifting only the proposals budget in the version-proposals fixture is ACCEPTED.
+
+**Batch checks.** The previous integrator's full check chain (`batch-checks.sh`, started 00:47:14 CET, after `6876fab`; `f400a39` is docs-only, so the code is HEAD's) ran to completion (`DONE` in its `rc.txt`). The controller allowed using it as evidence. The server suite was not in that chain; I ran it on HEAD.
+- **server:** tsc OK; vitest 35 files 560/560. **web:** tsc OK.
+- **api-e2e (exit 0):** api-auth-flow 15/15; api-flows 23/23; api-stage6 94/94; api-improve 107/107; api-c05 31/31; api-c19 30/30.
+- **api-e2e-preview.sh (production build + strict CSP, exit 0):** api-c14 31/31 (CSP enforced: injected inline script and string-eval blocked and reported, cross-site write 403, no other violation, no page errors); api-c05 31/31; api-c19 30/30.
+- **verify-all:** exit 1, "1 of 10 STEPS FAILED" (flows, 19/21). FAIL lines:
+  - `FAIL  Hierarchy: click agent → conversation pane beside the graph shows its counterparts: hierarchy conversation pane did not switch` (known; c25 fixes it in batch 5b).
+  - `FAIL  Modal focus trap + Escape returns focus: dialog not closed` (**new**). The step presses Escape, then waits a fixed 400 ms before counting `[aria-modal=true]` (flows.mjs:189-191). Load during the run was ~20.
+  - All other steps PASS: build, route×tab crawl 77 views NO PROBLEMS, deep crawl NO PROBLEMS, auth flow, u1 flows, dialog smoke 112 checks 0 failures, dialog ids, help keys, fs guard.
+- **Classification of the Modal FAIL (controller's procedure):** `flows.mjs` alone on HEAD 3× through the priority slot, against 5190:
+
+  | Run | Load | Result | FAIL lines |
+  |---|---|---|---|
+  | 1 | 32.0 | 19/21 | Hierarchy (known); `Conversations: mission agents pane on the left switches the thread: thread did not switch to Planner-01` (known list) |
+  | 2 | 16.4 | 17/21 | `Delete (archive) from the far-right trash icon: not in Archived` (ruling c, 2nd occurrence after batch 2d); Hierarchy (known); `Command palette navigates (Ctrl+K)` + `Theme toggle switches html data-theme` (ruling b, c28) |
+  | 3 | 11.9 | 21/21, exit 0 | none |
+
+  The Modal step passed 3/3 alone, so it is **load-only: recorded as a flake to watch**, not bisected. If it recurs, run the controller's step 2 (throwaway worktrees at `1358f91` and `0ce1391`).
+  - The archive step has now failed twice (batch 2d, and run 2 here), both under load; watching per ruling (c).
+- **fit-check:** 77/77 ALL FIT. **ov-fit:** 32/32, NO SCROLL ANYWHERE.
+- Host load was 12–32 throughout (lane runs).
+
+**Follow-up commits:** `6876fab` (above). Controller files committed with this entry: LOG.md, QUEUE.md (modified), cycles/c28-brief.md (new).

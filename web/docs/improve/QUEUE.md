@@ -1,5 +1,8 @@
 # Integration queue (source of truth for the integrator; the controller edits it)
 
+**Progress (2026-11-22 ~00:10Z):** batches 1, 2, 2b, 2c, 2d, 3 DONE. Batch 4: c14 merged (d0f877d) + rate-limit follow-up (6876fab); **its checks must be re-run in full** (the previous integrator stopped mid-run). Then 5, 5b, 5c, 5d, 6.
+**Controller rulings:** (a) lifting only the proposals budget in version-proposals.test.ts's fixture is ACCEPTED (test-only; real limits covered by c14's tests). (b) The palette/theme flows failure goes to lane w26 (c28); until it merges, a palette+theme FAIL in verify-all that passes when flows runs alone is tolerated, and must be recorded. (c) A one-off flows archive failure is recorded, not blocking, and watched.
+
 Integration tree: `/home/luca/AXION`, branch `improve-30h`. Merged so far: cycles 1–3 (done on improve-30h directly), c07 (648e32b), c05 (6f8bd59).
 
 ## Merge in batches (each branch gets its own `--no-ff` commit; server tsc + vitest after each merge; full checks once per batch)
