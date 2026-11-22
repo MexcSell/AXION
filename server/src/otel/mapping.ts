@@ -96,6 +96,7 @@ export const FIELD_MAP: Record<string, FieldEntry> = {
   'eval_runs.judge_model_family': e(ax('axion.eval.judge_model_family'), 'A family label of the judge (plain identifier only, otherwise "_OTHER"), not a model name; gen_ai.request.model is not used because no model call is recorded.'),
   'eval_runs.evaluator_id': e(none, 'A person\'s or agent\'s identity is not exported.'),
   'eval_runs.k': e(ax('axion.eval.k'), 'No equivalent.'),
+  'eval_runs.holdout_key': e(none, 'An internal uniqueness key (c53) that makes a holdout count once. It names no behaviour of the agent and is not exported.'),
   'eval_runs.started_at': e(none, 'A run has no span of its own; the span of a result starts at the result\'s recorded time.'),
   'eval_runs.finished_at': e(none, 'A run has no span of its own.'),
   'eval_results.run_id': e(ax('axion.eval.run_id'), 'See eval_runs.id.'),
