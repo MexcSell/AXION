@@ -16,3 +16,4 @@ export * from './delegation.ts';
 export * from './playbooks.ts';
 export * from './dimensions.ts';
 export * from './api.ts';
+export * from './metric-guard.ts';
