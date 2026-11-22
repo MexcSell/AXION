@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { useId, useRef, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { cx } from '@/lib/format';
 
@@ -13,6 +13,31 @@ export function Tabs<K extends string>({ tabs, value, onChange, variant = 'pill'
 }) {
   const id = useId();
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const strip = useRef<HTMLDivElement | null>(null);
+  // a clipped strip must never be invisible: data-fade says which edge hides tabs (CSS draws the fade), and the selected tab is kept in view
+  useEffect(() => {
+    const el = strip.current;
+    if (!el) return;
+    const measure = () => {
+      const l = el.scrollLeft > 1, r = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+      const v = l && r ? 'lr' : l ? 'l' : r ? 'r' : '';
+      if (v) el.setAttribute('data-fade', v); else el.removeAttribute('data-fade');
+    };
+    measure();
+    el.addEventListener('scroll', measure, { passive: true });
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    ro?.observe(el);
+    Array.from(el.children).forEach((c) => ro?.observe(c));
+    // webfonts swap in after first paint and change every tab's width
+    void document.fonts?.ready.then(measure);
+    return () => { el.removeEventListener('scroll', measure); ro?.disconnect(); };
+  }, [tabs.length]);
+  useEffect(() => {
+    const el = strip.current, b = refs.current[tabs.findIndex((t) => t.key === value)];
+    if (!el || !b) return;
+    if (b.offsetLeft < el.scrollLeft) el.scrollLeft = b.offsetLeft - 8;
+    else if (b.offsetLeft + b.offsetWidth > el.scrollLeft + el.clientWidth) el.scrollLeft = b.offsetLeft + b.offsetWidth - el.clientWidth + 8;
+  }, [value, tabs]);
   const onKey = (e: KeyboardEvent, i: number) => {
     let n = -1;
     if (e.key === 'ArrowRight') n = (i + 1) % tabs.length;
@@ -22,7 +47,7 @@ export function Tabs<K extends string>({ tabs, value, onChange, variant = 'pill'
     if (n >= 0) { e.preventDefault(); refs.current[n]?.focus(); onChange(tabs[n].key); }
   };
   return (
-    <div role="tablist" aria-label={ariaLabel} className={cx('tabs', variant === 'underline' && 'underline', collapse && 'tabs-collapse', className)}>
+    <div ref={strip} role="tablist" aria-label={ariaLabel} className={cx('tabs', variant === 'underline' && 'underline', collapse && 'tabs-collapse', className)}>
       {tabs.map((t, i) => {
         const sel = t.key === value;
         const Icon = t.icon;
