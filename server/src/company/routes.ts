@@ -2,11 +2,11 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { requireUser } from '../auth/session.ts';
 import { parse } from '../auth/routes.ts';
-import { tx, type Tx } from '../db.ts';
+import type { Tx } from '../db.ts';
 import { VISIBLE_SQL } from '../missions/visibility.ts';
 import { STALE_BEFORE_SQL } from '../tasks/reviews.ts';
 import { SCORECARD_WINDOWS } from '../../../shared/contracts/src/index.ts';
-import { dbNow, dbWindow } from './clock.ts';
+import { dbNow, dbWindow, snapshotTx } from './clock.ts';
 import { computeScorecard, computeThroughput, THROUGHPUT_WEEKS_MAX, type ScoreInput } from './scorecard.ts';
 
 const ThroughputIn = z.object({ weeks: z.coerce.number().int().min(1).max(THROUGHPUT_WEEKS_MAX).default(8), includeDemo: z.enum(['0', '1']).default('0') });
@@ -60,7 +60,7 @@ export default async function companyRoutes(app: FastifyInstance) {
     const qs = parse(QueryIn, req.query ?? {});
     const includeDemo = qs.includeDemo === '1';
     // one transaction = one database clock: the window end and every SQL `<= now()` bound are the same instant
-    return tx(app.db, async (c) => {
+    return snapshotTx(app.db, async (c) => {
       const w = await dbWindow(c, qs.window);
       return computeScorecard(await loadInput(c, ctx, includeDemo), { ...w, includeDemo });
     });
@@ -71,7 +71,7 @@ export default async function companyRoutes(app: FastifyInstance) {
     const ctx = await requireUser(req);
     const qs = parse(ThroughputIn, req.query ?? {});
     const includeDemo = qs.includeDemo === '1';
-    return tx(app.db, async (c) => {
+    return snapshotTx(app.db, async (c) => {
       const to = await dbNow(c);
       return computeThroughput(await loadInput(c, ctx, includeDemo), { weeks: qs.weeks, to, includeDemo });
     });

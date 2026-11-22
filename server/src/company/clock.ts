@@ -1,4 +1,4 @@
-import type { Db, Tx } from '../db.ts';
+import { tx, type Db, type Tx } from '../db.ts';
 import type { ScorecardWindow } from '../../../shared/contracts/src/index.ts';
 import { windowOf } from './scorecard.ts';
 
@@ -21,4 +21,12 @@ export async function dbNow(c: Db | Tx): Promise<Date> {
 /** `windowOf` with `to` = the database clock. */
 export async function dbWindow(c: Db | Tx, w: ScorecardWindow) {
   return windowOf(w, await dbNow(c));
+}
+
+/** One transaction, one snapshot, one clock: REPEATABLE READ (set before the first statement), read only. Every statement of the read sees the same data and the same now(). */
+export function snapshotTx<T>(db: Db, fn: (c: Tx) => Promise<T>): Promise<T> {
+  return tx(db, async (c) => {
+    await c.query('set transaction isolation level repeatable read read only');
+    return fn(c);
+  });
 }
