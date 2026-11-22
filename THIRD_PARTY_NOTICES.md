@@ -11,3 +11,9 @@
 - Source: https://raw.githubusercontent.com/publicsuffix/list/master/tests/test_psl.txt
 - Licence: CC0 1.0 Universal (public domain dedication); no conditions.
 - Stored at: `server/test/fixtures/test_psl.txt`.
+
+### OpenTelemetry GenAI semantic conventions (pages stored verbatim)
+- Files: web/docs/improve/phase2/otel-spec-v0.1.0/gen-ai-agent-spans.md and execute-tool.md (unmodified copies)
+- Author: The OpenTelemetry Authors
+- Licence: Apache License 2.0 (full text: web/docs/improve/phase2/otel-spec-v0.1.0/LICENSE)
+- Source: https://github.com/open-telemetry/semantic-conventions-genai, tag v0.1.0, commit d0e74ba6c48bcc4ded473b1828a8212f06b23753
