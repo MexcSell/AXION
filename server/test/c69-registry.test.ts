@@ -20,6 +20,9 @@ describe('c69 process rows in the c66 registry', () => {
     }
     expect(registryProblems(METRICS, METRICS.map((m) => m.id), INPUT_FIELD_IDS)).toEqual([]);
   });
+  it('F7: a row that reads no input (an unmeasured cell) covers no quality dimension: `covers` is a promise it cannot keep', () => {
+    for (const m of METRICS.filter((x) => x.kind === 'process' && x.inputs.length === 0)) expect([m.id, m.covers], m.id).toEqual([m.id, []]);
+  });
   it('the inventory classifies every input of every process row, and gameable is derived (pinned: a change is a reviewed decision)', () => {
     const rows = guardRows().filter((g) => g.kind === 'process');
     for (const m of METRICS.filter((x) => x.kind === 'process')) for (const f of m.inputs) expect(INPUT_FIELD_IDS, `${m.id} reads ${f}`).toContain(f);
