@@ -57,3 +57,26 @@ web/src/theme/{mission-activity,base,shell,touch}.css, web/src/components/ui/{He
 - Not in the brief, fixed anyway: Conversations header/composer overflow at 390.
 - Polish not covered by the harness: at 390 the Activity KPI strip (5 tiles) is cramped (tiles squeeze to icons and wrapped numbers, see after-activity-390.png). It passes the check but is not reference-exact; a follow-up cycle should lay it out as a 2-column grid under 800 px.
 - `.modal-layer` grid change is global (all dialogs); it only changes behaviour when a dialog is wider than the screen.
+
+## Fix round (after review c40-review.md, PASS-WITH-FIXES)
+Test-first: `scripts/c40-fixround.mjs` (demo mode, dev server) was run RED before the fixes, GREEN after.
+
+| Item | RED (before) | GREEN (after) |
+|---|---|---|
+| M1 keyboard scroll of help body (1280x520, longest Overview popover) | body not focusable (tabindex/role/label null); Tab never reaches it; ArrowDown scrollTop 0; PageDown/End scrollTop 0 of 114; no focus ring | `tabindex=0 role=region aria-label="Help text"` (only while the body overflows; a body that fits is not a tab stop); Tab reaches it; ArrowDown scrollTop 80; PageDown/End 108 of 108; focus ring visible (2 px accent outline, offset -2 so overflow:auto cannot clip it); Escape closes and focus returns to the `?` trigger |
+| L1 2 px clamp, 1280x760 | scrollHeight 315 vs clientHeight 313, Example border clipped, pointless scroll | `max-height: available + 6px` (inside the 12 px collision padding): 315 vs 315, popover bottom 750, no scroll |
+| Activity KPI strip at 390 | tile widths 44/44/44/178/44, values stacked on each other | `@media (max-width:800px)` 2-column grid; tiles 165 px each, values on one line, labels not clipped; the `?` sits beside the last tile. 900 unchanged (no overlap) |
+| M2 api-c40 vacuous | with `C40_HELP_SEL=.nope` (0 popovers) the old probe passed | now FAILs per size when fewer than 5 popovers opened (3 FAIL lines); real run measures 39 / 41 / 49 popovers at 390 / 900 / 1280, outside=0. The probe waits for `.help-pop` instead of a fixed 220 ms, which was the cause of the 0 at 390 |
+| 5 selftest | marker untested | selftest-mobile.mjs 7/7: also asserts ToastCard sets data-exiting from useIsPresent() and no other source sets it (static source check; it does not run the toast) |
+
+Re-run on tip of this round:
+- tsc clean; selftest-mobile 7/7; c40-fixround 11/11 PASS.
+- api-mobile (`DATA_MODE=api`): 678 states, 371 dialogs, NO FAILURES, 0 FAIL.
+- api-c40: NO FAILURES (popovers measured 39 / 41 / 49).
+- fit-check 1366x768 and 1280x760: ALL FIT, 0 FAIL.
+- a11y: demo 50 views, 56 dialogs, 0 violations; api 40 views, 56 dialogs, 0 violations.
+- verify-all: ALL 10 STEPS PASSED, 0 FAIL.
+
+Desktop pixel diff, Activity tab at 1366x768 (base 4ff1b40 on a scratch worktree vs this tip, demo, reduced motion, animations frozen, threshold 8): dark 248 px in a single 19x24 px box (a live ticking number), light 0 px. No layout difference.
+Screenshots (Activity KPI strip, base vs now): c40-shots/fr-before-activity-{390,900}-{dark,light}.png and fr-after-activity-{390,900}-{dark,light}.png.
+Scratch worktree and the 8891 server were removed; dev server 8890 stopped by port.
