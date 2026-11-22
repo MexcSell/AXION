@@ -55,7 +55,7 @@ Rewritten 2026-11-22T07:35Z by the controller and again at 17:50Z after the live
 | w52 | c53 eval-run integrity (E1c), e2e18, mig 0040 | fix round (review CLEAR AFTER FIXES) |
 | w53 | c54 clock bounds + dimensions follow-ups (H11, M1b, M1c), e2e2, mig 0041 if needed | implementing |
 | w54 | c55 thread follow-ups (P2b), e2e3 | implementing |
-| w55 | c56 public suffix list (P4b), e2e4 (no migration) | fix round (review CLEAR AFTER FIXES) |
+| w55 | c56 public suffix list (P4b), e2e4 (no migration) | CLEARED at 3480bff, batch 14 |
 | w56 | c57 test hygiene (H12, H13), e2e15 | implementing |
 | — | Research round 2: research-r2.md plus research-r2-verified.md (22 CONFIRMED, 4 CORRECTED; R2-4 dropped) | done |
 | w57 | c58 Rule-of-Two profile + approval quality (R2-6, R2-9), e2e16, mig 0043, DL-100 | implementing (Wave 6) |
