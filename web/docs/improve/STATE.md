@@ -49,8 +49,18 @@ Rewritten 2026-11-22T07:35Z by the controller and again at 17:50Z after the live
 | w50 | c51 O3a+O2a review hardening (migration 0039) | MERGED (86a634b) |
 | w51 | c52 H10 merge minors | MERGED (a33ae82) |
 
-## Next: Wave 5 (Phase 2 proper)
-Being planned; see PHASE2.md, Wave 5. The gated Wave 4 items (R1, A1, M2, G1) still run last, as their own droppable batch (Q11).
+## Wave 5 in flight (dispatched about 17:55Z from bfe891e; PHASE2.md, Wave 5)
+| Lane | Cycle | Status |
+|---|---|---|
+| w52 | c53 eval-run integrity (E1c), e2e18, mig 0040 if needed | implementing |
+| w53 | c54 clock bounds + dimensions follow-ups (H11, M1b, M1c), e2e2, mig 0041 if needed | implementing |
+| w54 | c55 thread follow-ups (P2b), e2e3 | implementing |
+| w55 | c56 public suffix list (P4b), e2e4, mig 0042 if needed | implementing |
+| w56 | c57 test hygiene (H12, H13), e2e15 | implementing |
+| — | Research round 2 (phase2/research-r2.md), then a verifier | researching |
+| — | Integrator #5: verification pass on the merged tree | running |
+
+No new lane starts after 2026-11-23T13:45Z. The gated Wave 4 items (R1, A1, M2, G1) still run last, as their own droppable batch (Q11).
 
 ## Owner questions
 Q1–Q11 are queued for the final report (PHASE2.md, LOG.md).

@@ -595,3 +595,9 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
   - audit:anchor wrote t-1@1, audit:verify chain OK + anchor OK;
   - health 200 direct and through the 5190 proxy.
 - 2026-11-22T17:45Z **Phase 2 clock starts; ends 2026-11-23T21:45Z.** (30 h loop ended 17:36Z.)
+- 2026-11-22T17:50Z controller: Wave 5 dispatched from bfe891e.
+  - Lanes: w52 c53 (E1c), w53 c54 (H11+M1b+M1c), w54 c55 (P2b), w55 c56 (P4b), w56 c57 (H12+H13).
+  - Research round 2: researcher writes phase2/research-r2.md; a separate verifier follows.
+  - Integrator #5: verification pass on the merged tree (api-mobile, stage6 ×20, perf-nav).
+  - new-lane.sh now strips AUDIT_ANCHOR_* from lane .env copies; checked that w48's existing key is a lane test key, not the live one.
+  - Cut-off: no new lane after 2026-11-23T13:45Z.
