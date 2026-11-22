@@ -21,7 +21,7 @@ export interface DomainEvent<P = Record<string, unknown>> {
  */
 export const EVENT_TYPES = [
   'mission.created', 'mission.revised', 'mission.stateChanged', 'mission.shared', 'mission.deleted', 'staffing.progressed', 'staffing.stalled', 'staffing.resumed',
-  'approval.requested', 'approval.decided', 'notification.created',
+  'approval.requested', 'approval.decided', 'approval.consumed', 'notification.created',
   'conversation.messageCreated', 'conversation.receipt', 'instance.created', 'instance.stateChanged', 'task.delegated', 'task.stateChanged', 'task.reviewed',
   'agent.created', 'agent.updated', 'agent.versionCreated',
   'agent.versionProposed', 'agent.versionPromoted', 'agent.rolledBack', 'agent.versionProposalDecided',

@@ -104,6 +104,7 @@ export interface EventPayloads {
   'staffing.resumed': { by: string };
   'approval.requested': { approvalId: string; kind: string; risk: string; policyVersion: number; reasons: string[] };
   'approval.decided': { approvalId: string; decision: 'approved' | 'denied' | 'expired'; by: string };
+  'approval.consumed': { approvalId: string; kind: string; tier: string; by: string };
   'notification.created': { id: string; title: string; severity: NoticeDto['severity'] };
   'conversation.messageCreated': { threadId: string; messageId: string; seq: number; kind: string; simulated: boolean; message: MessageDto; channel?: { kind: string; userId: string; agentId?: string } };
   'conversation.receipt': { threadId: string; messageId: string; state: 'queued' | 'delivered' | 'acknowledged'; simulated: boolean };
