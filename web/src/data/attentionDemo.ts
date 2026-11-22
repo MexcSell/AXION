@@ -10,12 +10,12 @@ const D2 = '9f3a1c07d2b84e5a6c01b7e9d4f2a83c5e60b1d7a94c2f38e5d1b0a76c93e4f2';
 const ev = (check: string, facts: [string, string][]): AttentionEvidence => ({ check, facts: facts.map(([label, value]) => ({ label, value })) });
 const approvalEv = (tier: string, kind: string, who: string, fired = 'no'): AttentionEvidence => ev(
   `Compare the bound digest with the digest the server recomputes from the stored action: they match. Then read the three Rule of Two flags, and confirm the tier ${tier} fits what "${kind}" does.`,
-  [['Bound digest', D], ['Recomputed digest', D2], ['Digest version', '2'], ['Tier', `${tier}, decided by an administrator`], ['Action', kind], ['Origin', 'not recorded'], ['Target', 'not recorded'], ['Requested by', who],
+  [['Bound digest', D], ['Recomputed digest', D2], ['Digest version', '2'], ['Tier', `${tier}, decided by ${tier === 'R2' ? 'any person except the requester' : 'an administrator'}`], ['Action', kind], ['Origin (as the agent stated it)', 'not recorded'], ['Target (as the agent stated it)', 'not recorded'], ['Requested by', who],
     ['Reads untrusted input', fired === 'yes' ? 'yes' : 'no'], ['Reaches live systems or credentials', tier === 'R2' ? 'no' : 'yes'], ['Can change state or communicate externally', 'yes'], ['Rule of Two fired', fired]]);
 
 let n = 0;
 const member = (id: string, subject: string, ageSec: number, expiresInSec: number | null, tier: string | null, evidence: AttentionEvidence, canAct = true, route = '/notifications?tab=pending'): AttentionMemberDto =>
-  ({ id: `${id}:demo-${++n}`, subject, ageSec, expiresInSec, route, tier, canAct, note: canAct ? null : 'Locked in this sample.', demo: true, evidence });
+  ({ id: `${id}:demo-${++n}`, subject, ageSec, expiresInSec, ageNote: null, route, tier, canAct, note: canAct ? null : 'Locked in this sample.', demo: true, evidence });
 const row = (reason: AttentionReasonCode, why: string, members: AttentionMemberDto[], o: { tier?: string | null; groupedBy?: string | null; label?: string; note?: string | null } = {}): AttentionRowDto => {
   const def = ATTENTION_REASONS.find((r) => r.code === reason)!;
   if (!members[0].canAct) members[0].note = o.note ?? 'Only administrators decide.';
@@ -23,7 +23,7 @@ const row = (reason: AttentionReasonCode, why: string, members: AttentionMemberD
   const exp = members.map((m) => m.expiresInSec).filter((e): e is number => e !== null);
   return {
     id: members.length > 1 ? `group:${lead.id}` : lead.id, reason, kind: def.kind, icon: def.icon, tier: o.tier ?? null, why, subject: lead.subject,
-    ageSec: Math.max(...members.map((m) => m.ageSec)), expiresInSec: exp.length ? Math.min(...exp) : null, count: members.length, members,
+    ageNote: members.find((m) => m.ageNote)?.ageNote ?? null, ageSec: Math.max(...members.map((m) => m.ageSec)), expiresInSec: exp.length ? Math.min(...exp) : null, count: members.length, members,
     action: { label: o.label ?? 'Open', route: lead.route, canAct: lead.canAct, note: lead.note },
     evidence: lead.evidence, groupedBy: o.groupedBy ?? null, missionId: 'M-126',
   };

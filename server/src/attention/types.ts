@@ -11,6 +11,8 @@ export interface AttentionItem {
   /** the item's own name (an approval title, a task title): agent- or person-written, shown apart from the sentence */
   subject: string;
   ageSec: number; expiresInSec: number | null;
+  /** set when the wait is measured from a fallback rather than the real change of state */
+  ageNote?: string | null;
   missionId: string | null; demo: boolean;
   route: string;
   /** whether the viewer may act on it, by the rule of the route that acts (decideRefusal, the review and proposal rules), and why not */

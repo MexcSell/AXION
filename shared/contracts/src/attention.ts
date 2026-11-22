@@ -98,7 +98,7 @@ export interface AttentionAction { label: string; route: string; canAct: boolean
 /** One underlying item. A row holds one item, or several that were collapsed. */
 export interface AttentionMemberDto {
   id: string; subject: string; ageSec: number; expiresInSec: number | null; route: string;
-  tier: string | null; canAct: boolean; /** why the viewer cannot act on this item, when canAct is false */ note: string | null; /** from a prototype (demo) mission */ demo: boolean; evidence: AttentionEvidence;
+  tier: string | null; /** set when the wait is counted from a fallback, in words; otherwise null */ ageNote: string | null; canAct: boolean; /** why the viewer cannot act on this item, when canAct is false */ note: string | null; /** from a prototype (demo) mission */ demo: boolean; evidence: AttentionEvidence;
 }
 export interface AttentionRowDto {
   id: string; reason: AttentionReasonCode; kind: AttentionKind; icon: AttentionIcon;
@@ -109,6 +109,8 @@ export interface AttentionRowDto {
   /** what the lead item calls itself (agent- or person-written text; shown apart from the sentence) */
   subject: string;
   ageSec: number; expiresInSec: number | null;
+  /** set when any item's wait is counted from a fallback (the task's creation), in words; otherwise null */
+  ageNote: string | null;
   /** how many items this row stands for; always equals members.length */
   count: number;
   /** the lead item first; every collapsed item is listed */

@@ -407,9 +407,9 @@ export const dimensions: V<CompanyDimensionsDto> = obj<CompanyDimensionsDto>({
 const attentionFact: V<AttentionFact> = obj<AttentionFact>({ label: str, value: str });
 const attentionEvidence: V<AttentionEvidence> = obj<AttentionEvidence>({ check: str, facts: arr(attentionFact) });
 const attentionAction: V<AttentionAction> = obj<AttentionAction>({ label: str, route: str, canAct: bool, note: nullable(str) });
-const attentionMember: V<AttentionMemberDto> = obj<AttentionMemberDto>({ id: str, subject: str, ageSec: int, expiresInSec: nullable(int), route: str, tier: nullable(str), canAct: bool, note: nullable(str), demo: bool, evidence: attentionEvidence });
+const attentionMember: V<AttentionMemberDto> = obj<AttentionMemberDto>({ id: str, subject: str, ageSec: int, expiresInSec: nullable(int), ageNote: nullable(str), route: str, tier: nullable(str), canAct: bool, note: nullable(str), demo: bool, evidence: attentionEvidence });
 const attentionRow: V<AttentionRowDto> = obj<AttentionRowDto>({
-  id: str, reason: oneOf(ATTENTION_REASON_CODES), kind: oneOf(ATTENTION_KINDS), icon: oneOf(ATTENTION_ICONS), tier: nullable(str), why: str, subject: str, ageSec: int, expiresInSec: nullable(int),
+  id: str, reason: oneOf(ATTENTION_REASON_CODES), kind: oneOf(ATTENTION_KINDS), icon: oneOf(ATTENTION_ICONS), tier: nullable(str), why: str, subject: str, ageSec: int, expiresInSec: nullable(int), ageNote: nullable(str),
   count: int, members: arr(attentionMember), action: attentionAction, evidence: attentionEvidence, groupedBy: nullable(str), missionId: nullable(str),
 });
 export const attention: V<AttentionDto> = obj<AttentionDto>({

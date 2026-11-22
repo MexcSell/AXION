@@ -6,11 +6,15 @@ import type { Fact } from './types.ts';
 /**
  * The third level of a row: the check that would expose a defect in the item, and the stored facts to run it against.
  * It is not a summary and it never says the item is fine. Templated over enums, numbers, ids and digests; no model text, and no
- * agent- or person-written text (a title, a detail, a note) goes in.
+ * agent- or person-written text (a title, a detail, a note) goes in, with one exception: an approval's `origin` and `target` are free text the
+ * requesting agent supplied. GET /approvals already returns both to the same viewers, so they leak nothing; here they are labelled "as the agent
+ * stated it", cut to 200 characters, shown only as fact values (never in a sentence or a check) and rendered as plain text.
  */
 const s = (f: Record<string, Fact>, k: string) => String(f[k] ?? '');
 const n = (f: Record<string, Fact>, k: string) => Number(f[k] ?? 0);
 const rec = (v: Fact) => (v === null || v === undefined || v === '' ? 'not recorded' : String(v));
+/** free text is cut to 200 characters; the full text is in the approval itself */
+const cap = (v: string) => (v.length > 200 ? v.slice(0, 199) + '…' : v);
 const fact = (label: string, value: Fact | undefined): AttentionFact => ({ label, value: value === null || value === undefined ? '' : String(value) });
 
 export function evidenceOf(reason: AttentionReasonCode, f: Record<string, Fact>): AttentionEvidence {
@@ -19,8 +23,8 @@ export function evidenceOf(reason: AttentionReasonCode, f: Record<string, Fact>)
       const same = s(f, 'boundDigest') === s(f, 'recomputedDigest');
       return {
         check: `Compare the bound digest with the digest the server recomputes from the stored action: they ${same ? 'match' : 'DIFFER, so do not approve'}. Then read the three Rule of Two flags, and confirm the tier ${s(f, 'tier')} fits what "${s(f, 'kind')}" does.`,
-        facts: [fact('Bound digest', f.boundDigest), fact('Recomputed digest', f.recomputedDigest), fact('Digest version', f.digestVersion), fact('Tier', `${s(f, 'tier')}, decided by ${s(f, 'approver') === 'owner' ? 'an administrator' : s(f, 'approver')}`),
-          fact('Action', f.kind), fact('Origin', rec(f.origin)), fact('Target', rec(f.target)), fact('Requested by', f.requestedByKind),
+        facts: [fact('Bound digest', f.boundDigest), fact('Recomputed digest', f.recomputedDigest), fact('Digest version', f.digestVersion), fact('Tier', `${s(f, 'tier')}, decided by ${s(f, 'approver') === 'user' ? 'any person except the requester' : 'an administrator'}`),
+          fact('Action', f.kind), fact('Origin (as the agent stated it)', cap(rec(f.origin))), fact('Target (as the agent stated it)', cap(rec(f.target))), fact('Requested by', f.requestedByKind),
           fact('Reads untrusted input', f.flagUntrusted), fact('Reaches live systems or credentials', f.flagSensitive), fact('Can change state or communicate externally', f.flagChange), fact('Rule of Two fired', f.ruleFired)],
       };
     }
@@ -33,7 +37,7 @@ export function evidenceOf(reason: AttentionReasonCode, f: Record<string, Fact>)
     case 'task_waiting_person':
       return {
         check: `Open the task and look for what it is waiting on. It has had no change of state for ${duration(n(f, 'ageSec'))}; ask whether the person it needs knows.`,
-        facts: [fact('Waiting for', duration(n(f, 'ageSec'))), fact('Waiting measured from', s(f, 'since') === 'state change' ? 'the last change of state' : 'the task\'s creation (no state change is stored)'),
+        facts: [fact('Waiting for', duration(n(f, 'ageSec'))), fact('Waiting measured from', s(f, 'since') === 'state change' ? 'the last change of state' : 'the task\'s creation (no state-change event is stored)'),
           fact('Expected time', `${ATTENTION_SETTINGS.waitingHours} h`), fact('Task', f.taskId)],
       };
     case 'failure_no_detection':

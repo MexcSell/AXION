@@ -85,6 +85,7 @@ async function waitingTasks(c: Q, v: Viewer, admin: boolean): Promise<AttentionI
   return rows.map((r) => ({
     id: `waiting:${r.id}`, reason: 'task_waiting_person' as const, kind: 'task_waiting' as const, tier: null, subject: r.title,
     ageSec: secs(r.age_s)!, expiresInSec: null, missionId: r.mission_id, demo: !!r.demo, route: `/missions/${r.mission_id}?tab=task-flow`, canAct: true, note: null,
+    ageNote: r.has_change ? null : 'Counted from when the task was created: no state-change event is stored for it.',
     facts: { taskId: r.id, missionId: r.mission_id, ageSec: secs(r.age_s)!, since: r.has_change ? 'state change' : 'task creation' },
   }));
 }
