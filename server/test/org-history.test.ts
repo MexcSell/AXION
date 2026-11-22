@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { makeTestApp, withAdmin, type TestApp, type Browser } from './helpers.ts';
 import { diffLines } from '../src/organization/validate.ts';
+const ST = { baseline: 'No change: keep the current chart as it is.', expectedCost: 'No added cost is expected in this test.' }; // c64: every proposal states a baseline and its expected cost
 
 // Improvement cycle 4 (theme A): organisation history, before/after diff with mission impact, and rollback as an ordinary
 // cycle 1 proposal (brief web/docs/improve/cycles/c04-brief.md, "Tests"). Missions and instances are fixture rows so the
@@ -91,7 +92,7 @@ describe('revisions and diff', () => {
   it('A proposes, B approves: revision 2 says it came from that proposal, by Bea', async () => {
     const g = await graph();
     const edges = g.edges.map((e) => (e.subordinateId === 'coder-01' ? { ...e, supervisorId: 'ops-01' } : e));
-    const c = await A.req('POST', '/organization/proposals', { title: 'Coder-01 under Ops-01', why: 'Reviews.', baseRevision: g.revision.seq, edges }, key());
+    const c = await A.req('POST', '/organization/proposals', { ...ST, title: 'Coder-01 under Ops-01', why: 'Reviews.', baseRevision: g.revision.seq, edges }, key());
     expect(c.status).toBe(201);
     P1 = c.body.proposal;
     expect((await decide(B, P1, 'approve')).status).toBe(200);

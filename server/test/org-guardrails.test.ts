@@ -4,6 +4,7 @@ import { validateOrg, type EdgeIn } from '../src/organization/validate.ts';
 import { makeTestApp, withAdmin, type TestApp, type Browser } from './helpers.ts';
 import { addVersion } from '../src/agents/service.ts';
 import { tx } from '../src/db.ts';
+const ST = { baseline: 'No change: keep the current chart as it is.', expectedCost: 'No added cost is expected in this test.' }; // c64: every proposal states a baseline and its expected cost
 
 /**
  * Improvement cycle 64 (R3-6), item 2: the NEW contract checks of a restructure.
@@ -179,7 +180,7 @@ describe('on the route', () => {
     // the company chart is flat (everyone reports to the GM), so the proposal makes a new team: comms-01 manages analyst-01 and browser-01,
     // and two of the three run a model whose family is unknown, so only one member could review
     await tx(t.app.db, async (c) => { for (const id of ['comms-01', 'analyst-01']) await addVersion(c, { agentId: id, model: 'mystery-model', skills: [], tools: [], createdBy: 'test' }); });
-    const bad = await Adm.req('POST', '/organization/proposals', { title: 'New team', why: '', baseRevision: g.revision.seq, edges: g.edges.map((e) => (['analyst-01', 'browser-01'].includes(e.subordinateId) ? { ...e, supervisorId: 'comms-01' } : e)) }, key());
+    const bad = await Adm.req('POST', '/organization/proposals', { ...ST, title: 'New team', why: '', baseRevision: g.revision.seq, edges: g.edges.map((e) => (['analyst-01', 'browser-01'].includes(e.subordinateId) ? { ...e, supervisorId: 'comms-01' } : e)) }, key());
     expect(bad.status).toBe(201);
     const res = bad.body.proposal.result;
     expect(res.ok).toBe(false);

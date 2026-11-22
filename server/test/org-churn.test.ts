@@ -15,7 +15,7 @@ async function setup(guard: Record<string, number>) {
   const A: Browser = w.admin, B: Browser = bea.b;
   const graph = async () => (await A.req('GET', '/organization/graph')).body as { revision: { seq: number }; edges: Edge[] };
   /** a proposal that re-points each `[sub, mgr]` (so it changes exactly that many lines) */
-  const body = async (...mv: [string, string][]) => { const g = await graph(); const to = new Map(mv); return { title: 'Move ' + mv.map((x) => x[0]).join(','), why: 'churn test', baseRevision: g.revision.seq, edges: g.edges.map((e) => (to.has(e.subordinateId) ? { ...e, supervisorId: to.get(e.subordinateId)! } : e)) }; };
+  const body = async (...mv: [string, string][]) => { const g = await graph(); const to = new Map(mv); return { baseline: 'No change: keep the current chart as it is.', expectedCost: 'No added cost is expected in this test.', title: 'Move ' + mv.map((x) => x[0]).join(','), why: 'churn test', baseRevision: g.revision.seq, edges: g.edges.map((e) => (to.has(e.subordinateId) ? { ...e, supervisorId: to.get(e.subordinateId)! } : e)) }; };
   const propose = async (...mv: [string, string][]) => A.req('POST', '/organization/proposals', await body(...mv), key());
   const dry = async (...mv: [string, string][]) => A.req('POST', '/organization/proposals?dryRun=1', await body(...mv));
   const approve = async (p: { id: string; sha: string }) => B.req('POST', `/organization/proposals/${p.id}/decision`, { decision: 'approve', sha: p.sha });

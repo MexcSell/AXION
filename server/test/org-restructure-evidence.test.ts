@@ -15,7 +15,7 @@ const graph = async () => (await A.req('GET', '/organization/graph')).body as { 
 const moved = (edges: Edge[], sub: string, sup: string) => edges.map((e) => (e.subordinateId === sub ? { ...e, supervisorId: sup } : e));
 async function body(extra: Record<string, unknown> = {}, sub = 'coder-01', sup = 'ops-01') {
   const g = await graph();
-  return { title: 'Move ' + sub, why: 'evidence test', baseRevision: g.revision.seq, edges: moved(g.edges, sub, sup), ...extra };
+  return { baseline: 'No change: keep the current chart as it is.', expectedCost: 'No added cost is expected in this test.', title: 'Move ' + sub, why: 'evidence test', baseRevision: g.revision.seq, edges: moved(g.edges, sub, sup), ...extra };
 }
 
 async function mission(id: string, o: { demo?: boolean } = {}) {

@@ -139,7 +139,10 @@ export default async function historyRoutes(app: FastifyInstance) {
         throw new ApiError('NOTHING_TO_ROLL_BACK', 422, `Revision ${seq} has the same reporting lines as the active revision ${cur.seq}: there is nothing to roll back.`);
       if ((await pendingWithEdges(c, ctx.tenantId, edges, cur.seq)).length)
         throw new ApiError('DUPLICATE_PROPOSAL', 409, `A proposal with the reporting lines of revision ${seq} is already waiting for a decision.`);
-      return createProposal(c, ctx, { title: `Roll back to revision ${seq}`, why: b.why || `Restores the reporting lines of revision ${seq}.`, baseRevision: cur.seq, edges, triggers: b.triggers }, { rollbackTo: seq, settings: app.cfg.orgGuardrails });
+      return createProposal(c, ctx, { title: `Roll back to revision ${seq}`, why: b.why || `Restores the reporting lines of revision ${seq}.`, baseRevision: cur.seq, edges, triggers: b.triggers,
+        // a rollback restores a chart that was approved once: its baseline is the chart as it is, and it adds no hop of its own
+        baseline: `No change: keep the current organisation, revision ${cur.seq}, as it is.`,
+        expectedCost: `Restores the reporting lines of revision ${seq}, a chart that was already approved once, so it adds no new hops by itself.` }, { rollbackTo: seq, settings: app.cfg.orgGuardrails });
     });
     return reply.status(out.status).send(out.body);
   });

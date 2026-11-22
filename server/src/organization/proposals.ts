@@ -30,7 +30,13 @@ const Id = z.string().trim().min(1).max(60);
 const EdgesIn = z.array(z.object({ supervisorId: Id, subordinateId: Id, edgeType: z.literal('reports_to').default('reports_to') }).strict()).max(500); // the only edge type there is
 /** c64: the proposer only PICKS triggers from a closed list; every count is computed by the server (a typed count or an `evidence` key is refused by .strict()). */
 const Triggers = z.array(z.enum(RESTRUCTURE_TRIGGERS)).max(RESTRUCTURE_TRIGGERS.length * 2).default([]);
-const CreateIn = z.object({ title: z.string().trim().min(1).max(120), why: z.string().trim().max(2000).default(''), baseRevision: z.number().int().min(0), edges: EdgesIn, triggers: Triggers }).strict();
+/** c64 item 4: the stated baseline and expected added cost, plain text of 20 to 1000 characters (after trimming). */
+export const STATEMENT_MIN = 20;
+const Statement = z.string().trim().min(STATEMENT_MIN, `Write at least ${STATEMENT_MIN} characters.`).max(1000);
+const CreateBase = z.object({ title: z.string().trim().min(1).max(120), why: z.string().trim().max(2000).default(''), baseRevision: z.number().int().min(0), edges: EdgesIn, triggers: Triggers, baseline: Statement, expectedCost: Statement }).strict();
+const CreateIn = CreateBase;
+/** A dry run stores nothing, so it does not need the two statements (the screen checks the chart while they are still being typed). */
+const DryRunIn = CreateBase.extend({ baseline: Statement.optional(), expectedCost: Statement.optional() }).strict();
 /** The picked triggers once each, in the canonical order of the closed list. */
 export const canonTriggers = (t: readonly RestructureTrigger[]) => RESTRUCTURE_TRIGGERS.filter((k) => t.includes(k));
 const DecisionIn = z.object({ decision: z.enum(['approve', 'reject']), note: z.string().trim().max(1000).optional(), sha: z.string().max(128) }).strict();
@@ -148,8 +154,9 @@ export default async function proposalRoutes(app: FastifyInstance) {
 
   app.post('/organization/proposals', async (req, reply) => {
     const ctx = await requireAdmin(req);
-    const b = parse(CreateIn, req.body);
-    if ((req.query as { dryRun?: string }).dryRun === '1') { // stores nothing, needs no Idempotency-Key
+    const isDry = (req.query as { dryRun?: string }).dryRun === '1';
+    const b = isDry ? parse(DryRunIn, req.body) : parse(CreateIn, req.body);
+    if (isDry) { // stores nothing, needs no Idempotency-Key
       const cur = await latest(app.db, ctx.tenantId);
       if (cur.seq !== b.baseRevision) throw staleBase(cur.seq, b.baseRevision);
       return { result: await dryRun(app.db, ctx.tenantId, b.edges, cur.id, { triggers: b.triggers, settings: app.cfg.orgGuardrails, gate: true }), baseRevision: cur.seq };

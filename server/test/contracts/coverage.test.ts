@@ -21,6 +21,7 @@ import { call, hits, gated, problems, errorShapes, bodies, requests, key, record
 import { SWEEP_SKIP, MEMBER_403_ALLOWED } from './allowlists.ts';
 import { UNEXERCISED_ALLOWED } from './exercised.ts';
 import { lenientMutations, unexercised } from './walk.ts';
+const ST = { baseline: 'No change: keep the current chart as it is.', expectedCost: 'No added cost is expected in this test.' }; // c64: every proposal states a baseline and its expected cost
 
 /**
  * Improvement cycle 50: the coverage run. Every route in the registry is called at least once in its happy state as the right
@@ -265,19 +266,19 @@ describe('API coverage run', () => {
     const moved = (edges: any[], sub: string, sup: string) => edges.map((e) => (e.subordinateId === sub ? { ...e, supervisorId: sup } : e));
     const baseRev = async () => (await admin.req('GET', '/organization/graph')).body.revision.seq as number;
     await call(admin, 'POST', '/organization/proposals', '/organization/proposals', { status: 200, query: '?dryRun=1', body: { title: 'dry', why: 'x', baseRevision: await baseRev(), edges: moved(g.edges, 'tester-01', 'coder-01'), triggers: ['repeated_reassigns'] } });
-    const p1 = (await call(admin, 'POST', '/organization/proposals', '/organization/proposals', { status: 201, body: { title: 'Move tester', why: 'Shorter path.', baseRevision: await baseRev(), edges: moved(g.edges, 'tester-01', 'coder-01'), triggers: ['coverage_gap', 'load_imbalance'] }, headers: key() })).body.proposal;
+    const p1 = (await call(admin, 'POST', '/organization/proposals', '/organization/proposals', { status: 201, body: { ...ST, title: 'Move tester', why: 'Shorter path.', baseRevision: await baseRev(), edges: moved(g.edges, 'tester-01', 'coder-01'), triggers: ['coverage_gap', 'load_imbalance'] }, headers: key() })).body.proposal;
     await call(bea.b, 'POST', '/organization/proposals/:id/decision', `/organization/proposals/${p1.id}/decision`, { body: { decision: 'approve', sha: p1.sha, note: 'ok' } });
     const g2 = (await admin.req('GET', '/organization/graph')).body;
-    const p2 = (await admin.req('POST', '/organization/proposals', { title: 'Move writer', why: 'x', baseRevision: g2.revision.seq, edges: moved(g2.edges, 'writer-01', 'ops-01') }, key())).body.proposal;
+    const p2 = (await admin.req('POST', '/organization/proposals', { ...ST, title: 'Move writer', why: 'x', baseRevision: g2.revision.seq, edges: moved(g2.edges, 'writer-01', 'ops-01') }, key())).body.proposal;
     await call(admin, 'POST', '/organization/proposals/:id/withdraw', `/organization/proposals/${p2.id}/withdraw`, { body: {} });
-    const p3 = (await admin.req('POST', '/organization/proposals', { title: 'Expire me', why: 'x', baseRevision: g2.revision.seq, edges: moved(g2.edges, 'writer-01', 'coder-01') }, key())).body.proposal;
+    const p3 = (await admin.req('POST', '/organization/proposals', { ...ST, title: 'Expire me', why: 'x', baseRevision: g2.revision.seq, edges: moved(g2.edges, 'writer-01', 'coder-01') }, key())).body.proposal;
     await t.pool.query(`update org_proposals set expires_at = now() - interval '1 minute' where id=$1`, [p3.id]);
     // a proposal whose reporting lines leave an agent without a manager is stored with its dry-run errors (applying it is refused)
     await call(admin, 'POST', '/organization/proposals', '/organization/proposals', { status: 200, query: '?dryRun=1', body: { title: 'dry orphan', why: 'x', baseRevision: g2.revision.seq, edges: g2.edges.filter((e: any) => e.subordinateId !== 'tester-01') } });
-    const bad = (await call(admin, 'POST', '/organization/proposals', '/organization/proposals', { status: 201, body: { title: 'Orphan', why: 'x', baseRevision: g2.revision.seq, edges: g2.edges.filter((e: any) => e.subordinateId !== 'tester-01') }, headers: key() })).body.proposal;
+    const bad = (await call(admin, 'POST', '/organization/proposals', '/organization/proposals', { status: 201, body: { ...ST, title: 'Orphan', why: 'x', baseRevision: g2.revision.seq, edges: g2.edges.filter((e: any) => e.subordinateId !== 'tester-01') }, headers: key() })).body.proposal;
     expect(bad.result.errors.length).toBeGreaterThan(0);
     await call(bea.b, 'POST', '/organization/proposals/:id/decision', `/organization/proposals/${bad.id}/decision`, { body: { decision: 'reject', sha: bad.sha, note: 'Orphans an agent.' } });
-    const bad2 = (await admin.req('POST', '/organization/proposals', { title: 'Orphan 2', why: 'x', baseRevision: g2.revision.seq, edges: g2.edges.filter((e: any) => e.subordinateId !== 'tester-01') }, key())).body.proposal;
+    const bad2 = (await admin.req('POST', '/organization/proposals', { ...ST, title: 'Orphan 2', why: 'x', baseRevision: g2.revision.seq, edges: g2.edges.filter((e: any) => e.subordinateId !== 'tester-01') }, key())).body.proposal;
     await call(admin, 'POST', '/organization/proposals/:id/withdraw', `/organization/proposals/${bad2.id}/withdraw`, { body: {} });
     await call(admin, 'GET', '/organization/proposals', '/organization/proposals');
     const revs = (await admin.req('GET', '/organization/revisions')).body.revisions as { seq: number }[];
