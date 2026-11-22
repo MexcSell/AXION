@@ -13,9 +13,10 @@
 // (single script, Latin look-alike letters, whole-script look-alikes, IDNA round trip) are kept only as defence in depth: they give
 // a more specific reason for the hostile entries they already caught, and they run before the final idn_not_supported refusal.
 // Input whose host changes under case folding beyond ASCII (Kelvin sign, capital sharp s, Angstrom sign) is refused, not folded.
-// A host that is exactly a public suffix (co.uk, github.io ...) is refused from a small embedded list: PARTIAL, not the full
-// Public Suffix List. A grant always covers exactly the one origin; it never covers subdomains.
+// A host that is exactly a public suffix (co.uk, github.io, test.ck ...) is refused using the full pinned Public Suffix List
+// (c56: ICANN and PRIVATE sections, wildcard and exception rules; see psl.ts and its manifest). A grant always covers exactly the one origin; it never covers subdomains.
 import { domainToASCII, domainToUnicode } from 'node:url';
+import { isPublicSuffix } from './psl.ts';
 
 export const REFUSAL_REASONS = [
   'not_string', 'empty', 'too_long', 'control_or_space', 'backslash', 'percent_encoding', 'wildcard', 'query_or_fragment', 'userinfo',
@@ -58,7 +59,7 @@ export const REFUSAL_TEXT: Readonly<Record<RefusalReason, string>> = Object.free
   whole_script_confusable: 'Every letter of that host part looks like a Latin letter.',
   idn_not_supported: 'Internationalised (non-ASCII or xn--) host names are not supported yet. Use the ASCII form of a plain domain.',
   bad_tld: 'The last part of the host must be 2 or more letters (no digits).',
-  public_suffix: 'That is a shared public suffix: it would name every site under it. Grant a specific site such as example.github.io instead.',
+  public_suffix: 'That is a public suffix: a shared ending that many unrelated sites sit under (like co.uk or github.io), so a grant for it would cover every one of them. Grant one specific site instead, such as example.co.uk or yourname.github.io.',
   metadata_name: 'Cloud metadata names are never granted.',
   reserved_name: 'Local, internal and reserved names cannot be granted.',
   single_label: 'The host needs a domain such as example.com.',
@@ -89,12 +90,6 @@ const LATIN_LOOKALIKE: Readonly<Record<string, ReadonlySet<string>>> = {
   Cyrillic: new Set([...'\u0430\u0441\u0435\u043e\u0440\u0445\u0443\u0456\u0458\u0455\u0501\u051b\u051d\u04bb\u04cf\u043a\u043c\u0442\u043d\u0432']),
   Greek: new Set([...'\u03bf\u03bd\u03b1\u03c1\u03c4\u03c5\u03b9\u03ba\u03b5\u03c7\u03f2\u03b2']),
 };
-/** PARTIAL list of common multi-tenant / registry suffixes. A host equal to one of these is refused. Not the full Public Suffix List. */
-export const PUBLIC_SUFFIXES: ReadonlySet<string> = new Set([
-  'co.uk', 'org.uk', 'ac.uk', 'gov.uk', 'me.uk', 'com.au', 'net.au', 'org.au', 'co.jp', 'co.nz', 'co.za', 'co.in', 'com.br', 'com.cn', 'com.mx', 'co.kr',
-  'github.io', 'gitlab.io', 'pages.dev', 'workers.dev', 'vercel.app', 'netlify.app', 'herokuapp.com', 'azurewebsites.net', 'cloudfront.net',
-  's3.amazonaws.com', 'amazonaws.com', 'appspot.com', 'web.app', 'firebaseapp.com', 'blogspot.com', 'ngrok.io', 'repl.co', 'glitch.me', 'onrender.com', 'fly.dev',
-]);
 const LATIN_EXTRA_OK = new Set([...'\u00df\u00e6\u0153\u00f8']);
 
 type Label = { ok: true; ascii: string } | { ok: false; reason: RefusalReason };
@@ -206,7 +201,7 @@ function normalise(input: unknown, opts: OriginOptions): OriginResult {
   if (RESERVED_TLD.has(last)) return refuse('reserved_name');
   if (!/^[a-z]{2,}$/.test(last)) return refuse('bad_tld'); // a TLD is 2+ letters, no digits
   if (ascii.length < 2) return refuse('single_label');
-  if (PUBLIC_SUFFIXES.has(host)) return refuse('public_suffix');
+  if (isPublicSuffix(host)) return refuse('public_suffix');
 
   const def = scheme === 'https' ? 443 : 80;
   const origin = `${scheme}://${host}${port !== null && port !== def ? ':' + port : ''}`;
