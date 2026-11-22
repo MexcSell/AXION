@@ -1,0 +1,37 @@
+/* Touch sizing (c24): on phones and tablets every tappable control is at least 40 px.
+   Desktop (> 900 px) is untouched.  Exceptions: inline ? help dots, the fold handle. */
+@media (max-width: 900px) {
+  .icon-btn, .icon-btn.sm, .icon-btn.xs { min-width: 40px; min-height: 40px; }
+  .brand { min-height: 40px; }
+  .avatar-btn, .uav-btn { min-width: 40px; min-height: 40px; }
+  .nav-item { height: 42px; }
+  .tab { min-height: 40px; min-width: 40px; justify-content: center; }
+  .btn, .btn.sm { min-height: 40px; }
+  .select, .input { min-height: 40px; }
+  .mw-share { min-height: 40px; }
+  .tb-toggle { height: 24px; min-width: 56px; }
+  .tb-toggle:hover, .tb-toggle:focus-visible { height: 28px; }
+}
+/* the 40 px top-bar buttons plus the wordmark do not fit 390 px: keep the logo mark, drop the word */
+@media (max-width: 440px) {
+  .topbar-inner .brand-word { display: none; }
+}
+
+/* dialogs on phones: the layer is a one-cell grid, so the modal fills the screen and scrolls inside */
+@media (max-width: 800px) {
+  .modal-layer { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+  .modal, .modal-sm, .modal-lg, .modal-xl, .modal-drawer { max-height: 100%; min-width: 0; }
+  .modal-head > *, .modal-foot > * { min-width: 0; }
+  .modal-head { flex-wrap: nowrap; }
+  .modal-head .modal-title { overflow-wrap: anywhere; }
+}
+@media (max-width: 800px) {
+  .modal-body .row, .modal-body .segmented, .modal-body .emu-cred { flex-wrap: wrap; }
+  .modal-body > * { min-width: 0; max-width: 100%; }
+  .toast-stack { left: 12px; right: 12px; width: auto; }
+}
+@media (max-width: 900px) {
+  .brand { min-width: 40px; }
+  .menu-item, .seg-btn, .rv-select-row { min-height: 40px; }
+}
+@media (max-width: 800px) { .modal-body .segmented { display: flex; flex-wrap: wrap; max-width: 100%; } }
