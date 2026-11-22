@@ -44,9 +44,11 @@ describe('c65 item 7: contracts for every new field and route', () => {
     const pm = JSON.parse(JSON.stringify(people)); delete pm.people[0].name;
     expect(check('x', C.capacityPeopleBody, pm)).not.toEqual([]);
   });
-  it('NO ALLOWLIST LINE was added by this cycle: the allowlist files are byte-identical to the base commit', () => {
+  it('NO ALLOWLIST LINE was added by this cycle: no line was added to the allowlist files since the base commit (a later cycle may delete lines)', () => {
     const base = '7f31c94';
-    for (const f of ['test/contracts/allowlists.ts', 'test/contracts/exercised.ts'])
-      expect(execFileSync('git', ['diff', '--stat', base, '--', f], { encoding: 'utf8' }), f).toBe('');
+    for (const f of ['test/contracts/allowlists.ts', 'test/contracts/exercised.ts']) {
+      const added = execFileSync('git', ['diff', '--unified=0', base, '--', f], { encoding: 'utf8' }).split('\n').filter((l) => l.startsWith('+') && !l.startsWith('+++'));
+      expect(added, f).toEqual([]);
+    }
   });
 });
