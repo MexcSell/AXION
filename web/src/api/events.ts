@@ -30,6 +30,20 @@ function debounceKeyed(fn: (k: string) => void, ms: number) {
   return call;
 }
 
+/**
+ * c44: `lastEventAt` only drives "Live · last event" and the server-health refresh, so it is written at most once per
+ * STAMP_MS (leading edge, then one trailing write with the newest time) instead of once per event: a burst of hundreds of
+ * events no longer re-renders every subscriber hundreds of times. The freshness indicator stays within STAMP_MS.
+ */
+const STAMP_MS = 250;
+let stampAt = 0;
+let stampTimer: number | undefined;
+function stampEvent() {
+  const now = Date.now();
+  if (now - stampAt >= STAMP_MS) { stampAt = now; useData.setState({ lastEventAt: now }); return; }
+  if (stampTimer === undefined) stampTimer = window.setTimeout(() => { stampTimer = undefined; stampAt = Date.now(); useData.setState({ lastEventAt: stampAt }); }, STAMP_MS - (now - stampAt));
+}
+
 export function startSync(): () => void {
   let es: EventSource | null = null;
   let closed = false;
@@ -70,7 +84,7 @@ export function startSync(): () => void {
     if (raw.lastEventId) { if (seen.has(raw.lastEventId)) return; seen.add(raw.lastEventId); if (seen.size > 5000) seen.clear(); }
     let e: DomainEvent;
     try { e = JSON.parse(raw.data); } catch { return; }
-    useData.setState({ lastEventAt: Date.now() });
+    stampEvent();
     if (e.subject.kind === 'mission') mission(e.subject.id);
     if (type.startsWith('approval.')) approvals('a');
     if (type === 'notification.created') notices('n');
