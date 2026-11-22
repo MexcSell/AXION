@@ -37,11 +37,11 @@ export function useGate(a: Pick<Approval, 'canDecide' | 'decideBlockedReason'>) 
 }
 
 /** The reason in words, plus the `?`. Rendered next to the buttons a user cannot press; its id is what those buttons point at. */
-export function GateNote({ id, text, compact }: { id: string; text: string; compact?: boolean }) {
+export function GateNote({ id, text, compact, tipSide = 'bottom' }: { id: string; text: string; compact?: boolean; tipSide?: 'top' | 'bottom' }) {
   return (
     <span className="row appr-gate" style={{ gap: 4 }}>
       <span id={id} className={compact ? 'sr-only' : 'appr-gate-text'} data-testid="approval-gate-reason"><Lock size={11} aria-hidden />{text}</span>
-      <HelpTrigger k="approval.gate" />
+      <HelpTrigger k="approval.gate" tipSide={tipSide} />
     </span>
   );
 }

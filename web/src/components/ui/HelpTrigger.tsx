@@ -7,14 +7,14 @@ import { LOADING_HELP, loadHelp, useHelpRegistry } from '@/help/load';
 import { Tip } from './Tip';
 
 /** The universal "?" (spec §9.1). Opens an anchored popover with What / Why / How / Example / Permission. */
-export function HelpTrigger({ k, entry, label }: { k?: string; entry?: HelpEntry; label?: string }) {
+export function HelpTrigger({ k, entry, label, tipSide }: { k?: string; entry?: HelpEntry; label?: string; tipSide?: 'top' | 'bottom' | 'left' | 'right' }) {
   const reg = useHelpRegistry();
   const e = entry ?? (reg ? reg.getHelp(k ?? '') : LOADING_HELP);
   const title = entry || reg ? e.title : 'this topic'; // before the help text loads: not "Help: Help"
   const warm = () => { void loadHelp(); };
   return (
     <P.Root>
-      <Tip label={label ?? `Help: ${title}`}>
+      <Tip label={label ?? `Help: ${title}`} side={tipSide}>
         <P.Trigger asChild>
           <button type="button" className="help-btn" aria-label={`Help: ${title}`} data-help-key={k} onPointerEnter={warm} onFocus={warm} onClick={warm}>?</button>
         </P.Trigger>

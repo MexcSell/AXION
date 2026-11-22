@@ -46,7 +46,7 @@ function ApprovalDecision({ close, props }: DialogComponentProps<{ approvalId?: 
       footer={done ? <button className="btn" onClick={close}>Close</button> : <>
         <button className="btn" onClick={close}>Cancel</button>
         <span className="spacer" />
-        {gate.blocked && <GateNote id={gate.id} text={gate.text} />}
+        {gate.blocked && <GateNote id={gate.id} text={gate.text} tipSide="top" />}
         <button type="button" {...gate.bind(() => go('denied'), 'btn danger')}><XCircle size={15} />Deny</button>
         <button type="button" data-autofocus={gate.blocked ? undefined : true} {...gate.bind(() => go('approved'), 'btn good')}><CheckCircle2 size={15} />Approve</button>
       </>}>
