@@ -20,7 +20,7 @@ interface Health {
   checkedAt: string;
 }
 
-interface AnchorInfo { configured: boolean; ok: boolean; lastAnchorAt: string | null; reason: string | null; tenants: { tenant: string; status: string; anchoredSeq: number | null; reason: string | null }[] }
+interface AnchorInfo { configured: boolean; ok: boolean; lastAnchorAt: string | null; restartedAt: string | null; reason: string | null; tenants: { tenant: string; status: string; anchoredSeq: number | null; reason: string | null }[] }
 const ANCHOR_WORDS: Record<string, string> = { ok: 'Matches', truncated: 'Rows were removed', rewritten: 'History was rewritten', bad_signature: 'Anchor file was edited', anchor_missing: 'Not verifiable', rolled_back: 'Anchor file was cut back', insecure_file: 'Anchor file is not safe', unreadable: 'Anchor file unreadable' };
 
 const dur = (s: number) => (s < 90 ? `${s}s` : s < 5400 ? `${Math.round(s / 60)} min` : s < 172800 ? `${Math.round(s / 3600)} h` : `${Math.round(s / 86400)} d`);
@@ -76,7 +76,8 @@ export function ServerHealth() {
             const bad = an.tenants.find((t) => t.status !== 'ok');
             const tone = an.ok ? 'good' as const : an.configured && bad && bad.status !== 'anchor_missing' ? 'bad' as const : 'warn' as const;
             const word = an.ok ? 'Matches' : bad ? (ANCHOR_WORDS[bad.status] ?? bad.status) : 'Not verifiable';
-            const sub = an.lastAnchorAt ? `last checkpoint ${ago(an.lastAnchorAt)} · ${an.tenants.map((t) => `${t.status === 'ok' ? 'ok' : t.status.replace('_', ' ')}${t.anchoredSeq ? ` through #${t.anchoredSeq}` : ''}`).join(', ')}` : (an.reason ?? 'run npm run audit:anchor');
+            const restarted = an.restartedAt ? ` · restarted on ${new Date(an.restartedAt).toLocaleDateString()} (previous file archived)` : '';
+            const sub = (an.lastAnchorAt ? `last checkpoint ${ago(an.lastAnchorAt)} · ${an.tenants.map((t) => `${t.status === 'ok' ? 'ok' : t.status.replace('_', ' ')}${t.anchoredSeq ? ` through #${t.anchoredSeq}` : ''}`).join(', ')}` : (an.reason ?? 'run npm run audit:anchor')) + restarted;
             return (
               <motion.div className="subpanel glass-card svc-card" data-testid="audit-anchor" data-status={an.ok ? 'ok' : bad?.status ?? 'anchor_missing'} style={{ gridColumn: '1 / -1' }} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .26 }}>
                 <div className="row" style={{ gap: 8 }}>

@@ -11,6 +11,7 @@ export function assertLaneWipe(target: string | undefined, worktreeRoot: string,
   if (!target) throw new Error('E2E_DATABASE_URL is not set');
   let u: URL;
   try { u = new URL(target); } catch { throw new Error('the target database URL does not parse'); }
+  if (u.search !== '' || u.hash !== '') throw new Error('refusing a database URL with a query string or fragment (pg honours ?host=)');
   const name = decodeURIComponent(u.pathname.replace(/^\//, ''));
   if (!/^axion_e2e\d+$/.test(name)) throw new Error(`refusing to wipe "${name}": only axion_e2e<N> databases may be wiped`);
   if (u.hostname !== '127.0.0.1') throw new Error(`refusing to wipe a database on host "${u.hostname}": only 127.0.0.1`);

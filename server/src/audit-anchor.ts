@@ -1,10 +1,13 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
-import { closeSync, constants as fsc, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeSync, chmodSync } from 'node:fs';
+import { closeSync, constants as fsc, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from 'node:fs';
+import { userInfo } from 'node:os';
+import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Db } from './db.ts';
 import { canonical } from './approvals/service.ts';
 import { audit, verifyChain } from './audit.ts';
+import { tx } from './db.ts';
 
 /**
  * c49 (P5b): an audit-chain anchor held OUTSIDE the database. The chain (c31) proves internal consistency only: someone who can
@@ -24,9 +27,10 @@ export const MIN_DISTINCT_BYTES = 8; // not 16: a hex key (openssl rand -hex 32)
 export const DEFAULT_ANCHOR_FILE = join(dirname(fileURLToPath(import.meta.url)), '..', 'data', 'audit-anchors.jsonl');
 
 export type AnchorStatus = 'ok' | 'truncated' | 'rewritten' | 'bad_signature' | 'anchor_missing' | 'rolled_back' | 'insecure_file' | 'unreadable';
-export interface AnchorLine { v: 1; n: number; batch: string; i: number; of: number; tenant: string; seq: number; rowHash: string; at: string; anchoredAt: string; sig: string }
+export interface RotatedFrom { sha256: string; archive: string; at: string }
+export interface AnchorLine { v: 1; n: number; batch: string; i: number; of: number; tenant: string; seq: number; rowHash: string; at: string; anchoredAt: string; rotatedFrom?: RotatedFrom; sig: string }
 export interface TenantAnchor { tenant: string; status: AnchorStatus; anchoredSeq: number | null; anchoredAt: string | null; reason?: string }
-export interface AnchorReport { ok: boolean; configured: boolean; lastAnchorAt: string | null; lines: number; tenants: TenantAnchor[]; reason?: string }
+export interface AnchorReport { ok: boolean; configured: boolean; lastAnchorAt: string | null; lines: number; tenants: TenantAnchor[]; reason?: string; /** the file's first line says it replaced an archived file (signed, so it survives a database tamperer) */ rotatedFrom?: RotatedFrom }
 
 export class AnchorError extends Error { constructor(m: string) { super(m); this.name = 'AnchorError'; } }
 
@@ -35,11 +39,11 @@ export interface AnchorSettings { key?: string; file?: string; domain?: string }
 export function anchorSettings(over: AnchorSettings = {}, env: NodeJS.ProcessEnv = process.env): { key: string | undefined; file: string; domain: string | undefined } {
   return { key: over.key ?? (env.AUDIT_ANCHOR_KEY || undefined), file: over.file ?? (env.AUDIT_ANCHOR_FILE || DEFAULT_ANCHOR_FILE), domain: over.domain ?? (env.AUDIT_ANCHOR_DOMAIN || undefined) };
 }
-/** Domain separation (P2): the MAC also covers a deployment id, AUDIT_ANCHOR_DOMAIN, else "<database>:<schema>". A line signed for another deployment never verifies here. */
-async function domainOf(db: Db, d: string | undefined): Promise<string> {
-  if (d) return d;
-  const r = (await db.query('select current_database() as d, current_schema() as s')).rows[0];
-  return `axion-audit-anchor-v1:${r.d}:${r.s}`;
+/** Domain separation (P2): the MAC covers a deployment id, AUDIT_ANCHOR_DOMAIN. It is REQUIRED (no default): a default derived from the
+ * database name would make a restore check against a differently named database fail with the same status as tampering. */
+export function requireDomain(d: string | undefined): string {
+  if (!d) throw new AnchorError('AUDIT_ANCHOR_DOMAIN is not set (no domain: a fixed deployment id, for example axion-prod, that survives a restore into another database name)');
+  return d;
 }
 /** Fails closed: a missing or short key is an error, never a weaker signature. The message never contains the key. */
 export function requireKey(key: string | undefined): Buffer {
@@ -88,7 +92,8 @@ export async function verifyAnchors(db: Db, opts: AnchorSettings & { tenant?: st
     tenants: heads.map((h) => ({ tenant: h.tenant_id, status: 'anchor_missing', anchoredSeq: null, anchoredAt: null, reason })) });
   let key: Buffer;
   try { key = requireKey(rawKey); } catch (e) { return missing((e as Error).message); }
-  const domain = await domainOf(db, rawDomain);
+  let domain: string;
+  try { domain = requireDomain(rawDomain); } catch (e) { return missing((e as Error).message); }
   const fi = inspectFile(file);
   if (fi.state === 'absent') return missing('no anchor file yet (run npm run audit:anchor)');
   if (fi.state !== 'ok') return { ...missing(fi.reason!), configured: true, tenants: heads.map((h) => ({ tenant: h.tenant_id, status: fi.state as AnchorStatus, anchoredSeq: null, anchoredAt: null, reason: fi.reason })) };
@@ -149,8 +154,10 @@ export async function verifyAnchors(db: Db, opts: AnchorSettings & { tenant?: st
   if (badAt && !heads.length) return { ok: false, configured: true, lastAnchorAt: null, lines: lines.length, tenants: [], reason: `anchor file line ${badAt} fails its signature` };
 
   const tenants = [...status.values()].sort((a, b) => a.tenant.localeCompare(b.tenant));
+  const first = good[0];
+  const rotatedFrom = first && first.n === 1 && first.rotatedFrom && typeof first.rotatedFrom === 'object' ? first.rotatedFrom : undefined;
   const last = good.length ? good.reduce((m, l) => (l.anchoredAt > m ? l.anchoredAt : m), '') : null;
-  return { ok: tenants.length > 0 && tenants.every((t) => t.status === 'ok'), configured: true, lastAnchorAt: last, lines: lines.length, tenants,
+  return { ok: tenants.length > 0 && tenants.every((t) => t.status === 'ok'), configured: true, lastAnchorAt: last, lines: lines.length, tenants, ...(rotatedFrom ? { rotatedFrom } : {}),
     ...(tenants.length === 0 ? { reason: 'no audit rows to anchor' } : {}) };
 }
 
@@ -163,68 +170,118 @@ async function withLock<T>(file: string, fn: () => Promise<T>): Promise<T> {
 }
 
 export interface WriteResult { file: string; batch: string; written: { tenant: string; seq: number }[]; lastN: number; lastSig: string }
+
+/** The checkpoint itself, to be called with the lock held. */
+async function appendCheckpoint(db: Db, o: { key: Buffer; rawKey: string | undefined; file: string; domain: string; rawDomain: string | undefined; now?: () => Date; rotatedFrom?: RotatedFrom }): Promise<WriteResult> {
+  const { key, file, domain } = o;
+  if (inspectFile(file).state === 'ok') {
+    const rep = await verifyAnchors(db, { key: o.rawKey, file, domain: o.rawDomain });
+    const bad = rep.tenants.find((t) => t.status !== 'ok' && t.status !== 'anchor_missing');
+    if (bad || !rep.configured) throw new AnchorError(`the existing anchor file does not verify (${bad ? `${bad.tenant}: ${bad.status}` : rep.reason}); not extending it (see "Recovery" in server/docs/audit-anchor.md)`);
+  }
+  const c = await db.connect();
+  let heads: { tenant_id: string; seq: string; row_hash: string; at: string }[];
+  try {
+    await c.query('begin isolation level repeatable read read only');
+    heads = (await c.query(`select distinct on (tenant_id) tenant_id, seq, row_hash, to_char(at at time zone 'UTC', ${AT_FMT}) as at from audit_events order by tenant_id, seq desc`)).rows;
+    await c.query('commit');
+  } catch (e) { try { await c.query('rollback'); } catch { /* lost */ } throw e; } finally { c.release(); }
+  if (!heads.length) throw new AnchorError('there are no audit rows to anchor');
+  for (const h of heads) {
+    const v = await verifyChain(db, h.tenant_id);
+    if (!v.ok) throw new AnchorError(`the chain of ${h.tenant_id} is broken at seq ${v.firstBadSeq}; refusing to anchor it`);
+  }
+  const existing = inspectFile(file).state === 'ok' ? readLines(file).length : 0;
+  const batch = randomUUID();
+  const anchoredAt = (o.now?.() ?? new Date()).toISOString();
+  const out = heads.map((h, i): AnchorLine => {
+    const u: Unsigned = { v: 1, n: existing + i + 1, batch, i: i + 1, of: heads.length, tenant: h.tenant_id, seq: Number(h.seq), rowHash: h.row_hash, at: h.at, anchoredAt, ...(existing + i === 0 && o.rotatedFrom ? { rotatedFrom: o.rotatedFrom } : {}) };
+    return { ...u, sig: sign(key, domain, u) };
+  });
+  const fd = openSync(file, fsc.O_WRONLY | fsc.O_APPEND | fsc.O_CREAT | fsc.O_NOFOLLOW, 0o600);
+  try { writeSync(fd, out.map((l) => JSON.stringify(l) + '\n').join('')); fsyncSync(fd); } finally { closeSync(fd); }
+  const last = out[out.length - 1];
+  return { file, batch, written: out.map((l) => ({ tenant: l.tenant, seq: l.seq })), lastN: last.n, lastSig: last.sig };
+}
+
 /**
  * Append a signed checkpoint of every tenant's head. The lock is taken FIRST, then the existing file is verified, the chains are
  * verified and the heads are read (one repeatable-read snapshot), so two writers can never append an older head after a newer one.
- * Refuses (and writes nothing) when the key is missing/weak, when a tenant's chain does not verify (never sign a broken chain), or
- * when the existing anchor file fails verification, is a symlink or is group/world-writable (never extend a tampered file).
+ * Refuses (and writes nothing) when the key or the domain is missing/weak, when a tenant's chain does not verify (never sign a broken
+ * chain), or when the existing anchor file fails verification, is a symlink or is group/world-writable (never extend a tampered file).
  * The file is created with mode 600 (O_NOFOLLOW) and fsynced.
  */
 export async function writeAnchor(db: Db, opts: AnchorSettings & { now?: () => Date } = {}): Promise<WriteResult> {
   const { key: rawKey, file, domain: rawDomain } = anchorSettings(opts);
   const key = requireKey(rawKey);
+  const domain = requireDomain(rawDomain);
   const fi = inspectFile(file);
   if (fi.state !== 'absent' && fi.state !== 'ok') throw new AnchorError(`${fi.reason}; not writing`);
   mkdirSync(dirname(file), { recursive: true });
-  return withLock(file, async () => {
-    const domain = await domainOf(db, rawDomain);
-    if (inspectFile(file).state === 'ok') {
-      const rep = await verifyAnchors(db, { key: rawKey, file, domain: rawDomain });
-      const bad = rep.tenants.find((t) => t.status !== 'ok' && t.status !== 'anchor_missing');
-      if (bad || !rep.configured) throw new AnchorError(`the existing anchor file does not verify (${bad ? `${bad.tenant}: ${bad.status}` : rep.reason}); not extending it (see "Recovery" in server/docs/audit-anchor.md)`);
-    }
-    const c = await db.connect();
-    let heads: { tenant_id: string; seq: string; row_hash: string; at: string }[];
-    try {
-      await c.query('begin isolation level repeatable read read only');
-      heads = (await c.query(`select distinct on (tenant_id) tenant_id, seq, row_hash, to_char(at at time zone 'UTC', ${AT_FMT}) as at from audit_events order by tenant_id, seq desc`)).rows;
-      await c.query('commit');
-    } catch (e) { try { await c.query('rollback'); } catch { /* lost */ } throw e; } finally { c.release(); }
-    if (!heads.length) throw new AnchorError('there are no audit rows to anchor');
-    for (const h of heads) {
-      const v = await verifyChain(db, h.tenant_id);
-      if (!v.ok) throw new AnchorError(`the chain of ${h.tenant_id} is broken at seq ${v.firstBadSeq}; refusing to anchor it`);
-    }
-    const existing = inspectFile(file).state === 'ok' ? readLines(file).length : 0;
-    const batch = randomUUID();
-    const anchoredAt = (opts.now?.() ?? new Date()).toISOString();
-    const out = heads.map((h, i): AnchorLine => {
-      const u: Unsigned = { v: 1, n: existing + i + 1, batch, i: i + 1, of: heads.length, tenant: h.tenant_id, seq: Number(h.seq), rowHash: h.row_hash, at: h.at, anchoredAt };
-      return { ...u, sig: sign(key, domain, u) };
-    });
-    const fd = openSync(file, fsc.O_WRONLY | fsc.O_APPEND | fsc.O_CREAT | fsc.O_NOFOLLOW, 0o600);
-    try { writeSync(fd, out.map((l) => JSON.stringify(l) + '\n').join('')); fsyncSync(fd); } finally { closeSync(fd); }
-    const last = out[out.length - 1];
-    return { file, batch, written: out.map((l) => ({ tenant: l.tenant, seq: l.seq })), lastN: last.n, lastSig: last.sig };
-  });
+  return withLock(file, () => appendCheckpoint(db, { key, rawKey, file, domain, rawDomain, now: opts.now }));
 }
 
-/**
- * Recovery for a file that does not verify: rename it to <file>.<timestamp>.bad (the evidence is kept, mode unchanged) and record
- * the event in the audit log of every tenant, so the archive itself is on the chain. The next audit:anchor starts a new file at n=1.
- * It never deletes anything, and it refuses a symlink.
- */
-export async function rotateAnchor(db: Db, opts: AnchorSettings & { actor?: string; now?: () => Date } = {}): Promise<{ archived: string }> {
+export interface AnchorState { lines: number; lastN: number | null; lastSig: string | null; report: AnchorReport }
+/** What `--rotate` shows the operator before it acts: the verification result and the old file's last line. Read-only. */
+export async function anchorState(db: Db, opts: AnchorSettings = {}): Promise<AnchorState> {
   const { file } = anchorSettings(opts);
+  const report = await verifyAnchors(db, opts);
+  let lastN: number | null = null; let lastSig: string | null = null; let lines = 0;
+  if (inspectFile(file).state !== 'absent' && !/symbolic/.test(inspectFile(file).reason ?? '')) {
+    try { const ls = readLines(file); lines = ls.length; const l = ls[ls.length - 1]; lastN = l && Number.isInteger(l.n) ? l.n : lines || null; lastSig = l && typeof l.sig === 'string' ? l.sig : null; } catch { /* reported by verify */ }
+  }
+  return { lines, lastN, lastSig, report };
+}
+
+export interface RotateOpts extends AnchorSettings { confirm?: number | string; force?: boolean; actorNote?: string; now?: () => Date; failAfter?: 'audit' | 'rename' }
+/**
+ * Recovery for a file that does not verify. Needs the key (so a database-only operator cannot launder), the old file's last line
+ * number as `confirm`, and `force` when the file still verifies ok. Order, so a failure leaves a clear state:
+ *   1. the audit events (one transaction, all tenants; real OS user, sha256 of the archive, last line, status) -- nothing else changed yet;
+ *   2. rename the file to <file>.<timestamp>.bad (kept as evidence, never deleted);
+ *   3. write the new file; its first line SIGNS rotatedFrom = {sha256 of the archive, archive name, time}, so the restart is visible
+ *      to every later verify even if the audit events are deleted from the database.
+ * If step 2 or 3 fails the old file is put back and the error says what to do. Steps 2-3 failing after step 1 leaves the events in the
+ * chain; a retry adds a second event, which is expected.
+ */
+export async function rotateAnchor(db: Db, opts: RotateOpts = {}): Promise<{ archived: string; sha256: string; oldLastN: number; lastN: number }> {
+  const { key: rawKey, file, domain: rawDomain } = anchorSettings(opts);
+  const key = requireKey(rawKey);
+  const domain = requireDomain(rawDomain);
   const fi = inspectFile(file);
   if (fi.state === 'absent') throw new AnchorError('there is no anchor file to rotate');
   if (fi.state === 'unreadable' || (fi.state === 'insecure_file' && /symbolic/.test(fi.reason ?? ''))) throw new AnchorError(`${fi.reason}; not rotating (inspect it by hand)`);
-  const stamp = (opts.now?.() ?? new Date()).toISOString().replace(/[:.]/g, '-');
-  const archived = `${file}.${stamp}.bad`;
+  mkdirSync(dirname(file), { recursive: true });
   return withLock(file, async () => {
-    renameSync(file, archived);
-    const tenants = (await db.query('select distinct tenant_id from audit_events order by tenant_id')).rows.map((r) => r.tenant_id as string);
-    for (const t of tenants) await audit(db, { tenantId: t, actor: opts.actor ?? 'operator', action: 'audit.anchor.rotated', subject: 'audit-anchor', result: 'ok', correlationId: 'anchor-rotate-' + stamp, detail: { archive: archived.split('/').pop() } });
-    return { archived };
+    const st = await anchorState(db, { key: rawKey, file, domain: rawDomain });
+    if (st.lastN === null) throw new AnchorError('the anchor file has no lines to rotate; remove the empty file by hand');
+    if (String(opts.confirm ?? '') !== String(st.lastN)) throw new AnchorError(`rotation needs --confirm ${st.lastN} (the old file's last line number); the old file's state is: ${st.report.ok ? 'ok' : st.report.tenants.map((t) => `${t.tenant} ${t.status}`).join(', ') || st.report.reason}`);
+    if (st.report.ok && !opts.force) throw new AnchorError('the old anchor file still verifies ok; refusing to rotate it without --force');
+    const bytes = readFileSync(file);
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    const at = (opts.now?.() ?? new Date()).toISOString();
+    const archived = `${file}.${at.replace(/[:.]/g, '-')}.bad`;
+    const osUser = userInfo().username;
+    const stateText = st.report.ok ? 'ok' : st.report.tenants.map((t) => `${t.tenant}:${t.status}`).join(',') || (st.report.reason ?? 'unknown');
+    // 1. all events in one transaction, before anything is renamed
+    await tx(db, async (c) => {
+      const tenants = (await c.query('select distinct tenant_id from audit_events order by tenant_id')).rows.map((r) => r.tenant_id as string);
+      for (const t of tenants) await audit(c, { tenantId: t, actor: osUser, action: 'audit.anchor.rotated', subject: 'audit-anchor', result: 'ok', correlationId: 'anchor-rotate-' + at,
+        detail: { archive: archived.split('/').pop(), archiveSha256: sha256, oldLastLine: st.lastN, stateBefore: stateText, forced: !!opts.force, osUser, ...(opts.actorNote ? { note: opts.actorNote } : {}) } });
+      if (opts.failAfter === 'audit') throw new Error('injected failure after the audit events');
+    });
+    // 2 + 3. rename, then the new file with the signed rotatedFrom; on failure the old file goes back
+    try {
+      renameSync(file, archived);
+      if (opts.failAfter === 'rename') throw new Error('injected failure after the rename');
+      const w = await appendCheckpoint(db, { key, rawKey, file, domain, rawDomain, now: opts.now, rotatedFrom: { sha256, archive: archived.split('/').pop()!, at } });
+      return { archived, sha256, oldLastN: st.lastN, lastN: w.lastN };
+    } catch (e) {
+      let restored = false;
+      try { if (inspectFile(file).state === 'absent') { renameSync(archived, file); restored = true; } else if (inspectFile(file).state === 'ok') { /* the new file exists, the old one is archived */ } } catch { /* reported below */ }
+      throw new AnchorError(restored
+        ? `rotation failed after its audit events were recorded (${(e as Error).message}); the old file was put back. Fix the cause and run the rotation again (a second audit.anchor.rotated event is expected).`
+        : `rotation failed (${(e as Error).message}) and the old file could not be put back automatically: it is at ${archived}. Recovery: if ${file} does not exist, run \`mv ${archived} ${file}\`, then repeat the rotation.`);
+    }
   });
 }

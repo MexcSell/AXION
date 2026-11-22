@@ -23,7 +23,7 @@ export default async function opsRoutes(app: FastifyInstance) {
       throw new ApiError('RATE_LIMITED', 429, `Too many anchor checks from this session. Wait ${Math.ceil(wait / 1000)} s and try again.`, { retryable: true });
     }
     const r = await verifyAnchors(app.db, { ...app.cfg.auditAnchor, tenant: ctx.tenantId });
-    return { configured: r.configured, ok: r.ok, lastAnchorAt: r.lastAnchorAt, reason: r.reason ?? null,
+    return { configured: r.configured, ok: r.ok, lastAnchorAt: r.lastAnchorAt, restartedAt: r.rotatedFrom?.at ?? null, reason: r.reason ?? null,
       tenants: r.tenants.map((t) => ({ tenant: t.tenant, status: t.status, anchoredSeq: t.anchoredSeq, anchoredAt: t.anchoredAt, reason: t.reason ?? null })), checkedAt: new Date().toISOString() };
   });
   app.get('/operations/health', async (req) => {

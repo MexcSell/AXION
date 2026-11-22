@@ -4,13 +4,15 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync, statSync, readdirSync, symlinkSync, chmodSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
+import { userInfo } from 'node:os';
 import { makeSchema, makeTestApp, withAdmin, TEST_DB, type TestApp } from './helpers.ts';
 import { audit, chainHash, verifyChain, GENESIS } from '../src/audit.ts';
 import { writeAnchor, verifyAnchors, rotateAnchor, requireKey, anchorSettings, AnchorError, MIN_KEY_BYTES } from '../src/audit-anchor.ts';
 import { assertLaneWipe } from '../scripts/lane-db-guard.ts';
 
 const KEY = randomBytes(32).toString('hex');
+const DOM = 'test-deployment';
 const put = (pool: pg.Pool, n: number, tenantId: string) =>
   audit(pool, { tenantId, actor: 'u1', action: 'test.event', subject: 'x' + n, result: 'ok', correlationId: 'c' + n, detail: { n } });
 async function tamper(pool: pg.Pool, sql: string, params: unknown[] = []) {
@@ -41,7 +43,7 @@ describe('audit anchor (c49)', () => {
   let s: Awaited<ReturnType<typeof makeSchema>>;
   let dir = '';
   let file = '';
-  const o = () => ({ key: KEY, file });
+  const o = () => ({ key: KEY, file, domain: DOM });
   // one scratch schema per test: a tampered tenant must never block the next test's anchor (writeAnchor refuses broken chains)
   beforeEach(async () => { s = await makeSchema(); dir = mkdtempSync(join(tmpdir(), 'axion-anchor-')); file = join(dir, 'audit-anchors.jsonl'); });
   afterEach(async () => { rmSync(dir, { recursive: true, force: true }); await s.drop(); });
@@ -359,14 +361,14 @@ describe('audit anchor (c49)', () => {
       await expect(writeAnchor(s.pool, o())).rejects.toThrow(/not a regular file/);
     });
     it('F2: the route answers 200 ok:false (not 500) and the CLI exits 1 cleanly', async () => {
-      const ta = await makeTestApp({ auditAnchor: { key: KEY, file } });
+      const ta = await makeTestApp({ auditAnchor: { key: KEY, file, domain: DOM } });
       try {
         const A = await withAdmin(ta.app);
         mkdirSync(file);
         const r = await A.admin.req('GET', '/operations/anchors');
         expect(r.status).toBe(200); expect(r.body).toMatchObject({ ok: false, configured: true }); expect(r.body.reason).toMatch(/not a regular file/);
         const v = spawnSync('node', ['--import', 'tsx', 'src/cli/audit-verify.ts', 't-1'], { cwd: join(import.meta.dirname, '..'), encoding: 'utf8',
-          env: { ...process.env, DATABASE_URL: TEST_DB(), DATABASE_SCHEMA: ta.schema, AUDIT_ANCHOR_FILE: file, AUDIT_ANCHOR_KEY: KEY } });
+          env: { ...process.env, DATABASE_URL: TEST_DB(), DATABASE_SCHEMA: ta.schema, AUDIT_ANCHOR_FILE: file, AUDIT_ANCHOR_KEY: KEY, AUDIT_ANCHOR_DOMAIN: DOM } });
         expect(v.status).toBe(1); expect(v.stderr).not.toMatch(/unhandled|EISDIR|at .*\.ts:/i); expect(v.stdout).toMatch(/UNREADABLE/);
       } finally { await ta.close(); }
     });
@@ -417,39 +419,121 @@ describe('audit anchor (c49)', () => {
       expect(await statusOf(t, { domain: 'deployment-A' })).toBe('ok');
       expect(await statusOf(t, { domain: 'deployment-B' })).toBe('bad_signature');
     });
-    it('P2: by default the domain is the database and schema, so a file copied to another schema does not verify', async () => {
+    it('P2: the domain is REQUIRED: without it verify says not verifiable (anchor_missing, reason: no domain) and writing is refused', async () => {
       const t = await fresh(2);
+      await writeAnchor(s.pool, o());
+      const rep = await verifyAnchors(s.pool, { ...o(), tenant: t, domain: '' });
+      expect(rep).toMatchObject({ ok: false, configured: false });
+      expect(rep.tenants[0].status).toBe('anchor_missing'); expect(rep.reason).toMatch(/AUDIT_ANCHOR_DOMAIN is not set/);
+      await expect(writeAnchor(s.pool, { ...o(), domain: '' })).rejects.toThrow(/AUDIT_ANCHOR_DOMAIN is not set/);
+      await expect(rotateAnchor(s.pool, { ...o(), domain: '', confirm: 1 })).rejects.toThrow(/AUDIT_ANCHOR_DOMAIN is not set/);
+    });
+    it('P2: a restored copy under another schema (stand-in for another DB name) verifies ok with the same domain, and not with another', async () => {
+      const t = await fresh(4);
       await writeAnchor(s.pool, o());
       const other = await makeSchema();
       try {
-        await put(other.pool, 1, t);
-        expect((await verifyAnchors(other.pool, { ...o(), tenant: t })).tenants[0].status).toBe('bad_signature');
-        expect((await verifyAnchors(other.pool, { ...o(), tenant: t, domain: undefined })).ok).toBe(false);
+        await other.pool.query(`insert into audit_events(tenant_id, actor, action, subject, result, correlation_id, detail, at, seq, prev_hash, row_hash)
+          select tenant_id, actor, action, subject, result, correlation_id, detail, at, seq, prev_hash, row_hash from ${s.schema}.audit_events order by id`);
+        expect((await verifyChain(other.pool, t)).ok).toBe(true);
+        const rep = await verifyAnchors(other.pool, { ...o(), tenant: t });
+        expect(rep.ok).toBe(true); expect(rep.tenants[0].status).toBe('ok');
+        expect((await verifyAnchors(other.pool, { ...o(), tenant: t, domain: 'some-other-deployment' })).tenants[0].status).toBe('bad_signature');
       } finally { await other.drop(); }
     });
     it('P2: AUDIT_ANCHOR_DOMAIN from the environment is used', () => { expect(anchorSettings({}, { AUDIT_ANCHOR_DOMAIN: 'prod-1' }).domain).toBe('prod-1'); });
-    it('rotate: the bad file is archived (kept), the event is on the chain, and a new file starts at n=1', async () => {
+    const breakFile = () => { const ls = lines(); const j = JSON.parse(ls[0]); j.seq = 1; writeFileSync(file, JSON.stringify(j) + '\n', { mode: 0o600 }); };
+    it('rotate: needs the key', async () => {
+      const t = await fresh(2); await writeAnchor(s.pool, o()); breakFile();
+      await expect(rotateAnchor(s.pool, { ...o(), key: '', confirm: 1 })).rejects.toThrow(/AUDIT_ANCHOR_KEY is not set/);
+      expect(existsSync(file)).toBe(true); void t;
+    });
+    it('rotate: needs --confirm with the old last line number, and says what it is', async () => {
+      await fresh(2); await writeAnchor(s.pool, o()); breakFile();
+      await expect(rotateAnchor(s.pool, o())).rejects.toThrow(/--confirm 1 /);
+      await expect(rotateAnchor(s.pool, { ...o(), confirm: 7 })).rejects.toThrow(/--confirm 1 /);
+      expect(existsSync(file)).toBe(true);
+      expect((await s.pool.query(`select count(*)::int n from audit_events where action='audit.anchor.rotated'`)).rows[0].n).toBe(0);
+    });
+    it('rotate: refuses a file that still verifies ok unless --force', async () => {
+      const t = await fresh(2); await writeAnchor(s.pool, o());
+      await expect(rotateAnchor(s.pool, { ...o(), confirm: 1 })).rejects.toThrow(/still verifies ok.*--force/);
+      expect(existsSync(file)).toBe(true);
+      const r = await rotateAnchor(s.pool, { ...o(), confirm: 1, force: true });
+      expect(r.oldLastN).toBe(1); expect(await statusOf(t)).toBe('ok');
+      const ev = (await s.pool.query(`select detail from audit_events where tenant_id=$1 and action='audit.anchor.rotated'`, [t])).rows[0];
+      expect(ev.detail.forced).toBe(true);
+    });
+    it('rotate: archives (kept), records the real OS user, signs rotatedFrom = sha256(archive) in line 1, and verify shows the restart', async () => {
       const t = await fresh(3);
-      await writeAnchor(s.pool, o());
-      const ls = lines(); const j = JSON.parse(ls[0]); j.seq = 1; writeFileSync(file, JSON.stringify(j) + '\n', { mode: 0o600 });
+      await writeAnchor(s.pool, o()); breakFile();
       const bad = readFileSync(file, 'utf8');
       expect(await statusOf(t)).toBe('bad_signature');
       await expect(writeAnchor(s.pool, o())).rejects.toThrow(/Recovery/);
-      const r = await rotateAnchor(s.pool, o());
-      expect(existsSync(file)).toBe(false);
+      const r = await rotateAnchor(s.pool, { ...o(), confirm: 1, actorNote: 'ticket-42' });
       expect(r.archived).toMatch(/\.jsonl\.\d{4}-\d\d-\d\dT[\d-]+Z\.bad$/); expect(readFileSync(r.archived, 'utf8')).toBe(bad);
-      const ev = (await s.pool.query(`select action, detail from audit_events where tenant_id=$1 and action='audit.anchor.rotated'`, [t])).rows;
-      expect(ev).toHaveLength(1); expect(ev[0].detail.archive).toMatch(/\.bad$/);
-      expect((await verifyChain(s.pool, t)).ok).toBe(true);
-      await writeAnchor(s.pool, o());
-      expect(lines().map((l) => JSON.parse(l).n)[0]).toBe(1);
+      expect(r.sha256).toBe(createHash('sha256').update(bad).digest('hex'));
+      const ev = (await s.pool.query(`select actor, detail from audit_events where tenant_id=$1 and action='audit.anchor.rotated'`, [t])).rows;
+      expect(ev).toHaveLength(1);
+      expect(ev[0].actor).toBe(userInfo().username); expect(ev[0].actor).not.toBe('operator');
+      expect(ev[0].detail).toMatchObject({ archiveSha256: r.sha256, oldLastLine: 1, osUser: userInfo().username, note: 'ticket-42', forced: false });
+      expect(ev[0].detail.archive).toMatch(/\.bad$/); expect(ev[0].detail.stateBefore).toMatch(/bad_signature/);
+      const first = JSON.parse(lines()[0]);
+      expect(first.n).toBe(1); expect(first.rotatedFrom).toMatchObject({ sha256: r.sha256, archive: ev[0].detail.archive });
       expect(await statusOf(t)).toBe('ok');
+      const rep = await verifyAnchors(s.pool, { ...o(), tenant: t });
+      expect(rep.rotatedFrom).toMatchObject({ sha256: r.sha256 });
+      expect((await verifyChain(s.pool, t)).ok).toBe(true);
+    });
+    it('rotate: rotatedFrom is signed: editing or removing it is bad_signature, and deleting the DB events does not hide it', async () => {
+      const t = await fresh(2);
+      await writeAnchor(s.pool, o()); breakFile();
+      const r = await rotateAnchor(s.pool, { ...o(), confirm: 1 });
+      await tamper(s.pool, `delete from audit_events where action='audit.anchor.rotated'`);
+      // the DB events are gone, yet the signed first line still says the file was restarted (the chain tail changed, so only check the report)
+      expect((await verifyAnchors(s.pool, { ...o(), tenant: t })).rotatedFrom?.sha256).toBe(r.sha256);
+      const ls = lines().map((l) => JSON.parse(l)); const keep = JSON.stringify(ls[0]);
+      ls[0].rotatedFrom.sha256 = 'f'.repeat(64); writeFileSync(file, ls.map((l) => JSON.stringify(l)).join('\n') + '\n', { mode: 0o600 });
+      expect(await statusOf(t)).toBe('bad_signature');
+      delete ls[0].rotatedFrom; writeFileSync(file, ls.map((l) => JSON.stringify(l)).join('\n') + '\n', { mode: 0o600 });
+      expect(await statusOf(t)).toBe('bad_signature'); void keep;
+    });
+    it('rotate: a failure while recording the events leaves the old file in place and nothing recorded', async () => {
+      const t = await fresh(2); await writeAnchor(s.pool, o()); breakFile();
+      const before = readFileSync(file, 'utf8');
+      await expect(rotateAnchor(s.pool, { ...o(), confirm: 1, failAfter: 'audit' })).rejects.toThrow(/injected failure after the audit events/);
+      expect(readFileSync(file, 'utf8')).toBe(before);
+      expect(readdirSync(dir).filter((f) => f.endsWith('.bad'))).toEqual([]);
+      expect((await s.pool.query(`select count(*)::int n from audit_events where tenant_id=$1 and action='audit.anchor.rotated'`, [t])).rows[0].n).toBe(0); // one transaction, rolled back
+    });
+    it('rotate: a failure after the rename puts the old file back and says what to do', async () => {
+      await fresh(2); await writeAnchor(s.pool, o()); breakFile();
+      const before = readFileSync(file, 'utf8');
+      await expect(rotateAnchor(s.pool, { ...o(), confirm: 1, failAfter: 'rename' })).rejects.toThrow(/old file was put back.*rotation again/);
+      expect(readFileSync(file, 'utf8')).toBe(before);
+      expect(readdirSync(dir).filter((f) => f.endsWith('.bad'))).toEqual([]);
+      const r = await rotateAnchor(s.pool, { ...o(), confirm: 1 }); // the retry works
+      expect(r.oldLastN).toBe(1);
     });
     it('rotate refuses a symlink and a missing file', async () => {
       await fresh(1);
-      await expect(rotateAnchor(s.pool, o())).rejects.toThrow(/no anchor file/);
+      await expect(rotateAnchor(s.pool, { ...o(), confirm: 1 })).rejects.toThrow(/no anchor file/);
       symlinkSync(join(dir, 'x'), file);
-      await expect(rotateAnchor(s.pool, o())).rejects.toThrow(/symbolic link/);
+      await expect(rotateAnchor(s.pool, { ...o(), confirm: 1 })).rejects.toThrow(/symbolic link/);
+    });
+    it('rotate through the CLI: prints the old state first, needs --confirm, passes --actor', async () => {
+      const t = await fresh(2);
+      const run = (extra: string[]) => spawnSync('node', ['--import', 'tsx', 'src/cli/audit-anchor.ts', ...extra], { cwd: join(import.meta.dirname, '..'), encoding: 'utf8',
+        env: { ...process.env, DATABASE_URL: TEST_DB(), DATABASE_SCHEMA: s.schema, AUDIT_ANCHOR_FILE: file, AUDIT_ANCHOR_KEY: KEY, AUDIT_ANCHOR_DOMAIN: DOM, LOG: '0' } });
+      expect(run([]).status).toBe(0); breakFile();
+      const no = run(['--rotate']);
+      expect(no.status).toBe(1); expect(no.stdout).toMatch(/old anchor file: 1 lines, last line 1 sig [0-9a-f]{12}; state: .*bad_signature/); expect(no.stderr).toMatch(/--confirm 1/);
+      const yes = run(['--rotate', '--confirm', '1', '--actor', 'INC-7']);
+      expect(yes.status).toBe(0); expect(yes.stdout + yes.stderr).not.toContain(KEY);
+      const v = spawnSync('node', ['--import', 'tsx', 'src/cli/audit-verify.ts', t], { cwd: join(import.meta.dirname, '..'), encoding: 'utf8',
+        env: { ...process.env, DATABASE_URL: TEST_DB(), DATABASE_SCHEMA: s.schema, AUDIT_ANCHOR_FILE: file, AUDIT_ANCHOR_KEY: KEY, AUDIT_ANCHOR_DOMAIN: DOM } });
+      expect(v.status).toBe(0); expect(v.stdout).toMatch(/audit anchor file restarted on \d{4}-.*previous file archived/);
+      expect((await s.pool.query(`select detail from audit_events where action='audit.anchor.rotated' limit 1`)).rows[0].detail.note).toBe('INC-7');
     });
     it('the stale-lock message points at the runbook', async () => {
       await fresh(1); writeFileSync(file + '.lock', '');
@@ -471,6 +555,8 @@ describe('audit anchor (c49)', () => {
         for (const n of ['axion', 'axion_test', 'axion_e2e', 'axion_e2e4x', 'axion_lane_disabled']) expect(() => assertLaneWipe(`postgres://axion:pw@127.0.0.1:5432/${n}`, root, n)).toThrow(/only axion_e2e<N>/);
         expect(() => assertLaneWipe('postgres://axion:pw@db.example.com:5432/axion_e2e4', root, 'axion_e2e4')).toThrow(/host/);
         expect(() => assertLaneWipe('postgres://axion:other@127.0.0.1:5432/axion_e2e4', root, 'axion_e2e4')).toThrow(/not this worktree's own/); // the FULL url
+        for (const q of ['?host=db.example.com', '?sslmode=disable', '#frag']) { writeFileSync(join(root, 'server', '.env'), `E2E_DATABASE_URL=${own}${q}\n`); expect(() => assertLaneWipe(own + q, root, 'axion_e2e4')).toThrow(/query string or fragment/); }
+        writeFileSync(join(root, 'server', '.env'), `E2E_DATABASE_URL=${own}\n`);
         expect(() => assertLaneWipe(own, root, undefined)).toThrow(/CONFIRM_WIPE=axion_e2e4/);
         expect(() => assertLaneWipe(own, root, 'axion_e2e1')).toThrow(/CONFIRM_WIPE/);
         expect(() => assertLaneWipe(undefined, root, 'x')).toThrow(/not set/);
@@ -494,7 +580,7 @@ describe('audit anchor (c49)', () => {
       }
     });
     it('the CLI never prints the key, on success or on refusal', () => {
-      const env = { ...process.env, DATABASE_URL: TEST_DB(), DATABASE_SCHEMA: s.schema, AUDIT_ANCHOR_FILE: file, LOG: '0' };
+      const env = { ...process.env, DATABASE_URL: TEST_DB(), DATABASE_SCHEMA: s.schema, AUDIT_ANCHOR_FILE: file, AUDIT_ANCHOR_DOMAIN: DOM, LOG: '0' };
       const bad = spawnSync('node', ['--import', 'tsx', 'src/cli/audit-anchor.ts'], { cwd: join(SRC, '..'), env: { ...env, AUDIT_ANCHOR_KEY: 'short-' + KEY.slice(0, 8) }, encoding: 'utf8' });
       expect(bad.status).toBe(1);
       expect(bad.stdout + bad.stderr).not.toContain(KEY.slice(0, 8));
@@ -504,7 +590,7 @@ describe('audit anchor (c49)', () => {
   describe('the CLIs', () => {
     const run = (script: string, extra: Record<string, string>, args: string[] = []) =>
       spawnSync('node', ['--import', 'tsx', `src/cli/${script}.ts`, ...args], { cwd: join(import.meta.dirname, '..'), encoding: 'utf8',
-        env: { ...process.env, DATABASE_URL: TEST_DB(), DATABASE_SCHEMA: s.schema, AUDIT_ANCHOR_FILE: file, AUDIT_ANCHOR_KEY: '', ...extra } });
+        env: { ...process.env, DATABASE_URL: TEST_DB(), DATABASE_SCHEMA: s.schema, AUDIT_ANCHOR_FILE: file, AUDIT_ANCHOR_KEY: '', AUDIT_ANCHOR_DOMAIN: DOM, ...extra } });
     it('audit:anchor writes, audit:verify passes (exit 0) and reports the anchor', async () => {
       const t = await fresh(3);
       const a = run('audit-anchor', { AUDIT_ANCHOR_KEY: KEY });
@@ -538,13 +624,13 @@ describe('GET /operations/anchors', () => {
   afterEach(async () => { await t.close(); rmSync(dir, { recursive: true, force: true }); });
 
   it('an admin sees the status of their tenant; a member gets 403; a signed-out caller 401', async () => {
-    t = await makeTestApp({ auditAnchor: { key: KEY, file } });
+    t = await makeTestApp({ auditAnchor: { key: KEY, file, domain: DOM } });
     const A = await withAdmin(t.app); const m = await A.member('Mina');
     const before = await A.admin.req('GET', '/operations/anchors');
     expect(before.status).toBe(200);
     expect(before.body).toMatchObject({ configured: false, ok: false, lastAnchorAt: null });
     expect(before.body.tenants[0].status).toBe('anchor_missing');
-    await writeAnchor(t.pool, { key: KEY, file });
+    await writeAnchor(t.pool, { key: KEY, file, domain: DOM });
     const after = await A.admin.req('GET', '/operations/anchors');
     expect(after.body).toMatchObject({ configured: true, ok: true });
     expect(after.body.tenants).toHaveLength(1);
@@ -555,9 +641,9 @@ describe('GET /operations/anchors', () => {
     expect(anon.statusCode).toBe(401);
   });
   it('shows truncated after a tail delete, and the response carries no key, file path or hash', async () => {
-    t = await makeTestApp({ auditAnchor: { key: KEY, file } });
+    t = await makeTestApp({ auditAnchor: { key: KEY, file, domain: DOM } });
     const A = await withAdmin(t.app);
-    await writeAnchor(t.pool, { key: KEY, file });
+    await writeAnchor(t.pool, { key: KEY, file, domain: DOM });
     await tamper(t.pool, `delete from audit_events where tenant_id='t-1' and seq = (select max(seq) from audit_events where tenant_id='t-1')`);
     const r = await A.admin.req('GET', '/operations/anchors');
     expect(r.body.ok).toBe(false);
@@ -566,15 +652,31 @@ describe('GET /operations/anchors', () => {
     expect(text).not.toContain(KEY); expect(text).not.toContain(dir); expect(text).not.toContain('audit-anchors'); expect(text).not.toMatch(/[0-9a-f]{64}/);
   });
   it('another tenant is never listed', async () => {
-    t = await makeTestApp({ auditAnchor: { key: KEY, file } });
+    t = await makeTestApp({ auditAnchor: { key: KEY, file, domain: DOM } });
     const A = await withAdmin(t.app);
     await put(t.pool, 1, 'other-tenant');
-    await writeAnchor(t.pool, { key: KEY, file });
+    await writeAnchor(t.pool, { key: KEY, file, domain: DOM });
     const r = await A.admin.req('GET', '/operations/anchors');
     expect(r.body.tenants.map((x: any) => x.tenant)).toEqual(['t-1']);
   });
+  it('shows when the anchor file was restarted by a rotation (restartedAt), and null before', async () => {
+    t = await makeTestApp({ auditAnchor: { key: KEY, file, domain: DOM } });
+    const A = await withAdmin(t.app);
+    await writeAnchor(t.pool, { key: KEY, file, domain: DOM });
+    expect((await A.admin.req('GET', '/operations/anchors')).body.restartedAt).toBeNull();
+    await rotateAnchor(t.pool, { key: KEY, file, domain: DOM, confirm: 1, force: true });
+    const r = await A.admin.req('GET', '/operations/anchors');
+    expect(r.body).toMatchObject({ ok: true }); expect(r.body.restartedAt).toMatch(/^\d{4}-/);
+    expect(JSON.stringify(r.body)).not.toMatch(/\.bad|[0-9a-f]{64}/);
+  });
+  it('without AUDIT_ANCHOR_DOMAIN the route says not verifiable', async () => {
+    t = await makeTestApp({ auditAnchor: { key: KEY, file, domain: '' } });
+    const A = await withAdmin(t.app);
+    const r = await A.admin.req('GET', '/operations/anchors');
+    expect(r.body).toMatchObject({ ok: false, configured: false }); expect(r.body.reason).toMatch(/AUDIT_ANCHOR_DOMAIN/);
+  });
   it('is rate limited per session', async () => {
-    t = await makeTestApp({ auditAnchor: { key: KEY, file } });
+    t = await makeTestApp({ auditAnchor: { key: KEY, file, domain: DOM } });
     const A = await withAdmin(t.app);
     let last = 0;
     for (let i = 0; i < 13; i++) last = (await A.admin.req('GET', '/operations/anchors')).status;

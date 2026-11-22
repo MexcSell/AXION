@@ -18,9 +18,12 @@ The anchor is a signed checkpoint kept outside the database.
   A missing or short key fails closed: nothing is written, and verify says `anchor_missing` (not verifiable), never ok.
 - Never put it in the database, a log or a response. Do not reuse another secret. At least 8 distinct bytes (a repeated
   character is refused). Rotating the key invalidates the old file: archive it (see Recovery) and start a new one.
-- The MAC also covers a deployment id: `AUDIT_ANCHOR_DOMAIN`, and when it is not set `axion-audit-anchor-v1:<database>:<schema>`.
-  A file signed for another deployment never verifies. **Set `AUDIT_ANCHOR_DOMAIN` explicitly in production** (for example
-  `axion-prod`) so that a restore into a differently named database (say `axion_restore_check`) still verifies.
+- The key is used as the literal text of the variable (not hex-decoded). `openssl rand -hex 32` gives a 64-character key.
+- The MAC also covers a deployment id, **`AUDIT_ANCHOR_DOMAIN` (required, no default)**, a fixed name such as `axion-prod`. A file
+  signed for another deployment never verifies. It is not derived from the database name on purpose: the backup restore check
+  runs against a differently named database and must still verify `ok`; a name-derived domain would make it report
+  `bad_signature`, the same status tampering gives, and teach operators to ignore it. Without it, `audit:anchor`,
+  `audit:verify` and the Operations tile all say `anchor_missing` (reason: no domain) and the CLIs exit 1.
 
 ## Statuses (per tenant)
 | status | meaning |
@@ -50,15 +53,25 @@ If `audit:anchor` says "another anchor write is running", first check that no `a
 (`pgrep -af audit-anchor`). Only when none is (a crash left the lock), remove `<anchor file>.lock` and run it again. The lock
 holds no data. Never remove it while a writer is running.
 
-### Recovery: a file that does not verify
+### Recovery: a file that does not verify (and rotation)
 `audit:anchor` will not extend a file that fails verification, and a half-written last line (a crash during the append) is
 `bad_signature` too. Do this in order, because moving the file aside forgives what it showed:
 1. Copy the file and the verify output somewhere safe first (`cp`, and `npm run audit:verify > evidence.txt`).
 2. Investigate: `truncated` and `rewritten` mean the database changed after the checkpoint; `bad_signature` and `rolled_back`
    mean the file changed (or the key or `AUDIT_ANCHOR_DOMAIN` is wrong).
-3. Only then run `npm run audit:anchor -- --rotate`. It renames the file to `<file>.<timestamp>.bad` (never deletes it) and
-   writes an `audit.anchor.rotated` event, naming the archive, into every tenant's audit log, so the archive is itself on the
-   chain. The next `npm run audit:anchor` starts a new file at line 1.
+3. Only then rotate: `npm run audit:anchor -- --rotate --confirm <old last line n> [--actor "ticket or reason"] [--force]`.
+   - It needs the key and the domain. It first prints the old file's last line number, signature prefix and per-tenant state,
+     and refuses unless `--confirm` equals that last line number. A file that still verifies `ok` is refused unless `--force`.
+   - Order: (1) one database transaction writes an `audit.anchor.rotated` event into every tenant's chain (actor = the real OS
+     user, plus your `--actor` note, the archive's sha256, the old last line and the state); (2) the file is renamed to
+     `<file>.<timestamp>.bad` (never deleted); (3) the new file is written, and its first line signs
+     `rotatedFrom = {sha256 of the archive, archive name, time}`.
+   - If step 2 or 3 fails the old file is put back and the error says to run the rotation again (a second event is expected). If
+     the old file cannot be put back, the message gives the exact `mv` command.
+   - Afterwards `audit:verify` prints "audit anchor file restarted on <date> (previous file archived ...)" and the Operations tile
+     shows "restarted on <date> (previous file archived)". That mark is inside the signed file, so deleting the database events
+     does not hide it. Whoever holds the key can still re-anchor a tampered chain after a rotation; the mark and the off-host
+     copy of the last line are what make that visible.
 
 ## Limits, stated honestly
 - Rows written after the last checkpoint are covered only by the plain chain, until the next checkpoint.
@@ -70,5 +83,5 @@ holds no data. Never remove it while a writer is running.
   reports `truncated` when the restore is older than the last checkpoint. That is correct; investigate before anchoring again.
 
 ## Live setup (controller)
-Add `AUDIT_ANCHOR_KEY=$(openssl rand -hex 32)` to the live `server/.env` (mode 600), restart, run `npm run audit:anchor`, then
+Add `AUDIT_ANCHOR_KEY=$(openssl rand -hex 32)` and `AUDIT_ANCHOR_DOMAIN=axion-prod` to the live `server/.env` (mode 600), restart, run `npm run audit:anchor`, then
 `npm run audit:verify`. Optionally schedule `npm run audit:anchor` after the nightly backup.
