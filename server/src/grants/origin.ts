@@ -6,21 +6,22 @@
 // input is checked by hand on the raw string first, label by label, and the URL parser is used only at the end as a
 // consistency check on the result. When anything is unclear the answer is a refusal with a reason code.
 //
-// Script rule (documented choice): a non-ASCII label is accepted only if it is a pure single-script label.
-//  - letters must all belong to ONE script (Latin, Cyrillic, Greek, Han, ... from a fixed list; any other script is refused);
-//  - Latin labels may carry non-ASCII letters only when they are an ASCII base letter plus combining marks (u-umlaut, e-acute)
-//    or one of ss, ae, oe, o-stroke; look-alikes such as dotless i, script g or l-with-stroke are refused;
-//  - a Cyrillic or Greek label made only of letters that look like Latin letters is refused (whole-script confusable);
-//  - a label with a non-ASCII char must survive the IDNA round trip unchanged (no folding, no dropped chars, no new dots).
-// Why: a grant is matched by exact string equality of normal forms, so a look-alike can never equal a granted origin. These
-// rules also stop an administrator from being tricked into granting a look-alike by mistake.
+// Internationalised names (ruling after the c36 review): FAIL CLOSED. Every IDN is refused with `idn_not_supported`: any host that
+// contains a non-ASCII character, or whose final ASCII form has an `xn--` label. The reason is that look-alike screening by script
+// lists never ends (Cyrillic, Greek, Armenian, Hebrew, Han/Kana and combining marks all offer look-alikes), while an exact-origin
+// grant for an IDN can be added later through an explicit allowlist path (backlog P4a). The older per-script checks below
+// (single script, Latin look-alike letters, whole-script look-alikes, IDNA round trip) are kept only as defence in depth: they give
+// a more specific reason for the hostile entries they already caught, and they run before the final idn_not_supported refusal.
+// Input whose host changes under case folding beyond ASCII (Kelvin sign, capital sharp s, Angstrom sign) is refused, not folded.
+// A host that is exactly a public suffix (co.uk, github.io ...) is refused from a small embedded list: PARTIAL, not the full
+// Public Suffix List. A grant always covers exactly the one origin; it never covers subdomains.
 import { domainToASCII, domainToUnicode } from 'node:url';
 
 export const REFUSAL_REASONS = [
   'not_string', 'empty', 'too_long', 'control_or_space', 'backslash', 'percent_encoding', 'wildcard', 'query_or_fragment', 'userinfo',
   'scheme_required', 'scheme_not_https', 'path', 'empty_host', 'ip_literal', 'bad_port', 'trailing_dot', 'empty_label', 'host_too_long',
   'label_too_long', 'bad_label', 'invalid_punycode', 'idna_mapped', 'bad_charset', 'mixed_script', 'unsupported_script', 'confusable_char',
-  'whole_script_confusable', 'metadata_name', 'reserved_name', 'single_label', 'unparseable',
+  'whole_script_confusable', 'idn_not_supported', 'bad_tld', 'public_suffix', 'metadata_name', 'reserved_name', 'single_label', 'unparseable',
 ] as const;
 export type RefusalReason = (typeof REFUSAL_REASONS)[number];
 export type OriginResult = { ok: true; origin: string } | { ok: false; reason: RefusalReason };
@@ -55,6 +56,9 @@ export const REFUSAL_TEXT: Readonly<Record<RefusalReason, string>> = Object.free
   unsupported_script: 'That alphabet is not supported for grants.',
   confusable_char: 'The host contains a letter that looks like a different letter.',
   whole_script_confusable: 'Every letter of that host part looks like a Latin letter.',
+  idn_not_supported: 'Internationalised (non-ASCII or xn--) host names are not supported yet. Use the ASCII form of a plain domain.',
+  bad_tld: 'The last part of the host must be 2 or more letters (no digits).',
+  public_suffix: 'That is a shared public suffix: it would name every site under it. Grant a specific site such as example.github.io instead.',
   metadata_name: 'Cloud metadata names are never granted.',
   reserved_name: 'Local, internal and reserved names cannot be granted.',
   single_label: 'The host needs a domain such as example.com.',
@@ -85,6 +89,12 @@ const LATIN_LOOKALIKE: Readonly<Record<string, ReadonlySet<string>>> = {
   Cyrillic: new Set([...'\u0430\u0441\u0435\u043e\u0440\u0445\u0443\u0456\u0458\u0455\u0501\u051b\u051d\u04bb\u04cf\u043a\u043c\u0442\u043d\u0432']),
   Greek: new Set([...'\u03bf\u03bd\u03b1\u03c1\u03c4\u03c5\u03b9\u03ba\u03b5\u03c7\u03f2\u03b2']),
 };
+/** PARTIAL list of common multi-tenant / registry suffixes. A host equal to one of these is refused. Not the full Public Suffix List. */
+export const PUBLIC_SUFFIXES: ReadonlySet<string> = new Set([
+  'co.uk', 'org.uk', 'ac.uk', 'gov.uk', 'me.uk', 'com.au', 'net.au', 'org.au', 'co.jp', 'co.nz', 'co.za', 'co.in', 'com.br', 'com.cn', 'com.mx', 'co.kr',
+  'github.io', 'gitlab.io', 'pages.dev', 'workers.dev', 'vercel.app', 'netlify.app', 'herokuapp.com', 'azurewebsites.net', 'cloudfront.net',
+  's3.amazonaws.com', 'amazonaws.com', 'appspot.com', 'web.app', 'firebaseapp.com', 'blogspot.com', 'ngrok.io', 'repl.co', 'glitch.me', 'onrender.com', 'fly.dev',
+]);
 const LATIN_EXTRA_OK = new Set([...'\u00df\u00e6\u0153\u00f8']);
 
 type Label = { ok: true; ascii: string } | { ok: false; reason: RefusalReason };
@@ -114,6 +124,8 @@ function checkUnicodeLabel(u: string): RefusalReason | null {
 
 function labelToAscii(raw: string): Label {
   const lower = raw.toLowerCase().normalize('NFC');
+  // case folding that lands on pure ASCII from non-ASCII input (Kelvin sign K, ...) is a silent rewrite: refuse it
+  if (!/^[\x00-\x7f]*$/.test(raw) && /^[\x00-\x7f]*$/.test(lower)) return bad('idn_not_supported');
   if (/^[\x00-\x7f]*$/.test(lower)) {
     if (lower.length > 63) return bad('label_too_long');
     if (!/^[a-z0-9-]+$/.test(lower)) return bad('bad_label');
@@ -189,10 +201,12 @@ function normalise(input: unknown, opts: OriginOptions): OriginResult {
   if (host.length > 253) return refuse('host_too_long');
   const last = ascii[ascii.length - 1];
   if (/^(?:[0-9]+|0x[0-9a-f]*)$/.test(last)) return refuse('ip_literal'); // the WHATWG "ends in a number" rule: IPv4 in any spelling
-  if (!/^[a-z]/.test(last)) return refuse('bad_label'); // a TLD starts with a letter or xn--
+  if (ascii.some((l) => l.startsWith('xn--'))) return refuse('idn_not_supported');
   if (METADATA.has(host)) return refuse('metadata_name');
   if (RESERVED_TLD.has(last)) return refuse('reserved_name');
+  if (!/^[a-z]{2,}$/.test(last)) return refuse('bad_tld'); // a TLD is 2+ letters, no digits
   if (ascii.length < 2) return refuse('single_label');
+  if (PUBLIC_SUFFIXES.has(host)) return refuse('public_suffix');
 
   const def = scheme === 'https' ? 443 : 80;
   const origin = `${scheme}://${host}${port !== null && port !== def ? ':' + port : ''}`;

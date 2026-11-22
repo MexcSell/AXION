@@ -81,6 +81,8 @@ try {
     ['https://*.example.com', /Wildcards/i],
     ['https://metadata.google.internal', /metadata/i],
     ['https://example.com/login', /no path/i],
+    ['https://github.io', /public suffix/i],
+    ['https://b\u00fccher.com', /Internationalised/i],
   ];
   let allRefused = true;
   for (const [o, re] of hostile) {
@@ -91,6 +93,18 @@ try {
     check(`dialog refuses ${JSON.stringify(o)} with its reason and keeps Grant site off`, ok);
   }
   await A.p.screenshot({ path: `${SHOTS}/improve-c36-dialog-refused.png` });
+  // a refused origin leaves the dialog open with Grant site off; Escape closes it and nothing is stored
+  check('a refused origin keeps the dialog open and Grant site off', (await dlg.count()) === 1 && await dlg.getByRole('button', { name: 'Grant site' }).isDisabled());
+  await A.p.keyboard.press('Escape');
+  check('Escape closes the dialog with nothing stored', await until(async () => (await dlg.count()) === 0, 6000) && ((await apiA('GET', '/site-grants')).body.grants ?? []).length === 0);
+  await A.p.getByRole('button', { name: 'Grant a site', exact: true }).click();
+  await dlg.locator('#sg-origin').waitFor({ timeout: 8000 });
+  await dlg.locator('#sg-origin').fill('https://example.com');
+  check('the exact-origin warning shows once an origin is accepted', await until(async () => (await dlg.locator('[data-exact-warning]').count()) === 1, 6000));
+  await dlg.getByRole('button', { name: 'Cancel' }).click();
+  check('Cancel closes the dialog with nothing stored', await until(async () => (await dlg.count()) === 0, 6000) && ((await apiA('GET', '/site-grants')).body.grants ?? []).length === 0);
+  await A.p.getByRole('button', { name: 'Grant a site', exact: true }).click();
+  await dlg.locator('#sg-origin').waitFor({ timeout: 8000 });
   check('every hostile try was refused live', allRefused);
   check('nothing was stored by the refused tries', ((await apiA('GET', '/site-grants')).body.grants ?? []).length === 0);
 

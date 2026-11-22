@@ -3,21 +3,29 @@ import { readFileSync } from 'node:fs';
 import { makeTestApp, withAdmin, type TestApp } from './helpers.ts';
 import { loadGrants, decideOnOrigin } from '../src/grants/service.ts';
 import { evaluate } from '../src/policy/index.ts';
+import { seedDemo, clearDemo } from '../src/seed/demo.ts';
+import { MISSIONS } from '../../web/src/data/missions.ts';
 
 const hostile = JSON.parse(readFileSync(new URL('./fixtures/hostile-origins.json', import.meta.url), 'utf8')) as { input: unknown; reason: string }[];
 const benign = JSON.parse(readFileSync(new URL('./fixtures/benign-origins.json', import.meta.url), 'utf8')) as { input: string; origin: string }[];
 
 let t: TestApp;
 let A: Awaited<ReturnType<typeof withAdmin>>;
-beforeEach(async () => { t = await makeTestApp({ staffingStepMs: 60_000, writeLimits: { proposals: { max: 10_000, windowMs: 60_000 } } }); A = await withAdmin(t.app); });
+beforeEach(async () => { t = await makeTestApp({ staffingStepMs: 30, writeLimits: { proposals: { max: 10_000, windowMs: 60_000 } } }); A = await withAdmin(t.app); });
 afterEach(async () => { await t.close(); });
 
 let n = 0;
-const mission = async () => (await A.admin.req('POST', '/missions', { text: 'Check the pricing page.', files: [], shared: false }, { 'idempotency-key': 'g' + Date.now() + n++ })).body.mission.id as string;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// a staffed mission: coder-01 has a live instance on it (grants only cover agents staffed on the mission)
+const mission = async () => {
+  const id = (await A.admin.req('POST', '/missions', { text: 'Build a website landing page for the shop.', files: [], shared: false }, { 'idempotency-key': 'g' + Date.now() + n++ })).body.mission.id as string;
+  for (let i = 0; i < 150; i++) { if ((await A.admin.req('GET', `/missions/${id}`)).body.mission.staffing.stage === 'working') return id; await sleep(40); }
+  throw new Error('mission was not staffed');
+};
 const hours = (h: number) => new Date(Date.now() + h * 3600_000).toISOString();
 const grant = (b: Record<string, unknown>, key = 'k' + Date.now() + n++) => A.admin.req('POST', '/site-grants', b, { 'idempotency-key': key });
 const body = (missionId: string, over: Record<string, unknown> = {}) => ({ origin: 'https://example.com', missionId, capabilities: ['read'], expiresAt: hours(2), ...over });
-const agent = { id: 'research-01', kind: 'agent' as const, role: 'agent' };
+const agent = { id: 'coder-01', kind: 'agent' as const, role: 'agent' };
 const read = (origin: string, missionId: string) => ({ kind: 'read', origin, missionId, requester: agent, effect: 'read' as const, payload: {} });
 
 describe('site grants: routes', () => {
@@ -28,6 +36,7 @@ describe('site grants: routes', () => {
       const r = await b.req(method, url, payload, { 'idempotency-key': 'm' + n++ });
       expect(r.status, url).toBe(403);
     }
+    expect((await t.pool.query('select count(*)::int n from site_grants')).rows[0].n).toBe(0); // a non-admin can never issue
     const anon = await t.app.inject({ method: 'GET', url: '/api/v1/site-grants' });
     expect(anon.statusCode).toBe(401);
   });
@@ -43,7 +52,8 @@ describe('site grants: routes', () => {
     expect(list.maxDays).toBe(30);
     const a = (await t.pool.query(`select detail, result from audit_events where action='grant.issue' and subject=$1`, [r.body.grant.id])).rows[0];
     expect(a.result).toBe('ok');
-    expect(a.detail).toMatchObject({ tier: 'R3', approver: 'admin', origin: 'https://example.com' });
+    expect(a.detail).toMatchObject({ tier: 'R3', approver: 'admin', approverId: A.adminId, origin: 'https://example.com' });
+    expect(a.detail.approval).toMatch(/issuer is approver/);
     expect((await t.pool.query(`select exact_origin from site_grants`)).rows).toEqual([{ exact_origin: 'https://example.com' }]);
   });
 
@@ -80,6 +90,8 @@ describe('site grants: routes', () => {
     const m = await mission();
     expect((await grant({ origin: 'https://example.com', missionId: m, capabilities: ['read'] })).status).toBe(400);
     expect((await grant(body(m, { expiresAt: 'tomorrow' }))).status).toBe(422);
+    expect((await grant(body(m, { expiresAt: new Date(Date.now() + 3600_000).toISOString().replace('Z', '') }))).status).toBe(422); // no time zone: refused, never read as server-local time
+    expect((await grant(body(m, { origin: 'https://example.org', expiresAt: new Date(Date.now() + 3600_000).toISOString().replace('Z', '+00:00') }))).status).toBe(201);
     expect((await grant(body(m, { expiresAt: hours(-1) }))).body.fieldErrors.expiresAt).toMatch(/future/);
     expect((await grant(body(m, { expiresAt: hours(24 * 30 + 1) }))).body.fieldErrors.expiresAt).toMatch(/30 days/);
     expect((await grant(body(m, { expiresAt: hours(24 * 30 - 1) }))).status).toBe(201);
@@ -126,7 +138,7 @@ describe('site grants: the database refuses what the service would never do', ()
   it('refuses a non-normal origin, an expiry over 30 days, an empty or unknown capability list', async () => {
     const mission_id = await withMission();
     await insert({ mission_id }); // the control case is valid
-    for (const o of ['HTTPS://example.com', 'http://example.com', 'https://example.com/', 'https://example.com/a', 'https://user@example.com', 'https://localhost', 'https://127.0.0.1', 'https://example.local', 'https://a.internal', 'https://*.example.com', 'https://example', 'https://example.com:0', 'https://exa mple.com'])
+    for (const o of ['HTTPS://example.com', 'http://example.com', 'https://example.com/', 'https://example.com/a', 'https://user@example.com', 'https://localhost', 'https://127.0.0.1', 'https://example.local', 'https://a.internal', 'https://*.example.com', 'https://example', 'https://example.com:0', 'https://example.com:65536', 'https://example.com:99999', 'https://example.x', 'https://exa mple.com'])
       await expect(insert({ mission_id, exact_origin: `'${o}'` }), o).rejects.toThrow(/site_grants_exact_origin_check/);
     await expect(insert({ mission_id, expires_at: "now() + interval '31 days'" })).rejects.toThrow(/check/);
     await expect(insert({ mission_id, expires_at: "now() - interval '1 hour'" })).rejects.toThrow(/check/);
@@ -185,14 +197,19 @@ describe('site grants feed evaluate()', () => {
     expect(evaluate(read('https://example.com', m), await loadGrants(t.pool, T, m, e + 5000, agent.id), {}, e + 5000).outcome).toBe('deny');
   });
 
-  it('a revoked grant denies', async () => {
+  it('a revoked grant denies at every clock reading, including exactly the revoke instant and an app clock behind the DB clock', async () => {
     const m = await mission();
     const id = (await grant(body(m))).body.grant.id;
+    expect((await loadGrants(t.pool, T, m, Date.now(), agent.id)).length).toBe(1);
     await A.admin.req('POST', `/site-grants/${id}/revoke`, {});
-    const now = Date.now() + 1000;
-    const d = evaluate(read('https://example.com', m), await loadGrants(t.pool, T, m, now, agent.id), {}, now);
-    expect(d.outcome).toBe('deny');
-    expect(d.reasons).toContain('no_grant');
+    const at = new Date((await t.pool.query('select revoked_at from site_grants where id=$1', [id])).rows[0].revoked_at).getTime();
+    for (const now of [at - 60_000, at - 1, at, at + 1, Date.now()]) {
+      const g = await loadGrants(t.pool, T, m, now, agent.id);
+      expect(g, String(now - at)).toEqual([]);
+      const d = evaluate(read('https://example.com', m), g, {}, now);
+      expect(d.outcome, String(now - at)).toBe('deny');
+      expect(d.reasons).toContain('no_grant');
+    }
   });
 
   it('a grant for mission A does not cover mission B', async () => {
@@ -232,3 +249,49 @@ describe('site grants feed evaluate()', () => {
     for (const h of hostile) { const r = await ask(h.input); expect(r.decision.outcome).toBe('deny'); expect(r.refusal, JSON.stringify(h.input)).toBe(h.reason); }
   });
 });
+
+describe('site grants: membership, demo purge, concurrency', () => {
+  const T = 't-1';
+  it('loadGrants returns nothing for an agent that is not staffed on the mission, an ended instance, or a deleted mission', async () => {
+    const m = await mission();
+    await grant(body(m));
+    const now = Date.now();
+    expect((await loadGrants(t.pool, T, m, now, 'coder-01')).length).toBe(1);
+    expect(await loadGrants(t.pool, T, m, now, 'nobody-01')).toEqual([]);
+    const d = await decideOnOrigin(t.pool, { tenantId: T, missionId: m, kind: 'read', effect: 'read', rawOrigin: 'https://example.com', requester: { id: 'nobody-01', kind: 'agent', role: 'agent' } }, now);
+    expect(d.decision.outcome).toBe('deny');
+    expect(d.decision.reasons).toContain('no_grant');
+    await t.pool.query(`update agent_instances set ended_at=now() where mission_id=$1 and agent_id='coder-01'`, [m]);
+    expect(await loadGrants(t.pool, T, m, now, 'coder-01')).toEqual([]);
+    await t.pool.query(`update agent_instances set ended_at=null where mission_id=$1 and agent_id='coder-01'`, [m]);
+    expect((await loadGrants(t.pool, T, m, now, 'coder-01')).length).toBe(1);
+    await t.pool.query(`update missions set deleted_at=now() where id=$1`, [m]);
+    expect(await loadGrants(t.pool, T, m, now, 'coder-01')).toEqual([]);
+  });
+
+  it('clearDemo succeeds with a demo mission that has a grant, and the grant goes with it; outside a purge a delete is still refused', async () => {
+    await seedDemo(t.app.db, t.app.cfg.tenantId, A.adminId);
+    const demoId = MISSIONS[0].id;
+    const r = await grant(body(demoId));
+    expect(r.status).toBe(201);
+    await expect(t.pool.query(`delete from site_grants where id=$1`, [r.body.grant.id])).rejects.toThrow(/append-only/);
+    await clearDemo(t.app.db, t.app.cfg.tenantId);
+    expect((await t.pool.query(`select count(*)::int n from site_grants where mission_id=$1`, [demoId])).rows[0].n).toBe(0);
+    expect((await t.pool.query(`select count(*)::int n from missions where id=$1`, [demoId])).rows[0].n).toBe(0);
+  });
+
+  it('five concurrent issues of the same grant: exactly one succeeds, the rest are 409, one row is stored', async () => {
+    const m = await mission();
+    const rs = await Promise.all([0, 1, 2, 3, 4].map((i) => grant(body(m), 'conc-' + i)));
+    expect(rs.map((r) => r.status).sort()).toEqual([201, 409, 409, 409, 409]);
+    expect((await t.pool.query('select count(*)::int n from site_grants')).rows[0].n).toBe(1);
+  });
+
+  it('after the grant expires it can be granted again; a revoked one too', async () => {
+    const m = await mission();
+    const id = (await grant(body(m))).body.grant.id;
+    await A.admin.req('POST', `/site-grants/${id}/revoke`, {});
+    expect((await grant(body(m))).status).toBe(201);
+  });
+});
+

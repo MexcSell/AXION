@@ -33,7 +33,8 @@ function SiteGrant({ close, props }: DialogComponentProps<{ missionId?: string }
   useEffect(() => { if (!missionId && missions.length) setMissionId(missions[0].id); }, [missions, missionId]);
   const [caps, setCaps] = useState<string[]>(['read']);
   const [dur, setDur] = useState('2h');
-  const [check, setCheck] = useState<{ for: string; ok: boolean; origin?: string; message?: string } | null>(null);
+  const [check, setCheck] = useState<{ for: string; ok: boolean; origin?: string; message?: string; failed?: boolean } | null>(null);
+  const [tries, setTries] = useState(0);
   const [busy, setBusy] = useState(false);
   const [srvErr, setSrvErr] = useState<string | null>(null);
   const [fields, setFields] = useState<Record<string, string>>({});
@@ -42,9 +43,9 @@ function SiteGrant({ close, props }: DialogComponentProps<{ missionId?: string }
   useEffect(() => {
     if (!api_ || !origin.trim()) return;
     const ac = new AbortController();
-    const t = window.setTimeout(() => { void checkOrigin(origin, ac.signal).then((r) => { if (r && !ac.signal.aborted) setCheck({ for: origin, ok: r.ok, origin: r.origin, message: r.message }); }); }, 220);
+    const t = window.setTimeout(() => { void checkOrigin(origin, ac.signal).then((r) => { if (ac.signal.aborted) return; setCheck(r ? { for: origin, ok: r.ok, origin: r.origin, message: r.message } : { for: origin, ok: false, failed: true, message: 'The origin could not be checked (the server did not answer).' }); }); }, 220);
     return () => { window.clearTimeout(t); ac.abort(); };
-  }, [origin, api_]);
+  }, [origin, api_, tries]);
   const verdict = check && check.for === origin ? check : null;
   const err = !api_ ? 'Site grants are stored on the server' : !origin.trim() ? 'Enter the exact origin' : verdict && !verdict.ok ? verdict.message ?? 'That origin cannot be granted' : !verdict ? 'Checking the origin…' : !missionId ? 'Choose a mission' : caps.length === 0 ? 'Allow at least one action' : '';
   const touch = () => { setSrvErr(null); setFields({}); };
@@ -65,14 +66,15 @@ function SiteGrant({ close, props }: DialogComponentProps<{ missionId?: string }
       footer={<><button className="btn" onClick={close}>Cancel</button><button className="btn primary" disabled={!!err || busy} title={err || undefined} onClick={submit}>{busy ? <Loader2 size={14} className="spin" /> : <KeyRound size={14} />}Grant site</button></>}>
       <div className="col" style={{ gap: 12 }}>
         {!api_ && <div className="oa-banner"><Info size={15} /><span>Site grants are stored on the server. In demo mode this dialog only shows the form.</span></div>}
-        <Field label="Origin" help="grants.origin" htmlFor="sg-origin" required error={fields.origin} hint="For example https://example.com. No path, wildcard, IP address or local name.">
+        <Field label="Origin" help="grants.origin" htmlFor="sg-origin" required error={fields.origin} hint="For example https://example.com. Plain ASCII domains only: no path, wildcard, IP address, local name or international (non-ASCII) name.">
           <input id="sg-origin" data-autofocus className="input mono" value={origin} maxLength={300} spellCheck={false} autoComplete="off" autoCapitalize="off"
             aria-invalid={verdict ? !verdict.ok : undefined} onChange={(e) => { touch(); setOrigin(e.target.value); }} placeholder="https://example.com" />
         </Field>
         <div className={cx('sg-check', verdict?.ok ? 'ok' : verdict ? 'no' : '')} role="status" aria-live="polite" data-origin-check={verdict ? (verdict.ok ? 'ok' : 'refused') : 'idle'}>
-          {verdict ? (verdict.ok ? <><CircleCheck size={14} />Exact origin accepted</> : <><CircleX size={14} />{verdict.message}</>) : origin.trim() ? <><Loader2 size={14} className="spin" />Checking…</> : null}
+          {verdict ? (verdict.ok ? <><CircleCheck size={14} />Exact origin accepted</> : <><CircleX size={14} />{verdict.message}{verdict.failed && <button type="button" className="btn sm ghost" onClick={() => { setCheck(null); setTries((x) => x + 1); }}>Retry</button>}</>) : origin.trim() ? <><Loader2 size={14} className="spin" />Checking…</> : null}
         </div>
         {shown && <div className="sg-preview" data-normal-form>Will be stored as <b className="mono">{shown}</b></div>}
+        {shown && <div className="oa-banner" data-exact-warning><Info size={15} /><span>A grant covers exactly this origin: not subdomains, other ports or look-alike names. On shared hosting (for example a name under github.io) it covers that whole site.</span></div>}
         <Field label="Mission" help="grants.mission" htmlFor="sg-mission" required error={fields.missionId}>
           <select id="sg-mission" className="select" aria-label="Mission" value={missionId} onChange={(e) => { touch(); setMissionId(e.target.value); }}>
             {missions.length === 0 && <option value="">No missions yet</option>}

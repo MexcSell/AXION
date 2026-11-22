@@ -127,6 +127,15 @@ approver: R2 any signed-in human, R3 and R4 an administrator (`403 POLICY_DENIED
 the baseline says `approver: 'owner'` with `heldBy: 'admin'` and a note. `GET /policy/baseline` (admin, read-only) lists the kinds;
 there is no write route.
 
+## Site grants (c36)
+`src/grants/`: `normaliseOrigin` is the exact-origin normaliser (https only, no path, userinfo, wildcard, IP literal, local or internal name,
+public suffix, or internationalised name: IDNs fail closed with `idn_not_supported`; allowlisting them is backlog P4a). Table
+`site_grants` (migration 0030) is append-only except one revoke and the `clearDemo` cascade. Routes (admin only): `GET /site-grants`,
+`GET /site-grants/validate`, `POST /site-grants`, `POST /site-grants/:id/revoke`. Issuing is an R3 `origin-grant` through `evaluate()`.
+**Approval is single-admin: the issuing administrator is the approver** (recorded in the audit detail as `approverId` and
+`approval: 'issuer is approver (single-admin approval)'`); a two-person rule is backlog P3b. `loadGrants` returns grants only for an
+agent with a live instance on the mission. The public-suffix list is a partial embedded list, not the full Public Suffix List.
+
 ## HTTP hardening (cycle 14)
 
 Today the API and the web app are reachable only on 127.0.0.1 through an SSH tunnel. These rules hold anyway, and they are

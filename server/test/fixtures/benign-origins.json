@@ -36,26 +36,6 @@
   "origin": "https://a-b.example.com"
  },
  {
-  "input": "https://xn--bcher-kva.de",
-  "origin": "https://xn--bcher-kva.de"
- },
- {
-  "input": "https://b\u00fccher.de",
-  "origin": "https://xn--bcher-kva.de"
- },
- {
-  "input": "https://B\u00dcCHER.de",
-  "origin": "https://xn--bcher-kva.de"
- },
- {
-  "input": "https://fa\u00df.de",
-  "origin": "https://xn--fa-hia.de"
- },
- {
-  "input": "https://\u043f\u0440\u0438\u043c\u0435\u0440.\u0440\u0444",
-  "origin": "https://xn--e1afmkfd.xn--p1ai"
- },
- {
   "input": "https://1password.com",
   "origin": "https://1password.com"
  },
@@ -68,11 +48,27 @@
   "origin": "https://deploy.vercel.app"
  },
  {
-  "input": "https://xn--fiq228c.com",
-  "origin": "https://xn--fiq228c.com"
+  "input": "https://api.stripe.com",
+  "origin": "https://api.stripe.com"
  },
  {
-  "input": "https://\u00e9cole.fr",
-  "origin": "https://xn--cole-9oa.fr"
+  "input": "https://docs.python.org",
+  "origin": "https://docs.python.org"
+ },
+ {
+  "input": "https://news.ycombinator.com/",
+  "origin": "https://news.ycombinator.com"
+ },
+ {
+  "input": "https://EN.Wikipedia.org:443",
+  "origin": "https://en.wikipedia.org"
+ },
+ {
+  "input": "https://example.co.uk",
+  "origin": "https://example.co.uk"
+ },
+ {
+  "input": "https://myorg.github.io",
+  "origin": "https://myorg.github.io"
  }
 ]

@@ -63,8 +63,8 @@ export default async function grantRoutes(app: FastifyInstance) {
       throw new ApiError('VALIDATION', 422, 'That origin cannot be granted.', { fieldErrors: { origin: REFUSAL_TEXT[n.reason] } });
     }
     const now = Date.now();
-    const exp = /^\d{4}-\d{2}-\d{2}T/.test(b.expiresAt) ? Date.parse(b.expiresAt) : NaN;
-    if (!Number.isFinite(exp)) throw new ApiError('VALIDATION', 422, 'Some fields are not valid.', { fieldErrors: { expiresAt: 'An expiry date and time is required.' } });
+    const exp = /^\d{4}-\d{2}-\d{2}T[0-9:.]+(Z|[+-]\d{2}:\d{2})$/.test(b.expiresAt) ? Date.parse(b.expiresAt) : NaN; // a zone is required: no server-local guessing
+    if (!Number.isFinite(exp)) throw new ApiError('VALIDATION', 422, 'Some fields are not valid.', { fieldErrors: { expiresAt: 'An expiry date and time with a time zone (for example 2026-12-01T10:00:00Z) is required.' } });
     if (exp <= now) throw new ApiError('VALIDATION', 422, 'Some fields are not valid.', { fieldErrors: { expiresAt: 'The expiry must be in the future.' } });
     if (exp > now + MAX_GRANT_MS) throw new ApiError('VALIDATION', 422, 'Some fields are not valid.', { fieldErrors: { expiresAt: 'A grant lasts at most 30 days.' } });
     const decision = decideGrant(n.origin, b.missionId, { id: ctx.user.id, role: ctx.user.role }, now);
@@ -75,6 +75,7 @@ export default async function grantRoutes(app: FastifyInstance) {
     const out = await idempotent(app.db, req, ctx, async (c) => {
       const m = (await c.query('select 1 from missions where id=$1 and tenant_id=$2 and deleted_at is null', [b.missionId, ctx.tenantId])).rowCount;
       if (!m) throw new ApiError('VALIDATION', 422, 'Some fields are not valid.', { fieldErrors: { missionId: 'No such mission.' } });
+      await c.query('select pg_advisory_xact_lock(hashtext($1))', [`site-grant:${ctx.tenantId}:${b.missionId}:${n.origin}`]); // two concurrent issues of the same grant: one waits, then sees the other
       const dup = (await c.query(`select expires_at from site_grants where tenant_id=$1 and mission_id=$2 and exact_origin=$3 and revoked_at is null and expires_at > now()`, [ctx.tenantId, b.missionId, n.origin])).rows[0];
       if (dup) throw new ApiError('CONFLICT', 409, `This mission already has a grant for ${n.origin} until ${new Date(dup.expires_at).toISOString()}. Revoke it first to change it.`);
       const id = newGrantId();
@@ -82,7 +83,7 @@ export default async function grantRoutes(app: FastifyInstance) {
       await c.query(`insert into site_grants(id, tenant_id, mission_id, exact_origin, capabilities, issued_by, issued_at, expires_at) values ($1,$2,$3,$4,$5,$6,$7,$8)`,
         [id, ctx.tenantId, b.missionId, assertNormal(n.origin), caps, ctx.user.id, new Date(now).toISOString(), new Date(exp).toISOString()]);
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'grant.issue', subject: id, result: 'ok', correlationId: ctx.correlationId,
-        detail: { origin: n.origin, missionId: b.missionId, capabilities: caps, expiresAt: new Date(exp).toISOString(), tier: decision.tier, approver: decision.approver, decidedBy: ctx.user.id, policyVersion: decision.policyVersion, reasons: decision.reasons } });
+        detail: { origin: n.origin, missionId: b.missionId, capabilities: caps, expiresAt: new Date(exp).toISOString(), tier: decision.tier, approver: decision.approver, approverId: ctx.user.id, approval: 'issuer is approver (single-admin approval)', policyVersion: decision.policyVersion, reasons: decision.reasons } });
       await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'grant.issued', subject: id, adminOnly: true, payload: { grantId: id, missionId: b.missionId, origin: n.origin } });
       return { status: 201, body: { grant: await one(c, ctx.tenantId, id), decision: { tier: decision.tier, approver: decision.approver, policyVersion: decision.policyVersion, reasons: decision.reasons } } };
     });

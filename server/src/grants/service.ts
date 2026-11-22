@@ -37,14 +37,18 @@ export function decideGrant(origin: string, missionId: string, requester: { id: 
 export const newGrantId = () => 'SG-' + randomBytes(16).toString('hex').toUpperCase();
 
 /**
- * Real grants for evaluate(). Rows of this tenant and mission only; revoked rows are left out (so a revoked grant denies as no_grant);
- * expired rows are kept so evaluate() reports grant_expired. The grant covers any agent working in the mission, so the
- * subject is the asking requester (the caller states which agent asks, and instance membership is checked by the caller).
+ * Real grants for evaluate(). Rows of this tenant and mission only. Revoked rows are never loaded (a revoked grant denies as
+ * no_grant, whatever the app clock says: revocation is read as a fact, not compared with a time). Expired rows are kept so
+ * evaluate() reports grant_expired. The grant covers any agent STAFFED on the mission: if the subject has no live instance on
+ * this mission, or the mission is deleted, nothing is returned.
  */
-export async function loadGrants(db: Db | Tx, tenantId: string, missionId: string, now: number, subjectId: string): Promise<Grant[]> {
+export async function loadGrants(db: Db | Tx, tenantId: string, missionId: string, _now: number, subjectId: string): Promise<Grant[]> {
   const rows = (await db.query(
-    `select id, exact_origin, capabilities, expires_at from site_grants
-      where tenant_id=$1 and mission_id=$2 and (revoked_at is null or revoked_at > $3::timestamptz)`, [tenantId, missionId, new Date(now).toISOString()])).rows;
+    `select g.id, g.exact_origin, g.capabilities, g.expires_at from site_grants g
+      join missions m on m.id = g.mission_id and m.deleted_at is null
+     where g.tenant_id=$1 and g.mission_id=$2 and g.revoked_at is null
+       and exists (select 1 from agent_instances i where i.tenant_id=$1 and i.mission_id=$2 and i.agent_id=$3 and i.ended_at is null)`,
+    [tenantId, missionId, subjectId])).rows;
   return rows.map((r) => ({ id: r.id, subjectId, kinds: [...r.capabilities], target: r.exact_origin, missionId, expiresAt: new Date(r.expires_at).getTime() }));
 }
 

@@ -586,5 +586,310 @@
   },
   "reason": "not_string",
   "why": "object input"
+ },
+ {
+  "input": "https://xn--bcher-kva.de",
+  "reason": "idn_not_supported",
+  "why": "internationalised name (was benign before the c36 review): IDNs fail closed until an explicit allowlist path exists (P4a)"
+ },
+ {
+  "input": "https://b\u00fccher.de",
+  "reason": "idn_not_supported",
+  "why": "internationalised name (was benign before the c36 review): IDNs fail closed until an explicit allowlist path exists (P4a)"
+ },
+ {
+  "input": "https://B\u00dcCHER.de",
+  "reason": "idn_not_supported",
+  "why": "internationalised name (was benign before the c36 review): IDNs fail closed until an explicit allowlist path exists (P4a)"
+ },
+ {
+  "input": "https://fa\u00df.de",
+  "reason": "idn_not_supported",
+  "why": "internationalised name (was benign before the c36 review): IDNs fail closed until an explicit allowlist path exists (P4a)"
+ },
+ {
+  "input": "https://\u043f\u0440\u0438\u043c\u0435\u0440.\u0440\u0444",
+  "reason": "idn_not_supported",
+  "why": "internationalised name (was benign before the c36 review): IDNs fail closed until an explicit allowlist path exists (P4a)"
+ },
+ {
+  "input": "https://xn--fiq228c.com",
+  "reason": "idn_not_supported",
+  "why": "internationalised name (was benign before the c36 review): IDNs fail closed until an explicit allowlist path exists (P4a)"
+ },
+ {
+  "input": "https://\u00e9cole.fr",
+  "reason": "idn_not_supported",
+  "why": "internationalised name (was benign before the c36 review): IDNs fail closed until an explicit allowlist path exists (P4a)"
+ },
+ {
+  "input": "https://\u0475\u043e.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Cyrillic izhitsa + o reads as vo"
+ },
+ {
+  "input": "https://\u0451\u0435.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Cyrillic yo+ie read as Latin e-diaeresis"
+ },
+ {
+  "input": "https://\u0451.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Cyrillic yo reads as e-diaeresis"
+ },
+ {
+  "input": "https://\u04d3.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Cyrillic a-diaeresis reads as a-umlaut"
+ },
+ {
+  "input": "https://\u04e7\u043e.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Cyrillic o-diaeresis + o"
+ },
+ {
+  "input": "https://\u0461.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Cyrillic omega reads as w"
+ },
+ {
+  "input": "https://\u03b3.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Greek gamma reads as y"
+ },
+ {
+  "input": "https://\u03b7.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Greek eta reads as n"
+ },
+ {
+  "input": "https://\u03bc.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Greek mu reads as u"
+ },
+ {
+  "input": "https://\u03c0.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Greek pi reads as n"
+ },
+ {
+  "input": "https://\u03c9.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Greek omega reads as w"
+ },
+ {
+  "input": "https://\u03c3.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Greek sigma reads as o"
+ },
+ {
+  "input": "https://\u0585\u0578.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Armenian reads as \"on\""
+ },
+ {
+  "input": "https://\u0585.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Armenian oh reads as o"
+ },
+ {
+  "input": "https://\u0581.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Armenian co reads as g"
+ },
+ {
+  "input": "https://\u054d.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Armenian capital reads as U"
+ },
+ {
+  "input": "https://\u05d5.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Hebrew vav reads as l"
+ },
+ {
+  "input": "https://\u05dd.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Hebrew final mem reads as o"
+ },
+ {
+  "input": "https://\u30ed.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Katakana ro reads as Latin ro"
+ },
+ {
+  "input": "https://\u30ab\u30ab.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Katakana ka ka reads as ca"
+ },
+ {
+  "input": "https://\u30a8.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Katakana e reads as I"
+ },
+ {
+  "input": "https://\u535c.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Han reads as h/l"
+ },
+ {
+  "input": "https://\u5de5.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Han reads as I"
+ },
+ {
+  "input": "https://\u53e3.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Han reads as o"
+ },
+ {
+  "input": "https://\u4e00.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Han one reads as a hyphen"
+ },
+ {
+  "input": "https://i\u0307.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: i + combining dot above is identical to i"
+ },
+ {
+  "input": "https://\u0130.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: capital dotted I folds to i + dot"
+ },
+ {
+  "input": "https://l\u0338.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: l + overlay stroke reads as l"
+ },
+ {
+  "input": "https://o\u0338.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: o + overlay stroke"
+ },
+ {
+  "input": "https://\u00f8.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: o-stroke reads as o"
+ },
+ {
+  "input": "https://a\u0338\u0338.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: stacked combining marks (zalgo)"
+ },
+ {
+  "input": "https://e\u0301\u0301.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: stacked acute marks"
+ },
+ {
+  "input": "https://\u212a.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Kelvin sign silently folds to ASCII k"
+ },
+ {
+  "input": "https://\u1e9e.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: capital sharp s folds to sharp s"
+ },
+ {
+  "input": "https://\u212b.com",
+  "reason": "idn_not_supported",
+  "why": "review bypass: Angstrom sign folds to a-ring"
+ },
+ {
+  "input": "https://a.b",
+  "reason": "bad_tld",
+  "why": "one-character TLD"
+ },
+ {
+  "input": "https://example.c0m",
+  "reason": "bad_tld",
+  "why": "TLD containing a digit"
+ },
+ {
+  "input": "https://example.comx9",
+  "reason": "bad_tld",
+  "why": "TLD containing a digit"
+ },
+ {
+  "input": "https://example.x",
+  "reason": "bad_tld",
+  "why": "one-character TLD"
+ },
+ {
+  "input": "https://co.uk",
+  "reason": "public_suffix",
+  "why": "co.uk is a shared public suffix: a grant would cover every tenant under it"
+ },
+ {
+  "input": "https://com.au",
+  "reason": "public_suffix",
+  "why": "com.au is a shared public suffix: a grant would cover every tenant under it"
+ },
+ {
+  "input": "https://co.jp",
+  "reason": "public_suffix",
+  "why": "co.jp is a shared public suffix: a grant would cover every tenant under it"
+ },
+ {
+  "input": "https://github.io",
+  "reason": "public_suffix",
+  "why": "github.io is a shared public suffix: a grant would cover every tenant under it"
+ },
+ {
+  "input": "https://gitlab.io",
+  "reason": "public_suffix",
+  "why": "gitlab.io is a shared public suffix: a grant would cover every tenant under it"
+ },
+ {
+  "input": "https://pages.dev",
+  "reason": "public_suffix",
+  "why": "pages.dev is a shared public suffix: a grant would cover every tenant under it"
+ },
+ {
+  "input": "https://vercel.app",
+  "reason": "public_suffix",
+  "why": "vercel.app is a shared public suffix: a grant would cover every tenant under it"
+ },
+ {
+  "input": "https://netlify.app",
+  "reason": "public_suffix",
+  "why": "netlify.app is a shared public suffix: a grant would cover every tenant under it"
+ },
+ {
+  "input": "https://herokuapp.com",
+  "reason": "public_suffix",
+  "why": "herokuapp.com is a shared public suffix: a grant would cover every tenant under it"
+ },
+ {
+  "input": "https://azurewebsites.net",
+  "reason": "public_suffix",
+  "why": "azurewebsites.net is a shared public suffix: a grant would cover every tenant under it"
+ },
+ {
+  "input": "https://cloudfront.net",
+  "reason": "public_suffix",
+  "why": "cloudfront.net is a shared public suffix: a grant would cover every tenant under it"
+ },
+ {
+  "input": "https://s3.amazonaws.com",
+  "reason": "public_suffix",
+  "why": "s3.amazonaws.com is a shared public suffix: a grant would cover every tenant under it"
+ },
+ {
+  "input": "https://appspot.com",
+  "reason": "public_suffix",
+  "why": "appspot.com is a shared public suffix: a grant would cover every tenant under it"
+ },
+ {
+  "input": "https://web.app",
+  "reason": "public_suffix",
+  "why": "web.app is a shared public suffix: a grant would cover every tenant under it"
+ },
+ {
+  "input": "https://firebaseapp.com",
+  "reason": "public_suffix",
+  "why": "firebaseapp.com is a shared public suffix: a grant would cover every tenant under it"
  }
 ]
