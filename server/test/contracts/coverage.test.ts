@@ -1,3 +1,7 @@
+import { randomBytes } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { makeTestApp, withAdmin, openStream, Browser, TEST_DB, type TestApp } from '../helpers.ts';
 import { requestApproval, consumeApproval, loadBoundAction } from '../../src/approvals/service.ts';
@@ -5,6 +9,7 @@ import { createNotification } from '../../src/notifications/routes.ts';
 import { eventDto } from '../../src/events/log.ts';
 import { setInstanceState } from '../../src/instances/service.ts';
 import { tx } from '../../src/db.ts';
+import { writeAnchor, rotateAnchor } from '../../src/audit-anchor.ts';
 import { enqueueJob } from '../../src/jobs/store.ts';
 import { makeDataset, addRun } from '../eval-fixtures.ts';
 import { check } from './validate.ts';
@@ -33,16 +38,21 @@ const multipart = (name: string, content: string) => {
 };
 const dayIso = (d: number) => new Date(Date.now() + d * 86_400_000).toISOString();
 
+// c57 (H13): a hermetic anchor setup. The key is generated here, never printed and never read from any .env; the domain is a fixed
+// test id; the file lives in a temp dir that is removed in afterAll.
+const anchorDir = mkdtempSync(join(tmpdir(), 'axion-c57-anchor-'));
+const anchorCfg = { key: randomBytes(32).toString('hex'), domain: 'axion-contract-test', file: join(anchorDir, 'audit-anchors.jsonl') };
+
 const openStreams: (() => void)[] = [];
 let streamEvents: { event: string; data: any }[] = [];
 
 describe('API coverage run', () => {
   beforeAll(async () => {
-    t = await makeTestApp({ staffingStepMs: 30, conversationSimMs: 80, writeLimits: { proposals: { max: 1000, windowMs: 60_000 } }, configure: recordServed });
+    t = await makeTestApp({ staffingStepMs: 30, conversationSimMs: 80, writeLimits: { proposals: { max: 1000, windowMs: 60_000 } }, configure: recordServed, auditAnchor: anchorCfg });
     await t.app.listen({ host: '127.0.0.1', port: 0 });
     base = `http://127.0.0.1:${(t.app.server.address() as { port: number }).port}`;
   });
-  afterAll(async () => { openStreams.forEach((c) => c()); await t?.close(); });
+  afterAll(async () => { openStreams.forEach((c) => c()); await t?.close(); rmSync(anchorDir, { recursive: true, force: true }); });
 
   it('drives every route and validates every response', async () => {
     const anon = new Browser(t.app);
@@ -340,7 +350,20 @@ describe('API coverage run', () => {
     await call(admin, 'GET', '/operations/health', '/operations/health');
     await enqueueJob(t.app.db, { tenantId: tenant, kind: 'noop.test', idempotencyKey: 'c50-queue', createdBy: users.find((u) => u.name === 'Luca')!.id });
     await call(admin, 'GET', '/operations/queues', '/operations/queues');
-    await call(admin, 'GET', '/operations/anchors', '/operations/anchors');
+    // c57 (H13): configured but no file yet (reported, never ok), then a written checkpoint (ok, anchored head), then a signed rotation
+    const none = (await call(admin, 'GET', '/operations/anchors', '/operations/anchors')).body;
+    expect(none).toMatchObject({ configured: false, ok: false, lastAnchorAt: null, restartedAt: null });
+    const written = await writeAnchor(t.pool, anchorCfg);
+    const anchored = (await call(admin, 'GET', '/operations/anchors', '/operations/anchors')).body;
+    expect(anchored).toMatchObject({ configured: true, ok: true, restartedAt: null });
+    expect(anchored.tenants[0]).toMatchObject({ status: 'ok' });
+    expect(anchored.tenants[0].anchoredSeq).toBeGreaterThan(0);
+    expect(anchored.lastAnchorAt).toMatch(/^\d{4}-\d\d-\d\dT/);
+    await rotateAnchor(t.pool, { ...anchorCfg, confirm: written.lastN, force: true });
+    const rotated = (await call(admin, 'GET', '/operations/anchors', '/operations/anchors')).body;
+    expect(rotated).toMatchObject({ configured: true, ok: true });
+    expect(rotated.restartedAt).toMatch(/^\d{4}-\d\d-\d\dT/);
+    expect(JSON.stringify([none, anchored, rotated])).not.toContain(anchorCfg.key);
     await call(admin, 'GET', '/policy/baseline', '/policy/baseline');
     await call(admin, 'GET', '/audit/verify', '/audit/verify');
 

@@ -17,7 +17,6 @@ export const UNEXERCISED_ALLOWED: [RegExp, string][] = [
   [/^GET \/missions\/:id\/ledgers \.moreVersions\.\w+ never non-null$/, 'the cursor appears only above the page size (100 versions of one ledger kind); the versions route pages with ?limit and is exercised'],
   [/^GET \/missions\/:id\/threads \S*(bAgentId|withInstanceId|withAgentId) never non-null$/, 'agent-to-agent threads need agents that talk to each other; agents do not execute, so only human threads exist'],
   [/^POST \/tasks\/:id\/reviews \.review\.stale never non-null$/, 'a review just written is current by construction: it can only become stale when the task is attempted again, which the following GET shows filled'],
-  [/^GET \/operations\/anchors \.(lastAnchorAt|restartedAt|tenants\[\]\.(anchoredSeq|anchoredAt)) never non-null$/, 'a checkpoint needs AUDIT_ANCHOR_KEY, a domain and a file written by the operator CLI (npm run audit:anchor), and a rotation needs a signed rotate; the flow has none configured. audit-anchor.test.ts validates the route against a written checkpoint and a rotated file, and api-c49 does it in the browser'],
   [/^GET \/operations\/health \.backup\.(last|file) never non-null$/, 'no backup job has run in the test database'],
   [/^(GET \/lessons|GET \/lessons\/:lid|POST \/agents\/:id\/lessons) \S*submittedBy never non-null$/, 'submittedBy is set only when a lesson is proposed by an agent on a person\'s behalf; no route sets it'],
 ];
