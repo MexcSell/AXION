@@ -216,6 +216,7 @@
 .oa-stat-bar { height: 3px; border-radius: 2px; background: var(--border-soft); margin-top: 4px; overflow: hidden; }
 .oa-stat-bar em { display: block; height: 100%; background: linear-gradient(90deg, hsl(var(--h) 90% 60%), hsl(var(--h2) 90% 65%)); }
 .oa-hero-side { display: flex; flex-direction: column; gap: 12px; }
+.oa-hero-actions { display: flex; flex-direction: column; gap: 12px; }
 /* improvement cycle 3: measured reliability (api mode), kept apart from the DEMO fixture numbers below it */
 .oa-rel { position: relative; display: flex; align-items: center; gap: 10px; padding: 7px 12px 9px; border-radius: 12px; overflow: hidden;
   background: linear-gradient(120deg, rgba(var(--accent-rgb), .12), var(--panel-2) 70%); border: 1px solid rgba(var(--accent-rgb), .35); }
@@ -296,6 +297,13 @@
   .oa-hero-side .oa-kv-big { gap: 6px; }
   .oa-hero-side .oa-kv-big > div { padding: 4px 10px; }
   .oa-hero-side .oa-kv-big b { font-size: 18px; }
+  /* c67 (H17): the actions and the "Reports to" line move up into the breadcrumb row, so the numbers column is
+     only the reliability stat and four tiles and the hero is about 60 px shorter (api mode adds a provenance row). */
+  .oa-hero-top { min-height: 36px; margin-bottom: 2px; }
+  .oa-hero-actions { position: absolute; top: -38px; right: 0; height: 36px; flex-direction: row-reverse; align-items: center; gap: 14px; z-index: 2; }
+  .oa-hero-actions .oa-hero-btns { flex-wrap: nowrap; }
+  .oa-hero-actions > .dim { padding: 3px 10px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--border-soft); white-space: nowrap; }
+  .oa-hero { padding-bottom: 12px; }
 }
 
 /* ---------- Organisation proposals from the server (improvement cycle 1) ---------- */
