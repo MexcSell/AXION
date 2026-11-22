@@ -22,12 +22,15 @@ const WINDOWS = [7, 30, 90] as const;
 const two = (x: number) => (x < 1 ? x.toFixed(2) : x.toFixed(1));
 const perDay = (x: number) => (x >= 10 ? x.toFixed(0) : x >= 1 ? x.toFixed(1) : x.toFixed(2));
 
-function Cell({ icon: Icon, label, help, value, n, ok, note, testid, i }: { icon: typeof Gauge; label: string; help: string; value: string; n: number; ok: boolean; note?: string; testid: string; i: number }) {
+/** A column heading with its own ? (every number in the tables has one). */
+const Th = ({ children, k, right = true }: { children: string; k: string; right?: boolean }) => <th scope="col" className={right ? 'r' : undefined}><span className="rc-th">{children}<HelpTrigger k={k} /></span></th>;
+
+function Cell({ icon: Icon, label, help, value, n, ok, note, testid, i }: { icon: typeof Gauge; label: string; help: string; value: string; n: number | null; ok: boolean; note?: string; testid: string; i: number }) {
   return (
     <motion.div className={cx('rc-cell', !ok && 'none')} data-cell={testid} data-enough={ok ? 'yes' : 'no'} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .04 + i * .04 }}>
       <span className="rc-cl"><Icon size={13} aria-hidden /><span className="ellipsis">{label}</span><HelpTrigger k={help} /></span>
       {ok ? <span className="rc-cv tnum">{value}</span> : <span className="rc-cv rc-none"><Wait size={12} aria-hidden />{note ?? 'not enough evidence'}</span>}
-      <span className="rc-cm tnum">n = {n}</span>
+      <span className="rc-cm tnum">n = {n ?? '–'}</span>
     </motion.div>
   );
 }
@@ -63,18 +66,18 @@ export function ReviewCapacity() {
               <motion.div className={cx('rc-cell', r.littles.status === 'fail' && 'bad')} data-cell="littles" data-status={r.littles.status} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .2 }}>
                 <span className="rc-cl">{r.littles.status === 'fail' ? <ShieldAlert size={13} aria-hidden /> : <ShieldCheck size={13} aria-hidden />}<span className="ellipsis">Data check</span><HelpTrigger k="ops.reviewCapacity.littles" /></span>
                 <span className={cx('rc-cv', 'rc-small', r.littles.status === 'fail' && 'bad')} role={r.littles.status === 'fail' ? 'alert' : undefined}>
-                  {r.littles.status === 'pass' ? 'Consistent' : r.littles.status === 'insufficient' ? 'Nothing to compare' : r.littles.reason === 'missing_close' ? `${r.littles.missingClose} item${r.littles.missingClose === 1 ? '' : 's'} lost a close record` : 'Records disagree'}
+                  {r.littles.status === 'pass' ? 'No lost records' : r.littles.status === 'insufficient' ? 'Nothing to compare' : r.littles.reason === 'missing_close' ? `${r.littles.missingClose} item${r.littles.missingClose === 1 ? '' : 's'} lost a close record` : `${r.littles.missingOpen} waiting task${r.littles.missingOpen === 1 ? '' : 's'} lost a start record`}
                 </span>
-                <span className="rc-cm tnum">{r.littles.avgOpen !== null && r.littles.lambdaTimesW !== null ? `open ${two(r.littles.avgOpen)} · rate×time ${two(r.littles.lambdaTimesW)}` : `open now ${r.littles.openNow}`}</span>
+                <span className="rc-cm tnum">{r.littles.avgOpen !== null && r.littles.lambdaTimesW !== null ? `avg open ${two(r.littles.avgOpen)} · rate×time ${two(r.littles.lambdaTimesW)}` : `open now ${r.littles.openNow}`}</span>
               </motion.div>
             </div>
-            {!t.shown && <p className="dim rc-note" data-floor="shown">{floor} {t.n} item{t.n === 1 ? '' : 's'} and {t.people} {t.people === 1 ? 'person' : 'people'} so far.</p>}
+            {!t.shown && <p className="dim rc-note" data-floor="shown">{floor} {t.n} item{t.n === 1 ? '' : 's'} so far.</p>}
             <div className="rc-cols">
               <section className="rc-box" aria-label="By department">
                 <div className="rc-h"><Building2 size={13} aria-hidden /><b>By department</b></div>
                 {r.departments.length === 0 ? <p className="dim rc-note">No items in this window.</p> : (
-                  <table className="rc-table" data-table="departments">
-                    <thead><tr><th scope="col">Department</th><th scope="col" className="r">n</th><th scope="col" className="r">Per day</th><th scope="col" className="r">Median</th><th scope="col" className="r">Slowest 5%</th><th scope="col" className="r">Waiting</th></tr></thead>
+                  <div className="rc-scroll"><table className="rc-table" data-table="departments">
+                    <thead><tr><th scope="col"><span className="rc-th">Department<HelpTrigger k="ops.reviewCapacity.department" /></span></th><Th k="ops.reviewCapacity.n">n</Th><Th k="ops.reviewCapacity.arrivals">Per day</Th><Th k="ops.reviewCapacity.median">Median</Th><Th k="ops.reviewCapacity.p95">Slowest 5%</Th><Th k="ops.reviewCapacity.backlog">Waiting</Th></tr></thead>
                     <tbody>{r.departments.map((d) => (
                       <tr key={d.dept} data-dept={d.dept} data-shown={d.shown ? 'yes' : 'no'}>
                         <th scope="row" className="ellipsis">{d.dept}</th><td className="r tnum">{d.n}</td>
@@ -84,17 +87,17 @@ export function ReviewCapacity() {
                           <td className="r tnum">{d.p95Ms === null ? <span className="dim">–</span> : fmtDuration(d.p95Ms)}</td>
                           <td className="r tnum">{d.openBacklog}</td></> : <td colSpan={4} className="r rc-none"><Wait size={11} aria-hidden /> not enough evidence</td>}
                       </tr>))}</tbody>
-                  </table>)}
+                  </table></div>)}
                 <p className="dim rc-foot">– means fewer than {r.minPercentileN} decisions.</p>
               </section>
               <section className="rc-box" aria-label="Observed span">
                 <div className="rc-h"><Network size={13} aria-hidden /><b>Observed span</b><HelpTrigger k="ops.reviewCapacity.span" /></div>
                 {r.span.rows.length === 0 ? <p className="dim rc-note">No reporting lines yet.</p> : (
                   <table className="rc-table" data-table="span">
-                    <thead><tr><th scope="col">Supervisor</th><th scope="col" className="r">Agents</th><th scope="col" className="r">Open items</th></tr></thead>
-                    <tbody>{r.span.rows.map((s) => <tr key={s.supervisorId} data-supervisor={s.supervisorId}><th scope="row" className="ellipsis">{s.name}</th><td className="r tnum">{s.agents}</td><td className="r tnum">{s.openItems}</td></tr>)}</tbody>
+                    <thead><tr><th scope="col">Supervisor</th><th scope="col" className="r">Agents</th><Th k="ops.reviewCapacity.backlog">Open items</Th></tr></thead>
+                    <tbody>{r.span.rows.map((s) => <tr key={s.supervisorId} data-supervisor={s.supervisorId}><th scope="row" className="ellipsis">{s.name}</th><td className="r tnum">{s.agents}</td><td className="r tnum">{s.openItems === null ? <span className="dim" title="Hidden: too few items or people behind it">–</span> : s.openItems}</td></tr>)}</tbody>
                   </table>)}
-                <p className="dim rc-foot">{r.span.note}</p>
+                <p className="dim rc-foot">{r.span.note}{!admin && r.span.rows.some((x) => x.openItems === null) ? ` – means hidden: fewer than ${r.minItems} items or ${r.minPeople} people behind it.` : ''}</p>
               </section>
             </div>
             <div className="rc-people">
@@ -105,11 +108,11 @@ export function ReviewCapacity() {
                 <span className="dim row" style={{ gap: 4, fontSize: 12, marginLeft: 8 }}><Wait size={12} aria-hidden />Utilisation: not measured<HelpTrigger k="ops.reviewCapacity.utilisation" /></span>
               </div>
               {admin && showPeople && (!people ? <LiveStatus className="dim">Reading people…</LiveStatus> : people.people.length === 0 ? <p className="dim rc-note" data-people="empty">Nobody decided in this window.</p> : (
-                <table className="rc-table" data-table="people">
-                  <thead><tr><th scope="col">Person (A to Z)</th><th scope="col" className="r">Decided</th><th scope="col" className="r">Median</th><th scope="col" className="r">Slowest 5%</th></tr></thead>
+                <div className="rc-scroll"><table className="rc-table" data-table="people">
+                  <thead><tr><th scope="col">Person (A to Z)</th><Th k="ops.reviewCapacity.decided">Decided</Th><Th k="ops.reviewCapacity.median">Median</Th><Th k="ops.reviewCapacity.p95">Slowest 5%</Th></tr></thead>
                   <tbody>{people.people.map((p) => <tr key={p.userId} data-person={p.name}><th scope="row">{p.name}</th><td className="r tnum">{p.decided}</td>
                     <td className="r tnum">{p.p50Ms === null ? <span className="dim">needs {people.minPercentileN}</span> : fmtDuration(p.p50Ms)}</td><td className="r tnum">{p.p95Ms === null ? <span className="dim">needs {people.minPercentileN}</span> : fmtDuration(p.p95Ms)}</td></tr>)}</tbody>
-                </table>))}
+                </table></div>))}
             </div>
           </>
         )}

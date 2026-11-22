@@ -25,3 +25,9 @@
 .rc-table .r { text-align: right; }
 .rc-table tr:last-child th, .rc-table tr:last-child td { border-bottom: 0; }
 .rc-foot { font-size: 11px; margin: 4px 0 0; }
+/* fix round F4: at phone width the head wraps (title, sub, then the 7d / 30d / 90d selector on its own line) so the selector stays inside the panel */
+.ops-review-capacity .panel-head { flex-wrap: wrap; row-gap: 6px; }
+@media (max-width: 520px) { .ops-review-capacity .panel-head .panel-sub { flex: 1 1 100%; order: 5; } .ops-review-capacity .panel-head .spacer { flex: 1 1 0; } }
+.rc-scroll { overflow-x: auto; }
+.rc-th { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.rc-table .r .rc-th { justify-content: flex-end; }

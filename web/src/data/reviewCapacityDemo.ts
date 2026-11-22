@@ -11,9 +11,9 @@ export function demoCapacity(windowDays: number): { review: ReviewCapacityDto; p
       departments: [
         { dept: 'Engineering', ...cell(24, 24 / windowDays, 2, 5 * 60_000, 2 * 3_600_000) },
         { dept: 'Operations', ...cell(17, 17 / windowDays, 2, 9 * 60_000, 4 * 3_600_000, 15) },
-        { dept: 'Finance', ...cell(3, 3 / windowDays, 0, null, null) , shown: false, arrivalPerDay: null, openBacklog: null },
+        { dept: 'Finance', ...cell(3, 3 / windowDays, 0, null, null) , shown: false, decided: null, people: null, arrivalPerDay: null, openBacklog: null },
       ],
-      littles: { status: 'pass', reason: 'ok', avgOpen: 3.8, lambdaTimesW: 3.5, relError: 0.08, relTol: 0.15, absTol: 0.25, missingClose: 0, openNow: 4 },
+      littles: { status: 'pass', reason: 'ok', avgOpen: 3.8, lambdaTimesW: 3.5, missingClose: 0, missingOpen: 0, openNow: 4 },
       span: { rows: [{ supervisorId: 'gm-01', name: 'General Manager', dept: 'Executive', agents: 6, openItems: 1 }, { supervisorId: 'eng-01', name: 'Engineering Lead', dept: 'Engineering', agents: 5, openItems: 3 }], note: 'A measure only, from the latest org chart. No recommended number: no source gives a safe span of control.' },
       utilisation: { value: null, reason: 'not_measured', note: 'Not measured in this version: AXION records how long a request waits for a decision, not how long a person spends handling it (no handling time), and there is no review hours per week setting yet.' },
     },

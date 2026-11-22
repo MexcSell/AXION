@@ -64,9 +64,10 @@ try {
   check('the department table and the observed span (agents per supervisor) are shown', (await P.locator('[data-table="departments"] tbody tr').count()) >= 1 && (await P.locator('[data-table="span"] tbody tr').count()) >= 1);
   check('the span states that no number is recommended', /No recommended number/.test(await P.innerText()));
   check('utilisation says not measured, with a ?', /Utilisation: not measured/.test(await P.innerText()));
-  check('no sort control anywhere on the panel: table headers are not buttons or links', (await P.locator('thead button, thead a, th[aria-sort], [role=columnheader] button').count()) === 0);
+  check('no sort control anywhere on the panel: table headers are not buttons or links', (await P.locator('thead button:not(.help-btn), thead a, th[aria-sort], [role=columnheader] button').count()) === 0);
   await P.getByRole('button', { name: 'Show' }).click();
   check('admin: per-person table opens, A to Z, with names', await until(async () => (await P.locator('[data-table="people"] tbody tr').count()) >= 2, 8000) && (await P.locator('[data-table="people"] tbody th').allInnerTexts()).join('|').includes('Luca'));
+  check('fix round: a ? on every column of the department table (6) and of the per-person table (3)', (await P.locator('[data-table="departments"] thead button.help-btn').count()) === 6 && (await P.locator('[data-table="people"] thead button.help-btn').count()) === 3, `${await P.locator('[data-table="departments"] thead button.help-btn').count()} / ${await P.locator('[data-table="people"] thead button.help-btn').count()}`);
   const names = await P.locator('[data-table="people"] tbody th').allInnerTexts();
   check('per-person rows are in name order, not by load', JSON.stringify(names) === JSON.stringify([...names].sort((x, y) => x.localeCompare(y))), names.join(','));
   check('fits one screen at 1366x768 (admin, per-person open)', await fits(A.p));
@@ -109,6 +110,27 @@ try {
   await A.p.getByRole('button', { name: 'Refresh now' }).first().click();
   check('LOST CLOSE EVENT: the data check shows an alert', await until(async () => (await A.p.locator('[data-cell="littles"]').getAttribute('data-status')) === 'fail' && /lost a close record/.test(await A.p.locator('[data-cell="littles"]').innerText()), 10000));
   await A.p.screenshot({ path: `${SHOTS}/admin-lost-close-dark.png` });
+  // ---- 390 px (fix round F4): the 7d / 30d / 90d selector must fit inside the viewport and stay reachable
+  {
+    const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, storageState: await A.ctx.storageState() });
+    await ctx.addInitScript(() => { try { localStorage.setItem('axion.data-mode', 'api'); localStorage.setItem('axion.testhook', '1'); } catch { /* ignore */ } });
+    const M = await ctx.newPage();
+    M.on('pageerror', (e) => errors.push(`390: ${e.message}`));
+    await goQueues(M);
+    const m = await M.evaluate(() => {
+      const vw = window.innerWidth; const panel = document.querySelector('.ops-review-capacity').getBoundingClientRect();
+      const seg = document.querySelector('.ops-review-capacity .segmented'); const r = seg.getBoundingClientRect();
+      const btns = [...seg.querySelectorAll('button, [role=radio], .seg-btn')].map((e) => { const q = e.getBoundingClientRect(); return { t: (e.textContent || '').trim(), l: Math.round(q.left), r: Math.round(q.right) }; });
+      return { vw, panelR: Math.round(panel.right), segL: Math.round(r.left), segR: Math.round(r.right), btns, page: document.documentElement.scrollWidth };
+    });
+    console.log('  390px selector', JSON.stringify(m));
+    check('390 px: the window selector lies inside the viewport and the panel', m.segR <= m.vw && m.segL >= 0 && m.btns.every((x) => x.r <= m.vw && x.l >= 0) && m.segR <= m.panelR + 1, JSON.stringify({ vw: m.vw, segR: m.segR, panelR: m.panelR }));
+    check('390 px: no page-level horizontal scroll', m.page <= m.vw);
+    await M.locator('.ops-review-capacity .segmented').getByText('90d', { exact: true }).click({ timeout: 4000 }).catch(() => {});
+    check('390 px: 90d is reachable by tap', await until(async () => (await M.locator('[data-review-capacity]').getAttribute('data-window')) === '90', 6000));
+    await M.locator('.ops-review-capacity').screenshot({ path: `${SHOTS}/panel-390.png` });
+    await ctx.close();
+  }
   check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 } catch (e) {
   fails++; console.log('FAIL unexpected', e.stack?.split('\n').slice(0, 4).join(' | '));
