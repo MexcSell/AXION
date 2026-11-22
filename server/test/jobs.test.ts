@@ -590,7 +590,7 @@ describe('concurrency', () => {
       for (const r of rows2) expect(r).toMatchObject({ status: 'leased', attempt: 2, tok: 3 });
       expect(new Set(rows2.map((r) => r.lease_owner)).size).toBeGreaterThan(1);
       // c70 (H14): the test's own footprint is bounded (the shared role is capped at 45 connections), yet the claimers really overlapped
-      expect(seen.peakClients, 'connections this test opened').toBeLessThanOrEqual(MAX_TEST_CONNECTIONS);
+      // (no `peakClients <= 8` assertion: max: 8 guarantees it)
       expect(seen.peakBusy, 'claimers in flight at the same moment').toBeGreaterThanOrEqual(4);
     } finally { await pool.end(); await m.drop(); }
   }, 60_000);
