@@ -46,6 +46,6 @@ begin
   end if;
   return false;
 end $$;
-drop function eval_canon_config(jsonb);
-drop trigger agent_version_proposals_identity on agent_version_proposals;
-drop function agent_version_proposals_identity();
+drop function if exists eval_canon_config(jsonb);
+drop trigger if exists agent_version_proposals_identity on agent_version_proposals;
+drop function if exists agent_version_proposals_identity();
