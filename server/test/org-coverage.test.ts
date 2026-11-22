@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { makeTestApp, withAdmin, type TestApp, type Browser } from './helpers.ts';
 import { orgCoverage, coverageChanges, ROLE_CATALOG, type CoverageAgent } from '../src/organization/coverage.ts';
 import { AGENTS } from '../../web/src/data/agents.ts';
+const ST = { baseline: 'No change: keep the current chart as it is.', expectedCost: 'No added cost is expected in this test.' }; // c64: every proposal states a baseline and its expected cost
 
 // Improvement cycle 20 (theme A5): org coverage facts (brief c20-brief.md). Pure facts first, then the routes.
 const AG: CoverageAgent[] = [
@@ -77,7 +78,7 @@ let n = 0;
 const key = () => ({ 'idempotency-key': 'cv' + n++ });
 type Edge = { supervisorId: string; subordinateId: string };
 const graph = async () => (await A.req('GET', '/organization/graph')).body as { revision: { seq: number }; edges: Edge[] };
-const propose = (b: Browser, edges: Edge[], base: number, title = 'cov') => b.req('POST', '/organization/proposals', { title, why: '', baseRevision: base, edges }, key());
+const propose = (b: Browser, edges: Edge[], base: number, title = 'cov') => b.req('POST', '/organization/proposals', { ...ST, title, why: '', baseRevision: base, edges }, key());
 
 describe('GET /organization/coverage and the proposal coverage block', () => {
   beforeAll(async () => {

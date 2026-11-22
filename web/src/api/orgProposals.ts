@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
-import type { OrgCoverage, OrgDiffDto, OrgDryRun, OrgEdgeDto, OrgProposalDto, OrgRevisionSummaryDto } from '@contracts';
+import type { RestructureTrigger, OrgCoverage, OrgDiffDto, OrgDryRun, OrgEdgeDto, OrgProposalDto, OrgRevisionSummaryDto } from '@contracts';
 import { api, ApiFailure, newKey } from './client';
 import { isApi } from './mode';
 
@@ -31,7 +31,7 @@ export type Write<T> = { ok: true; value: T } | { ok: false; code: string; messa
 const fail = (e: unknown): { ok: false; code: string; message: string } =>
   (e instanceof ApiFailure ? { ok: false, code: e.code, message: e.message } : { ok: false, code: 'UNKNOWN', message: 'Something went wrong.' });
 
-export interface ProposalBody { title: string; why: string; baseRevision: number; edges: OrgEdgeDto[] }
+export interface ProposalBody { title: string; why: string; baseRevision: number; edges: OrgEdgeDto[]; triggers?: RestructureTrigger[]; baseline?: string; expectedCost?: string }
 /** The server's dry run of a proposal: stores nothing (POST ?dryRun=1). */
 export async function dryRunProposal(body: ProposalBody, signal?: AbortSignal): Promise<Write<OrgDryRun>> {
   try { return { ok: true, value: (await api<{ result: OrgDryRun }>('POST', '/organization/proposals?dryRun=1', body, { signal })).result }; }

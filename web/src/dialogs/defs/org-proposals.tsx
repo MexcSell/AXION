@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { GitPullRequest, ArrowRight, Plus, Minus, ShieldAlert, Loader2, Info } from 'lucide-react';
-import type { OrgDryRun, OrgEdgeDto } from '@contracts';
+import { GitPullRequest, ArrowRight, Plus, Minus, ShieldAlert, Loader2, Info, Target } from 'lucide-react';
+import type { OrgDryRun, OrgEdgeDto, RestructureTrigger } from '@contracts';
 import { Modal } from '@/components/ui/Modal';
 import { Field } from '@/components/ui/Form';
 import { Chip } from '@/components/ui/Chips';
@@ -12,11 +12,14 @@ import { isApi } from '@/api/mode';
 import { useAgentsCatalog, useOrgGraph } from '@/api/agents';
 import { createProposal, dryRunProposal, newKey } from '@/api/orgProposals';
 import { DryRunView } from '@/features/agents/ServerProposals';
+import { TRIGGERS } from '@/features/agents/OrgRestructure';
 import { toast } from '@/store/ui';
 import type { DialogComponentProps } from '@/dialogs/DialogHost';
 import '@/theme/pages/overview-org-agent.css';
 
 interface Change { agentId: string; managerId: string }
+/** the server's minimum for the baseline and expected cost statements */
+const MIN = 20;
 const name = (id: string) => AGENT_BY_ID[id]?.name ?? id;
 /** api mode: the server's lifecycle (active | retired) rides along on the catalog's agents */
 const active = (a: object) => (a as { lifecycle?: string }).lifecycle !== 'retired';
@@ -33,6 +36,9 @@ function OrgProposalNew({ close }: DialogComponentProps) {
   const [changes, setChanges] = useState<Change[]>([{ agentId: '', managerId: '' }]);
   const [title, setTitle] = useState('');
   const [why, setWhy] = useState('');
+  const [triggers, setTriggers] = useState<RestructureTrigger[]>([]);
+  const [baseline, setBaseline] = useState('');
+  const [cost, setCost] = useState('');
   const [busy, setBusy] = useState(false);
   const [srvErr, setSrvErr] = useState<string | null>(null);
   const [dry, setDry] = useState<{ state: 'idle' | 'checking' | 'done' | 'error'; r?: OrgDryRun; msg?: string }>({ state: 'idle' });
@@ -48,16 +54,18 @@ function OrgProposalNew({ close }: DialogComponentProps) {
     return out;
   }, [base, JSON.stringify(effective)]); // eslint-disable-line react-hooks/exhaustive-deps
   const autoTitle = effective.length === 1 ? `Move ${name(effective[0].agentId)} under ${name(effective[0].managerId)}` : `${effective.length} reporting-line changes`;
-  const body = () => ({ title: (title.trim() || autoTitle).slice(0, 120), why: why.trim(), baseRevision: base?.revision?.seq ?? 0, edges });
+  const body = () => ({ title: (title.trim() || autoTitle).slice(0, 120), why: why.trim(), baseRevision: base?.revision?.seq ?? 0, edges, triggers, baseline: baseline.trim(), expectedCost: cost.trim() });
 
   // the server's dry run, re-run (debounced) whenever the proposed lines change
-  const sig = JSON.stringify([base?.revision?.seq, edges]);
+  const sig = JSON.stringify([base?.revision?.seq, edges, triggers]);
   useEffect(() => {
     if (!api_ || !base?.revision || effective.length === 0) { setDry({ state: 'idle' }); return; }
     const ac = new AbortController();
     setDry((d) => ({ ...d, state: 'checking' }));
     const t = window.setTimeout(async () => {
-      const r = await dryRunProposal(body(), ac.signal);
+      const { baseline: _b, expectedCost: _c, ...dryBody } = body(); // the two statements are needed to submit, not to check the chart
+      void _b; void _c;
+      const r = await dryRunProposal(dryBody, ac.signal);
       if (ac.signal.aborted) return;
       setDry(r.ok ? { state: 'done', r: r.value } : { state: 'error', msg: r.message });
     }, 300);
@@ -65,7 +73,7 @@ function OrgProposalNew({ close }: DialogComponentProps) {
   }, [sig]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = (i: number, p: Partial<Change>) => { setSrvErr(null); setChanges(changes.map((c, k) => (k === i ? { ...c, ...p } : c))); };
-  const err = !api_ ? 'Proposals are stored on the server' : !base?.revision ? 'The organisation chart is not loaded yet' : effective.length === 0 ? 'Choose an agent and a new manager' : '';
+  const err = !api_ ? 'Proposals are stored on the server' : !base?.revision ? 'The organisation chart is not loaded yet' : effective.length === 0 ? 'Choose an agent and a new manager' : baseline.trim().length < MIN || cost.trim().length < MIN ? `State the baseline and the expected cost (at least ${MIN} characters each)` : '';
   const submit = async () => {
     if (err || busy) return;
     setBusy(true); setSrvErr(null);
@@ -78,8 +86,8 @@ function OrgProposalNew({ close }: DialogComponentProps) {
 
   return (
     <Modal title="New organisation proposal" icon={GitPullRequest} help="org.proposal.new" dialogId="DL-66" size="xl" onClose={close}
-      sub="Give agents a new manager. The server checks the whole chart now; another administrator approves it, which adds a new org revision. Running missions keep their teams."
-      footer={<><button className="btn" onClick={close}>Cancel</button><button className="btn primary" disabled={!!err || busy} onClick={submit}>{busy ? <Loader2 size={14} className="spin" /> : <GitPullRequest size={14} />}Submit proposal</button></>}>
+      sub="Give agents a new manager. The server checks the chart; another administrator approves it as a new org revision."
+      footer={<>{err && api_ && base?.revision && effective.length > 0 && <span className="dim" style={{ fontSize: 12, marginRight: 'auto' }} data-submit-hint>{err}</span>}<button className="btn" onClick={close}>Cancel</button><button className="btn primary" disabled={!!err || busy} onClick={submit}>{busy ? <Loader2 size={14} className="spin" /> : <GitPullRequest size={14} />}Submit proposal</button></>}>
       <div className="oa-diff-cols">
         <div className="col" style={{ gap: 10 }}>
           <div className="row" style={{ gap: 8 }}>
@@ -108,15 +116,23 @@ function OrgProposalNew({ close }: DialogComponentProps) {
             );
           })}
           <button className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={() => setChanges([...changes, { agentId: '', managerId: '' }])}><Plus size={14} />Add change</button>
-          <Field label="Title" htmlFor="op-title" hint={`Optional. Default: “${autoTitle}”`}><input id="op-title" className="input" value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} placeholder={autoTitle} /></Field>
-          <Field label="Why" htmlFor="op-why" hint="Optional. Shown to the administrator who decides."><textarea id="op-why" className="textarea" rows={3} maxLength={2000} value={why} onChange={(e) => setWhy(e.target.value)} placeholder="What gets better with this reporting line?" /></Field>
+          <Field label="Title" htmlFor="op-title"><input id="op-title" className="input" value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} placeholder={autoTitle} /></Field>
+          <Field label="Why" htmlFor="op-why"><textarea id="op-why" className="textarea" rows={1} style={{ minHeight: 40 }} maxLength={2000} value={why} onChange={(e) => setWhy(e.target.value)} placeholder="Optional. What gets better?" /></Field>
+          <div className="col" style={{ gap: 6 }} data-restructure-triggers>
+            <div className="row" style={{ gap: 6 }}><Target size={13} aria-hidden /><b style={{ fontSize: 12.5 }}>What motivates this?</b><HelpTrigger k="org.proposal.triggers" /></div>
+            <div className="row wrap" style={{ gap: 6 }} role="group" aria-label="Triggers">
+              {TRIGGERS.map((t) => { const on = triggers.includes(t.key); return (
+                <button key={t.key} type="button" className={'btn sm' + (on ? ' primary' : '')} aria-pressed={on} title={t.hint} data-trigger-pick={t.key}
+                  onClick={() => setTriggers(on ? triggers.filter((x) => x !== t.key) : [...triggers, t.key])}><t.icon size={13} />{t.label}</button>); })}
+            </div>
+          </div>
         </div>
         <div className="col" style={{ gap: 10 }} data-dialog-dry-run={dry.state}>
           <div className="row" style={{ gap: 8 }}><div className="section-label" style={{ margin: 0 }}>Server dry run</div><HelpTrigger k="org.proposal.dryRun" /></div>
           {dry.state === 'idle' && <span className="dim" style={{ fontSize: 12.5 }}>Pick a change: the server checks the whole chart (unknown agents, self-management, loops, two managers, agents left without a manager) and lists the lines added and removed.</span>}
           {dry.state === 'checking' && <span className="dim row" role="status" style={{ gap: 6, fontSize: 12.5 }}><Loader2 size={13} className="spin" />Checking on the server…</span>}
           {dry.state === 'error' && <div className="oa-banner" role="alert"><ShieldAlert size={15} /><span>{dry.msg}</span></div>}
-          {dry.r && dry.state !== 'error' && <div style={{ opacity: dry.state === 'checking' ? .55 : 1, transition: 'opacity .2s' }}><DryRunView r={dry.r} max={20} /></div>}
+          {dry.r && dry.state !== 'error' && <div style={{ opacity: dry.state === 'checking' ? .55 : 1, transition: 'opacity .2s' }}><DryRunView r={dry.r} max={20} compact /></div>}
           {effective.length > 0 && (
             <div className="col" style={{ gap: 6 }}>
               {effective.map((c) => (
@@ -129,6 +145,10 @@ function OrgProposalNew({ close }: DialogComponentProps) {
           )}
           {srvErr && <div className="oa-banner" role="alert"><ShieldAlert size={15} /><span>{srvErr}</span></div>}
         </div>
+      </div>
+      <div className="oa-rs-form" data-restructure-form>
+        <Field label="Baseline" htmlFor="op-baseline" hint={`${baseline.trim().length}/${MIN} characters minimum. What is it compared with?`}><textarea id="op-baseline" className="textarea" rows={2} style={{ minHeight: 40 }} maxLength={1000} value={baseline} onChange={(e) => setBaseline(e.target.value)} placeholder="No change: keep today’s lines, because…" /></Field>
+        <Field label="Expected added cost" htmlFor="op-cost" hint={`${cost.trim().length}/${MIN} characters minimum. Extra hops, coordination.`}><textarea id="op-cost" className="textarea" rows={2} style={{ minHeight: 40 }} maxLength={1000} value={cost} onChange={(e) => setCost(e.target.value)} placeholder="One more hop for escalations from…" /></Field>
       </div>
     </Modal>
   );

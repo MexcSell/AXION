@@ -8,6 +8,7 @@ import { loadRow, missionDto } from '../src/missions/service.ts';
 import { AGENTS, AGENT_BY_ID } from '../../web/src/data/agents.ts';
 import { staffingPlan, executorFor } from '../../web/src/features/mission/staffing-plan.ts';
 import { KIND_DEPT, kindDeptText, departmentHead, departmentHeads, orgStaffing, FORMER_EXECUTOR_WHY, type OrgView } from '../../web/src/features/mission/staffing-org.ts';
+const ST = { baseline: 'No change: keep the current chart as it is.', expectedCost: 'No added cost is expected in this test.' }; // c64: every proposal states a baseline and its expected cost
 
 // Improvement cycle 11 (brief web/docs/improve/cycles/c11-brief.md): new real missions are staffed by the active organisation.
 const KINDS = ['website', 'research', 'training', 'data', 'automation', 'structure', 'self-update'] as const;
@@ -110,7 +111,7 @@ type Edge = { supervisorId: string; subordinateId: string };
 async function applyMoves(A: Browser, B: Browser, moves: Record<string, string>) {
   const g = (await A.req('GET', '/organization/graph')).body as { revision: { seq: number }; edges: Edge[] };
   const edges = g.edges.map((e) => (moves[e.subordinateId] ? { ...e, supervisorId: moves[e.subordinateId] } : e));
-  const p = await A.req('POST', '/organization/proposals', { title: 'c11 move', why: 'Test.', baseRevision: g.revision.seq, edges }, key());
+  const p = await A.req('POST', '/organization/proposals', { ...ST, title: 'c11 move', why: 'Test.', baseRevision: g.revision.seq, edges }, key());
   expect(p.status, JSON.stringify(p.body)).toBe(201);
   const d = await B.req('POST', `/organization/proposals/${p.body.proposal.id}/decision`, { decision: 'approve', sha: p.body.proposal.sha });
   expect(d.status, JSON.stringify(d.body)).toBe(200);

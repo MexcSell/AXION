@@ -46,7 +46,7 @@ try {
   const g = (await j('GET', '/organization/graph')).body;
   const drop = g.edges.find((e) => e.subordinateId === 'writer-01');
   const edges = g.edges.filter((e) => e !== drop);
-  const made = await j('POST', '/organization/proposals', { title: 'Drop the writer line', why: 'coverage check', baseRevision: g.revision.seq, edges }, { 'idempotency-key': 'c20-' + Date.now() });
+  const made = await j('POST', '/organization/proposals', { title: 'Drop the writer line', why: 'coverage check', baseline: 'No change: keep the current chart.', expectedCost: 'No added cost is expected here.', baseRevision: g.revision.seq, edges }, { 'idempotency-key': 'c20-' + Date.now() });
   check('c20 the proposal is stored (dry-run errors do not stop storing)', made.status === 201, String(made.status));
   await p.goto(base + '/operations?tab=agents&sub=proposals', { waitUntil: 'domcontentloaded' });
   await settle(p);

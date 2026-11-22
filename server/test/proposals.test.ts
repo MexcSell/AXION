@@ -5,6 +5,7 @@ import { seedDemo } from '../src/seed/demo.ts';
 import { createOrgRevision } from '../src/agents/org.ts';
 import { tx } from '../src/db.ts';
 import { LOCK_KEY_SQL } from '../src/locks.ts';
+const ST = { baseline: 'No change: keep the current chart as it is.', expectedCost: 'No added cost is expected in this test.' }; // c64: every proposal states a baseline and its expected cost
 
 // Improvement cycle 1: organisation change proposals (brief web/docs/improve/cycles/c01-brief.md, "Tests").
 let t: TestApp;
@@ -25,7 +26,7 @@ const moved = (edges: Edge[], sub: string, sup: string) => edges.map((e) => (e.s
 const norm = (es: Edge[]) => es.map((e) => `${e.supervisorId}>${e.subordinateId}:${e.edgeType ?? 'reports_to'}`).sort();
 async function propose(by: Browser, sub: string, sup: string, title = `Move ${sub} under ${sup}`, extra: Record<string, unknown> = {}) {
   const g = await graph();
-  return by.req('POST', '/organization/proposals', { title, why: 'Shorter path for reviews.', baseRevision: g.revision.seq, edges: moved(g.edges, sub, sup), ...extra }, key());
+  return by.req('POST', '/organization/proposals', { ...ST, title, why: 'Shorter path for reviews.', baseRevision: g.revision.seq, edges: moved(g.edges, sub, sup), ...extra }, key());
 }
 const decide = (by: Browser, p: { id: string; sha: string }, decision: 'approve' | 'reject', extra: Record<string, unknown> = {}) =>
   by.req('POST', `/organization/proposals/${p.id}/decision`, { decision, sha: p.sha, ...extra });
@@ -59,7 +60,7 @@ describe('permissions and creation', () => {
 
   it('POST needs an Idempotency-Key', async () => {
     const g = await graph();
-    const r = await A.req('POST', '/organization/proposals', { title: 'x', why: '', baseRevision: g.revision.seq, edges: g.edges });
+    const r = await A.req('POST', '/organization/proposals', { ...ST, title: 'x', why: '', baseRevision: g.revision.seq, edges: g.edges });
     expect(r.status).toBe(400);
     expect(r.body.code).toBe('IDEMPOTENCY_KEY_REQUIRED');
   });
@@ -79,7 +80,7 @@ describe('permissions and creation', () => {
 
   it('a stale base revision at creation is 409 ORG_CHANGED (the dialog was opened on an older chart)', async () => {
     const g = await graph();
-    const r = await A.req('POST', '/organization/proposals', { title: 'Old', why: '', baseRevision: g.revision.seq - 1, edges: g.edges }, key());
+    const r = await A.req('POST', '/organization/proposals', { ...ST, title: 'Old', why: '', baseRevision: g.revision.seq - 1, edges: g.edges }, key());
     expect(r.status).toBe(409);
     expect(r.body.code).toBe('ORG_CHANGED');
   });
@@ -175,7 +176,7 @@ describe('base and payload checks', () => {
   it('an invalid proposal is stored with its errors but approval is 422 ORG_INVALID', async () => {
     const g = await graph();
     const cyc = g.edges.filter((e) => e.subordinateId !== 'ops-01').concat({ supervisorId: 'coder-01', subordinateId: 'ops-01' }); // ops-01 → coder-01 → ops-01
-    const r = await A.req('POST', '/organization/proposals', { title: 'Loop', why: '', baseRevision: g.revision.seq, edges: cyc }, key());
+    const r = await A.req('POST', '/organization/proposals', { ...ST, title: 'Loop', why: '', baseRevision: g.revision.seq, edges: cyc }, key());
     expect(r.status).toBe(201);
     expect(r.body.proposal.result.ok).toBe(false);
     expect(r.body.proposal.result.errors.map((e: { code: string }) => e.code)).toContain('CYCLE');

@@ -159,6 +159,10 @@ try {
   await dlg.getByRole('button', { name: 'Remove change 2' }).click();
   await until(async () => (await dlg.locator('[data-dialog-dry-run="done"] [data-dry-run="ok"]').count()) === 1, 8000);
   await dlg.getByLabel('Why', { exact: true }).fill('Ops reviews every release: Coder-01 reports there.');
+  // c64: a baseline and an expected cost are required before it can be submitted
+  check('c64 Submit is disabled until the baseline and the expected cost are written', await dlg.getByRole('button', { name: 'Submit proposal' }).isDisabled());
+  await dlg.getByLabel('Baseline', { exact: true }).fill('No change: keep Coder-01 under the GM.');
+  await dlg.getByLabel('Expected added cost', { exact: true }).fill('One more hop for escalations from Coder-01.');
   await dlg.getByRole('button', { name: 'Submit proposal' }).click();
   check('the dialog closes after submit', await until(async () => (await dlg.count()) === 0, 8000));
   const list1 = (await apiA('GET', '/organization/proposals')).body.proposals;
@@ -172,7 +176,7 @@ try {
     await until(async () => (await card(C.p, P1.id).count()) === 1, 10000) && (await card(C.p, P1.id).getByRole('button', { name: DECISION_BUTTON }).count()) === 0 && (await card(C.p, P1.id).getByLabel(/Decision note/).count()) === 0);
 
   // ------------------------------------------------------------ a second proposal on the same base (made through the API)
-  const P2r = await apiA('POST', '/organization/proposals', { title: 'Writer-01 under Ops-01', why: '', baseRevision: 1, edges: g0.edges.map((e) => (e.subordinateId === 'writer-01' ? { ...e, supervisorId: 'ops-01' } : e)) }, { 'idempotency-key': `c01-${Date.now()}` });
+  const P2r = await apiA('POST', '/organization/proposals', { title: 'Writer-01 under Ops-01', why: '', baseline: 'No change: keep the current chart.', expectedCost: 'No added cost is expected here.', baseRevision: 1, edges: g0.edges.map((e) => (e.subordinateId === 'writer-01' ? { ...e, supervisorId: 'ops-01' } : e)) }, { 'idempotency-key': `c01-${Date.now()}` });
   const P2 = P2r.body.proposal;
   check('a second proposal on the same base is stored', P2r.status === 201 && P2?.baseRevision === 1);
 
@@ -346,7 +350,7 @@ try {
   // Only the e2e database (axion_e2e, emptied on every API start) is touched, to move one proposal's expiry into the past.
   // (e2eUrl: read and guarded in the c04 step above)
   const g2 = (await apiA('GET', '/organization/graph')).body;
-  const P3 = (await apiA('POST', '/organization/proposals', { title: 'Designer-01 under Ops-01', why: '', baseRevision: g2.revision.seq, edges: g2.edges.map((e) => (e.subordinateId === 'designer-01' ? { ...e, supervisorId: 'ops-01' } : e)) }, { 'idempotency-key': `c01-p3-${Date.now()}` })).body.proposal;
+  const P3 = (await apiA('POST', '/organization/proposals', { title: 'Designer-01 under Ops-01', why: '', baseline: 'No change: keep the current chart.', expectedCost: 'No added cost is expected here.', baseRevision: g2.revision.seq, edges: g2.edges.map((e) => (e.subordinateId === 'designer-01' ? { ...e, supervisorId: 'ops-01' } : e)) }, { 'idempotency-key': `c01-p3-${Date.now()}` })).body.proposal;
   await B.p.getByRole('radio', { name: /^Pending/ }).click();
   await card(B.p, P3.id).waitFor({ timeout: 10000 });
   // Deterministic, no timing luck (cycle 8): any read of the proposals list that B's page makes after the expiry below would
@@ -372,7 +376,7 @@ try {
 
   // ------------------------------------------------------------ fix round: a new agent is a new org revision, so a pending proposal turns stale live
   const g3 = (await apiA('GET', '/organization/graph')).body;
-  const P4 = (await apiA('POST', '/organization/proposals', { title: 'Tester-01 under Ops-01', why: '', baseRevision: g3.revision.seq, edges: g3.edges.map((e) => (e.subordinateId === 'tester-01' ? { ...e, supervisorId: 'ops-01' } : e)) }, { 'idempotency-key': `c01-p4-${Date.now()}` })).body.proposal;
+  const P4 = (await apiA('POST', '/organization/proposals', { title: 'Tester-01 under Ops-01', why: '', baseline: 'No change: keep the current chart.', expectedCost: 'No added cost is expected here.', baseRevision: g3.revision.seq, edges: g3.edges.map((e) => (e.subordinateId === 'tester-01' ? { ...e, supervisorId: 'ops-01' } : e)) }, { 'idempotency-key': `c01-p4-${Date.now()}` })).body.proposal;
   await card(B.p, P4.id).waitFor({ timeout: 10000 });
   check('a fresh proposal is not stale and can be approved', (await card(B.p, P4.id).getByText(/^stale/).count()) === 0 && !(await card(B.p, P4.id).getByRole('button', { name: 'Approve', exact: true }).isDisabled()));
   const na = await apiA('POST', '/agents', { name: 'Archivist-01', role: 'archivist', dept: 'Operations', duty: 'Keeps the archive', model: 'claude-sonnet-5-5' }, { 'idempotency-key': `c01-agent-${Date.now()}` });

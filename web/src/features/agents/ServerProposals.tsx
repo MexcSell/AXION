@@ -18,6 +18,7 @@ import { ago, cx } from '@/lib/format';
 import { OrgHistory } from './OrgHistory';
 import { Line } from './OrgLine';
 import { CoverageChanges } from './OrgCoverage';
+import { EvidenceBlock, ContractChecks, ChurnStatus, Statements } from './OrgRestructure';
 import '@/theme/pages/overview-org-agent.css';
 
 /* Improvement cycle 1 (api mode): the server's organisation proposals. Only stored facts are shown: the lines a
@@ -33,8 +34,11 @@ const STATUS: Record<OrgProposalStatus, { label: string; hue: number; icon: type
   withdrawn: { label: 'Withdrawn', hue: 225, icon: Undo2 },
 };
 
+/** Errors the contract checks panel already shows, with their reasons. */
+const CONTRACT_CODES = new Set(['TEAM_REVIEWERS', 'ESCALATION_TOO_DEEP']);
+
 /** The server's dry run: errors (red), warnings (amber), and the reporting lines added and removed as "A → B". */
-export function DryRunView({ r, max = 6 }: { r: OrgDryRun; max?: number }) {
+export function DryRunView({ r, max = 6, compact, asOf }: { r: OrgDryRun; max?: number; compact?: boolean; asOf?: string | null }) {
   const lines = [...r.added.map((e) => ({ e, kind: 'add' as const })), ...r.removed.map((e) => ({ e, kind: 'rm' as const }))];
   return (
     <div className="oa-dry" data-dry-run={r.ok ? 'ok' : 'errors'}>
@@ -43,9 +47,12 @@ export function DryRunView({ r, max = 6 }: { r: OrgDryRun; max?: number }) {
         {r.warnings.length > 0 && <Chip hue={38} icon={AlertTriangle} size="sm">{r.warnings.length} {r.warnings.length === 1 ? 'warning' : 'warnings'}</Chip>}
         <span className="dim" style={{ fontSize: 11.5 }}>{r.added.length} added · {r.removed.length} removed</span>
       </div>
-      {r.errors.map((x, i) => <div key={'e' + i} className="oa-issue bad" data-issue={x.code}><AlertOctagon size={13} aria-hidden /><span>{x.message}</span></div>)}
+      {r.errors.filter((x) => !(r.contracts && CONTRACT_CODES.has(x.code))).map((x, i) => <div key={'e' + i} className="oa-issue bad" data-issue={x.code}><AlertOctagon size={13} aria-hidden /><span>{x.message}</span></div>)}
       {r.warnings.map((x, i) => <div key={'w' + i} className="oa-issue warn" data-issue={x.code}><AlertTriangle size={13} aria-hidden /><span>{x.message}</span></div>)}
       {r.coverage && <CoverageChanges changes={r.coverage.changes} />}
+      {r.contracts && <ContractChecks checks={r.contracts} />}
+      {r.churn && <ChurnStatus churn={r.churn} asOf={asOf} />}
+      {r.evidence && <EvidenceBlock ev={r.evidence} compact={compact} asOf={asOf} />}
       {lines.length > 0 && (
         <div className="oa-lines">
           {lines.slice(0, max).map(({ e, kind }) => <Line key={kind + e.subordinateId + e.supervisorId} e={e} kind={kind} />)}
@@ -93,7 +100,8 @@ function ProposalCard({ p, active, meId, admin, index, err, setErr, highlight }:
         {p.appliedRevision !== null && <Chip hue={145} icon={CheckCircle2} size="sm">applied as rev {p.appliedRevision}</Chip>}
         {pending && <Chip hue={260} icon={Hourglass} size="sm" title={new Date(p.expiresAt).toLocaleString()}>expires in {leftH >= 48 ? `${Math.round(leftH / 24)} d` : `${Math.ceil(leftH)} h`}</Chip>}
       </div>
-      <DryRunView r={p.result} />
+      <Statements baseline={p.baseline} cost={p.expectedCost} />
+      <DryRunView r={p.result} asOf={p.createdAt} />
       {p.decidedByName && p.status !== 'pending' && (
         <div className="dim" style={{ fontSize: 12, marginTop: 8 }}>{S.label} by {p.decidedByName}{p.decidedAt ? ` · ${ago((Date.now() - new Date(p.decidedAt).getTime()) / 60_000)}` : ''}{p.decisionNote ? <> · “{p.decisionNote}”</> : null}</div>
       )}
