@@ -303,7 +303,11 @@ try {
   const inst1 = await managers();
   check('c04 running missions untouched: every instance keeps manager_instance_id after the rollback (e2e database, SELECT only)', inst0.length > 0 && JSON.stringify(inst1.filter((x) => inst0.some((y) => y.id === x.id))) === JSON.stringify(inst0), `${inst0.length} instances`);
   const txt4 = await hist(A.p).innerText();
-  check('c04 nothing invented in the History view (no percentages, no estimates)', !/\d+\s*%/.test(txt4) && !/coverage|latency|tokens|estimate/i.test(txt4));
+  // c04's intent: the History panel invents no numbers (no percentages, no latency/token figures, no estimates). Since c20 the panel
+  // legitimately shows the server's structure facts ("Structure in this revision", the word "coverage" in help), so the word alone is
+  // no longer banned: what stays forbidden is a coverage CLAIM, i.e. the word next to a figure, ratio, percentage or score.
+  const claim4 = /\d+\s*%|latency|tokens|estimate|coverage\W{0,3}(?:score|rate|ratio|level|index|of\s+\d|\d)|\d+(?:\.\d+)?\s*(?:\/\s*\d+\s*)?(?:of\s+\d+\s*)?(?:%\s*)?coverage/i.exec(txt4);
+  check('c04 nothing invented in the History view (no percentages, no latency/tokens/estimates, no coverage figure or score; the word coverage alone is allowed)', !claim4, claim4 ? `found: ${claim4[0]}` : '');
   check('c04 the History panel head (title, Proposals | History switch) is on screen', await A.p.locator('[data-org-history] .panel-head').isVisible() && await A.p.locator('[data-org-history] .panel-head').evaluate((el) => { const r = el.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }));
   // the screenshot: no toasts, the agent boards folded (unfolded again after), the pointer away
   for (const x of await A.p.getByRole('button', { name: 'Dismiss notification' }).all()) await x.click().catch(() => {});
