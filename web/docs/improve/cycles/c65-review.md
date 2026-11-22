@@ -1,0 +1,64 @@
+# c65 review (R3-10 review-capacity view), branch c65-review-capacity 7f31c94..d0764e3
+
+Verdict: **CLEAR AFTER FIXES** (no blocker for data safety; one should-fix makes the "data check" raise false alarms and otherwise check nothing).
+
+Verified by running: `vitest test/c65 test/contracts` in the lane: 9 files, 48 tests pass. api-c65-style run (ports 11392/11393, axion_e2e10) plus my own 390 px and member probes: 0 FAIL. Probe DB tests were run in a copy of server/ under the scratchpad; the lane tree is unchanged (git status clean). Nothing left running (ports 11390-11393 free).
+
+## Findings
+
+### F1 (should-fix) The Little's-law check is nearly an identity, and it raises false alarms on healthy data
+Evidence: model.ts CELL_AGG. sum_tis covers items that ARRIVED in the window, taken to close or now. sum_overlap covers ALL items, clipped to the window. Every item that arrived in the window closed before now, so its clipped time equals its full time. The two sides differ only by the carry-in overlap of items that arrived before the window.
+- Real data gaps are not caught by the averages. A lost close is caught by the separate `missing_close` flag. The averages cannot see lost arrivals, wrong timestamps or duplicates, because both sides come from the same rows.
+- False alarm. Probe: 10 approvals decided in 2 days plus one approval still pending that was raised 10 days ago, window 7. Result: `{"status":"fail","reason":"mismatch","avgOpen":1.0595,"lambdaTimesW":0.0595,"relError":0.94}`. A healthy system shows "Records disagree" with `role=alert`. Any item older than the window (a 7-day window against slow tasks or approvals with long expiry) triggers it.
+- The 15% tolerance is not principled. The boundary error is carry-in / window, which grows as the window shrinks, and the check tests exactly that, so for 7 days it is the most fragile.
+Fix: either (a) drop the averages comparison and keep only `missing_close` and a count reconciliation (arrivals in the window = decided + expired + open, taken from independent counts), or (b) compare over a window with the carry-in removed: take L over items that arrived in the window only and compare with lambda*W, or add the carry-in term to lambda*W. Describe honestly in the help that Little's law here is a consistency check on stored rows.
+
+### F2 (should-fix) A task in `waiting_user` with no arrival event is invisible and not flagged
+Probe: `addTask(status waiting_user)` with no events gives `n 0, open 0, littles insufficient/no_arrivals`. Task waits exist only through `task.stateChanged` events (the PATCH route in tasks/routes.ts:97 is the only writer, so live data is mostly fine, but seeded, imported or fixture tasks are not). `missing_close` only looks at tasks that have an arrival event. A reverse check (`tasks.status='waiting_user'` with no open wait row) should count as a missing arrival. The brief asked "every missing close, for task waits from events": the close side is covered (verified: task moved on with no event out gives missing_close=1), the arrival side is not.
+
+### F3 (should-fix) The member can read counts that the floor hides
+- `toCell` always returns `decided` and `people`, even when `shown:false`. Probe as member (one decider): `{"n":10,"decided":5,"people":1,"shown":false,...}`. `people:1` tells a member that a single person made all the decisions in that department. The UI prints "n items and N people so far". Suppress `people` and `decided` (or return null) when not shown, or accept as designed and say so. n is allowed by the brief.
+- Span rows show `openItems` per supervisor with no floor. A member can add them up and recover the total backlog the cell suppressed. The rows are agents (supervisorIds are agent_definitions), not people, so no person is identified, but the floor is bypassed. Apply the same floor to `openItems` for non-admins, or state it.
+- Complementary disclosure: a hidden department can be derived as total minus the shown departments. The same holds for c58's approver aggregates; minor.
+- Probed OK: member `GET /review-capacity/people` 403 (also with `?sort=desc`), `?windowDays=8` 400, `&sort=n` 400, `?user=x` 400, POST/PUT/DELETE 404. Member body has no user id or name (grepped for Luca, Mina, userId, ids). No new SSE or event types are added. (Note `?windowDays=30.0` returns 200; harmless.)
+
+### F4 (should-fix) UI at 390 px: the window selector overflows the panel
+My probe at 390x844 (Operations > Queues): no page-level horizontal scroll (scrollWidth 390), but `.segmented.sm`, its `.seg-btn` buttons and `.seg-thumb` end beyond the viewport edge (right > 390) and are clipped. In the screenshot the 7d / 30d control runs off the panel on the right, so 90d cannot be reached. The panel's `actions` slot does not wrap. The lane did not run a phone check (they said so). Screenshots: /tmp/claude-0/-home-luca-AXION/110db678-84c0-496e-aaa7-b625859aebb5/scratchpad/shots/m-admin-people.png (m-admin.png and m-member.png are next to it). Help popover fits (x 38, width 340). Fix: allow the Panel actions to wrap under the title below 520 px, or put the Segmented into the body.
+
+### F5 (should-fix) Department rule differs from c54 for tasks, and simulated tasks are counted
+- c54 (departments.ts:198) owner = `coalesce(i.agent_id, t.owner_agent)` (the owner instance's agent first). c65 uses `t.owner_agent` only (model.ts tw join). A task owned through an instance is Unassigned in c65 and in a department in c54. c63 also uses the current owner. Use the same coalesce (join instances as c54 does) so the three views agree. The rule is documented (DEPARTMENT_RULE and the `?`) and tested; the agreement across cycles is not.
+- c54 excludes simulated tasks (`t.simulated or m.demo`). c65 filters only `m.demo = false`, so a simulated task that goes to waiting_user counts as a person's waiting item. Add `and not t.simulated`.
+- Department is the CURRENT catalogue department (retroactive when an agent's dept is edited). Same as c63; state it (the report mentions it in Concern 4 only).
+
+### F6 (minor) Cohort inconsistency and legacy rows
+- Arrivals, decided_n, p50 and p95 use the arrival cohort (`arrived >= start`). `people` and the per-person table use `closed >= start`. c58's quality route uses the decision time. So `decided` for a window and the per-person `decided` sum can differ, and `people` is for a different set than `decided`. Choose one and say it in the `?`.
+- Approvals decided before c58 have a decision row with null latency_ms. Probe: 25 such rows give `decided:25, p50Ms:null, p95Ms:null`. The "n =" shown under the median says 25 while no number exists, and when 20+ legacy rows plus a few real ones exist, the percentile is computed from the few real ones but gated on the 25. Count `decided_n` only where latency_ms is not null for the percentile gate.
+- Expired approvals count as arrivals but not as decided; so p50/p95 describe only items that got a decision (survivor bias: slow and abandoned items are left out of the "time to decide"). The `?` for median does not say expired items are excluded. Say so, or show the expired count.
+- missing_close counts `state not in ('pending','expired')` with no decision row. 'revoked' is allowed by the 0004 check constraint but nothing in src writes it today; if it ever does, the check fails forever. Exclude 'revoked' or document.
+- missing_close is not windowed: one old fault shows an alert in every window until fixed. Acceptable, but the UI says "lost a close record" without saying which item. Consider an admin-only list of ids.
+- Approvals do not filter deleted missions (tasks do, `m.deleted_at is null`). Check which is intended.
+
+### F7 (minor) Department table and span numbers have no `?`
+The ops brief asked for a `?` on every number. The five top cells each have one (api-c65 asserts 5). The department table's columns (n, per day, median, slowest 5%, waiting) have none (only the panel `?` and a footnote "– means fewer than 20 decisions"), and the per-person table relies on the "Per person" `?`. Add a `?` to the table header cells or one per table naming each column.
+
+### F8 (minor) Time handling in the model
+- The whole read model is DB time: `now()` for bounds, durations in SQL (extract epoch), approvals use stored latency_ms. Confirmed no app-clock use for any duration. Exception: `windowStart` is fetched by a second statement (`select now() - ...`), and `reviewCapacity` is not in one transaction, so the returned windowStart, the main query and the span query may use three different `now()` values (milliseconds apart). Put the three reads in `snapshotTx` and take windowStart from the main query.
+- Edges, probed by reading the SQL: `arrived >= start` is closed at the low edge; no upper bound `<= now()` (all rows are in the past so this is harmless, but there is no convention comment). An item closed exactly at the window start: its overlap is 0 (greatest(0, ..)), counted as carry-in, no effect. An approval whose `expires_at` passed but state still `pending` is treated as closed-at-expiry in `closed` and not open; fine.
+- The seeded simulation (c65-little.test.ts) is a real independent check: a seeded generator makes arrays, rows are inserted from them, and the reference (rate, p50, p95 by linear interpolation, L and lambda*W) is computed in plain JS from the arrays. It checks the SQL, not the same code. Its weakness is shared with F1: the reference L and lambda*W come from the same arrays, so it cannot show the check has power. It also asserts no row is within a minute of the window edge, so it does not test edges. Items 20/19 percentile threshold is tested.
+
+### F9 (minor) Scope honesty is good
+Help `ops.reviewCapacity` states that reviews and delegations are not counted and why; the utilisation cell says "not measured" with a `?` giving both missing inputs and `utilisation.value` is null with reason; the span carries "No recommended number" and no limit field; Little's law is called standard queueing mathematics. One gap: the Little help text says the check "passes within 15%" without saying a task wait older than the window can fail it (see F1).
+
+## Integrator note: aligning with c54's clock.ts
+c54 `windowOf(w, now)` = `[now - N*86 400 000 ms, now]` in milliseconds, with `now` from `dbNow` (`select now()`); `dbWindow(c, w)` returns it. c65's SQL window (`now() - make_interval(hours => N*24)`) is the same instant arithmetic, so c65 already matches clock.ts and differs from c58 (`make_interval(days)`) only across a DST change. When c54 merges:
+1. Put `reviewCapacity` and `reviewPeople` in `snapshotTx(app.db, ...)` (REPEATABLE READ, read only) and have the routes pass the connection.
+2. Take `windowStart` from `dbWindow(c, '7d'|'30d'|'90d').from` (map WINDOWS 7/30/90 to the `ScorecardWindow` keys via `WINDOW_DAYS`) instead of the extra `select now()...` query; this removes the second clock read (F8).
+3. Keep the SQL lower bound as `now() - make_interval(hours => N*24)` (a superset, never a JS Date, as c54 says); add the upper bound `<= now()` and keep placing rows by ms against the JS window ends if any JS filtering is added. Do not switch to `make_interval(days)`: that would reintroduce the DST shift the lane found.
+4. The edge is closed at both ends: `arrived >= from` and `arrived <= to`. c65 has no upper bound; add it for the stated convention.
+5. c58's windows still use `make_interval(days)`; if c54 re-bases c58, the two views then agree. Otherwise leave and keep the lane's Concern 5 note.
+
+## Contracts
+Registry entries `GET /review-capacity` and `GET /review-capacity/people` (admin: true) and validators/DTOs are present; `contracts/` tests pass (extra, missing and wrong values rejected); coverage calls as admin, member and people; allowlist files untouched (git diff on `*allow*` is empty). No finding.
+
+## Required fixes before CLEAR
+1. F1 (data check false alarm and weak power); 2. F2 (arrival-side gap); 3. F3 (member sees `people`/`decided` and span `openItems` under the floor); 4. F4 (390 px window selector); 5. F5 (c54 owner coalesce and simulated filter). F6 to F8 can be folded in the same round or logged.
