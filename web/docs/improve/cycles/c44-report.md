@@ -59,3 +59,59 @@ No assertion was changed.
 - Per-rep worst for the step 2 full run was not recorded in this report (only the burst-window figure).
 - Adaptive flush adds up to 400 ms of latency while a burst is running; a lone message is still 60 ms.
 - The step 1 hunk gave no measurable gain (see above).
+
+## Fix round (review c44-review.md: FAIL on one behaviour regression)
+
+### 1. The regression: older-page anchor (api-c26 I2, "each older page keeps the visible message in place (±8 px)")
+**RED** (tip 69bca39 plus the two small fixes below, REPS=1 FILL=1000, load 8.4-10.6): 21/22 three times; shifts `0.8 0.0 360.2 0.1`, and in debug runs `0.2 0.4 386.8 207.9`, `0.3 0.4 423.7 0.3`, `0.7 0.3 0.4 350.1`.
+
+**Mechanism** (instrumented `ChatView`, temporary logs removed): the older-page restore put the anchor row back correctly (the restore logs matched). The next `record()` then recorded a different row (`record 564 top -542`, `record 567 top -118`) as the reader's row, because the window is cut from an estimate-based scroll position and the rows between were not what the reader was on. When the tall rows above were then measured (estimate to real, 350-424 px), `hold()` kept that wrongly recorded row in place and so moved the real anchor by the same amount. The page-shell re-render that `useMissionNodes` removed was not a data dependency: it only changed commit timing, which hid this race. It is a latent race in the c26 anchor, not a stale-data bug in `Missions.tsx`.
+
+A first guess (the row above the anchor shows only its 2 px gutter at the viewport top, so `record()` should skip it) was tried and did NOT fix it (still 21/22, shifts 408 and 441); it was removed.
+
+**Fix** (`web/src/features/chat/ChatView.tsx`): after the older-page restore, the restored row itself is the scroll anchor for `RESTORE_HOLD_MS` = 1,000 ms while nobody scrolls (`restored` ref; dropped when `scrollTop` differs from the position the thread wrote, or after the time). `hold()` corrects against that row when it is rendered; otherwise it falls back to the existing recorded row. The ±8 px assertion is untouched. The `useMissionNodes` selector win is kept.
+
+**GREEN** (HEAD bf367d6, api-c26 REPS=1 FILL=1000, full run): **22/22, 22/22, 22/22**, load 7.6, 8.4 and 6.3 at the start; I2 shifts `0.3 0.5 0.2 0.0`, `0.4 0.3 0.1 0.4`, `0.0 0.3 0.0 0.0` px.
+
+### 2. `lastEventAt`
+The coalescing hunk is removed (`events.ts` is back to its c068a6d content). It gave no measured gain.
+
+### 3. Adaptive flush latency
+`flushDelay()` now measures the gap between events: the longer interval (60 + 12 per event of the last batch, at most 400 ms) applies only while events arrive less than 100 ms apart and the last batch was at least 8; an event after a pause, or after a small batch, is flushed after 60 ms. It is evaluated for every event, so the gap is tracked correctly.
+
+New script `web/scripts/api-c44.mjs` (own script; no frozen assertion edited): a burst, then a 10-message re-burst, a 150 ms pause, a lone message; the time from the POST to the message being in the store must be at most 200 ms. Result at HEAD: **PASS**, after a burst `111 117 117 118 89` ms, quiet control `118 98 102 101 114` ms, 262 messages held, no page errors. I did not run it against the old `flushDelay` to show it RED; by the code, the old delay after a 10-message batch was 180 ms before the POST and stream time were added.
+
+### 4. Full green set on the final tip (bf367d6; all through heavy.sh)
+| Check | Result |
+|---|---|
+| api-c26 x3 (REPS=1, FILL=1000) | 22/22 x3, load 6.3-8.4 |
+| api-c44 | 3/3 checks |
+| api-stage6 | 94/94 |
+| api-c22 `SIZES=130,1000 REPS=3` | first run (load 9-15): behaviour 9/9 and **one N=1000 rep did not become interactive within the 180 s cap** (rc 1; the other five reps 1.3-1.6 s). Re-run (load 7-8): **14/14**, rc 0, reload to interactive 1.1-1.4 s (130) and 1.1-1.4 s (1,000). I did not reproduce the hang, so I cannot tell whether it is load or a defect in this change; flagged. |
+| api-improve | 107/107 |
+| `DATA_MODE=api a11y-check` | 0 violations (40 views, 56 dialogs) |
+| verify-all (dev 9390) | ALL 10 STEPS PASSED |
+| flows.mjs | all PASS, no console errors |
+| web `tsc --noEmit` | clean |
+
+### 5. Timing pass (HEAD bf367d6, REPS=3, `CHECKS=0`, whole trace; two passes, load 4.8-8.9, lower than the first round)
+| Run | Load | Total per rep (ms) | Mean | Worst per rep (ms) |
+|---|---|---|---|---|
+| Full burst, pass 1 | 6.5 / 7.0 / 6.3 | 890 · 800 · 712 | **801** | 231 · 160 · 181 |
+| Full burst, pass 2 | 4.8 / 5.1 / 5.9 | 1,082 · 786 · 669 | **846** | 339 · 180 · 164 |
+| Floor, pass 1 | 6.9 / 7.0 / 8.2 | 348 · 75 · 89 | 171 | 239 · 75 · 89 |
+| Floor, pass 2 | 8.9 / 7.9 / 7.3 | 270 · 209 · 228 | 236 | 211 · 94 · 115 |
+
+| Threshold item | Result |
+|---|---|
+| Full burst total at most 887 ms | **PASS on both passes** (801, 846 ms) at load 5-7. It was NOT MET at load 11-19 in the first round (1,367 ms) and in the reviewer's runs (1,084 ms mean), so it depends on load: report it as PASS at low load, not NOT MET at high load, and not as a quiet-machine guarantee |
+| Floor at least 30 % below the own base (847 ms, measured at load 9-10) | **PASS**: 171 and 236 ms (-80 % and -72 %) |
+| Worst merged period at most 250 ms | **MET in 5 of 6 reps of the full burst**: one rep was 339 ms. The mean worst per pass is 191 and 228 ms. Strictly, a rep above 250 ms exists, so: **PASS on pass 1 (all three under 250); NOT MET on pass 2 (one rep 339 ms)** |
+| Green checks | PASS, with the one api-c22 N=1000 rep 1 hang at load 15 flagged above |
+
+The base in this report (1,528 / 847 ms) was measured at load 9-11; the review's interleaved base was 1,684 / 960 ms. Both agree on the direction.
+
+### Concerns (fix round)
+- The restored-row anchor lasts 1 s; a reader who scrolls cancels it. It does not claim to fix other races in the c26 thread anchor.
+- The api-c22 N=1000 rep 1 non-interactive reload (load 15) is not explained. Re-run at load 7-8 was clean.
+- The latency check was not shown RED against the old flush delay.
