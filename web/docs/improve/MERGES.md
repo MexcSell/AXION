@@ -366,3 +366,14 @@ FAIL 900 /operations?tab=logs tab=Logs: clipped control button.icon-btn.xs[Dismi
 - **Desktop unchanged:** fit-check 1672×941 77/77, 1366×768 77/77, 1280×760 77/77, all ALL FIT. ov-fit 32/32, NO SCROLL ANYWHERE.
 
 **Follow-up commits:** none. Controller files committed with this entry: QUEUE.md (the api-mobile known-failure line is mine, per the ruling; the rest is the controller's), BACKLOG.md, LANES.md, LESSONS.md, LOG.md (modified); PHASE2.md, phase2/, and cycles/c26-rereview, c29–c40 briefs and reviews (new).
+
+## Batch 5d: c27 (merged minors)
+
+- **Merged:** 2026-11-22 ~03:32 UTC. Pre-batch commit `18db241`.
+- **Merge commit:** `83a5885` c27-merged-minors (69019e2), `--no-ff`. **Conflicts:** none.
+- **Server:** tsc OK; vitest 37 files 586/586. **web:** tsc OK.
+- **api-e2e (exit 0):** api-auth-flow 15/15; api-flows 23/23; api-stage6 94/94; api-improve 107/107; api-c27 7/7, 0 FAIL, no page errors.
+- **verify-all:** exit 0, "ALL 10 STEPS PASSED", no FAIL lines; dialog smoke 112 checks, 0 failures.
+- **fit-check:** 77/77 ALL FIT. **ov-fit:** 32/32, NO SCROLL ANYWHERE.
+
+**Follow-up commits:** none. Controller files committed with this entry: LOG.md, QUEUE.md (modified).
