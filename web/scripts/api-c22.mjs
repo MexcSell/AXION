@@ -159,6 +159,9 @@ async function behaviour(n, mid, tid) {
   check(`N=${n}: an unsent draft survives a reload`, await until(async () => (await p.locator('.conv-main .composer textarea').inputValue()) === draft, 15000));
   await p.locator('.conv-main .composer textarea').fill('');
   await until(async () => (await loaded()).length >= 50, 10000);
+  // cycle 26 fix round: the store can hold the page a moment before the thread has rendered and pinned it; scroll to the
+  // top only once the rows are on screen and pinned (otherwise the pin lands after the jump and no older page is asked for)
+  await until(() => body.evaluate((el) => el.querySelectorAll('[data-mid]').length > 0 && el.scrollHeight - el.scrollTop - el.clientHeight < 60), 5000);
   const before = (await loaded()).length;
   const a = await body.evaluate(async (el) => {
     // cycle 26: the thread is virtualised; the rows at the top render on the frame after the jump (the reader sees them then)
