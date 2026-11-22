@@ -102,7 +102,7 @@ await step('Conversations: mission agents pane on the left switches the thread',
   await p.waitForTimeout(600);
   await p.locator('.conv-views [role="radio"]').last().click(); // A–Z list view (Graph is the default)
   await p.locator('.conv-agents .team-row', { hasText: 'Planner-01' }).click();
-  await p.waitForTimeout(500);
+  await p.locator('.conv-main .msg-head', { hasText: 'Planner-01' }).first().waitFor({ timeout: 10000 }).catch(() => undefined); // condition wait (c08)
   await expect(p.locator('.conv-main .msg-head', { hasText: 'Planner-01' }).count(), 'thread did not switch to Planner-01');
   await expect(/agent=planner-01/.test(p.url()), 'agent not in URL');
 });
