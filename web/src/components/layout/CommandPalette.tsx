@@ -51,9 +51,12 @@ export function CommandPalette() {
   // The query is reset when the palette has finished closing, never on open: the palette is lazy, so it mounts already open and
   // an on-open reset would run after a fast typist's first keystrokes and wipe them (cycle 28).
   useEffect(() => { if (open) { const t = window.setTimeout(() => inputRef.current?.focus(), 20); return () => window.clearTimeout(t); } }, [open]);
-  const reset = () => { setQ(''); setSel(0); };
+  const reset = () => { setQ(''); setSel(0); pendingEnter.current = false; };
   /** Enter pressed while the lazy help registry is still loading: act once it arrived, on the results for the query typed. */
   const pendingEnter = useRef(false);
+  const openRef = useRef(open);
+  openRef.current = open;
+  useEffect(() => { if (!open) pendingEnter.current = false; }, [open]); // closing (Escape, backdrop, a click on a result) cancels a waiting Enter
   const latest = useRef({ results: [] as Cmd[], sel: 0 });
 
   const catalog = useAgentsCatalog(); // the search index follows the agent catalog (api mode, Stage 6)
@@ -135,7 +138,7 @@ export function CommandPalette() {
 
   latest.current = { results, sel };
   useEffect(() => { setSel(0); }, [q]);
-  useEffect(() => { if (helpReg && pendingEnter.current) { pendingEnter.current = false; results[sel]?.run(); } }, [helpReg]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (helpReg && pendingEnter.current) { pendingEnter.current = false; if (openRef.current) results[sel]?.run(); } }, [helpReg]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }); }, [sel]);
 
   const onKey = (e: React.KeyboardEvent) => {
@@ -145,7 +148,7 @@ export function CommandPalette() {
       e.preventDefault();
       if (!helpReg && q.trim() && !pendingEnter.current) { // the help entries are not searchable yet: they could change the first result
         pendingEnter.current = true;
-        loadHelp().catch(() => { if (pendingEnter.current) { pendingEnter.current = false; latest.current.results[latest.current.sel]?.run(); } });
+        loadHelp().catch(() => { if (pendingEnter.current) { pendingEnter.current = false; if (openRef.current) latest.current.results[latest.current.sel]?.run(); } });
       } else if (!pendingEnter.current) results[sel]?.run();
     }
     else if (e.key === 'Escape') { e.preventDefault(); setOpen(false); }
@@ -171,7 +174,7 @@ export function CommandPalette() {
                 return (
                   <div key={c.id}>
                     {head && <div className="palette-group">{head}</div>}
-                    <button id={'pc-' + c.id} role="option" aria-selected={i === sel} className="palette-item" onMouseEnter={() => setSel(i)} onClick={c.run}>
+                    <button id={'pc-' + c.id} role="option" aria-selected={i === sel} className="palette-item" onMouseEnter={() => setSel(i)} onClick={() => { pendingEnter.current = false; c.run(); }}>
                       <c.icon size={16} style={{ color: 'var(--accent-2)', flex: 'none' }} />
                       <span className="ellipsis">{c.label}</span>
                       {c.hint && <span className="dim" style={{ fontSize: 12, marginLeft: 'auto' }}>{c.hint}</span>}
