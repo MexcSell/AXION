@@ -139,3 +139,18 @@ Verdicts: R2-4 is DROPPED (it duplicates pass^k and the six-dimension reliabilit
 **The one safe lesson from R2-10's sources:** the literature disagrees on whether hierarchy helps (results depend on the task and on capability). So AXION records evidence and holds no "hierarchy is better" belief.
 
 **Q12 (new owner question):** R2-7 would sign policy-decision receipts with a key held outside the database. Who holds that key, where does it live, and how is it rotated? This is the same custody question as the c49 anchor key, which today lives only in the live `server/.env`. Until the owner answers, any signing uses test keys only.
+
+## Wave 7 (planned 2026-11-22 ~19:20Z)
+
+**Track B, research round 3**: back to the owner's three themes (company structure, company performance, agent performance), plus operator UX for supervising many agents. A researcher writes `phase2/research-r3.md`, then a separate verifier checks it. Its verified ideas become Wave 7 lanes, branched from the tree after batches 14–16 merge.
+
+**Track A, follow-ups that wait for merges**:
+- H11b, the remaining app-clock bounds (after c54 merges);
+- E1d, holdout shopping beyond the same config (after c61);
+- P4c, PSL snapshot age (after c56);
+- H15, OTel follow-ups (after c60);
+- P3c, approval evidence in the digest (after c58);
+- H14, the jobs test's connection footprint;
+- P2c, the reader not pinned after fast bursts, if the c55 review confirms it predates c55.
+
+The cut-off stands: no new lane after 2026-11-23T13:45Z.
