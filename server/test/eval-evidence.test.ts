@@ -208,7 +208,7 @@ describe('refusals: each dishonest setup is inconclusive with its own reason', (
   });
   it('a candidate run that covers only some of the dataset (cherry-picked cases)', async () => {
     const p = await propose();
-    await evidence(p, 'HO', BETTER.b, BETTER.c, { base: { scores: BETTER.b }, cand: { scores: BETTER.c.slice(0, 11) } });
+    await evidence(p, 'HO', BETTER.b, BETTER.c, { base: { scores: BETTER.b }, cand: { scores: BETTER.c.slice(0, 11), partialFinish: true } });
     const e = (await get(A, p.id)).evaluation;
     expect(e.outcome).toBe('inconclusive'); expect(codes(e)).toEqual(expect.arrayContaining(['partial_coverage']));
   });

@@ -20,6 +20,8 @@ export interface RunOpts {
   judge?: string | null; evaluator?: string | null; finish?: boolean; cost?: number;
   /** case ids to run; default c01.. in order */
   caseIds?: string[];
+  /** c53: finish a run that is missing results. The guard refuses that, so only a fixture for the loader's partial_coverage refusal may ask (it switches the run guard off for the one UPDATE, as a superuser could) */
+  partialFinish?: boolean;
 }
 export async function addRun(pool: pg.Pool, o: RunOpts) {
   const k = o.k ?? 1;
@@ -31,5 +33,12 @@ export async function addRun(pool: pg.Pool, o: RunOpts) {
     const per = Array.isArray(s) ? s : Array.from({ length: k }, () => s);
     for (const [a, sc] of per.entries()) await pool.query(`insert into eval_results(run_id, case_id, attempt, score, cost_units, trace) values ($1,$2,$3,$4,$5,'{"steps":[]}')`, [o.id, cid, a + 1, sc, o.cost ?? 1]);
   }
-  if (o.finish !== false) await pool.query(`update eval_runs set finished_at = now() where id=$1`, [o.id]);
+  if (o.finish === false) return;
+  if (!o.partialFinish) { await pool.query(`update eval_runs set finished_at = now() where id=$1`, [o.id]); return; }
+  const c = await pool.connect();
+  try {
+    await c.query('begin'); await c.query('alter table eval_runs disable trigger eval_runs_guard');
+    await c.query(`update eval_runs set finished_at = now() where id=$1`, [o.id]);
+    await c.query('alter table eval_runs enable trigger eval_runs_guard'); await c.query('commit');
+  } catch (e) { await c.query('rollback'); throw e; } finally { c.release(); }
 }

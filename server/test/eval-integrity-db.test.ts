@@ -414,3 +414,18 @@ describe('F2: a proposal\'s key fields cannot change once it exists', () => {
   });
 });
 
+describe('F3: a run cannot be finished incomplete, whatever path finishes it', () => {
+  it('a plain UPDATE of finished_at on a run with missing results is refused', async () => {
+    await makeDataset(s.pool, { id: 'H-F3', split: 'holdout', cases: 3 });
+    await prop('F3-P', 'a-1', v1, 'f3p');
+    await run('F3-R', 'H-F3', { proposal: 'F3-P' });
+    await expect(q(`update eval_runs set finished_at = now() where id='F3-R'`)).rejects.toThrow(/run_incomplete/);
+    expect((await q(`select eval_run_state('F3-R') s`)).rows[0].s).toBe('open');
+  });
+  it('a plain UPDATE works once every result is there, and eval_finish_run still does too', async () => {
+    for (const c of ['c01', 'c02', 'c03']) await res('F3-R', c, 1, 10);
+    await q(`update eval_runs set finished_at = now() where id='F3-R'`);
+    expect((await q(`select eval_run_state('F3-R') s`)).rows[0].s).toBe('finished');
+  });
+});
+
