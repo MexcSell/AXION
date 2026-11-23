@@ -82,7 +82,7 @@ export async function seedTenant(w: World, t: Tenant): Promise<void> {
   const tag = t.tag.toLowerCase();
   const P = t.tenantId === 't-b' ? 'b-' : ''; // agent ids of tenant B are prefixed (see seedmock.ts)
   const coderId = P + 'coder-01', testerId = P + 'tester-01', opsId = P + 'ops-01', releaseId = P + 'release-01';
-  ids.coder = coderId;
+  ids.coder = coderId; ids.tester = testerId; // c72 merge: the second agent id of GET /agents/:id/skills/compare?with=
   // uploads (file name and file content are both free text)
   ids.upload = await upload(t, admin, mk('upload.name') + '.txt', 'Body ' + mk('upload.content'));
   // missions: text, title, criteria, shared flag

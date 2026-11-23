@@ -57,6 +57,7 @@ export const QUERY: Record<string, string[]> = {
   'GET /agent-instances': ['?agentId=gm', ''],
   'GET /channels/:key/messages': ['?limit=1', ''],
   'GET /company/throughput': ['?weeks=4'], 'GET /company/dimensions': ['?window=30d'], 'GET /company/failure-modes': ['?window=30d'],
+  'GET /agents/:id/skills/compare': ['?with=__agent2__'], // c72: the route needs a second agent id; the foreign :id must still be refused (404), which this makes testable
   'GET /review-capacity': ['?windowDays=7', ''], 'GET /agents': ['?includeSimulated=1', ''],
 };
 
@@ -82,7 +83,7 @@ export function getCases(t: Tenant, ids: Record<string, string> = t.ids): { case
     if (key in GET_EXCEPTIONS) continue;
     const base = urlFor(key.slice(4), ids);
     if (base === undefined) { skipped.push(key); continue; }
-    for (const q of QUERY[key] ?? ['']) cases.push({ key, url: base + q.replace('__task__', ids.task ?? ''), label: key + (q ? ' ' + q : '') });
+    for (const q of QUERY[key] ?? ['']) cases.push({ key, url: base + q.replace('__task__', ids.task ?? '').replace('__agent2__', ids.tester ?? ''), label: key + (q ? ' ' + q : '') });
   }
   return { cases, skipped };
 }
