@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { rankingKeyProblems, ratedListProblems } from './no-ranking.ts';
 import { randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -616,6 +617,13 @@ describe('API coverage run', () => {
     }
     expect(tried).toBeGreaterThan(2000);
     expect(lenient).toEqual([]);
+  });
+
+  it('c72 F4: no recorded response of the whole route table carries a key that names a rank, position, score or direction, or a list of rated agents', () => {
+    const problems: string[] = [];
+    for (const [route, list] of Object.entries(bodies)) for (const b of list) problems.push(...rankingKeyProblems(b, route), ...ratedListProblems(b, route));
+    expect(Object.keys(bodies).length, 'the run recorded bodies').toBeGreaterThan(50);
+    expect([...new Set(problems)]).toEqual([]);
   });
 
   it('every object array was filled and every nullable field was non-null in some call, unless listed with a reason', () => {
