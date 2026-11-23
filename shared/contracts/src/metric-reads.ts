@@ -64,11 +64,21 @@ const REVIEW = ['task_reviews.verdict', 'task_reviews.evidence', 'task_reviews.r
 const DIM = ['company/dimensions-routes.ts', 'company/departments.ts'] as const;
 /** every dimension cell can be cut by department: a department is the agents' `dept`, and a mission belongs to it through a real instance of its agents */
 const DEPT = ['agent_definitions.dept', 'agent_definitions.status', 'agent_instances.agent_id', 'agent_instances.simulated', 'agent_instances.created_at'] as const;
-/** the task rows loadDeptRows builds: status, owner, when attempts started and ended, the state-change events, and reassignments from the audit log */
-const TASKS = ['tasks.status', 'tasks.simulated', 'tasks.created_at', 'tasks.owner_agent', 'tasks.owner_instance_id', 'task_attempts.attempt_no', 'task_attempts.started_at', 'task_attempts.finished_at', 'events.subject_id', 'events.payload', 'events.occurred_at', 'events.type'] as const;
+/** the task rows loadDeptRows builds, for a row that needs the task itself: status, whether it is a sample, who owns it, and when its attempts started and ended */
+const TASK_CORE = ['tasks.status', 'tasks.simulated', 'tasks.owner_agent', 'tasks.owner_instance_id', 'task_attempts.attempt_no', 'task_attempts.started_at', 'task_attempts.finished_at'] as const;
+/** a row that needs only who owns a task (to cut by department) */
+const TASK_OWNER = ['tasks.simulated', 'tasks.owner_agent', 'tasks.owner_instance_id'] as const;
+/** a row that reads task OUTCOMES (passed or failed, when, retried, handed over): the core plus the task state-change events and the creation time the loader uses to place a task */
+const TASKS = [...TASK_CORE, 'tasks.created_at', 'events.subject_id', 'events.payload', 'events.occurred_at', 'events.type'] as const;
 const TAGS = ['failure_tags.subject_id', 'failure_tags.subject_kind', 'failure_tags.mode_id', 'failure_tags.status', 'failure_tags.taxonomy_version', 'failure_tags.created_at', 'failure_tags.decided_at'] as const;
 const LESSONS = ['lesson_candidates.agent_id', 'lesson_candidates.status', 'lesson_candidates.created_at', 'lesson_candidates.decided_at', 'lesson_candidates.accepted_in_version', 'lesson_candidates.withdrawn_in_version'] as const;
 const PROC = ['company/process-routes.ts'] as const;
+
+/**
+ * Columns that decide WHICH rows count (the department cut, sample and DEMO flags), not what a row measures. They are left out when two rows are compared
+ * for shared inputs (item 4): two rows that both cut by department do not share an input.
+ */
+export const SCOPE_ONLY_READS: readonly string[] = [...DEPT, 'tasks.simulated', 'mission_delegations.simulated', 'delegation_briefs.simulated', 'approval_requests.demo', 'mission_ledgers.demo'];
 
 const r = (loaders: readonly string[], ...reads: (readonly string[] | string)[]): MetricReads => ({ loaders, reads: [...new Set(reads.flat())] });
 
@@ -92,7 +102,7 @@ export const METRIC_READS: Record<string, MetricReads> = {
   'kpi.approvals': r(['approvals/routes.ts#GET /approvals'], 'approval_requests.*', 'approval_requests.state', 'approval_requests.expires_at'),
 
   // ---- dimensions
-  'dimension.cognitive.first_attempt_verified': r(DIM, DEPT, TASKS, 'task_reviews.verdict', 'task_reviews.evidence', 'task_reviews.reviewer_id', 'task_reviews.producer_id', 'task_reviews.principal_id', 'task_reviews.created_at', 'task_reviews.seq', 'task_reviews.attempt_id', 'task_reviews.reviewer_kind', 'task_reviews.producer_kind'),
+  'dimension.cognitive.first_attempt_verified': r(DIM, DEPT, TASK_CORE, 'task_reviews.verdict', 'task_reviews.evidence', 'task_reviews.reviewer_id', 'task_reviews.producer_id', 'task_reviews.principal_id', 'task_reviews.created_at', 'task_reviews.seq', 'task_reviews.attempt_id', 'task_reviews.reviewer_kind', 'task_reviews.producer_kind'),
   'dimension.cognitive.stalled_missions': r(DIM, DEPT, 'mission_ledgers.kind', 'mission_ledgers.version', 'mission_ledgers.body', 'mission_ledgers.created_at', 'mission_ledgers.demo'),
   'dimension.cognitive.context_loss': r(DIM, DEPT, TASKS, TAGS),
   'dimension.capability.playbook_items': r(DIM, DEPT, 'agent_definitions.role', 'playbooks.agent_id', 'playbooks.version', 'playbooks.items', 'playbooks.created_at'),
@@ -101,7 +111,7 @@ export const METRIC_READS: Record<string, MetricReads> = {
   'dimension.environmental.site_navigation': r([]),
   'dimension.environmental.model_availability': r([]),
   'dimension.collective.briefed_delegations': r(DIM, DEPT, 'delegation_briefs.to_instance', 'delegation_briefs.simulated', 'delegation_briefs.created_at', 'mission_delegations.to_instance', 'mission_delegations.at', 'mission_delegations.simulated', 'mission_delegations.edge_kind'),
-  'dimension.collective.cross_family_reviews': r(DIM, DEPT, TASKS, 'task_reviews.reviewer_kind', 'task_reviews.reviewer_model_family', 'task_reviews.producer_kind', 'task_reviews.producer_model_family', 'task_reviews.created_at', 'task_reviews.seq', 'task_reviews.verdict'),
+  'dimension.collective.cross_family_reviews': r(DIM, DEPT, TASK_OWNER, 'task_reviews.reviewer_kind', 'task_reviews.reviewer_model_family', 'task_reviews.producer_kind', 'task_reviews.producer_model_family', 'task_reviews.created_at', 'task_reviews.seq', 'task_reviews.verdict'),
   'dimension.collective.approval_decision_h': r(DIM, DEPT, 'approval_requests.created_at', 'approval_requests.demo', 'approval_decisions.decided_at'),
   'dimension.knowledge.lessons_proposed': r(DIM, DEPT, LESSONS),
   'dimension.knowledge.lessons_accepted': r(DIM, DEPT, LESSONS),

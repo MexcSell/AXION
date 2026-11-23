@@ -1,5 +1,5 @@
 import { INPUT_FIELDS, writabilityOf, type InputFieldId, type Writability } from './metric-guard.ts';
-import { METRIC_READS, type LoaderRef } from './metric-reads.ts';
+import { METRIC_READS, CONTEXT_READS, SCOPE_ONLY_READS, type LoaderRef } from './metric-reads.ts';
 
 /**
  * Improvement cycle 66 (R3-4), item 1: the row registry. Every scorecard row, KPI tile and six-dimension cell declares three things
@@ -23,7 +23,11 @@ export const QUALITY_DIMENSIONS = {
 export type QualityDimension = keyof typeof QUALITY_DIMENSIONS;
 export const QUALITY_DIMENSION_IDS = Object.keys(QUALITY_DIMENSIONS) as QualityDimension[];
 
-export type CounterMetric = { ref: string; why: string } | { none: string };
+/**
+ * `weak` (c83): the counter-metric shares an input column with its primary row, so gaming that input moves both and the counter would not expose it.
+ * The reason says why no independent counter exists. A row whose counter shares an input and is not marked weak fails the registry test.
+ */
+export type CounterMetric = { ref: string; why: string; weak?: string } | { none: string };
 export interface MetricMeta {
   id: string;
   kind: 'scorecard' | 'dimension' | 'kpi' | 'process';
@@ -121,7 +125,25 @@ export interface MetricGuard {
   inputs: { id: string; what: string }[];
 }
 
-export function counterText(c: CounterMetric): string { return 'none' in c ? `No known counter-metric: ${c.none}` : c.why; }
+export function counterText(c: CounterMetric): string { return 'none' in c ? `No known counter-metric: ${c.none}` : c.weak ? weakWhy(c) : c.why; }
+/** What the scorecard shows for a weak counter-metric: the state first, then the reason, then what the counter was meant to show. */
+function weakWhy(c: { why: string; weak?: string }): string { return `weak counter-metric, it shares an input with this row so it may not show gaming (${c.weak}); meant to show: ${c.why}`; }
+
+const isContext = (col: string) => CONTEXT_READS.some((x) => x.column === col || (x.column.startsWith('*.') && col.endsWith(x.column.slice(1))));
+/**
+ * The `table.column` inputs two rows both read, from the declared columns that the c83 column test verifies against the loaders' SQL. Context columns (keys,
+ * tenant, visibility) and scope-only columns (department cut, sample and DEMO flags) are not inputs. `table.*` overlaps every column of its table.
+ */
+export function sharedInputColumns(a: Pick<MetricMeta, 'reads'>, b: Pick<MetricMeta, 'reads'>): string[] {
+  const keep = (c: string) => !isContext(c) && !SCOPE_ONLY_READS.includes(c);
+  const A = a.reads.filter(keep), B = b.reads.filter(keep);
+  const out = new Set<string>();
+  for (const x of A) for (const y of B) {
+    const [tx, cx] = x.split('.'), [ty, cy] = y.split('.');
+    if (tx === ty && (cx === cy || cx === '*' || cy === '*')) out.add(cx === '*' ? y : x);
+  }
+  return [...out].sort();
+}
 
 const PLAIN: Record<string, string> = {
   recordReview: 'task reviews', createTag: 'failure tags', proposeLesson: 'lesson proposals', createBrief: 'delegation briefs',
@@ -139,7 +161,7 @@ export function guardOf(m: MetricMeta, byId: ReadonlyMap<string, MetricMeta> = M
   const w = writabilityOf(m.inputs);
   return {
     id: m.id, kind: m.kind, label: m.label,
-    counter: 'none' in m.counter ? { kind: 'none', reason: m.counter.none } : { kind: 'metric', ref: m.counter.ref, refLabel: byId.get(m.counter.ref)?.label ?? m.counter.ref, why: m.counter.why },
+    counter: 'none' in m.counter ? { kind: 'none', reason: m.counter.none } : { kind: 'metric', ref: m.counter.ref, refLabel: byId.get(m.counter.ref)?.label ?? m.counter.ref, why: counterText(m.counter) },
     uncovered: m.uncovered.map((id) => ({ id, label: QUALITY_DIMENSIONS[id] })),
     gameable: w.agentWritable, gameableText: gameableText(w, m.inputs),
     inputs: m.inputs.map((id) => ({ id, what: INPUT_FIELDS[id].what })),
@@ -160,6 +182,14 @@ export function registryProblems(metrics: readonly MetricMeta[], liveIds: readon
       if (m.counter.ref === m.id) out.push(`${m.id}: a row cannot be its own counter-metric`);
       else if (!ids.has(m.counter.ref)) out.push(`${m.id}: counter-metric ${m.counter.ref} is not a registered row`);
       if (m.counter.why.trim().length < 25) out.push(`${m.id}: the counter-metric needs a sentence saying why it would rise (at least 25 characters)`);
+      const other = metrics.find((x) => x.id === (m.counter as { ref: string }).ref);
+      if (other && other.id !== m.id) {
+        const shared = sharedInputColumns(m, other);
+        const weak = (m.counter as { weak?: string }).weak;
+        if (shared.length && weak === undefined) out.push(`${m.id}: its counter-metric ${other.id} shares input column(s) ${shared.slice(0, 4).join(', ')}${shared.length > 4 ? ` and ${shared.length - 4} more` : ''}: give a counter with independent inputs, or mark it weak with a reason (counter.weak)`);
+        if (!shared.length && weak !== undefined) out.push(`${m.id}: marked weak but shares no input column with ${other.id} (remove the mark)`);
+        if (weak !== undefined && weak.trim().length < 40) out.push(`${m.id}: a weak counter-metric needs a stated reason (at least 40 characters)`);
+      }
     }
     if (m.uncovered.length === 0) out.push(`${m.id}: declares no uncovered quality dimension`);
     for (const q of [...m.uncovered, ...m.covers]) if (!QUALITY_DIMENSION_IDS.includes(q)) out.push(`${m.id}: unknown quality dimension ${q}`);
