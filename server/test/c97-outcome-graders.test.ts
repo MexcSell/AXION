@@ -36,6 +36,7 @@ describe('c97 item 1-2: ten toy tasks, reference passes and null fails (threshol
 describe('c97 item 3: grader validity (threshold c)', () => {
   const alwaysFail: GradeFn = () => ({ pass: false, reasons: ['broken'] });
   const alwaysPass: GradeFn = () => ({ pass: true, reasons: [] });
+  // c97 fix round: the first-round "wrong-expectation" mutant was `pass: !r.pass && false`, i.e. always fail. Renamed honestly; a real inverted grader is in c97-fixround.test.ts.
   const wrongExpectation = (t: ToyTask): GradeFn => (f, i) => { const r = t.grade(f, i); return { pass: !r.pass && false, reasons: r.reasons }; };
 
   it('healthy graders are not flagged over >= 10 varied solutions, and every partial solution fails', () => {
@@ -47,7 +48,7 @@ describe('c97 item 3: grader validity (threshold c)', () => {
       for (const v of variants) expect(t.grade(cloneState(v.state), t.initial).pass, `${t.id}/${v.name}`).toBe(v.expect === 'pass');
     }
   });
-  it('threshold (c): wrong-expectation mutants (fail the reference) are flagged 10/10', () => {
+  it('threshold (c): always-fail mutants (fail the reference) are flagged 10/10', () => {
     let flagged = 0;
     for (const t of TOY_TASKS) { const rep = gradeValidity(t, wrongExpectation(t), buildVariants(t)); if (rep.flagged && rep.flags.includes('fails_reference')) flagged++; }
     expect(flagged).toBe(10);
