@@ -49,3 +49,26 @@ Full vitest, flows, verify-all, fit-check, a11y full (demo/api), 20x probe: not 
 1. B1: commit the missing ChatView follow() change and rerun api-c73-pin (BURST 100 and 200, REPS>=3, zero FAIL), plus c26/c55/c44 (x4)/c55-burst on the final tip from a clean tree; correct the report if numbers change.
 2. P4c: show the tile with an "age unavailable" warn state when publicSuffix is null (and type the web interface as nullable).
 3. Optional: extend SECRET_SHAPE to glpat/xapp/shpat/github-pat, or note the gap.
+
+---
+
+# Re-review (fix round), c615539..59b78cf (tip 59b78cf)
+
+`git status` clean; `git diff c852be8..59b78cf --stat` lists 18 files, matching the report's claim (incl. ChatView.tsx +34, ServerHealth.tsx, stage5.ts, api-c73-psl.mjs, export.ts). All runs on the committed tip, via heavy.sh, ports 12190-12193, live DB untouched.
+
+## B1 (P2c): RESOLVED
+- The fix is now in git (30f2129): `toBottom(el)` jumps (`behavior:'auto'`) when more than one `clientHeight` behind or when `matchMedia('(prefers-reduced-motion: reduce)')` matches, else glides; `follow()` reads `atBottomRef` when the 30 ms timer fires, used by both the message and typing effects; the "N new" pill also uses `toBottom`. Reduced-motion behaviour verified by code reading only (not browser-run). It also closes the earlier minor about the pill and follow ignoring reduced motion.
+- `api-c73-pin` BURST=100 x3 and BURST=200 x3: every check PASS in all 6 reps (0 px from bottom, no pill, next message followed, scroll-up leaves reader 1504-1592 px above the bottom). The 2-of-3 failure from round 1 is gone.
+- api-c26 3 reps no FAIL (still pinned true); api-c55-burst PASS (reload pinned, 0 distance); api-c44 THROTTLE=4 PASS (excess +16 ms vs 80 ms bar, burst whole, no page errors).
+- api-c55 THROTTLE=4: first run FAILED (page 1 worst shift 999 px) at load 14-33 caused by other lanes; rerun alone PASS (worst shift 0.3 0.1 0.4 px, bounded exit not fired). The 999 px at heavy load is a flake I could not attribute (c55 anchor code untouched by this round); minor, but note the c55 bar did fail once under load 14+ with this tip.
+- Also api-c44 first run timed out waiting for the composer at load 33; passed on rerun at load 16.
+
+## Other checks
+- verify-all (own OUT, dev server on 12190, which I started and stopped by port): rc 0, all steps passed. flows at FLOWS_CPU_THROTTLE=4: rc 0 (flows x1 runs inside verify-all). a11y demo: `52 views, 65 dialogs, 0 violations`.
+- P4c: `DATA_MODE=api node scripts/api-c73-psl.mjs` PASS 3/3: fresh "2 d old, snapshot 2026-11-21 - 10,469 rules"; 120 days "older than 90 days: refresh it"; null "Age unavailable - could not be read: do not assume it is fresh"; each tile has its own `?` (`ops.publicSuffix`, plain-words help entry). The route now logs the failed read. (Run without `DATA_MODE=api` the script shows the demo page and fails: harness invocation, not a bug; the script header does not say so.) Minor.
+- H15: extended SECRET_SHAPE tested with the real regex: sk-/pk-/rk-/xoxb-/AKIA/ya29./glpat-/xapp-/shpat-/github-pat-/npm_/hf_/ghu_/ghr_ all `_OTHER`; `npm-install`, `hf-search`, `github-search`, `skill-run`, `pkg-install` kept; otel-export tests (incl. S1 sentinels) passed in the lane's tip run (3,135 vitest per report; I did not rerun vitest this round). Pre-existing `gho`/`ghs`/`AIza` prefix without a separator over-match: `ghost-writer`, `ghostwrite`, `Aizawa-tool` become `_OTHER`. It fails closed (loses a name, leaks nothing), so acceptable; minor, could add a separator for gho/ghs.
+
+## Remaining
+Nothing blocking. Minors only: the over-match above, the c55 once-under-load flake, psl script needs `DATA_MODE=api` stated in its header, not re-run: full vitest, fit-check, api-c56/c60/stage6.
+
+## Verdict: CLEAR
