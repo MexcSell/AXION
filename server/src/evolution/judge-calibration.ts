@@ -21,6 +21,20 @@ import { EVALUATION_POLICY_V2 } from './verdict-v2.ts';
  * passScore), so the n units are distinct cases. A1 assumes the judge's error rates on the test set equal those on the calibration
  * items (its Eq. 18), human labels are ground truth, and q0 + q1 > 1.
  *
+ * METHOD NOTE (c84, E1e): WHAT IS CONDITIONED ON, AND WHAT IS NOT. c61 let a judge through when its margin, estimated from the calibration labels, was
+ * at least 0.5, and then built the interval from the same labels. A judge of middling true quality gets through mostly when its labels were
+ * lucky, and those same lucky labels then make its interval too narrow and too optimistic: coverage fell to 66-93% in pinned cells. A lower bound on the margin
+ * does not help, because it uses the same labels. Now (correctedPassRate, default method 'split'): half of each class (a fixed pseudo-random
+ * draw, rule above splitCalibration) decides eligibility, and the interval is built only from the other half. The interval is conditioned on
+ * the pilot passing, which says nothing about the holdout, and on the holdout margin being above 0 (needed for any finite interval). It is
+ * NOT conditioned on the holdout margin being large. The price: each half has half the labels, so intervals are wider and fewer judges are
+ * admitted. One simulated cell (theta 0.05, judge specificity .7 / sensitivity .65, 100 test items, 20 + 60 labels) still covers only about 88% and stays pinned.
+ * The alternative, fiellerInterval, is kept as a tested pure function; it needs no gate but admits weak judges whose intervals miss 93% in small samples.
+ * CAVEAT: the split is a deterministic draw seeded by a hash of the four calibration counts, so its independence from the holdout is heuristic, not
+ * guaranteed: re-labelling or adding one item re-rolls it, and a caller who chooses the counts could search for a favourable split. The simulation, which calls
+ * the real wired function, is the evidence. Intervals of [0,1] or near it come back as ok; calibratedVerdict compares by non-overlap, so they stay inconclusive.
+ * Coverage figures are CONDITIONAL on being admitted; see web/docs/improve/cycles/c84-report.md and c84-sim-seed*.txt.
+ *
  * What is OURS, not A1's: the minimum calibration size per class, the minimum margin q̃0 + q̃1 − 1, the Wilson interval shown for the
  * RAW rate, and the two-version comparison rule in calibratedVerdict (non-overlap by the margin).
  */
@@ -50,7 +64,7 @@ const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 const isCount = (x: unknown) => typeof x === 'number' && Number.isInteger(x) && x >= 0;
 const NONE: Interval = { rate: null, low: null, high: null };
 
-export function correctedPassRate(o: { judgedPass: number; n: number; calibration: Calibration | null; z?: number; center?: boolean; minPerClass?: number; minJudgeMargin?: number }): RateEstimate {
+export function correctedPassRate(o: { judgedPass: number; n: number; calibration: Calibration | null; z?: number; center?: boolean; minPerClass?: number; minJudgeMargin?: number; method?: 'split' | 'gate' }): RateEstimate {
   const minPerClass = o.minPerClass ?? MIN_CALIBRATION_PER_CLASS, minMargin = o.minJudgeMargin ?? MIN_JUDGE_MARGIN;
   const { judgedPass, n, calibration } = o;
   const z = o.z ?? Z95;
@@ -69,6 +83,13 @@ export function correctedPassRate(o: { judgedPass: number; n: number; calibratio
     return { ...base, raw, sensitivity: sens, specificity: spec, status: 'too_few_calibration', reason: `${m1} human-positive and ${m0} human-negative calibration items; ${minPerClass} of each are needed` };
   }
   const weak = (why: string): RateEstimate => ({ ...base, raw, sensitivity: q1, specificity: q0, status: 'judge_too_weak', reason: why });
+  if (o.method !== 'gate') {
+    // c84: the wired remedy. Eligibility on the pilot half, the interval from the holdout half only (rule above splitCalibration).
+    const { pilot, holdout } = splitCalibration(calibration);
+    const r = splitInterval({ judgedPass, n, pilot, holdout, z, center: o.center, minJudgeMargin: minMargin });
+    if (r.status !== 'ok') return weak(r.reason!);
+    return { ...base, raw, sensitivity: q1, specificity: q0, status: 'ok', reason: null, corrected: r.corrected };
+  }
   if (q0 + q1 <= 1) return weak(`sensitivity ${q1.toFixed(2)} plus specificity ${q0.toFixed(2)} is not above 1: the judge is no better than chance, so its verdicts cannot be corrected`);
   const nT = n + z * z, m0T = m0 + 2, m1T = m1 + 2;
   const pT = (judgedPass + z * z / 2) / nT, q0T = (calibration.tn + 1) / m0T, q1T = (calibration.tp + 1) / m1T;
@@ -80,6 +101,115 @@ export function correctedPassRate(o: { judgedPass: number; n: number; calibratio
   const half = z * Math.sqrt((pT * (1 - pT) / nT + (1 - thetaT) ** 2 * v0 + thetaT ** 2 * v1) / (D * D));
   const theta = (p + q0 - 1) / (q0 + q1 - 1);
   return { ...base, raw, sensitivity: q1, specificity: q0, status: 'ok', reason: null, corrected: { rate: clamp01(theta), low: clamp01(thetaT + d - half), high: clamp01(thetaT + d + half) } };
+}
+
+/** The c61 behaviour (margin gate on all labels, interval from the same labels). Kept only as the reproduction baseline of the c84 simulation; it has the selection bias. */
+export const correctedPassRateGate = (o: Parameters<typeof correctedPassRate>[0]): RateEstimate => correctedPassRate({ ...o, method: 'gate' });
+
+// ---- c84 (E1e): remedies for selection bias in the margin gate ----------------------------------------------------------
+/**
+ * SPLIT RULE (written and committed BEFORE any grid was run with it; chosen by reasoning, never tuned on coverage):
+ *  1. Each class (human-positive, human-negative) is divided in half: the pilot takes floor(m/2) items of the class, the holdout the rest
+ *     (so the holdout is never the smaller part). One half each, because the two jobs (deciding eligibility, then estimating the interval)
+ *     need the same kind of information and neither is more important; a fraction other than 1/2 would have to be tuned.
+ *  2. Which items go to the pilot is a pseudo-random draw without replacement, driven by a fixed generator seeded only by the four
+ *     calibration counts (not by the test counts, not by the grid). So base and candidate runs, which share the table, share the split.
+ *  3. ELIGIBILITY is decided on the pilot alone: at least 10 of each class in the pilot and the adjusted margin q̃0 + q̃1 - 1 at least
+ *     MIN_JUDGE_MARGIN. (With the standing minimum of 20 per class in total, the pilot has at least 10 per class and so does the holdout.)
+ *  4. The INTERVAL is computed from the holdout labels only (the same adjusted-Wald formula), never from the pilot. The only test on the
+ *     holdout is that it is able to produce a finite interval at all: raw and adjusted q0 + q1 - 1 above 0. Otherwise: no interval.
+ *  5. Fail closed: an ineligible judge, or a holdout that cannot support an interval, gives NO interval ("not enough evidence"), never a
+ *     wider guess.
+ * Why this helps: the gate looks only at the pilot; the interval uses labels the gate never saw, so being let through says nothing about
+ * how lucky the holdout is. What stays conditioned on: the pilot, and the question whether the holdout margin is above 0.
+ */
+export const SPLIT_PILOT_FRACTION = 0.5;
+export const MIN_PILOT_PER_CLASS = 10;
+export const MIN_HOLDOUT_PER_CLASS = 10;
+const SPLIT_SEED_TAG = 'c84-split-v1';
+
+function splitRng(seedText: string) {
+  let h = 2166136261;
+  for (let i = 0; i < seedText.length; i++) { h ^= seedText.charCodeAt(i); h = Math.imul(h, 16777619); }
+  let a = h >>> 0;
+  return () => { a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+/** `k` draws without replacement from `a` items of one kind and `b` of the other; returns how many of the first kind were drawn. */
+function hypergeometric(rng: () => number, a: number, b: number, k: number): number {
+  let first = 0, ra = a, rt = a + b;
+  for (let i = 0; i < k; i++) { if (rng() * rt < ra) { first++; ra--; } rt--; }
+  return first;
+}
+export interface CalibrationSplit { pilot: Calibration; holdout: Calibration }
+/** Rule 1 and 2 above: a deterministic split of the 2x2 table into pilot and holdout tables. */
+export function splitCalibration(cal: Calibration, fraction: number = SPLIT_PILOT_FRACTION): CalibrationSplit {
+  const rng = splitRng(`${SPLIT_SEED_TAG}:${cal.tp}:${cal.fn}:${cal.tn}:${cal.fp}`);
+  const m1 = cal.tp + cal.fn, m0 = cal.tn + cal.fp;
+  const k1 = Math.floor(m1 * fraction), k0 = Math.floor(m0 * fraction);
+  const ptp = hypergeometric(rng, cal.tp, cal.fn, k1), ptn = hypergeometric(rng, cal.tn, cal.fp, k0);
+  return {
+    pilot: { tp: ptp, fn: k1 - ptp, tn: ptn, fp: k0 - ptn },
+    holdout: { tp: cal.tp - ptp, fn: cal.fn - (k1 - ptp), tn: cal.tn - ptn, fp: cal.fp - (k0 - ptn) },
+  };
+}
+
+/** The adjusted-Wald corrected interval (A1 Eq. 8-12) from one calibration table; null when the table cannot support one (q̃0 + q̃1 - 1 not above 0). */
+function adjustedWald(judgedPass: number, n: number, c: Calibration, z: number, center: boolean): Interval | null {
+  const m0 = c.tn + c.fp, m1 = c.tp + c.fn;
+  const nT = n + z * z, m0T = m0 + 2, m1T = m1 + 2;
+  const pT = (judgedPass + z * z / 2) / nT, q0T = (c.tn + 1) / m0T, q1T = (c.tp + 1) / m1T;
+  const D = q0T + q1T - 1;
+  if (!(D > 0)) return null;
+  const v0 = q0T * (1 - q0T) / m0T, v1 = q1T * (1 - q1T) / m1T;
+  const thetaT = (pT + q0T - 1) / D;
+  const d = center ? 2 * z * z * (-(1 - thetaT) * v0 + thetaT * v1) : 0;
+  const half = z * Math.sqrt((pT * (1 - pT) / nT + (1 - thetaT) ** 2 * v0 + thetaT ** 2 * v1) / (D * D));
+  const q0 = m0 ? c.tn / m0 : 0, q1 = m1 ? c.tp / m1 : 0;
+  if (!(q0 + q1 > 1)) return null;
+  const theta = (judgedPass / n + q0 - 1) / (q0 + q1 - 1);
+  return { rate: clamp01(theta), low: clamp01(thetaT + d - half), high: clamp01(thetaT + d + half) };
+}
+
+export type RemedyStatus = 'ok' | 'ineligible' | 'unbounded';
+export interface RemedyResult { status: RemedyStatus; corrected: Interval; reason: string | null }
+
+/** Remedy 1, sample splitting: eligibility from the pilot, interval from the holdout (rules 3 to 5 above). Pure. */
+export function splitInterval(o: { judgedPass: number; n: number; pilot: Calibration; holdout: Calibration; z?: number; center?: boolean; minJudgeMargin?: number }): RemedyResult {
+  const z = o.z ?? Z95, minMargin = o.minJudgeMargin ?? MIN_JUDGE_MARGIN;
+  const { pilot, holdout } = o;
+  const no = (why: string): RemedyResult => ({ status: 'ineligible', corrected: NONE, reason: why });
+  if (pilot.tp + pilot.fn < MIN_PILOT_PER_CLASS || pilot.tn + pilot.fp < MIN_PILOT_PER_CLASS) return no('not enough evidence: the pilot part of the calibration labels is too small to decide eligibility');
+  if (holdout.tp + holdout.fn < MIN_HOLDOUT_PER_CLASS || holdout.tn + holdout.fp < MIN_HOLDOUT_PER_CLASS) return no('not enough evidence: the holdout part of the calibration labels is too small');
+  const D = (pilot.tn + 1) / (pilot.tn + pilot.fp + 2) + (pilot.tp + 1) / (pilot.tp + pilot.fn + 2) - 1;
+  if (D < minMargin) return no(`not enough evidence: on the pilot labels the judge's adjusted sensitivity plus specificity minus 1 is ${D.toFixed(2)}, under the ${minMargin} needed`);
+  const w = adjustedWald(o.judgedPass, o.n, holdout, z, o.center !== false);
+  if (!w) return no('not enough evidence: on the holdout labels the judge is not better than chance, so no finite interval exists');
+  return { status: 'ok', corrected: w, reason: null };
+}
+
+/**
+ * Remedy 3, a Fieller-type interval, no eligibility gate. The corrected rate theta solves p = theta q1 + (1 - theta)(1 - q0). The set of theta
+ * that a z-test of g(theta) = p - (1-theta)(1-q0) - theta q1 = 0 does not reject (with the adjusted proportions and the variance
+ * Vp + (1-theta)^2 V0 + theta^2 V1) is {a theta^2 + b theta + c <= 0}. When a <= 0 (the margin's confidence set contains 0) that set is
+ * unbounded, and the function says so rather than returning a number. Otherwise the bounded set is cut to [0, 1]. Pure; uses all the labels.
+ */
+export function fiellerInterval(o: { judgedPass: number; n: number; calibration: Calibration; z?: number }): RemedyResult {
+  const z = o.z ?? Z95, c = o.calibration;
+  const m0 = c.tn + c.fp, m1 = c.tp + c.fn;
+  const nT = o.n + z * z, m0T = m0 + 2, m1T = m1 + 2;
+  const pT = (o.judgedPass + z * z / 2) / nT, q0T = (c.tn + 1) / m0T, q1T = (c.tp + 1) / m1T;
+  const D = q0T + q1T - 1, A = pT + q0T - 1;
+  const Vp = pT * (1 - pT) / nT, V0 = q0T * (1 - q0T) / m0T, V1 = q1T * (1 - q1T) / m1T, z2 = z * z;
+  const a = D * D - z2 * (V0 + V1), b = -2 * A * D + 2 * z2 * V0, cc = A * A - z2 * (Vp + V0);
+  if (D <= 0) return { status: 'unbounded', corrected: NONE, reason: 'the judge is not better than chance on these labels (A1 assumes sensitivity + specificity above 1)' };
+  if (!(a > 0)) return { status: 'unbounded', corrected: NONE, reason: 'the confidence set for the judge margin includes 0, so the corrected rate has no upper or lower limit' };
+  const disc = b * b - 4 * a * cc;
+  if (!(disc >= 0)) return { status: 'unbounded', corrected: NONE, reason: 'no corrected rate is consistent with the data at this confidence level' };
+  const r = Math.sqrt(disc), lo = (-b - r) / (2 * a), hi = (-b + r) / (2 * a);
+  if (hi < 0 || lo > 1) return { status: 'unbounded', corrected: NONE, reason: 'the consistent corrected rates all lie outside 0 to 1' };
+  const q0 = m0 ? c.tn / m0 : 0, q1 = m1 ? c.tp / m1 : 0;
+  const point = q0 + q1 > 1 ? (o.judgedPass / o.n + q0 - 1) / (q0 + q1 - 1) : null;
+  return { status: 'ok', corrected: { rate: point === null ? null : clamp01(point), low: clamp01(lo), high: clamp01(hi) }, reason: null };
 }
 
 export interface CalibratedVerdict {
