@@ -36,7 +36,7 @@ Rewritten 2026-11-22T07:35Z, 17:50Z, and 2026-11-23T03:40Z by the controller; up
 ## Integration
 - Merged through **batch 37** at ebea695 (2026-11-23 ~05:45Z), integrator #5 (stopped 05:51Z). Its three merge-time fixes were diff-checked by the controller: e206210 (c69 registry fixture lists task_owner_history.owner), 62d4d81 (c72's `classes[].adjusted.value` in RATING_FIELDS plus a RATED_LIST_ALLOWED entry for one agent's own cells, as c78 designed), 444edfc (c79 sweep sends `?with=` to the compare route). Gap: the sweep never sends an own `:id` with a foreign `?with=`; until a lane adds it, the report must not claim the compare route is isolation-tested on both ids.
 - Verification on 229536a: verify-all 10/10, api-mobile 862 states 0 FAIL, stage6 ×20 20/20. On ebea695: full serial vitest 3414 passed / 36 skipped / 0 failed; fit and a11y both modes pass. **Not yet on ebea695:** full api-mobile, verify-all after the 5190 restart (running 05:52Z).
-- Wave 8 is being planned (lanes w79+). Spawn integrator #6 when the first Wave 8 lane clears.
+- Wave 8 (PHASE2.md) dispatched ~06:15Z: c81–c84 plus research round 5. Spawn integrator #6 when the first Wave 8 lane clears.
 
 ## Lanes now
 | Lane | Cycle | Status |
@@ -50,6 +50,11 @@ Rewritten 2026-11-22T07:35Z, 17:50Z, and 2026-11-23T03:40Z by the controller; up
 | w76 | c78 test hygiene II (H21, H20, O1c), e2e3, tests only | MERGED at ebea695 (batch 35, tip 96ed66e) |
 | w77 | c79 tenant-isolation suite (R4-4), e2e4, tests only | MERGED at ebea695 (batch 37, tip 6ee88cf) |
 | w78 | c80 migration guard (R4-6), e2e5 | MERGED at ebea695 (batch 36, tip 909577e) |
+| w79 | c81 tenant fixes (T1 2–4, MR2, MR4), e2e13, server only | dispatched ~06:15Z |
+| w80 | c82 390 px tab strips (H16, H22), e2e16, **web: done by ~12:00Z** | dispatched ~06:15Z |
+| w81 | c83 metric guard follow-ups (M2b), e2e15 | dispatched ~06:15Z |
+| w82 | c84 judge gate without selection bias (E1e), e2e17 | dispatched ~06:15Z |
+| — | Research round 5 (docs only) | dispatched ~06:15Z |
 | — | Final report draft (FINAL-REPORT-PHASE2.md) | draft committed; finalise at the end |
 
 Every other Wave 5–7 lane (c53–c71) is MERGED and live (2026-11-23T02:22Z). Details are in QUEUE.md, MERGES.md and LOG.md.

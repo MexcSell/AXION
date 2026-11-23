@@ -173,3 +173,16 @@ Build order:
 - **Q14:** should AXION define a "read private company data" capability? Without one, the Rule of Two's flag (b) covers only live systems and credentials (c58), so an agent reading untrusted pages, reading company records and sending messages doesn't trigger it.
 - **Q15:** c64's restructure guardrails ship switched off (`ORG_COOLDOWN_HOURS`, `ORG_CHURN_BUDGET`, `ORG_CHURN_WINDOW_HOURS`, `ORG_MAX_ESCALATION_LEVELS`; 0 or unset means not enforced). What values should the live company use? A suggested start: a 24 h cooldown, a budget of 6 reporting-line changes per 7 days, and at most 6 escalation levels.
 - **Q16:** the new Overview "Needs you" tab (c68) hides the Company Health / Scorecard side panel on that tab only, so 13 rows fit at 1366×768 instead of 9 (the header height changes between tabs). Keep that, or fold the header on every Overview tab instead?
+
+## Wave 8 (planned 2026-11-23 ~06:10Z; the last wave before the 13:45Z cutoff)
+Every lane: no migration (next free 0058 stays unused, so the 19:30Z live update is non-migrating), the HARD RULE in every brief, opened on ebea695 plus docs.
+
+| Cycle | Lane | Scope | Merge by |
+|---|---|---|---|
+| c81 tenant fixes (T1 2–4, compare reverse case, MR2, MR4) | w79, e2e13 | server only | 18:30Z |
+| c82 390 px tab strips, harness races (H16, H22) | w80, e2e16 | web only | **16:00Z** (done by ~12:00Z) |
+| c83 metric guard follow-ups (M2b) | w81, e2e15 | server and contracts | 18:30Z |
+| c84 judge gate without selection bias (E1e) | w82, e2e17 | server and contracts, simulated only | 18:30Z |
+| Research round 5 (next-phase ideas: causal evaluation of org changes, agent learning loops, estimation) | — | docs only | report |
+
+Excluded on purpose: E4b, R4-1/3/5 (owner targets), T1(1) agent-id rescoping (a large migration; the owner decides), R4-2 (needs a v2 chain). H11b and M1c turned out done (c70, c54); their BACKLOG rows are stale and get corrected at report time.
