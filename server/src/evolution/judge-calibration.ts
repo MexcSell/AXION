@@ -50,7 +50,8 @@ const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 const isCount = (x: unknown) => typeof x === 'number' && Number.isInteger(x) && x >= 0;
 const NONE: Interval = { rate: null, low: null, high: null };
 
-export function correctedPassRate(o: { judgedPass: number; n: number; calibration: Calibration | null; z?: number; center?: boolean; minPerClass?: number; minJudgeMargin?: number }): RateEstimate {
+/** The c61 behaviour (margin gate on all labels, interval from the same labels). Kept as the reproduction baseline for the c84 simulation. */
+export function correctedPassRateGate(o: { judgedPass: number; n: number; calibration: Calibration | null; z?: number; center?: boolean; minPerClass?: number; minJudgeMargin?: number }): RateEstimate {
   const minPerClass = o.minPerClass ?? MIN_CALIBRATION_PER_CLASS, minMargin = o.minJudgeMargin ?? MIN_JUDGE_MARGIN;
   const { judgedPass, n, calibration } = o;
   const z = o.z ?? Z95;
@@ -81,6 +82,8 @@ export function correctedPassRate(o: { judgedPass: number; n: number; calibratio
   const theta = (p + q0 - 1) / (q0 + q1 - 1);
   return { ...base, raw, sensitivity: q1, specificity: q0, status: 'ok', reason: null, corrected: { rate: clamp01(theta), low: clamp01(thetaT + d - half), high: clamp01(thetaT + d + half) } };
 }
+
+export const correctedPassRate = correctedPassRateGate;
 
 // ---- c84 (E1e): remedies for selection bias in the margin gate ----------------------------------------------------------
 /**
