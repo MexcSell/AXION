@@ -58,6 +58,8 @@ Rewritten 2026-11-22T07:35Z, 17:50Z, and 2026-11-23T03:40Z by the controller; up
 | w83 | c85 change plans (R5-1), e2e14, mig 0058 | CLEARED at 0f1a26b, batch 42 |
 | w84 | c86 forecast ledger (R5-7), e2e3, mig 0059 | CLEARED at d84882d, batch 41 |
 | w85 | c87 private-mission visibility sweep (tests only), e2e4 | dispatched ~07:20Z |
+| w86 | c88 org evidence for members (T2) and column guard scope (M2d), e2e13 | dispatched ~08:05Z |
+| w87 | c89 plans and forecasts UI (U8), e2e15, **web: done by ~12:00Z or parked** | dispatched ~08:05Z |
 | — | Final report draft (FINAL-REPORT-PHASE2.md) | draft committed; finalise at the end |
 
 Every other Wave 5–7 lane (c53–c71) is MERGED and live (2026-11-23T02:22Z). Details are in QUEUE.md, MERGES.md and LOG.md.

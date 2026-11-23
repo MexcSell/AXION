@@ -201,3 +201,9 @@ This reverses Wave 8's "no migrations" deliberately. Both are new append-only ta
 | Cycle | Lane | Scope |
 |---|---|---|
 | c87 private-mission visibility sweep inside one tenant (prompted by the c86 baseline leak) | w85, e2e4 | tests only |
+
+### Wave 8d (planned ~08:05Z)
+| Cycle | Lane | Scope | Merge by |
+|---|---|---|---|
+| c88 org proposal evidence for members (T2, from c87) and the column guard scope (M2d) | w86, e2e13 | server, contracts, tests | 18:30Z |
+| c89 screens for change plans and forecasts (U8) | w87, e2e15 | web only | **16:00Z** (done by 12:00Z or parked) |
