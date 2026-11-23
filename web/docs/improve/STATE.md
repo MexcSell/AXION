@@ -8,10 +8,11 @@ Rewritten 2026-11-22T07:35Z by the controller and again at 17:50Z after the live
 
 ## Branch and live
 - Integration tree `/home/luca/AXION`, branch `improve-30h`, local only. Never push or move the tag without the owner.
-- **Web dev 5190** serves the working tree. Restarted 2026-11-22 at about 16:08Z after a stale watcher; PID in /tmp/axion-5190.pid.
-- **API 5191** runs the real `axion` DB. **Restarted 2026-11-22T17:44Z on ed3ed73** from a clean tree; PID in /tmp/axion-5191.pid.
-  - Schema version 39 (all 28 migration files applied).
-  - Backup `backups/axion-20261122T174415Z.dump`; restore check PASS.
+- **Web dev 5190** serves the working tree. Restarted 2026-11-23T02:22Z after a stale watcher (3rd time, BACKLOG H19); PID in /tmp/axion-5190.pid.
+- **API 5191** runs the real `axion` DB. **Restarted 2026-11-23T02:22Z on 229536a** (batches 14–30) from a clean tree; PID in /tmp/axion-5191.pid.
+  - Schema version 53 (38 migration files; 0036, 0038, 0041, 0042, 0049, 0051 unused).
+  - Backup `backups/axion-20261123T012236Z.dump`; restore check PASS. Previous: `axion-20261122T174415Z.dump` (version 39).
+  - Audit anchor line 2 written at this update; chain and anchor OK.
   - The live DB holds 1 tenant and 1 audit row.
 - **Audit anchor (c49):** settings are in the live server/.env (mode 600; the key is never printed). The first anchor is written: t-1 through seq 1, in `server/data/audit-anchors.jsonl` (git-ignored). `audit:verify`: chain OK, anchor OK. **The owner should copy the anchor file off-host.**
 - **Every later live update follows these steps:**
