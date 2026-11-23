@@ -15,7 +15,6 @@ create table forecasts (
   unique (task_id, forecaster_id, question)
 );
 create index forecasts_forecaster on forecasts(tenant_id, forecaster_id, seq);
-create index forecasts_task on forecasts(task_id);
 
 -- Append-only with the four guards (UPDATE, DELETE, TRUNCATE, and the one allowed DELETE, the demo purge, axion.purge_demo, set by clearDemo).
 create function forecasts_append_only() returns trigger language plpgsql as $$

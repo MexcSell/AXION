@@ -76,3 +76,13 @@ describe('no leaderboard', () => {
     expect(readdirSync(join(import.meta.dirname, '..', 'src', 'forecasts')).sort()).toEqual(['ledger.ts', 'routes.ts']);
   });
 });
+
+describe('every review is written through recordReview (so every review takes the task-review lock)', () => {
+  it('src has exactly one insert into task_reviews outside the reviewed dev-only exception', () => {
+    const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(d, e.name)) : e.name.endsWith('.ts') ? [join(d, e.name)] : []));
+    const root = join(import.meta.dirname, '..', 'src');
+    const hits = walk(root).filter((f) => /insert\s+into\s+task_reviews/i.test(readFileSync(f, 'utf8'))).map((f) => f.slice(root.length + 1)).sort();
+    // cli/e2e-attention.ts: harness-only CLI that refuses a non-e2e database; it seeds past reviews with explicit created_at and takes no lock. A forecast beside such a row reads "late" (never scored), the safe side.
+    expect(hits).toEqual(['cli/e2e-attention.ts', 'tasks/reviews.ts']);
+  });
+});

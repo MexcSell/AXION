@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { makeWorld, forecast, type World } from './c86-fixtures.ts';
-import { brier, logLoss, binOf, ledgerOf, hundredths, CALIBRATION_MIN_N, type ForecastRowIn } from '../../shared/contracts/src/index.ts';
+import { brier, logLoss, binOf, ledgerOf, hundredths, CALIBRATION_MIN_N, FORECAST_METHOD, type ForecastRowIn } from '../../shared/contracts/src/index.ts';
 
 // c86 items 2 and 3: resolution at read time, Brier and log loss, calibration bins, the reference-class baseline, the skill floor.
 const close = (a: number | null, b: number, d = 1e-6) => { expect(a).not.toBeNull(); expect(Math.abs((a as number) - b)).toBeLessThan(d); };
@@ -188,4 +188,26 @@ describe('baseline, calibration and skill', () => {
     const routes = [...new Set(w.t.app.routeTable.filter((r) => /forecast/.test(r.url) && r.method !== 'HEAD').map((r) => `${r.method} ${r.url.replace('/api/v1', '')}`))].sort();
     expect(routes).toEqual(['GET /me/forecasts', 'GET /users/:id/forecasts', 'POST /tasks/:id/forecasts']);
   });
+});
+
+describe('the baseline is computed per viewer, over the missions that viewer can see (no leak of private outcomes)', () => {
+  const cell = async (verdicts: string[], mission: string) => { for (const v of verdicts) { const id = await w.task(mission); await brief(id, mission, 'planning', 2, '11 days'); await review(id, mission, v, '10 days'); } };
+  const baselineOf = async (viewer: 'amy' | 'admin', taskId: string) => {
+    const b = viewer === 'amy' ? await w.amy.req('GET', '/me/forecasts') : await w.admin.req('GET', `/users/${w.amyId}/forecasts`);
+    return b.body.forecasts.find((x: any) => x.taskId === taskId).baseline;
+  };
+  it('a member gets the same n and rate whether a hidden task in the cell is accepted, rejected or absent; an administrator gets it counted', async () => {
+    await cell(['accepted', 'accepted', 'accepted', 'rejected', 'rejected'], w.mShared); // 5 visible: n 5, rate 0.6
+    const f = await w.task(); await brief(f, w.mShared, 'planning', 2, '4 days'); await fc(f, w.amyId, 0.5, '3 days'); await review(f, w.mShared, 'accepted', '1 day');
+    const absent = await baselineOf('amy', f);
+    expect(absent).toMatchObject({ n: 5 }); close(absent.rate, 0.6);
+    await cell(['accepted'], w.mPrivate);
+    expect(await baselineOf('amy', f)).toEqual(absent);
+    const adminSees1 = await baselineOf('admin', f);
+    expect(adminSees1.n).toBe(6); close(adminSees1.rate, 4 / 6);
+    await cell(['rejected'], w.mPrivate);
+    expect(await baselineOf('amy', f)).toEqual(absent);
+    expect((await baselineOf('admin', f)).n).toBe(7);
+  });
+  it('method text says so', () => { expect(FORECAST_METHOD).toMatch(/per viewer/i); });
 });

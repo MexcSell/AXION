@@ -39,3 +39,10 @@ Lane w84, branch `c86-forecast-ledger`, from 2c3b7d5. Server and shared/contract
 - Baseline is company-wide (aggregate, tenant-scoped) and not restricted by the viewer's mission visibility.
 - Edited shared files: `locks.ts`, `tasks/reviews.ts` (one line), `app.ts`, `metric-guard.ts` (one ROUTE_NO_INPUT line), contract test registries; small merge-conflict risk with c85.
 - The 20-forecast floor counts forecasts with a baseline.
+
+## Fix round (review NOT CLEAR)
+- MAJOR baseline leak: the reference-class history now joins missions with `VISIBLE_SQL` for the viewer, so the baseline is per viewer; stated in `FORECAST_METHOD` and the contract note. RED: the new test (hidden task accepted, rejected or absent gives a member the same n and rate; the administrator counts it) failed before the fix. Mutation (drop the visibility join) is killed by it.
+- Other aggregates: counts, bins, means and skill come only from the viewed person's own forecasts, and rows on missions the viewer cannot see are already left out; the baseline was the only place that aggregated other people's tasks. No other leak found.
+- Minor 2: mutation removing the visibility check on the POST (404 for a private task) is killed.
+- Minor 3: a source-scan test pins that only `tasks/reviews.ts` and the dev-only `cli/e2e-attention.ts` insert into task_reviews (the exception's reason is in the test).
+- Minor 4: redundant `forecasts_task` index dropped from 0059 (unique key covers it); c80 lint re-run green.

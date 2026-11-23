@@ -35,7 +35,7 @@ async function rowsOf(c: Tx | Db, viewer: ForecastCtx, forecasterId: string, tas
          join lateral (select r.verdict, r.created_at from task_reviews r where r.task_id = t.id order by r.seq limit 1) fr on true
          join lateral (select d.brief->>'taskClass' as cls, d.brief->>'difficulty' as diff from delegation_briefs d
                         where d.task_id = t.id and d.created_at < fr.created_at and ${NAMES_BOTH('d')} order by d.seq limit 1) hb on true
-        where t.tenant_id = $1 and not (t.simulated or m.demo) and m.deleted_at is null)
+        where t.tenant_id = $1 and not (t.simulated or m.demo) and m.deleted_at is null and ${VISIBLE_SQL('$4', '$5')})
      select f.id, f.task_id, f.mission_id, f.probability, f.made_at, t.title,
             fr.verdict as first_verdict, fr.created_at as first_at,
             coalesce(fr.created_at is not null and f.made_at < fr.created_at, false) as in_time,

@@ -22,7 +22,8 @@ import { TASK_CLASS_IDS, TASK_CLASSES, type TaskClassId } from './skills.ts';
  * REFERENCE CLASS. For a forecast whose task has a delegation brief (made at or before the forecast) naming BOTH a task class and a difficulty, the
  * baseline is the historical first-review acceptance rate of the same class and difficulty, over tasks (of the same company, not simulated, not
  * demo) whose first review came strictly before the forecast was made, with the class taken from the first brief that names both. The baseline
- * is used only from BASELINE_MIN_N such tasks. Its Brier on the same task is the skill reference.
+ * is used only from BASELINE_MIN_N such tasks. It is computed PER VIEWER, over tasks of missions the viewer can see, so a private task's outcome never shows in n or rate
+ * (an administrator, who sees every mission, gets every task counted). Counts, bins and skill are built from the viewed person's own forecasts of visible missions only. Its Brier on the same task is the skill reference.
  *
  * SKILL. skill = 1 - (forecaster's mean Brier) / (baseline's mean Brier), over the forecaster's resolved forecasts that have a baseline. It is shown only
  * from SKILL_MIN_RESOLVED such forecasts; below that the text is "not enough evidence (n of 20)". The 20-floor counts forecasts WITH a baseline,
@@ -44,7 +45,7 @@ export const BASELINE_MIN_N = 5;
 export const SKILL_MIN_RESOLVED = 20;
 /** a per-class mean is shown from this many resolved forecasts */
 export const FORECAST_CLASS_MIN_N = 5;
-export const FORECAST_METHOD = 'Brier (p - o)^2 and log loss -ln(p of what happened), both lower-is-better, p clamped to 0.01 to 0.99 for the log; 5 calibration bins on whole percents (a bin shows its rate from 5 forecasts); baseline = the historical first-review acceptance rate of the same task class and difficulty before the forecast was made (from 5 tasks); skill from 20 resolved forecasts that have a baseline.';
+export const FORECAST_METHOD = 'Brier (p - o)^2 and log loss -ln(p of what happened), both lower-is-better, p clamped to 0.01 to 0.99 for the log; 5 calibration bins on whole percents (a bin shows its rate from 5 forecasts); baseline = (computed per viewer, over the missions that viewer can see) the historical first-review acceptance rate of the same task class and difficulty before the forecast was made (from 5 tasks); skill from 20 resolved forecasts that have a baseline.';
 
 export type ForecastState = 'open' | 'void' | 'resolved' | 'late';
 
