@@ -2,7 +2,8 @@
 import { chromium } from 'playwright';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-const base = process.env.BASE || 'http://127.0.0.1:5190';
+import { resolveBase } from './_base.mjs';
+const base = resolveBase();
 const walk = (d) => readdirSync(d).flatMap((f) => { const p = join(d, f); return statSync(p).isDirectory() ? walk(p) : [p]; });
 const used = new Map();
 for (const f of walk('src').filter((f) => /\.tsx?$/.test(f))) for (const m of readFileSync(f, 'utf8').matchAll(/openDialog\(\s*['"]([\w-]+)['"]/g)) used.set(m[1], [...new Set([...(used.get(m[1]) ?? []), f])]);

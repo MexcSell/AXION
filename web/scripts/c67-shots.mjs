@@ -4,7 +4,8 @@ import { signIn, navWait, settle } from './_session.mjs';
 import { mkdirSync } from 'node:fs';
 const [, , out = '/tmp/c67-shots', prefix = 'after'] = process.argv;
 mkdirSync(out, { recursive: true });
-const base = process.env.BASE || 'http://127.0.0.1:5190';
+import { resolveBase } from './_base.mjs';
+const base = resolveBase();
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
 for (const theme of ['dark', 'light']) {
   const ctx = await b.newContext({ viewport: { width: 1366, height: 768 } });

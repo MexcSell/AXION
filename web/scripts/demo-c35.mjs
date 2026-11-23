@@ -2,7 +2,8 @@
 // BASE=http://127.0.0.1:<dev> node scripts/demo-c35.mjs
 import { chromium } from 'playwright';
 import { signIn, navWait, settle } from './_session.mjs';
-const base = process.env.BASE || 'http://127.0.0.1:5190';
+import { resolveBase } from './_base.mjs';
+const base = resolveBase();
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
 const res = [];
 const check = (n, ok, x = '') => { res.push(ok); console.log(`${ok ? 'PASS' : 'FAIL'} ${n}${x ? ' — ' + x : ''}`); };

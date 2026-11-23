@@ -9,7 +9,8 @@
 //        (exit 1 on any violation)
 import { chromium } from 'playwright';
 import { signIn } from './_session.mjs';
-const base = process.env.BASE || 'http://127.0.0.1:5190';
+import { resolveBase } from './_base.mjs';
+const base = resolveBase();
 const K = Number(process.env.K || 14), THROTTLE = Number(process.env.THROTTLE || 8), STOP = process.env.STOP || 'archived';
 if (!['archived', 'paused'].includes(STOP)) throw new Error('STOP must be archived or paused');
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });

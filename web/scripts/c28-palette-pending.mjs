@@ -3,7 +3,8 @@
 // Usage: BASE=http://127.0.0.1:7690 node scripts/c28-palette-pending.mjs (dev server)
 import { chromium } from 'playwright';
 import { signIn } from './_session.mjs';
-const base = process.env.BASE || 'http://127.0.0.1:5190';
+import { resolveBase } from './_base.mjs';
+const base = resolveBase();
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
 let fails = 0;
 for (const variant of ['escape', 'click']) {

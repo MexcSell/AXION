@@ -3,7 +3,8 @@
 // and Enter must open the page for the typed query. Usage: BASE=... node scripts/c28-palette-fast.mjs
 import { chromium } from 'playwright';
 import { signIn } from './_session.mjs';
-const base = process.env.BASE || 'http://127.0.0.1:5190';
+import { resolveBase } from './_base.mjs';
+const base = resolveBase();
 const runs = Number(process.env.RUNS || 5);
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
 let fails = 0;

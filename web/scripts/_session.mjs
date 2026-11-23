@@ -7,7 +7,8 @@ import { request } from 'playwright';
 import { readFileSync } from 'node:fs';
 
 const API = process.env.DATA_MODE === 'api';
-const BASE = () => process.env.BASE || 'http://127.0.0.1:5190';
+import { resolveBase } from './_base.mjs';
+const BASE = () => resolveBase();
 /** `networkidle` never fires while the live event stream is open, so api runs wait for the DOM and then settle(). */
 export const navWait = () => (API ? 'domcontentloaded' : 'networkidle');
 /** Condition wait, not a sleep: every finite CSS/Web animation has finished and two frames have painted (capped at 3 s). */
