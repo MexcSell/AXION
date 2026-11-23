@@ -116,16 +116,32 @@ export function statements(rel: string, src = readFileSync(join(SRC, rel), 'utf8
 const KW = new Set('select from where and or not on join left right inner outer full cross lateral using group by order limit offset as in is null true false case when then else end distinct all any exists between like ilike union except intersect with over partition having asc desc interval epoch cast filter within coalesce'.split(' '));
 
 /** `table.column` and `table.*` reads of one statement. */
-export function reads(sql: string, cols: SchemaCols): { reads: Set<string>; tables: Set<string> } {
+export function reads(sql: string, cols: SchemaCols): { reads: Set<string>; tables: Set<string>; unresolved: string[] } {
   let s = sql.replace(/--[^\n]*/g, ' ').replace(/'(?:[^']|'')*'/g, "''").replace(/::(?:double\s+precision|[a-z_][a-z0-9_]*)(?:\[\])?/gi, ' ').replace(/\$\d+/g, ' ');
   const alias = new Map<string, Set<string>>();
   const tables = new Set<string>();
-  for (const m of s.matchAll(/\b(?:from|join)\s+(?:only\s+)?([a-z_][a-z0-9_]*)(?:\s+(?:as\s+)?(?!(?:where|on|join|left|right|inner|outer|full|cross|lateral|group|order|limit|using|natural|union|except|intersect|window|having|offset|for|returning|set)\b)([a-z_][a-z0-9_]*))?/gi)) {
-    const name = m[1].toLowerCase();
-    if (!cols[name]) continue;
-    tables.add(name);
-    const a = m[2] && !KW.has(m[2].toLowerCase()) ? m[2].toLowerCase() : name;
-    for (const k of new Set([a, name])) alias.set(k, (alias.get(k) ?? new Set()).add(name));
+  // c83 fix round: FROM and JOIN lists, with comma joins and schema-qualified names. An entry that is not a known table, a CTE, a function call or a
+  // sub-select is UNRESOLVED and reported (the scanner fails closed instead of skipping it).
+  const unresolved: string[] = [];
+  const ctes = new Set([...s.matchAll(/(?:\bwith|,)\s*([a-z_][a-z0-9_]*)\s+as\s*\(/gi)].map((m) => m[1].toLowerCase()));
+  const entry = /\s*(?:only\s+)?(?:"?([a-z_][a-z0-9_]*)"?\s*\.\s*)?"?([a-z_][a-z0-9_]*)(?![a-z0-9_])"?(?!\s*\()(?:\s+(?:as\s+)?(?!(?:where|on|join|left|right|inner|outer|full|cross|lateral|group|order|limit|using|natural|union|except|intersect|window|having|offset|for|returning|set)\b)([a-z_][a-z0-9_]*))?/iy;
+  for (const m of s.matchAll(/\b(?:from|join)\b/gi)) {
+    let pos = m.index! + m[0].length;
+    for (;;) {
+      entry.lastIndex = pos;
+      const e = entry.exec(s);
+      if (!e) break; // a sub-select, a function call or the end: nothing to resolve here
+      pos = entry.lastIndex;
+      const name = e[2].toLowerCase();
+      if (cols[name]) {
+        tables.add(name);
+        const al = e[3] && !KW.has(e[3].toLowerCase()) ? e[3].toLowerCase() : name;
+        for (const k of new Set([al, name])) alias.set(k, (alias.get(k) ?? new Set()).add(name));
+      } else if (!ctes.has(name) && !/^(?:now|current_\w+|generate_series|unnest|lateral)$/.test(name)) unresolved.push(e[1] ? `${e[1]}.${e[2]}` : e[2]);
+      const comma = /\s*,/y; comma.lastIndex = pos;
+      if (!comma.exec(s)) break;
+      pos = comma.lastIndex;
+    }
   }
   const out = new Set<string>();
   const addQual = (a: string, c: string) => { for (const t of alias.get(a) ?? []) { if (c === '*') out.add(`${t}.*`); else if (cols[t].includes(c)) out.add(`${t}.${c}`); } };
@@ -138,7 +154,7 @@ export function reads(sql: string, cols: SchemaCols): { reads: Set<string>; tabl
     if (KW.has(w)) continue;
     for (const t of tables) if (cols[t].includes(w)) out.add(`${t}.${w}`);
   }
-  return { reads: out, tables };
+  return { reads: out, tables, unresolved };
 }
 
 /** Reads of every statement of a source file, optionally limited to one enclosing function or route. */
@@ -190,8 +206,9 @@ export function columnProblems(setup: ColumnSetup, cols: SchemaCols, src: Record
       const [file, scope] = ref.split('#');
       const all = statements(file, text(file)).filter((x) => !scope || x.scope === scope);
       const reads_ = new Set<string>();
-      for (const st of all) for (const x of reads(st.sql, cols).reads) reads_.add(x);
-      scan.set(ref, { reads: reads_, statements: all.length, unresolved: all.flatMap((x) => x.unresolved.map((e) => `\${${e}}`)) });
+      const unres: string[] = [];
+      for (const st of all) { const r = reads(st.sql, cols); for (const x of r.reads) reads_.add(x); unres.push(...r.unresolved.map((t) => `FROM/JOIN entry ${t} is not a known table, CTE, function or sub-select`)); }
+      scan.set(ref, { reads: reads_, statements: all.length, unresolved: [...all.flatMap((x) => x.unresolved.map((e) => `\${${e}}`)), ...unres] });
     }
     return scan.get(ref)!;
   };
@@ -223,7 +240,7 @@ export function columnProblems(setup: ColumnSetup, cols: SchemaCols, src: Record
   for (const [ref, declared] of refs) {
     const s = scanOf(ref);
     if (s.statements === 0) { out.push(`${ref}: a loader that runs no SQL statement (renamed, moved, or a wrong scope?)`); continue; }
-    for (const u of s.unresolved) out.push(`${ref}: a SQL template expression that is not a known fragment: ${u} (add it to FRAGMENTS in columns.ts, or write the SQL out)`);
+    for (const u of s.unresolved) out.push(`${ref}: unresolved SQL: ${u} (a template expression: add it to FRAGMENTS in columns.ts or write the SQL out; a FROM entry: write it as a known table)`);
     for (const c of s.reads) if (!isContext(c) && !covers(declared, c)) out.push(`${ref}: reads ${c}, but no row that names this loader declares it`);
   }
   // a declared column must be read by one of the row's loaders

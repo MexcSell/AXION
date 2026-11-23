@@ -56,7 +56,7 @@ describe('registry loader coverage at column level', () => {
     expect(p).toEqual([expect.stringContaining('company/zz-new-loader.ts: runs SQL but no registry row names it')]);
     const q = columnProblems(setup({ metrics: METRICS.map((m) => (m.id === 'scorecard.started' ? { ...m, loaders: [...m.loaders, 'company/zz-new-loader.ts'] } : m)) }), cols,
       { 'company/zz-new-loader.ts': 'export const q = (x: string) => `select t.status from tasks t where ${x}`;' });
-    expect(q.join('\n')).toContain('a SQL template expression that is not a known fragment');
+    expect(q.join('\n')).toContain('unresolved SQL');
   });
 
   it('RED proof 3: a column a row declares but no loader reads, a column that is not in the schema, and a row with a loader but no column are reported', () => {
@@ -77,5 +77,18 @@ describe('registry loader coverage at column level', () => {
     expect([...reads('select x.verdict, y.attempt_no from task_reviews x join task_attempts y on y.task_id = x.task_id', c).tables].sort()).toEqual(['task_attempts', 'task_reviews']);
     const st = statements('x.ts', "export const f = (r: string) => `select 1 from task_reviews r ${STALE_JOINS('r')} where ${STALE_FLAG('r')}`;")[0];
     expect([...reads(st.sql, c).reads].sort()).toEqual(['task_attempts.attempt_no', 'task_attempts.id', 'task_attempts.started_at', 'task_attempts.task_id', 'task_reviews.attempt_id', 'task_reviews.created_at', 'task_reviews.task_id'].sort());
+  });
+
+  it('RED proof (review finding 1): comma joins and schema-qualified tables are read, and an entry that resolves to nothing is an error', () => {
+    const c: SchemaCols = { tasks: ['id', 'status', 'title'], task_reviews: ['id', 'verdict', 'task_id'] };
+    expect([...reads('select t.id from tasks t, task_reviews r where r.verdict = 1', c).reads].sort()).toEqual(['task_reviews.verdict', 'tasks.id']);
+    expect([...reads('select t.title from public.tasks t where t.status = 1', c).reads].sort()).toEqual(['tasks.status', 'tasks.title']);
+    expect([...reads('select a.id from tasks a join "public"."task_reviews" b on b.task_id = a.id, tasks z', c).tables].sort()).toEqual(['task_reviews', 'tasks']);
+    expect(reads('select x.id from nosuch x where x.id = 1', c).unresolved).toEqual(['nosuch']);
+    expect(reads('select x.id from other.nosuch x', c).unresolved).toEqual(['other.nosuch']);
+    expect(reads('with w as (select id from tasks) select w.id from w, unnest($1::text[]) u', c).unresolved).toEqual([]);
+    // an unresolved entry in a loader fails the column test
+    const p = columnProblems(setup(), cols, { 'company/routes.ts': require('node:fs').readFileSync(require('node:path').join(__dirname, '../src/company/routes.ts'), 'utf8').replace('from mission_runs where', 'from mission_runs, zz_not_a_table where') });
+    expect(p.join('\n')).toContain('unresolved SQL: FROM/JOIN entry zz_not_a_table');
   });
 });
