@@ -25,3 +25,4 @@ export * from './process.ts';
 export * from './skills.ts';
 export * from './forecasts.ts';
 export * from './org-plan.ts';
+export * from './exec-plan.ts';
