@@ -8,12 +8,14 @@ import type pg from 'pg';
  *  - a response cache keyed by the URL alone, shared by both apps (a cache that forgot the tenant). Off unless a mutant switches it on.
  */
 export type Rewrite = (sql: string, params: unknown[]) => { sql: string; params: unknown[] } | null;
-export interface Seam { fn: Rewrite | null; applied: number; cacheOn: boolean }
+export interface Seam { fn: Rewrite | null; applied: number; cacheOn: boolean; fromHeader: boolean }
+/** c81: the tenant id a request asked for in its `x-tenant-id` header, while a mutant that trusts that header is armed (null otherwise). */
+export const asked = { tenant: null as string | null };
 export const SEAMS = new WeakMap<FastifyInstance, Seam>();
 export const sharedCache = new Map<string, { status: number; type: string; body: string }>();
 
 export function attachSeams(app: FastifyInstance) {
-  const seam: Seam = { fn: null, applied: 0, cacheOn: false };
+  const seam: Seam = { fn: null, applied: 0, cacheOn: false, fromHeader: false };
   SEAMS.set(app, seam);
   const pool = app.db as pg.Pool;
   const patch = (c: any) => {
@@ -42,6 +44,8 @@ export function attachSeams(app: FastifyInstance) {
     if (cb) return connect((err: any, client: any, done: any) => { if (client) patch(client); cb(err, client, done); });
     return connect().then((c: any) => { patch(c); return c; });
   };
+  app.addHook('onRequest', async (req) => { asked.tenant = seam.fromHeader ? (String(req.headers['x-tenant-id'] ?? '') || null) : null; });
+  app.addHook('onResponse', async () => { asked.tenant = null; });
   // the URL-only cache: answers a repeated GET with whatever any tenant stored first
   app.addHook('onRequest', async (req, reply) => {
     if (!seam.cacheOn || req.method !== 'GET' || !req.url.startsWith('/api/v1/') || /^\/api\/v1\/(events|me|auth)/.test(req.url)) return;
@@ -70,3 +74,12 @@ export const writeWithTenant = (stmt: RegExp, from: string, to: string): Rewrite
   return { sql, params: [to, ...params.slice(1)] };
 };
 export const useSeams = (app: FastifyInstance) => SEAMS.get(app)!;
+/** Apply a rewrite only for statements whose parameters satisfy `when` (a fault that hits one kind of lookup, not every one). */
+export const onlyWhen = (when: (params: unknown[]) => boolean, r: Rewrite): Rewrite => (sql, params) => (when(params) ? r(sql, params) : null);
+/** A fault that lets the request choose the tenant: while the header is present, every statement is given that tenant id instead of t-1. */
+export const tenantFromHeader: Rewrite = (sql, params) => (asked.tenant && params.includes('t-1') ? { sql, params: params.map((p) => (p === 't-1' ? asked.tenant : p)) } : null);
+/** A lookup by exact id and tenant becomes a lookup by id PREFIX across all tenants (a forged, shortened id finds another tenant's row). */
+export const prefixLookup = (read: RegExp, predicate: RegExp): Rewrite => (sql, params) => {
+  if (!/^\s*(with|select)/i.test(sql) || !read.test(sql) || !predicate.test(sql)) return null;
+  return { sql: sql.replace(predicate, "($1::text is not null) and d.id like $2 || '%'"), params };
+};

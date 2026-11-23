@@ -61,19 +61,10 @@ export const WRITE_EXCEPTIONS: Record<string, string> = {
   'POST /organization/revisions/:seq/rollback-proposal': 'The id is a per-tenant revision counter (1, 2, ...), so the same number names a different record in each tenant; there is no foreign id to send. The proposal it creates is stored under the caller\'s own tenant (checked by the at-rest sweep of the owner).',
 };
 /**
- * Routes that answer 200 for a foreign id, with the check that proves the effect is scoped to the caller. `POST /notifications/:id/ack` stores
- * `(caller tenant, caller user, notice id)` in notification_reads without looking the notice up: no foreign row is read, changed or shown.
- * The check: every notification_reads row for that notice id carries the caller's own tenant, none carries the owner's.
+ * Routes that may answer 200 for a foreign id, each with the check that proves the effect is scoped to the caller. Empty since c81: the only
+ * entry, `POST /notifications/:id/ack`, now answers 404 for an id the caller cannot see and stores nothing (it was a reasoned exception in c79).
  */
-export const SELF_SCOPED_OK: Record<string, (w: World, view: Tenant, other: Tenant, rq: Req) => Promise<string | null>> = {
-  'POST /notifications/:id/ack': async (w, view, other, rq) => {
-    const id = rq.url.split('/')[2];
-    const rows = (await w.pool.query('select tenant_id, user_id from notification_reads where notice_id = $1', [id])).rows as { tenant_id: string; user_id: string }[];
-    if (rows.some((r) => r.tenant_id !== view.tenantId)) return `a read marker for the foreign notice ${id} was stored under tenant ${rows.find((r) => r.tenant_id !== view.tenantId)!.tenant_id}`;
-    if (!rows.length) return `answered 200 but stored nothing for ${id}: the exception's premise (a caller-scoped marker) is not what happened`;
-    return null;
-  },
-};
+export const SELF_SCOPED_OK: Record<string, (w: World, view: Tenant, other: Tenant, rq: Req) => Promise<string | null>> = {};
 /** Which records exist per tenant: tenant B has no organisation chart, so org ids only exist for A. Cases whose target lacks the id are skipped and counted. */
 const needs: Record<string, string[]> = { 'POST /organization/proposals/:id/decision': ['orgProposal'], 'POST /organization/proposals/:id/withdraw': ['orgProposal'] };
 
@@ -117,4 +108,4 @@ export async function foreignWrites(w: World, view0: Tenant, other0: Tenant, arm
   return { violations, results };
 }
 /** Tables whose rows change when anyone reads (a session's last-used time), so a byte comparison there proves nothing. */
-export const AT_REST_VOLATILE = new Set<string>(['sessions']);
+export const AT_REST_VOLATILE = new Set<string>(); // c81: empty; `sessions` is compared by user_id (see atRestText)

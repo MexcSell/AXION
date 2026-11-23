@@ -4,7 +4,7 @@ import type { Tx } from '../db.ts';
 import { requireUser } from '../auth/session.ts';
 import { parse } from '../auth/routes.ts';
 import { appendEvent } from '../events/log.ts';
-import { badRequest } from '../errors.ts';
+import { badRequest, notFound } from '../errors.ts';
 
 export interface NoticeInput { tenantId: string; severity: 'critical' | 'warning' | 'info' | 'success'; category: 'mission' | 'agent' | 'system' | 'approval' | 'evolution'; title: string; body: string; route?: string; missionId?: string; adminsOnly?: boolean; userId?: string; ownerOnly?: boolean; actionable?: boolean }
 
@@ -17,6 +17,10 @@ export async function createNotification(c: Tx, n: NoticeInput) {
   return id;
 }
 
+/** Which notifications a caller may see ($1 tenant, $2 is admin, $3 user id); the list and both acknowledge routes use this one predicate (c81). */
+const VISIBLE = `n.tenant_id=$1 and (
+          n.audience='all' or (n.audience='admins' and $2::boolean) or (n.audience='user' and (n.audience_user=$3 or $2::boolean)) or (n.audience='owner' and n.audience_user=$3)
+          or (n.audience='mission' and m.deleted_at is null and ($2::boolean or m.owner_id=$3 or m.shared)))`;
 const NOTICE_ID = /^[A-Za-z0-9-]{1,40}$/;
 
 export default async function notificationRoutes(app: FastifyInstance) {
@@ -25,9 +29,7 @@ export default async function notificationRoutes(app: FastifyInstance) {
     const admin = ctx.user.role === 'admin';
     const rows = (await app.db.query(
       `select n.* from notifications n left join missions m on m.id = n.mission_id
-        where n.tenant_id=$1 and (
-          n.audience='all' or (n.audience='admins' and $2::boolean) or (n.audience='user' and (n.audience_user=$3 or $2::boolean)) or (n.audience='owner' and n.audience_user=$3)
-          or (n.audience='mission' and m.deleted_at is null and ($2::boolean or m.owner_id=$3 or m.shared)))
+        where ${VISIBLE}
         order by n.created_at desc limit 200`, [ctx.tenantId, admin, ctx.user.id])).rows;
     const read = (await app.db.query('select notice_id from notification_reads where tenant_id=$1 and user_id=$2', [ctx.tenantId, ctx.user.id])).rows.map((r) => r.notice_id);
     const now = Date.now();
@@ -37,23 +39,26 @@ export default async function notificationRoutes(app: FastifyInstance) {
     };
   });
 
-  const ack = async (tenantId: string, userId: string, ids: string[]) => {
-    if (!ids.length) return;
-    await app.db.query(`insert into notification_reads(tenant_id, user_id, notice_id) select $1, $2, unnest($3::text[]) on conflict do nothing`, [tenantId, userId, ids]);
+  /** Marks as read only the given ids the caller can see; returns how many of them were visible. Nothing is stored for any other id. */
+  const ack = async (tenantId: string, admin: boolean, userId: string, ids: string[]): Promise<number> => {
+    if (!ids.length) return 0;
+    const seen = (await app.db.query(`select n.id from notifications n left join missions m on m.id = n.mission_id where ${VISIBLE} and n.id = any($4::text[])`, [tenantId, admin, userId, ids])).rows.map((r) => r.id as string);
+    if (seen.length) await app.db.query(`insert into notification_reads(tenant_id, user_id, notice_id) select $1, $2, unnest($3::text[]) on conflict do nothing`, [tenantId, userId, seen]);
+    return seen.length;
   };
 
   app.post('/notifications/:id/ack', async (req) => {
     const ctx = await requireUser(req);
     const { id } = req.params as { id: string };
     if (!NOTICE_ID.test(id)) throw badRequest('Unknown notice.');
-    await ack(ctx.tenantId, ctx.user.id, [id]);
+    if (!(await ack(ctx.tenantId, ctx.user.role === 'admin', ctx.user.id, [id]))) throw notFound('Unknown notice.'); // c81: foreign, hidden and nonexistent ids look the same
     return { ok: true };
   });
 
   app.post('/notifications/ack-all', async (req) => {
     const ctx = await requireUser(req);
     const b = parse(z.object({ ids: z.array(z.string().regex(NOTICE_ID)).max(1000) }), req.body);
-    await ack(ctx.tenantId, ctx.user.id, b.ids);
+    await ack(ctx.tenantId, ctx.user.role === 'admin', ctx.user.id, [...new Set(b.ids)]); // c81: ids the caller cannot see are ignored, never stored
     return { ok: true };
   });
 }

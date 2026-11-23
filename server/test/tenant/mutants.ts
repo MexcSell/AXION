@@ -1,4 +1,5 @@
-import { dropTenantPredicate, swapTenantParam, writeWithTenant, type Rewrite } from './seam.ts';
+import type { World } from './fixture.ts';
+import { dropTenantPredicate, swapTenantParam, writeWithTenant, onlyWhen, tenantFromHeader, prefixLookup, type Rewrite } from './seam.ts';
 
 /**
  * Seeded-leak mutants (item 2 of c79). Each is applied only inside the test process (a SQL rewrite or a cache hook on one tenant's app,
@@ -9,7 +10,7 @@ import { dropTenantPredicate, swapTenantParam, writeWithTenant, type Rewrite } f
 export interface Mutant {
   id: string; kind: string; what: string;
   on: 'A' | 'B'; viewer: 'A' | 'B';
-  sql?: Rewrite; cache?: true;
+  sql?: Rewrite; make?: (w: World) => Rewrite; cache?: true; header?: true;
   expect: RegExp; // matched against `${relation} ${where}`
 }
 const ON_A = { on: 'A', viewer: 'A' } as const;
@@ -34,4 +35,10 @@ export const MUTANTS: Mutant[] = [
   // It is therefore carried by tenant B (the shorter chain), where it changes behaviour; M17 is the same fault as a wrong tenant on A.
   { id: 'M16', kind: 'audit chain head', what: 'tenant B\'s audit chain head is read without the tenant predicate, so its next row chains onto tenant A\'s head', on: 'B', viewer: 'B', sql: dropTenantPredicate(/select seq, row_hash from audit_events where tenant_id/i), expect: /audit\/verify|at rest/ },
   { id: 'M17', kind: 'audit chain head', what: 'tenant A\'s audit chain head is read with tenant t-b, so its next row chains onto tenant B\'s head', ...ON_A, sql: swapTenantParam(/select seq, row_hash from audit_events where tenant_id/i, 't-1', 't-b'), expect: /audit\/verify|at rest|viewer activity/ },
+  // c81 (the researcher's own construction, like the rest of this file): mutants for the new checks.
+  { id: 'M18', kind: 'ack without visibility (c81 item 3)', what: 'the visibility lookup behind POST /notifications/:id/ack loses its tenant predicate, so a foreign notice id is acknowledged (200) and a marker stored', ...ON_A, sql: dropTenantPredicate(/select n\.id from notifications n left join missions m/i), expect: /WRITE/ },
+  { id: 'M19', kind: 'reverse compare id (c81 item 5)', what: 'the lookup of the SECOND agent of GET /agents/:id/skills/compare (?with=) loses its tenant predicate, only for tenant B\'s tester agent; the path id check stays', ...ON_A, sql: onlyWhen((p) => p[1] === 'b-tester-01', dropTenantPredicate(/from agent_definitions d\b/i)), expect: /FOREIGN-GET .*skills\/compare.*foreign query id/ },
+  { id: 'M20', kind: 'tenant from a header (c81 item 6)', what: 'every statement of tenant A\'s app is given the tenant named in an `x-tenant-id` request header, when one is sent', ...ON_A, header: true, sql: tenantFromHeader, expect: /MR2/ },
+  { id: 'M21', kind: 'prefix lookup (c81 item 7)', what: 'the agent lookup by id matches by PREFIX (like $2 || \'%\') and no longer has the tenant predicate, so a truncated form of B\'s id such as "b-tester-0" finds B\'s agent', ...ON_A, sql: prefixLookup(/from agent_definitions d\b/i, /d\.tenant_id=\$1 and d\.id=\$2/), expect: /MR4/ },
+  { id: 'M22', kind: 'child row of another tenant (c81 review finding 4)', what: 'the read marker tenant A leaves when it reads its own thread is stored against tenant B\'s thread: only a `thread_reads` row of B changes (no tenant_id column, and no GET shows it)', ...ON_A, make: (w) => (sql, params) => (/^\s*insert into thread_reads\b/i.test(sql) && params.includes(w.A.ids.thread) ? { sql, params: params.map((p) => (p === w.A.ids.thread ? w.B.ids.thread : p)) } : null), expect: /MR2/ },
 ];

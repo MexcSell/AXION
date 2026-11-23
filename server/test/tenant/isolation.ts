@@ -23,7 +23,7 @@ const assertUsable = (snaps: { who: string; label: string; status: number }[]) =
   const bad = snaps.filter((s) => s.status === 429 || s.status >= 500);
   if (bad.length) throw new DetectorInvalid('responses that make a comparison meaningless: ' + bad.slice(0, 3).map((s) => `${s.who} ${s.label} ${s.status}`).join(', '));
 };
-export interface Violation { relation: 'CONTROL' | 'MR1' | 'MR3' | 'FOREIGN-GET' | 'WRITE'; where: string; detail: string }
+export interface Violation { relation: 'CONTROL' | 'MR1' | 'MR2' | 'MR3' | 'MR4' | 'FOREIGN-GET' | 'WRITE'; where: string; detail: string }
 
 /** Pattern (as registered, without /api/v1) -> the value of each `:param` from a tenant's ids. First path segment + param name. */
 const PARAM: Record<string, (i: Record<string, string>) => string> = {
@@ -75,6 +75,9 @@ export const ALLOWED_STATUS: { match: (key: string, who: Tenant) => boolean; sta
   { match: (k, w) => w.tenantId === 't-b' && /^GET \/organization\/revisions\/:seq/.test(k), statuses: [404], why: 'tenant B has no organisation chart (agent ids and the root id are global, see seedmock.ts)' },
 ];
 
+/** c81: the id placeholders a QUERY value may hold, and where each comes from. A placeholder not listed here fails the inventory test. */
+export const QUERY_ID_PLACEHOLDERS: Record<string, (i: Record<string, string>) => string> = { __task__: (i) => i.task ?? '', __agent2__: (i) => i.tester ?? '' };
+export const fillQuery = (q: string, ids: Record<string, string>): string => q.replace(/__[a-z0-9]+__/g, (m) => QUERY_ID_PLACEHOLDERS[m]?.(ids) ?? m);
 export interface GetCase { key: string; url: string; label: string }
 export function getCases(t: Tenant, ids: Record<string, string> = t.ids): { cases: GetCase[]; skipped: string[] } {
   const cases: GetCase[] = []; const skipped: string[] = [];
@@ -83,7 +86,7 @@ export function getCases(t: Tenant, ids: Record<string, string> = t.ids): { case
     if (key in GET_EXCEPTIONS) continue;
     const base = urlFor(key.slice(4), ids);
     if (base === undefined) { skipped.push(key); continue; }
-    for (const q of QUERY[key] ?? ['']) cases.push({ key, url: base + q.replace('__task__', ids.task ?? '').replace('__agent2__', ids.tester ?? ''), label: key + (q ? ' ' + q : '') });
+    for (const q of QUERY[key] ?? ['']) cases.push({ key, url: base + fillQuery(q, ids), label: key + (q ? ' ' + q : '') });
   }
   return { cases, skipped };
 }
@@ -96,12 +99,10 @@ export const VOLATILE_KEYS: Record<string, string> = {
   previousFrom: 'start of the previous rolling window', previousTo: 'end of the previous rolling window', windowStart: 'start of a rolling window',
   checkedAt: 'the time the report was computed', uptimeSec: 'process uptime', ageSec: 'age of an item, counted to the request time', expiresInSec: 'time to expiry, counted to the request time',
   avgOpen: 'Little-law average counted over a window that ends now', lambdaTimesW: 'the same figure, as arrival rate times wait',
-  sizeBytes: 'size of the WHOLE database (all tenants share it); an aggregate side channel, listed as a concern in the report',
 };
 /** Set-valued arrays whose order the product does not define (the query has no ORDER BY, so the database may return them in another order after a re-plan). Compared as sets. */
 export const UNORDERED_KEYS: Record<string, string> = {
-  memberIds: 'GET /departments builds it from `select id, dept, status from agent_definitions where tenant_id = $1` with no ORDER BY; the order changed between two identical requests on an unchanged tenant',
-  gmReports: 'derived from the same unordered query',
+  // c81: empty. memberIds is now ordered by agent id, and gmReports is derived from it with its own tie-break.
 };
 export function normalise(v: unknown, key = ''): unknown {
   if (Array.isArray(v)) { const a = v.map((x) => normalise(x)); return key in UNORDERED_KEYS ? [...a].sort((x, y) => JSON.stringify(x).localeCompare(JSON.stringify(y))) : a; }
@@ -143,11 +144,42 @@ export const markerHits = (text: string, other: Tenant, where: string): Violatio
   return out;
 };
 
-/** Tables with a tenant_id column in the schema, read at rest: every row of the viewer's tenant, as text. */
+/** Tables that hold no tenant data at all, each with the reason. Any other table without a tenant_id column must reach one through a foreign key. */
+export const AT_REST_GLOBAL: Record<string, string> = { schema_migrations: 'the migration ledger: names and hashes of migrations', tenants: 'the tenant list itself (id and name); not data of a tenant' };
+type Cond = (alias: string, depth: number) => string;
+/** c81: every table of the schema as a "where" condition on one tenant ($1). A table without tenant_id is joined, through the catalog's foreign keys, to a parent that has one. A table that resolves to neither fails. */
+export async function atRestPlan(w: World): Promise<Map<string, Cond>> {
+  const sch = `current_schema()`;
+  const all = (await w.pool.query(`select table_name from information_schema.tables where table_schema = ${sch} and table_type = 'BASE TABLE' order by 1`)).rows.map((r) => r.table_name as string);
+  const withT = new Set((await w.pool.query(`select table_name from information_schema.columns where table_schema = ${sch} and column_name = 'tenant_id'`)).rows.map((r) => r.table_name as string));
+  const fks = (await w.pool.query(`select c.relname as child, p.relname as parent, a.attname as col, pa.attname as pcol
+      from pg_constraint f join pg_class c on c.oid = f.conrelid join pg_class p on p.oid = f.confrelid
+      join pg_attribute a on a.attrelid = f.conrelid and a.attnum = f.conkey[1] join pg_attribute pa on pa.attrelid = f.confrelid and pa.attnum = f.confkey[1]
+      where f.contype = 'f' and array_length(f.conkey, 1) = 1 and c.relnamespace = ${sch}::regnamespace and c.oid <> p.oid order by 1, 2, 3`)).rows as { child: string; parent: string; col: string; pcol: string }[];
+  const plan = new Map<string, Cond>();
+  for (const t of all) if (withT.has(t)) plan.set(t, (a) => `${a}.tenant_id = $1`);
+  for (let progress = true; progress;) {
+    progress = false;
+    for (const t of all) {
+      if (plan.has(t) || t in AT_REST_GLOBAL) continue;
+      const fk = fks.find((f) => f.child === t && plan.has(f.parent));
+      if (!fk) continue;
+      const up = plan.get(fk.parent)!;
+      plan.set(t, (a, d) => `exists (select 1 from "${fk.parent}" q${d} where q${d}."${fk.pcol}" = ${a}."${fk.col}" and ${up(`q${d}`, d + 1)})`);
+      progress = true;
+    }
+  }
+  const lost = all.filter((t) => !plan.has(t) && !(t in AT_REST_GLOBAL));
+  if (lost.length) throw new Error(`tables that reach no tenant_id, directly or through a foreign key, and are not listed as global: ${lost.join(', ')}`);
+  return plan;
+}
+/** Every row of the tenant, as text, per table: tables with tenant_id, and (c81) their child tables joined to the parent's tenant. `sessions` is reduced to user_id (its other columns change on every read), so a session added or dropped still shows. */
 export async function atRestText(w: World, tenantId: string): Promise<{ table: string; text: string }[]> {
-  const tabs = (await w.pool.query(`select table_name from information_schema.columns where table_schema = current_schema() and column_name = 'tenant_id' order by 1`)).rows.map((r) => r.table_name as string);
   const out: { table: string; text: string }[] = [];
-  for (const t of tabs) out.push({ table: t, text: (await w.pool.query(`select coalesce(string_agg(row_to_json(x)::text, E'\\n'), '') as s from "${t}" x where tenant_id = $1`, [tenantId])).rows[0].s });
+  for (const [t, cond] of [...(await atRestPlan(w))].sort(([a], [b]) => a.localeCompare(b))) {
+    const row = t === 'sessions' ? 'x.user_id::text' : 'row_to_json(x)::text';
+    out.push({ table: t, text: (await w.pool.query(`select coalesce(string_agg(${row}, E'\\n' order by ${row}), '') as s from "${t}" x where ${cond('x', 0)}`, [tenantId])).rows[0].s });
+  }
   return out;
 }
 export const AT_REST_COVERAGE = async (w: World) => {
@@ -194,7 +226,32 @@ export async function foreignGets(view: Tenant, other: Tenant): Promise<{ violat
       violations.push(...markerHits(r.raw.body, other, `${name} ${c.label}`));
     }
   }
-  return { violations, tried, untried: skipped };
+  const rev = reverseQueryCases(view, other);
+  for (const [name, b] of [['admin', view.admin], ['member', view.member]] as [string, Browser][]) {
+    for (const c of rev.cases) {
+      const r = await b.req('GET', c.url);
+      tried.push(`${name} ${c.label}`);
+      if (![403, 404].includes(r.status)) violations.push({ relation: 'FOREIGN-GET', where: `${name} ${c.label}`, detail: `status ${r.status}, expected 404 or 403` });
+      violations.push(...markerHits(r.raw.body, other, `${name} ${c.label}`));
+    }
+  }
+  return { violations, tried, untried: [...skipped, ...rev.skipped] };
+}
+/**
+ * c81 (item 5): the reverse case. For every QUERY value that holds an id placeholder, the caller's OWN id in the path (where the route has one) and
+ * the OTHER tenant's id in the query. A route that checks only the path id would answer 200 here. Generated from the QUERY map, not listed by hand.
+ */
+export function reverseQueryCases(view: Tenant, other: Tenant): { cases: GetCase[]; skipped: string[] } {
+  const cases: GetCase[] = []; const skipped: string[] = [];
+  const keys = [...new Set(view.app.routeTable.filter((r) => r.method === 'GET').map((r) => 'GET ' + r.url.replace(/^\/api\/v1/, '')))].sort();
+  for (const key of keys) {
+    const withId = (QUERY[key] ?? []).filter((q) => /__[a-z0-9]+__/.test(q));
+    if (!withId.length) continue;
+    const base = urlFor(key.slice(4), view.ids);
+    if (base === undefined) { skipped.push(key); continue; }
+    for (const q of withId) cases.push({ key, url: base + fillQuery(q, other.ids), label: key + ' ' + q + ' [own path, foreign query id]' });
+  }
+  return { cases, skipped };
 }
 /** Routes whose id is a per-tenant counter or a name that exists in both tenants, so a "foreign id" is not meaningful. */
 export const NO_ID_NAMESPACE = new Set([

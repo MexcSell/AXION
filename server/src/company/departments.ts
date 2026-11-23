@@ -111,7 +111,7 @@ export function departmentFacts(rows: DeptRows, opt: { window: ScorecardWindow; 
 
   const out = new Map<string, DepartmentFacts & { staffed: Set<string>; missions: Set<string> }>();
   for (const name of names) {
-    const memberIds = rows.agents.filter((a) => a.active && a.dept === name).map((a) => a.id);
+    const memberIds = rows.agents.filter((a) => a.active && a.dept === name).map((a) => a.id).sort(cmp); // c81: a defined order (agent id), not the physical row order
     const gmReports = name === gmDept ? [] : memberIds.filter((id) => id !== GM && up.get(id) === GM)
       .map((id) => ({ id, n: under(id, name) })).sort((a, b) => b.n - a.n || cmp(a.id, b.id)).map((x) => x.id);
     out.set(name, {

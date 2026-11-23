@@ -83,9 +83,14 @@ describe('notifications', () => {
     await tx(t.app.db, (c) => createNotification(c, { tenantId: 't-1', missionId: m.id, severity: 'info', category: 'mission', title: 'Summary updated', body: 'x' }));
     expect((await mina.b.req('GET', '/notifications')).body.notifications.some((x: any) => x.missionId === m.id)).toBe(true);
     expect((await kenji.b.req('GET', '/notifications')).body.notifications.some((x: any) => x.missionId === m.id)).toBe(false);
-    const r = await mina.b.req('POST', '/notifications/ack-all', { ids: ['N-1', 'N-2'] });
+    // c81: ack-all marks only notices the caller can see; ids that do not exist, or that Mina may not see, store nothing (this test used to ack the made-up ids N-1 and N-2)
+    const mine = (await mina.b.req('GET', '/notifications')).body.notifications.map((x: any) => x.id as string);
+    const r = await mina.b.req('POST', '/notifications/ack-all', { ids: [...mine, 'N-1', 'N-2'] });
     expect(r.status).toBe(200);
-    expect((await mina.b.req('GET', '/notifications')).body.read).toEqual(expect.arrayContaining(['N-1', 'N-2']));
+    const read = (await mina.b.req('GET', '/notifications')).body.read;
+    expect(read).toEqual(expect.arrayContaining(mine));
+    expect(read).not.toContain('N-1');
+    expect(read).not.toContain('N-2');
   });
 });
 

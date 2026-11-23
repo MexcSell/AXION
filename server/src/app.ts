@@ -85,6 +85,8 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
     if (fe.validation || (fe.statusCode && fe.statusCode >= 400 && fe.statusCode < 500)) {
       return reply.status(fe.statusCode ?? 400).send({ code: fe.statusCode === 413 ? 'UPLOAD_REJECTED' : 'BAD_REQUEST', message: fe.statusCode === 413 ? 'The request is too large.' : 'The request could not be read.', correlationId, retryable: false });
     }
+    // c81 (MR4): text the database cannot store (a NUL byte in an id, a lone surrogate) is the caller's malformed input, not a server fault
+    if (['22021', '22P05'].includes(String((err as { code?: unknown }).code))) { req.log.warn({ err }, 'database refused the text of a request (NUL byte or unencodable character)'); return reply.status(400).send({ code: 'BAD_REQUEST', message: 'The request could not be read.', correlationId, retryable: false }); }
     req.log.error({ err }, 'unhandled error');
     return reply.status(500).send({ code: 'INTERNAL', message: 'Something went wrong on the server. Try again.', correlationId, retryable: true });
   });
