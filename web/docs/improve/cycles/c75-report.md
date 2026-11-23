@@ -60,3 +60,19 @@ Item 4: `ApprovalDecideAuditDetail` type, `approvalDecideAuditDetail` validator 
 2. A tamperer who rewrites both the flags and the digest on a pending request, before decide, is not detected (same trust boundary as the action digest). After decide the audit chain catches it at consume.
 3. Decisions made before c75 have no audit evidence, so consume skips the cross-check for them.
 4. Not done (still in P3c): widening flag (b), nested 7/30/90 windows, hiding `n` below the floor.
+
+## Fix round (controller ruling on concern 1)
+Concern 1 is closed with no migration and no digest v3. `requestApproval` now also writes a chained `approval.request` audit row (detail: mission, kind, fired, rule, evidenceDigest). Decide and consume call `assertEvidenceAnchored`: the stored record must match its own digest, and if the chained request row names a digest, the row must carry exactly that digest. A stripped digest, or flags rewritten together with a recomputed digest, is refused with APPROVAL_EVIDENCE_MISMATCH. Only a request with no chained request row naming a digest is legacy.
+
+RED (fix-round tests run against the committed fix-free source), 3 of 4 new tests failed:
+- "request writes a chained approval.request row": `TypeError: Cannot read properties of undefined (reading 'detail')`
+- "stripping the digest from a PENDING post-c75 request makes DECIDE refuse": `expected 200 to be 409`
+- "rewriting the flags AND their digest together on a pending request": `expected 200 to be 409`
+- The 4th (same rewrite after decision, refused at consume) already passed: the decide audit row pinned the digest. It is a guard.
+GREEN: all four pass.
+
+Test change, stated plainly: the "OLD requests still decide and consume" test used to simulate legacy by stripping the digest from a fresh request. That is now (correctly) refused. It now also deletes the request's chained audit row, which is what a genuine pre-c75 request looks like. No assertion was loosened; the strip-on-fresh-request case is the new RED test above.
+
+Runs after the fix (commit below): tsc clean; c75, c58, c35, approval and audit tests: 15 files, 335 passed. Full vitest serial: 3186 passed, 44 skipped, one failure, `test/c71-equivalence.test.ts` suite-level `relation with OID ... does not exist` in `seedScale` (c71-scale-fixtures.ts:101), the same fixture failure as in the first round; it passes 8/8 when run alone. api-c58 and api-stage6 via heavy.sh: exit 0, no FAIL lines, stage6 94/94. `audit:verify` CLI was NOT run (I judged it unsafe to do by hand); chain verification is by `verifyChain` in the tests, which also now cover the new request rows (verify stays ok).
+
+Remaining concerns: 2 narrowed (forged flags plus digest before decide is now caught against the chain; an attacker who can also rewrite audit rows and recompute the chain is out of scope, which the c49 anchor addresses). 3 and 4 as before. New: every request now adds one audit row to the tenant chain (demo seed included), so chain length grows with requests.
