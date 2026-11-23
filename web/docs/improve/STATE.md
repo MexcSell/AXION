@@ -53,7 +53,7 @@ Rewritten 2026-11-22T07:35Z, 17:50Z, and 2026-11-23T03:40Z by the controller; up
 | w79 | c81 tenant fixes (T1 2–4, MR2, MR4), e2e13, server only | dispatched ~06:15Z |
 | w80 | c82 390 px tab strips (H16, H22), e2e16, **web: done by ~12:00Z** | dispatched ~06:15Z |
 | w81 | c83 metric guard follow-ups (M2b), e2e15 | dispatched ~06:15Z |
-| w82 | c84 judge gate without selection bias (E1e), e2e17 | CLEARED at 4b5158e, batch 38 |
+| w82 | c84 judge gate without selection bias (E1e), e2e17 | MERGED at 69c799c (batch 38) |
 | — | Research round 5 (docs only) | verified: 23 CONFIRMED, 3 CORRECTED |
 | w83 | c85 change plans (R5-1), e2e14, mig 0058 if needed | dispatched ~06:15Z |
 | w84 | c86 forecast ledger (R5-7), e2e3, mig 0059 if needed | dispatched ~06:15Z |
