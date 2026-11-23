@@ -35,7 +35,7 @@ Rewritten 2026-11-22T07:35Z, 17:50Z, and 2026-11-23T03:40Z by the controller; up
 
 ## Integration
 - Merged through **batch 37** at ebea695 (2026-11-23 ~05:45Z), integrator #5 (stopped 05:51Z). Its three merge-time fixes were diff-checked by the controller: e206210 (c69 registry fixture lists task_owner_history.owner), 62d4d81 (c72's `classes[].adjusted.value` in RATING_FIELDS plus a RATED_LIST_ALLOWED entry for one agent's own cells, as c78 designed), 444edfc (c79 sweep sends `?with=` to the compare route). Gap: the sweep never sends an own `:id` with a foreign `?with=`; until a lane adds it, the report must not claim the compare route is isolation-tested on both ids.
-- Verification on 229536a: verify-all 10/10, api-mobile 862 states 0 FAIL, stage6 ×20 20/20. On ebea695: full serial vitest 3414 passed / 36 skipped / 0 failed; fit and a11y both modes pass. On ebea695 after the 5190 restart: verify-all ALL 10 STEPS PASSED (06:07Z). Full api-mobile on ebea695 running as a baseline (slot 0, started ~06:05Z).
+- Verification on 229536a: verify-all 10/10, api-mobile 862 states 0 FAIL, stage6 ×20 20/20. On ebea695: full serial vitest 3414 passed / 36 skipped / 0 failed; fit and a11y both modes pass. On ebea695 after the 5190 restart: verify-all ALL 10 STEPS PASSED (06:07Z). Full api-mobile on ebea695 (controller baseline, 07:30Z): 877 states, 500 dialogs, NO FAILURES.
 - Wave 8 (PHASE2.md) dispatched ~06:15Z: c81–c84 plus research round 5. Spawn integrator #6 when the first Wave 8 lane clears.
 
 ## Lanes now
