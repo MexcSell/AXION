@@ -8,3 +8,5 @@
 export const STALE_JOINS = (r = 'r') => `left join lateral (select x.attempt_no, x.started_at from task_attempts x where x.task_id = ${r}.task_id order by x.attempt_no desc limit 1) la on true
                   left join task_attempts ra on ra.id = ${r}.attempt_id`;
 export const STALE_FLAG = (r = 'r') => `(la.attempt_no is not null and (coalesce(ra.attempt_no, 0) < la.attempt_no or (la.started_at is not null and ${r}.created_at < la.started_at)))`;
+
+export { STALE_BEFORE_SQL } from '../tasks/reviews.ts';
