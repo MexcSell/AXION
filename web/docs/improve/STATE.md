@@ -46,7 +46,7 @@ Rewritten 2026-11-23 ~12:50Z by the controller. History is in LOG.md, MERGES.md 
 |---|---|---|
 | w74 | c76 Stage 8 records (mig 0056) | CLEARED at dfd1bff, **PARKED (Q11)**: never queue |
 | w75 | c77 Stage 9 records (mig 0057) | CLEARED at da75e62, **PARKED (Q11)**: never queue |
-| w96 | c98 test-infra follow-ups (H14c, M2c) | planned ~12:55Z |
+| w96 | c98 test-infra follow-ups (H14c, M2c) | CLEARED at 19e0592, batch 55 |
 | w97 | c99 execution-module hardening (X1, c97 detector gaps) | planned ~12:55Z |
 
 Every other lane, w19–w95 (c01–c97), is merged. Each cycle's brief, report and review is in cycles/.

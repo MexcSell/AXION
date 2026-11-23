@@ -792,3 +792,4 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
 - 2026-11-23T12:41Z Checkpoint report page published (private artifact https://claude.ai/artifact/UWyW4kzgxFwMWGmoyA5S9P; the source is in the session scratchpad). It is republished to the same URL after the final live update.
 - 2026-11-23T12:53Z c98 (w96) done, tip 13ae7d5: fault hook out of src/db.ts (PoolOpts and setPoolDefaults from test setup), callback rethrow on nextTick; five flakes reproduced with the retry off (43 failed) and green with it on (208/208); M2c scanner items already done in c92. Full serial 4412 passed, 0 failed. Reviewer dispatched.
 - 2026-11-23T12:54Z c98 review CLEAR (2 minors). Ruling: the dropped c93 real-pool assertions (select 1/0 not retried; promise-form connect) are a loosening, so restore them before merge.
+- 2026-11-23T12:54Z c98 restored assertions (19e0592, test-only) checked by the controller. CLEARED, batch 55.
