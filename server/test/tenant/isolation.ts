@@ -96,12 +96,10 @@ export const VOLATILE_KEYS: Record<string, string> = {
   previousFrom: 'start of the previous rolling window', previousTo: 'end of the previous rolling window', windowStart: 'start of a rolling window',
   checkedAt: 'the time the report was computed', uptimeSec: 'process uptime', ageSec: 'age of an item, counted to the request time', expiresInSec: 'time to expiry, counted to the request time',
   avgOpen: 'Little-law average counted over a window that ends now', lambdaTimesW: 'the same figure, as arrival rate times wait',
-  sizeBytes: 'size of the WHOLE database (all tenants share it); an aggregate side channel, listed as a concern in the report',
 };
 /** Set-valued arrays whose order the product does not define (the query has no ORDER BY, so the database may return them in another order after a re-plan). Compared as sets. */
 export const UNORDERED_KEYS: Record<string, string> = {
-  memberIds: 'GET /departments builds it from `select id, dept, status from agent_definitions where tenant_id = $1` with no ORDER BY; the order changed between two identical requests on an unchanged tenant',
-  gmReports: 'derived from the same unordered query',
+  // c81: empty. memberIds is now ordered by agent id, and gmReports is derived from it with its own tie-break.
 };
 export function normalise(v: unknown, key = ''): unknown {
   if (Array.isArray(v)) { const a = v.map((x) => normalise(x)); return key in UNORDERED_KEYS ? [...a].sort((x, y) => JSON.stringify(x).localeCompare(JSON.stringify(y))) : a; }
