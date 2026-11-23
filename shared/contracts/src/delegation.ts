@@ -3,6 +3,8 @@ export type BriefTier = 'R0' | 'R1' | 'R2' | 'R3' | 'R4';
 export interface BriefCapability { kind: string; origin?: string }
 export interface DelegationBriefData {
   goal: string; inputs: string[]; acceptance: string[]; capabilities: BriefCapability[]; budget?: number; deadline?: string; escalation: string;
+  /** c72: optional, set by the delegator (so gameable) */
+  taskClass?: string; difficulty?: number;
 }
 export interface DelegationBriefDto {
   id: string; missionId: string; taskId: string | null; fromId: string; fromKind: 'user' | 'agent'; toInstanceId: string; toAgentId: string;

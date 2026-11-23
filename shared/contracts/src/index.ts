@@ -19,3 +19,4 @@ export * from './attention.ts';
 export * from './api.ts';
 export * from './metric-guard.ts';
 export * from './metric-registry.ts';
+export * from './skills.ts';

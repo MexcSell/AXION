@@ -171,7 +171,7 @@ describe('API coverage run', () => {
 
     // ---- delegation briefs
     const brief = { goal: 'Draft the landing page copy', inputs: ['file:brief.md'], acceptance: ['Copy fits the template'], capabilities: [{ kind: 'read' }], escalation: 'Ask the mission owner' };
-    await call(admin, 'POST', '/missions/:id/delegation-briefs', `/missions/${m1}/delegation-briefs`, { status: 201, headers: key(), body: { toInstanceId: mine[0].id, brief } });
+    await call(admin, 'POST', '/missions/:id/delegation-briefs', `/missions/${m1}/delegation-briefs`, { status: 201, headers: key(), body: { toInstanceId: mine[0].id, brief: { ...brief, taskClass: 'research', difficulty: 2 } } });
     // a brief to a manager and a wider one to its report: the report's effective scope is narrowed by the manager's
     const child = (insts.body.instances as { id: string; missionId: string; managerInstanceId: string | null }[]).find((i) => i.missionId === m1 && i.managerInstanceId && i.managerInstanceId !== `${m1}:gm`)!;
     await call(admin, 'POST', '/missions/:id/delegation-briefs', `/missions/${m1}/delegation-briefs`, { status: 201, headers: key(), body: { toInstanceId: child.managerInstanceId, brief: { ...brief, capabilities: [{ kind: 'read' }] } } });

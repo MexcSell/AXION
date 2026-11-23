@@ -3,6 +3,7 @@
 // the MAST failure categories (2503.13657) and spec invariant 4 (no cross-mission access without an authorised bridge).
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { TASK_CLASS_IDS } from '../../../shared/contracts/src/skills.ts';
 
 /** Frozen policy: how long a delegation chain may be (root human brief = depth 1). Code only, like the baseline policy. */
 export const MAX_CHAIN_DEPTH = 3;
@@ -23,6 +24,9 @@ export const DelegationBriefIn = z.object({
   budget: z.number().int().min(1).max(1_000_000).optional(),
   deadline: z.string().datetime({ offset: true }).transform((s) => new Date(s).toISOString()).optional(),
   escalation: z.string().trim().min(3).max(300),
+  /** c72: the kind of task (fixed list) and how hard the delegator says it is (1 to 5). Both optional; both set by the delegator, so both are gameable (c66 inventory). */
+  taskClass: z.enum(TASK_CLASS_IDS).optional(),
+  difficulty: z.number().int().min(1).max(5).optional(),
 }).strict().transform((b) => {
   // canonical form: duplicates removed, capabilities in a fixed order
   const seen = new Set<string>();

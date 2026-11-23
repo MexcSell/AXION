@@ -16,7 +16,7 @@ import {
   type AttentionDto, type AttentionRowDto, type AttentionMemberDto, type AttentionEvidence, type AttentionFact, type AttentionAction, ATTENTION_REASON_CODES, ATTENTION_KINDS, ATTENTION_ICONS,
   type ProposalEvaluationDto, type EvalRefusalDto, type GradingDto, type DatasetValidityDto, type CompanyDimensionsDto, type DimensionRowDto, type DimensionCell, DIMENSION_KEYS, DIMENSION_WINDOWS,
   type CapacityCellDto, type CapacityDeptDto, type CapacityPersonDto, type CapacityPeopleBody, type ReviewCapacityDto, type LittleLawDto, type SpanDto, type SpanRowDto,
-  type MetricGuardDto, type MetricGuard, type MetricGuardRow, type MetricAuditState, type MetricAuditResult, QUALITY_DIMENSION_IDS,
+  type MetricGuardDto, type MetricGuard, type MetricGuardRow, type MetricAuditState, type MetricAuditResult, QUALITY_DIMENSION_IDS, TASK_CLASS_IDS,
 } from '../../../shared/contracts/src/index.ts';
 
 export const errorEnvelope: V<ErrorEnvelope> = obj<ErrorEnvelope>({ code: oneOf(ERROR_CODES), message: str, correlationId: str, retryable: bool, fieldErrors: opt(dict(str)) });
@@ -155,7 +155,7 @@ const tier = oneOf(['R0', 'R1', 'R2', 'R3', 'R4'] as const);
 const capability = obj<{ kind: string; origin?: string }>({ kind: str, origin: opt(str) });
 const briefDto: V<DelegationBriefDto> = obj<DelegationBriefDto>({
   id: str, missionId: str, taskId: nullable(str), fromId: str, fromKind: oneOf(['user', 'agent'] as const), toInstanceId: str, toAgentId: str,
-  brief: obj({ goal: str, inputs: arr(str), acceptance: arr(str), capabilities: arr(capability), budget: opt(num), deadline: opt(str), escalation: str }),
+  brief: obj({ goal: str, inputs: arr(str), acceptance: arr(str), capabilities: arr(capability), budget: opt(num), deadline: opt(str), escalation: str, taskClass: opt(oneOf(TASK_CLASS_IDS)), difficulty: opt(int) }),
   sha256: str, parentBriefId: nullable(str), supersedesId: nullable(str), depth: int, simulated: bool, createdAt: iso,
   tiers: dict(nullable(tier as V<BriefTier>)),
   effective: opt(obj({ capabilities: arr(capability), deadline: nullable(str), budget: nullable(num), narrowedBy: arr(obj({ briefId: str, toAgentId: str, dropped: arr(str) })) })),
