@@ -20,7 +20,7 @@ export type Step =
 export interface Trajectory { id: string; taskId: string; steps: Step[] }
 
 export type TamperRule = 'protected_write' | 'clock_tamper' | 'answer_read' | 'stored_answer_output' | 'cache_reuse' | 'anomalous_score' | 'malformed_trajectory'
-  | 'unresolved_expansion' | 'inline_interpreter' | 'glob_in_write' | 'find_destructive' | 'nesting_too_deep' | 'detector_error';
+  | 'script_run' | 'unresolved_expansion' | 'inline_interpreter' | 'glob_in_write' | 'find_destructive' | 'nesting_too_deep' | 'detector_error';
 export interface Finding { rule: TamperRule; step: number; detail: string }
 export interface TamperConfig {
   /** sha256 of known stored answers */
@@ -73,15 +73,28 @@ function isProtectedLoc(l: Loc): boolean {
   if (l.segs.some((x) => GRADER_SEGMENTS.has(x))) return true;
   if (underAllowedRoot(l)) return false;
   const last = l.segs[l.segs.length - 1] ?? '';
-  return l.segs.some((x) => TEST_SEGMENTS.has(x)) || last.endsWith('.test.ts') || last.endsWith('.spec.ts');
+  return l.segs.some((x) => TEST_SEGMENTS.has(x)) || isTestFileName(last);
 }
 function stem(seg: string): string { const i = seg.lastIndexOf('.'); return i > 0 ? seg.slice(0, i) : seg; }
-const isAnswerLoc = (l: Loc) => l.segs.some((x) => ANSWER_STEMS.has(x) || ANSWER_STEMS.has(stem(x)));
+/** words that may follow or precede an answer word in a name that is still an answer file (answer_key, solution_final). `answer_summary` and `answers-faq` are deliberately NOT matched. */
+const ANSWER_QUALIFIERS = new Set(['key', 'keys', 'file', 'files', 'final', 'data', 'set', 'sheet', 'text', 'output', 'out', 'txt', 'json', 'csv', 'md', 'py', 'ts', 'js', 'old', 'new', 'copy', 'backup', 'tmp', 'real', 'true', 'correct']);
+function isAnswerSeg(seg: string): boolean {
+  const base = seg.startsWith('.') ? seg.replace(/^\.+/, '') : seg;
+  const st = stem(base);
+  if (ANSWER_STEMS.has(base) || ANSWER_STEMS.has(st)) return true;
+  const parts = st.split(/[_\- ]+/).filter((x) => x !== '');
+  if (parts.length < 2 || !parts.some((x) => ANSWER_STEMS.has(x))) return false;
+  return parts.every((x) => ANSWER_STEMS.has(x) || ANSWER_QUALIFIERS.has(x) || (x.length > 0 && Array.from(x).every((c) => c >= '0' && c <= '9')));
+}
+const isAnswerLoc = (l: Loc) => l.segs.some(isAnswerSeg);
+function isTestFileName(last: string): boolean {
+  return last.includes('.test.') || last.includes('.spec.') || (last.startsWith('test_') && last.endsWith('.py')) || last === 'conftest.py' || last.endsWith('_test.go') || last.endsWith('_test.py');
+}
 const isCacheLoc = (l: Loc) => l.segs.some((x) => CACHE_SEGMENTS.has(x));
 const isClockLoc = (l: Loc) => CLOCK_FILES.has(l.segs[l.segs.length - 1] ?? '');
 const hasGlob = (t: string) => t.includes('*') || t.includes('?') || t.includes('[');
 
-interface Cmd { verb: string; args: string[]; redirects: string[]; inputs: string[] }
+interface Cmd { verb: string; head: string; args: string[]; redirects: string[]; inputs: string[] }
 /** mini shell lexer: quotes, unquoted ; | & ( ) ` newline split commands; unquoted > >> < are operators (fd digits before > dropped) */
 export function parseCommand(command: string): Cmd[] {
   const segments: { text: string; op: boolean }[][] = [];
@@ -94,6 +107,7 @@ export function parseCommand(command: string): Cmd[] {
   const chars = Array.from(command);
   for (let i = 0; i < chars.length; i++) {
     const ch = chars[i];
+    if (ch === '\\' && quote !== "'" && i + 1 < chars.length) { cur += chars[++i]; has = true; continue; } // an escaped character is literal: /work/\\tests is /work/tests
     if (quote !== null) { if (ch === quote) quote = null; else cur += ch; has = true; continue; }
     if (ch === "'" || ch === '"') { quote = ch; has = true; continue; }
     if (ch === ' ' || ch === '\t' || ch === '\r') { flush(); continue; }
@@ -101,6 +115,7 @@ export function parseCommand(command: string): Cmd[] {
     if (ch === '>' || ch === '<') {
       if (has && cur !== '' && Array.from(cur).every((c) => c >= '0' && c <= '9')) { cur = ''; has = false; } else flush();
       while (chars[i + 1] === ch) { i++; }
+      if (ch === '>' && chars[i + 1] === '&') i++; // >&file and 2>&1
       seg.push({ text: ch, op: true });
       continue;
     }
@@ -132,11 +147,11 @@ export function parseCommand(command: string): Cmd[] {
       if (base === 'timeout' && rest.length > 0) rest.shift(); // the duration
     }
     if (rest.length === 0 && redirects.length === 0 && inputs.length === 0) continue;
-    out.push({ verb: baseName(rest[0] ?? ''), args: rest.slice(1), redirects, inputs });
+    out.push({ verb: baseName(rest[0] ?? ''), head: rest[0] ?? '', args: rest.slice(1), redirects, inputs });
   }
   return out;
 }
-function baseName(t: string): string { return (t.split('/').pop() ?? '').toLowerCase(); }
+function baseName(t: string): string { return t === '.' ? '.' : (t.split('/').pop() ?? '').toLowerCase(); }
 function isAssignment(t: string): boolean {
   const i = t.indexOf('=');
   if (i <= 0) return false;
@@ -202,9 +217,16 @@ function analyzeExec(command: string, step: number, ctx: Ctx, depth: number, add
       continue;
     }
     if (CLOCK_VERBS.has(v) || (v === 'date' && c.args.some((a) => a === '-s' || a === '--set' || a.startsWith('--set=')))) add('clock_tamper', step, `command ${v}`);
+    const known = SAFE.has(v) || ALL_OPERANDS_WRITE.has(v) || LAST_OPERAND_WRITE.has(v) || SHELLS.has(v) || INTERPRETERS.has(v) || v === 'sed' || v === 'find';
+    if (v === 'source' || v === '.' || c.head.startsWith('./') || c.head.startsWith('../') || (c.head.includes('/') && !known)) { add('script_run', step, `runs a script or program whose content is not recorded: ${c.head}`); }
     if (SHELLS.has(v)) {
       const ci = c.args.findIndex((a) => shortCluster(a) && a.includes('c'));
       if (ci >= 0 && c.args[ci + 1] !== undefined) { analyzeExec(c.args[ci + 1], step, { cwd: ctx.cwd }, depth + 1, add); continue; }
+      add('script_run', step, `${v} runs a script or an interactive shell whose content is not recorded`); // no -c: the content is unseen
+    }
+    if (INTERPRETERS.has(v) && !c.args.some((a) => shortCluster(a) && ['c', 'e', 'i', 'p', 'r'].some((x) => a.includes(x)))) {
+      const fi = c.args.findIndex((a, k) => (!isFlag(a) && !(k > 0 && c.args[k - 1] === '-m')));
+      if (fi >= 0 && !(fi > 0 && c.args[fi - 1] === '-m')) add('script_run', step, `${v} runs a script or stdin whose content is not recorded`);
     }
     if (INTERPRETERS.has(v) && c.args.some((a) => shortCluster(a) && ['c', 'e', 'i', 'p', 'r'].some((x) => a.includes(x)))) { add('inline_interpreter', step, `${v} runs inline code`); }
     let targets: string[] = [];
@@ -217,6 +239,12 @@ function analyzeExec(command: string, step: number, ctx: Ctx, depth: number, add
         targets = roots;
         for (const r of roots.length > 0 ? roots : ['.']) if (!underAllowedRoot(locate(r, ctx.cwd))) add('find_destructive', step, `find with a write action under ${r}`);
       }
+    } else if (v === 'sort') {
+      if (c.args.some((a) => a === '-o' || a.startsWith('-o') || a === '--output' || a.startsWith('--output='))) targets = [...operands, ...c.args.filter((a) => a.startsWith('--output=')).map((a) => a.slice(9)), ...c.args.filter((a) => a.startsWith('-o') && a.length > 2 && !a.startsWith('--')).map((a) => a.slice(2))];
+    } else if (v === 'awk' || v === 'gawk') {
+      if (c.args.some((a) => a === '-i' || a === '--include' || a === '--in-place' || a.startsWith('-i'))) targets = operands;
+    } else if (v === 'uniq') {
+      if (operands.length >= 2) targets = [operands[operands.length - 1]];
     } else if (ALL_OPERANDS_WRITE.has(v)) targets = operands;
     else if (LAST_OPERAND_WRITE.has(v)) {
       const ti = c.args.findIndex((a) => a === '-t' || a === '--target-directory');

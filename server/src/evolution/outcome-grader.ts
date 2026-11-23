@@ -179,6 +179,10 @@ export const MIN_VALIDITY_TRIALS = 10;
 
 /** varied solutions: the reference, harmless noise copies (must pass), the null, and each reference change reverted alone (partial, must fail) */
 export function buildVariants(task: ToyTask, minCount: number = 12): Variant[] {
+  try { return buildVariantsUnsafe(task, minCount); } catch { return []; } // a bad task yields no variants; gradeValidity then flags it
+}
+function buildVariantsUnsafe(task: ToyTask, minCount: number): Variant[] {
+  if (validateState(task.initial) === null) throw new Error('bad initial');
   const ref = task.reference(cloneState(task.initial));
   const out: Variant[] = [{ name: 'reference', expect: 'pass', state: ref }, { name: 'null', expect: 'fail', state: task.nul(cloneState(task.initial)) }];
   for (const p of diffStates(ref, task.initial)) {
@@ -199,27 +203,33 @@ export function buildVariants(task: ToyTask, minCount: number = 12): Variant[] {
   return out;
 }
 
-export type ValidityFlag = 'verdict_mismatch' | 'grader_threw' | 'too_few_trials' | 'fails_reference' | 'passes_null' | 'never_passes' | 'always_passes';
+export type ValidityFlag = 'malformed_input' | 'malformed_variant' | 'verdict_mismatch' | 'grader_threw' | 'too_few_trials' | 'fails_reference' | 'passes_null' | 'never_passes' | 'always_passes';
 export interface ValidityReport { n: number; passes: number; passRate: number; flags: ValidityFlag[]; flagged: boolean; mismatches: string[] }
 
 export function gradeValidity(task: Pick<ToyTask, 'initial'>, grade: GradeFn, variants: Variant[]): ValidityReport {
   const flags: ValidityFlag[] = [];
   const mismatches: string[] = [];
+  const flag = (f: ValidityFlag) => { if (!flags.includes(f)) flags.push(f); };
+  // fail closed: anything that is not the expected shape is a flag, never a throw
+  if (task === null || typeof task !== 'object' || validateState(task.initial) === null || !Array.isArray(variants) || typeof grade !== 'function') {
+    return { n: 0, passes: 0, passRate: 0, flags: ['malformed_input'], flagged: true, mismatches };
+  }
   let passes = 0;
   for (const v of variants) {
+    if (v === null || typeof v !== 'object' || typeof v.name !== 'string' || (v.expect !== 'pass' && v.expect !== 'fail') || validateState(v.state) === null) { flag('malformed_variant'); mismatches.push('malformed variant'); continue; }
     let pass = false;
-    try { pass = grade(cloneState(v.state), cloneState(task.initial)).pass; } catch { if (!flags.includes('grader_threw')) flags.push('grader_threw'); }
+    try { pass = grade(cloneState(v.state), cloneState(task.initial)).pass === true; } catch { flag('grader_threw'); }
     if (pass) passes++;
-    if (v.name === 'reference' && !pass) flags.push('fails_reference');
-    if (v.name === 'null' && pass) flags.push('passes_null');
+    if (v.name === 'reference' && !pass) flag('fails_reference');
+    if (v.name === 'null' && pass) flag('passes_null');
     // every variant has an expected verdict: a grader that is too lenient (passes a partial or a damaged state) or too strict is caught here
     if (pass !== (v.expect === 'pass')) mismatches.push(v.name);
   }
-  if (mismatches.length > 0) flags.push('verdict_mismatch');
+  if (mismatches.length > 0) flag('verdict_mismatch');
   const n = variants.length;
-  if (n < MIN_VALIDITY_TRIALS) flags.push('too_few_trials');
-  else if (passes === 0) flags.push('never_passes');
-  else if (passes === n) flags.push('always_passes');
+  if (n < MIN_VALIDITY_TRIALS) flag('too_few_trials');
+  else if (passes === 0) flag('never_passes');
+  else if (passes === n) flag('always_passes');
   return { n, passes, passRate: n === 0 ? 0 : passes / n, flags, flagged: flags.length > 0, mismatches };
 }
 
