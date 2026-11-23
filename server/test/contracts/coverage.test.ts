@@ -476,6 +476,32 @@ describe('API coverage run', () => {
       await call(admin, 'GET', '/company/process', '/company/process', { query: '?window=90d&department=Engineering' });
       await call(mina, 'GET', '/company/process', '/company/process', { query: '?window=7d' });
     }
+    // ---- c86: the forecast ledger. Raw rows on a mission of their own give every nullable field and array a non-null value (a baseline, a skill, a bin rate, a class mean)
+    {
+      const q = (sql: string, p: unknown[] = []) => t.pool.query(sql, p);
+      const ag = 'coder-01', inst = 'M-c86:coder-01';
+      await q(`insert into missions(id, tenant_id, owner_id, shared, status, demo) values ('M-c86',$1,$2,true,'running',false)`, [tenant, A.adminId]);
+      await q(`insert into mission_revisions(mission_id, revision, title, kind, priority, text, created_by) values ('M-c86',1,'M-c86','data','normal','x',$1)`, [A.adminId]);
+      await q(`insert into agent_instances(id, tenant_id, mission_id, agent_id, agent_version_id, simulated) select $1,$2,'M-c86',d.id,d.active_version_id,false from agent_definitions d where d.id=$3`, [inst, tenant, ag]);
+      let sh = 0;
+      const mk = async (id: string, status: string, o: { verdict?: string; reviewAgo?: string; fcP?: number; fcAgo?: string; briefAgo?: string } = {}) => {
+        await q(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent, owner_instance_id) values ($1,$2,'M-c86','Forecast task',$3,$4,$5)`, [id, tenant, status, ag, inst]);
+        if (o.briefAgo) await q(`insert into delegation_briefs(tenant_id, mission_id, task_id, from_id, from_kind, to_instance, to_agent, brief, sha256, depth, created_by, created_at) values ($1,'M-c86',$2,'u','user',$3,$4,$5::jsonb,$6,1,'u', now() - $7::interval)`,
+          [tenant, id, inst, ag, JSON.stringify({ goal: 'g', taskClass: 'research', difficulty: 3 }), String(++sh).padStart(64, '0'), o.briefAgo]);
+        if (o.fcP !== undefined) await q(`insert into forecasts(id, tenant_id, mission_id, task_id, forecaster_id, probability, made_at) values ($1,$2,'M-c86',$3,$4,$5, now() - $6::interval)`, ['FC-' + id, tenant, id, A.adminId, o.fcP.toFixed(2), o.fcAgo ?? '3 days']);
+        if (o.verdict) await q(`insert into task_reviews(id, tenant_id, mission_id, task_id, reviewer_id, reviewer_kind, reviewer_model_family, producer_id, producer_kind, producer_model_family, principal_id, rubric, verdict, evidence, created_at)
+          values ($1,$2,'M-c86',$3,'rev-x','agent','fam-b',$4,'agent','fam-a','owner-x','[{"criterion":"c","result":"pass"}]',$5,$6, now() - $7::interval)`, ['TR-' + id, tenant, id, inst, o.verdict, o.verdict === 'accepted' ? '[{"kind":"note","id":"n"}]' : '[]', o.reviewAgo ?? '1 day']);
+      };
+      for (const [i, v] of ['accepted', 'accepted', 'accepted', 'accepted', 'rejected', 'changes_requested'].entries()) await mk(`T-c86-h${i}`, 'passed', { verdict: v, reviewAgo: '10 days', briefAgo: '11 days' });
+      for (let i = 0; i < 20; i++) await mk(`T-c86-f${i}`, 'passed', { verdict: i < 10 ? 'accepted' : 'rejected', briefAgo: '4 days', fcP: i < 10 ? 0.9 : 0.4 });
+      await mk('T-c86-late', 'passed', { verdict: 'accepted', reviewAgo: '2 hours', fcP: 0.7, fcAgo: '1 hour' });
+      await mk('T-c86-void', 'canceled', { fcP: 0.5 });
+      await mk('T-c86-new', 'running');
+      await call(admin, 'POST', '/tasks/:id/forecasts', '/tasks/T-c86-new/forecasts', { status: 201, headers: key(), body: { probability: 0.35 } });
+      await call(admin, 'GET', '/me/forecasts', '/me/forecasts');
+      await call(admin, 'GET', '/users/:id/forecasts', `/users/${A.adminId}/forecasts`);
+      await call(mina, 'GET', '/me/forecasts', '/me/forecasts');
+    }
     await call(admin, 'GET', '/company/metric-guard', '/company/metric-guard');
     await call(admin, 'POST', '/company/metric-audits', '/company/metric-audits', { status: 201, body: { metricId: 'scorecard.finished', samples: Array.from({ length: 100 }, (_, i) => ({ sampleRef: `m${i}`, metricLabel: true, auditLabel: i >= 20 })) } });
     await call(mina, 'GET', '/company/metric-guard', '/company/metric-guard');

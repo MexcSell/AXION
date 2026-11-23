@@ -102,7 +102,9 @@ export interface ForecastLedgerDto {
   byClass: ForecastClassRow[];
   forecasts: ForecastDto[];
 }
-export interface ForecastRecordDto { forecast: ForecastDto }
+/** What recording answers with: only what was written (a new forecast is open by construction, so it carries no outcome, score or baseline). */
+export interface ForecastRecorded { id: string; taskId: string; missionId: string; question: typeof FORECAST_QUESTION; probability: number; madeAt: string }
+export interface ForecastRecordDto { forecast: ForecastRecorded }
 
 /** What the database gives per forecast, before scoring. `first` is the verdict of the first review (null when none) and `inTime` the SQL comparison made_at < that review's created_at. */
 export interface ForecastRowIn {

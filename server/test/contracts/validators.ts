@@ -19,6 +19,7 @@ import {
   type MetricGuardDto, type MetricGuard, type MetricGuardRow, type MetricAuditState, type MetricAuditResult, QUALITY_DIMENSION_IDS,
   type ProcessDto, type ProcessCell, PROCESS_WINDOWS,
   TASK_CLASS_IDS, type AgentSkillsDto, type SkillCellDto, type SkillCompareDto, type SkillInterval,
+  type ForecastDto, type ForecastBaseline, type ForecastLedgerDto, type ForecastRecordDto, type ForecastRecorded, type CalibrationBin, type ForecastSkill, type ForecastClassRow, type ForecastCounts, FORECAST_QUESTION,
 } from '../../../shared/contracts/src/index.ts';
 
 export const errorEnvelope: V<ErrorEnvelope> = obj<ErrorEnvelope>({ code: oneOf(ERROR_CODES), message: str, correlationId: str, retryable: bool, fieldErrors: opt(dict(str)) });
@@ -476,3 +477,19 @@ export const skillCompareBody = obj<{ compare: SkillCompareDto }>({ compare: obj
   agentId: str, withId: str, method: str,
   classes: arr(obj<SkillCompareDto['classes'][number]>({ classId: oneOf(TASK_CLASS_IDS), label: str, verdict: oneOf(['distinguishable', 'indistinguishable'] as const), reason: str, sharedLevels: arr(int) })),
 }) });
+
+// ---- forecast ledger (c86)
+const forecastBaseline: V<ForecastBaseline> = obj<ForecastBaseline>({ classId: oneOf(TASK_CLASS_IDS), difficulty: int, n: int, rate: num, brier: num, logLoss: num });
+const forecastDto: V<ForecastDto> = obj<ForecastDto>({
+  id: str, taskId: str, missionId: str, taskTitle: str, probability: num, madeAt: iso, state: oneOf(['open', 'void', 'resolved', 'late'] as const), accepted: nullable(bool), resolvedAt: nullable(iso),
+  brier: nullable(num), logLoss: nullable(num), classId: nullable(oneOf(TASK_CLASS_IDS)), difficulty: nullable(int), baseline: nullable(forecastBaseline),
+});
+export const forecastRecord: V<ForecastRecordDto> = obj<ForecastRecordDto>({ forecast: obj<ForecastRecorded>({ id: str, taskId: str, missionId: str, question: lit(FORECAST_QUESTION), probability: num, madeAt: iso }) });
+export const forecastLedger: V<ForecastLedgerDto> = obj<ForecastLedgerDto>({
+  forecaster: obj<ForecastLedgerDto['forecaster']>({ id: str, name: str }), question: lit(FORECAST_QUESTION), method: str, clamp: obj<ForecastLedgerDto['clamp']>({ lo: num, hi: num }),
+  counts: obj<ForecastCounts>({ total: int, open: int, void: int, resolved: int, late: int }), meanBrier: nullable(num), meanLogLoss: nullable(num),
+  calibration: arr(obj<CalibrationBin>({ lo: num, hi: num, n: int, rate: nullable(num), meanForecast: nullable(num) })),
+  skill: obj<ForecastSkill>({ state: oneOf(['ok', 'not_enough_evidence'] as const), n: int, needed: int, meanBrier: nullable(num), baselineBrier: nullable(num), skill: nullable(num), text: str }),
+  byClass: arr(obj<ForecastClassRow>({ classId: oneOf(TASK_CLASS_IDS), label: str, n: int, meanBrier: nullable(num), meanLogLoss: nullable(num) })),
+  forecasts: arr(forecastDto),
+});

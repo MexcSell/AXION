@@ -6,8 +6,8 @@ import { ApiError, notFound } from '../errors.ts';
 import { taskReviewLock } from '../locks.ts';
 import { VISIBLE_SQL } from '../missions/visibility.ts';
 import {
-  FORECAST_P_MIN, FORECAST_P_MAX, FORECAST_QUESTION, TASK_CLASS_IDS, ledgerOf, scoreForecast,
-  type ForecastDto, type ForecastLedgerDto, type ForecastRowIn,
+  FORECAST_P_MIN, FORECAST_P_MAX, FORECAST_QUESTION, TASK_CLASS_IDS, ledgerOf,
+  type ForecastRecordDto, type ForecastLedgerDto, type ForecastRowIn,
 } from '../../../shared/contracts/src/index.ts';
 
 /**
@@ -77,7 +77,7 @@ export async function assertVisible(c: Tx, ctx: ForecastCtx, taskId: string): Pr
 }
 
 /** Record one forecast (inside the caller's transaction). The lock is the first statement; the review check is part of the insert statement. */
-export async function recordForecast(c: Tx, ctx: ForecastCtx, taskId: string, input: z.infer<typeof ForecastIn>): Promise<{ forecast: ForecastDto }> {
+export async function recordForecast(c: Tx, ctx: ForecastCtx, taskId: string, input: z.infer<typeof ForecastIn>): Promise<ForecastRecordDto> {
   await taskReviewLock(c, taskId);
   const t = (await c.query(
     `select t.id, t.status, t.mission_id, m.status as mstatus, m.archived_at from tasks t join missions m on m.id = t.mission_id
@@ -98,6 +98,6 @@ export async function recordForecast(c: Tx, ctx: ForecastCtx, taskId: string, in
   }
   await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'forecast.record', subject: taskId, result: 'ok', correlationId: ctx.correlationId,
     detail: { forecastId: id, missionId: t.mission_id, probability: input.probability, question: FORECAST_QUESTION } });
-  const row = (await rowsOf(c, ctx, ctx.user.id, taskId))[0];
-  return { forecast: scoreForecast(row) };
+  const made = (await c.query(`select made_at from forecasts where id = $1`, [id])).rows[0];
+  return { forecast: { id, taskId, missionId: t.mission_id, question: FORECAST_QUESTION, probability: input.probability, madeAt: new Date(made.made_at).toISOString() } };
 }

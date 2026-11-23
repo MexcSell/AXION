@@ -15,7 +15,8 @@ describe('POST /tasks/:id/forecasts', () => {
     const r = await forecast(w.zed, id, 0.35);
     const after = (await w.q(`select clock_timestamp() as t`))[0].t as Date;
     expect(r.status).toBe(201);
-    expect(r.body.forecast).toMatchObject({ taskId: id, missionId: w.mShared, probability: 0.35, state: 'open', accepted: null, brier: null, logLoss: null });
+    expect(r.body.forecast).toMatchObject({ taskId: id, missionId: w.mShared, probability: 0.35, question: 'first_review_accepted' });
+    expect(Object.keys(r.body.forecast).sort()).toEqual(['id', 'madeAt', 'missionId', 'probability', 'question', 'taskId']);
     const [row] = await w.q(`select * from forecasts where task_id=$1`, [id]);
     expect(row).toMatchObject({ forecaster_id: w.zedId, question: 'first_review_accepted', tenant_id: 't-1', mission_id: w.mShared });
     expect(Number(row.probability)).toBe(0.35);
@@ -121,6 +122,19 @@ describe('POST /tasks/:id/forecasts', () => {
     expect(r.status).toBe(409);
     expect((await w.q(`select count(*)::int n from forecasts where task_id=$1`, [id]))[0].n).toBe(0);
   }, 30_000);
+
+  it('the one allowed delete: a demo purge sets axion.purge_demo, and then (only then) rows can go (the cascade of a purged mission works)', async () => {
+    const id = await w.task();
+    await forecast(w.zed, id, 0.4);
+    const c = await w.t.pool.connect();
+    try {
+      await c.query('begin');
+      await c.query(`select set_config('axion.purge_demo', 'on', true)`);
+      expect((await c.query(`delete from forecasts where task_id=$1`, [id])).rowCount).toBe(1);
+      await c.query('rollback');
+    } finally { c.release(); }
+    expect((await w.q(`select count(*)::int n from forecasts where task_id=$1`, [id]))[0].n).toBe(1);
+  });
 
   it('the table is append-only: UPDATE, DELETE and TRUNCATE are refused even in SQL', async () => {
     const id = await w.task();
