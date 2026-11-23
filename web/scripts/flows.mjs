@@ -1,9 +1,10 @@
 // End-to-end interaction checks for the core owner flows (DEMO data, no backend).
-// Usage: BASE=http://127.0.0.1:5190 node scripts/flows.mjs
+// Usage: BASE=http://127.0.0.1:<port> node scripts/flows.mjs
 import { chromium } from 'playwright';
 import { signIn } from './_session.mjs';
 import { writeFileSync } from 'node:fs';
-const base = process.env.BASE || 'http://127.0.0.1:5190';
+import { resolveBase } from './_base.mjs';
+const base = resolveBase();
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
 const ctx = await b.newContext({ viewport: { width: 1672, height: 941 } }); // fresh context = fresh DEMO data
 await signIn(ctx);

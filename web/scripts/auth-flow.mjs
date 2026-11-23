@@ -2,7 +2,8 @@
 // Usage: node scripts/auth-flow.mjs   (needs the dev server; BASE=... for preview)
 import { chromium } from 'playwright';
 import { demoMode } from './_session.mjs';
-const base = process.env.BASE || 'http://127.0.0.1:5190';
+import { resolveBase } from './_base.mjs';
+const base = resolveBase();
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
 const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } });
 await demoMode(ctx); // this script checks the in-browser DEMO accounts; scripts/api-auth-flow.mjs checks the server

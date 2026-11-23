@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Full verification suite. Needs the dev server (npm run dev) on 127.0.0.1:5190, or BASE=... for preview.
+# Full verification suite. Needs the dev server (npm run dev) on 127.0.0.1:5190 (integration tree only), or BASE=... (required from a lane worktree).
 # Exit code: 0 only when every step passed; otherwise 1. A per-step PASS/FAIL table is printed at the end.
 # Each step's full output is kept in $OUT/<n>-<name>.log; a failed step also prints its FAIL/ERROR lines.
 set -uo pipefail

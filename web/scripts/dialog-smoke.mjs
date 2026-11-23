@@ -3,7 +3,8 @@
 import { chromium } from 'playwright';
 import { signIn } from './_session.mjs';
 import { writeFileSync } from 'node:fs';
-const base = process.env.BASE || 'http://127.0.0.1:5190';
+import { resolveBase } from './_base.mjs';
+const base = resolveBase();
 let ids = [];
 const bag = {
   missionId: 'M-126', agentId: 'coder-01', artifactId: 'M-126-A1', version: 'v1.0', approvalId: 'APR-M-126-1', taskId: 'T-12601',

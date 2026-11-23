@@ -4,7 +4,8 @@
 // Usage: BASE=http://127.0.0.1:10190 node scripts/c52-signout-refresh.mjs
 import { chromium } from 'playwright';
 import { signIn } from './_session.mjs';
-const base = process.env.BASE || 'http://127.0.0.1:5190';
+import { resolveBase } from './_base.mjs';
+const base = resolveBase();
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
 const ctx = await b.newContext(); await signIn(ctx);
 const p = await ctx.newPage();

@@ -117,6 +117,19 @@ export function statements(rel: string, src = readFileSync(join(SRC, rel), 'utf8
 
 const KW = new Set('select from where and or not on join left right inner outer full cross lateral using group by order limit offset as in is null true false case when then else end distinct all any exists between like ilike union except intersect with over partition having asc desc interval epoch cast filter within coalesce'.split(' '));
 
+/** Index of the `)` that closes the `(` at `open`, or -1. */
+function closeParen(s: string, open: number): number {
+  let d = 0;
+  for (let i = open; i < s.length; i++) { if (s[i] === '(') d++; else if (s[i] === ')' && --d === 0) return i; }
+  return -1;
+}
+/** Index of the innermost `(` still open at `at`, or -1. */
+function openParen(s: string, at: number): number {
+  let d = 0;
+  for (let i = at - 1; i >= 0; i--) { if (s[i] === ')') d++; else if (s[i] === '(') { if (d === 0) return i; d--; } }
+  return -1;
+}
+
 /** `table.column` and `table.*` reads of one statement. */
 export function reads(sql: string, cols: SchemaCols): { reads: Set<string>; tables: Set<string>; unresolved: string[] } {
   let s = sql.replace(/--[^\n]*/g, ' ').replace(/'(?:[^']|'')*'/g, "''").replace(/::(?:double\s+precision|[a-z_][a-z0-9_]*)(?:\[\])?/gi, ' ').replace(/\$\d+/g, ' ');
@@ -129,10 +142,30 @@ export function reads(sql: string, cols: SchemaCols): { reads: Set<string>; tabl
   const entry = /\s*(?:only\s+)?(?:"?([a-z_][a-z0-9_]*)"?\s*\.\s*)?"?([a-z_][a-z0-9_]*)(?![a-z0-9_])"?(?!\s*\()(?:\s+(?:as\s+)?(?!(?:where|on|join|left|right|inner|outer|full|cross|lateral|group|order|limit|using|natural|union|except|intersect|window|having|offset|for|returning|set)\b)([a-z_][a-z0-9_]*))?/iy;
   for (const m of s.matchAll(/\b(?:from|join)\b/gi)) {
     let pos = m.index! + m[0].length;
+    // c92 (M2c-1): `extract(epoch from t.col)`, `substring(x from 2)`, `trim(both ' ' from x)` are not FROM clauses; their operand is a column
+    // expression, not a table, so it is neither resolved nor reported (the qualified/bare column reads below still see it).
+    const open = openParen(s, m.index!);
+    if (open >= 0 && /(?:^|[^a-z0-9_])(?:extract|substring|trim|overlay|position)\s*$/i.test(s.slice(0, open))) continue;
     for (;;) {
+      // c92 (M2c-1): a derived table or a function call in the list (`from (select ...) x, tasks t`, `from unnest($1) u, tasks t`) is stepped over, with
+      // its alias, so the entries that follow it are still resolved. Its own inner FROM is found by the outer loop; nothing is guessed about its columns.
+      const skip = /\s*(?:lateral\s+)?(?:[a-z_][a-z0-9_]*(?:\s*\.\s*[a-z_][a-z0-9_]*)?\s*)?\(/iy;
+      skip.lastIndex = pos;
+      const sk = skip.exec(s);
+      if (sk) {
+        const close = closeParen(s, skip.lastIndex - 1);
+        if (close < 0) break;
+        const after = /\s*(?:as\s+)?(?!(?:where|on|join|left|right|inner|outer|full|cross|lateral|group|order|limit|using|natural|union|except|intersect|window|having|offset|for|returning|set)\b)[a-z_][a-z0-9_]*(?:\s*\([^()]*\))?/iy;
+        after.lastIndex = close + 1;
+        pos = after.exec(s) ? after.lastIndex : close + 1;
+        const c2 = /\s*,/y; c2.lastIndex = pos;
+        if (!c2.exec(s)) break;
+        pos = c2.lastIndex;
+        continue;
+      }
       entry.lastIndex = pos;
       const e = entry.exec(s);
-      if (!e) break; // a sub-select, a function call or the end: nothing to resolve here
+      if (!e) break; // the end, or something that is not a table entry
       pos = entry.lastIndex;
       const name = e[2].toLowerCase();
       if (cols[name]) {

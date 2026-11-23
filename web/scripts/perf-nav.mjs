@@ -3,7 +3,8 @@
 // "switch" = click → the new page is mounted, loaded (no skeleton) and fully opaque.
 import { chromium } from 'playwright';
 import { signIn } from './_session.mjs';
-const BASE = process.argv[2] || process.env.BASE || 'http://127.0.0.1:5190';
+import { resolveBase } from './_base.mjs';
+const BASE = resolveBase(process.argv[2]);
 const log = (...a) => process.stderr.write(a.join(' ') + '\n');
 const browser = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {});
 const ctx = await browser.newContext({ viewport: { width: 1600, height: 900 } });

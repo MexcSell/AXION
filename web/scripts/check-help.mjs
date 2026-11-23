@@ -1,11 +1,12 @@
 // Static check: every help key referenced in src (help="..", k="..", HelpTrigger k, Field help) exists in the registry.
+import { resolveBase } from './_base.mjs';
 import { chromium } from 'playwright';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 const walk = (d) => readdirSync(d).flatMap((f) => { const p = join(d, f); return statSync(p).isDirectory() ? walk(p) : [p]; });
 const files = walk('src').filter((f) => /\.tsx?$/.test(f));
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
-const pg = await b.newPage(); await pg.addInitScript(() => { localStorage.setItem('axion.testhook', '1'); localStorage.setItem('axion.data-mode', 'demo'); }); await pg.goto((process.env.BASE || 'http://127.0.0.1:5190') + '/overview', { waitUntil: 'networkidle' });
+const pg = await b.newPage(); await pg.addInitScript(() => { localStorage.setItem('axion.testhook', '1'); localStorage.setItem('axion.data-mode', 'demo'); }); await pg.goto(resolveBase() + '/overview', { waitUntil: 'networkidle' });
 const defined = new Set(await pg.evaluate(() => window.__axion.helpKeys()));
 await b.close();
 const used = new Map();

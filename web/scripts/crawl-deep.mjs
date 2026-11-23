@@ -2,7 +2,8 @@
 // long dwells on live views, and edge-case missions (1-agent team, brand-new draft).
 import { chromium } from 'playwright';
 import { signIn } from './_session.mjs';
-const base = process.env.BASE || 'http://127.0.0.1:5190';
+import { resolveBase } from './_base.mjs';
+const base = resolveBase();
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
 const ctx = await b.newContext({ viewport: { width: 1672, height: 941 } }); await signIn(ctx);
 const p = await ctx.newPage(); await p.addInitScript(() => localStorage.setItem('axion.testhook', '1'));

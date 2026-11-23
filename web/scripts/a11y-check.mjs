@@ -7,7 +7,8 @@
 // Per dialog (opened through the test hook): focus moves in, Tab/Shift+Tab stay inside, Escape closes, focus returns to the opener.
 import { chromium } from 'playwright';
 import { signIn, navWait, settle } from './_session.mjs';
-const base = process.env.BASE || 'http://127.0.0.1:5190';
+import { resolveBase } from './_base.mjs';
+const base = resolveBase();
 const API = process.env.DATA_MODE === 'api';
 const FAST = !!process.env.A11Y_FAST;
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
