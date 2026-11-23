@@ -5,6 +5,7 @@ Rewritten 2026-11-23 ~12:50Z by the controller. History is in LOG.md, MERGES.md 
 ## Clocks
 - **30 h loop:** 2026-11-21T11:36Z → 2026-11-22T17:36Z (done).
 - **Phase 2:** 2026-11-22T17:45Z → **2026-11-23T21:45Z**.
+- **Report page:** https://claude.ai/artifact/UWyW4kzgxFwMWGmoyA5S9P (private; republish the same file path after the final update; source scratchpad/axion-report/axion-phase2-report.html).
 - **Remaining schedule:**
   - **13:45Z:** no new lane starts.
   - **About 18:30Z:** the last merge. Everything still open is server-only; the web tree has been frozen since batch 50.

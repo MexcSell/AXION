@@ -789,3 +789,4 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
 - 2026-11-23T12:27Z Wave 9 briefs: c98 (H14c, M2c; w96) and c99 (X1, c97 detector gaps; w97, based after the c94 merge fix).
 - 2026-11-23T12:28Z BACKLOG status cleaned up: rows closed by c54–c93 are marked Done or Partly done. Memory pointer updated.
 - 2026-11-23T12:39Z fix(c94 merge) 7678a3f: execProfileSha256 moved to server/src/exec-profile/hash.ts; web tsc exit 0 (checked by the controller), full serial vitest 4409 passed, 0 failed. Lesson added. Lane w97 (c99) created from HEAD.
+- 2026-11-23T12:41Z Checkpoint report page published (private artifact https://claude.ai/artifact/UWyW4kzgxFwMWGmoyA5S9P; the source is in the session scratchpad). It is republished to the same URL after the final live update.
