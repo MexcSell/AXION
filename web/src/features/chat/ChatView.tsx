@@ -276,6 +276,9 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
   // wrote, so the scroll event that write causes is not mistaken for the reader's; `moving` is when the reader's scroll
   // last moved. Near the top the correction stays on (an older page landing there must keep its row in place).
   const own = useRef(-1);
+  // c73 (P2c): the last scrollTop seen by onScroll, and the catch-up timer of a follow-scroll the growing thread outran
+  const lastTop = useRef(0);
+  const catchT = useRef(0);
   const moving = useRef(-1e9);
   // c44: after an older page is restored, the row the reader was on (not the first row the next record() happens to find: the
   // window may be cut a little off while estimates are replaced by measurements) is the anchor, as long as nobody scrolled.
@@ -425,7 +428,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
     el.scrollTo({ top: 1e6 });
     moveVp(el);
     setGeoV((v) => v + 1);
-    return () => { o.disconnect(); meter.ro = null; window.clearTimeout(meter.t); window.clearTimeout(restoreT.current); };
+    return () => { o.disconnect(); meter.ro = null; window.clearTimeout(meter.t); window.clearTimeout(restoreT.current); window.clearTimeout(catchT.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meter]);
   const firstId = messages[0]?.id;
@@ -570,7 +573,18 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
             if (t === r && id !== tabId) setTabId(id);
           }}
           onScroll={(ev) => {
-            const el = ev.currentTarget; const b = el.scrollHeight - el.scrollTop - el.clientHeight < 40; setAtBottom(b); if (b) setNewCount(0);
+            const el = ev.currentTarget; let b = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+            // c73 (P2c): the smooth follow-scroll ends at the bottom as it was when it started; a burst of messages grows the
+            // thread meanwhile, so its last scroll event saw "not at the bottom" and unpinned the reader (15-17k px behind, no
+            // more following). A scroll that moves down while pinned is the follow itself, not the reader leaving: stay pinned
+            // and finish the scroll. Only a scroll up (or a reader far from the bottom to begin with) unpins.
+            const down = el.scrollTop > lastTop.current; lastTop.current = el.scrollTop;
+            if (!b && down && atBottomRef.current) {
+              b = true;
+              window.clearTimeout(catchT.current);
+              catchT.current = window.setTimeout(() => { const e = scroller.current; if (e && atBottomRef.current && e.scrollHeight - e.scrollTop - e.clientHeight >= 40) { e.scrollTop = e.scrollHeight; own.current = e.scrollTop; } }, 80);
+            }
+            setAtBottom(b); if (b) setNewCount(0);
             if (el.scrollTop !== own.current) moving.current = performance.now();
             atBottomRef.current = b; record(); // the reader's position now: later changes keep this row in place
             const far = Math.abs(el.scrollTop - vpRef.current.top) > DRIFT || el.clientHeight !== vpRef.current.h;
