@@ -48,7 +48,7 @@ Raw outputs: `c90-sim-seed90001.txt`, `c90-sim-seed90002.txt`. Load average 2.1 
 - Tests: 8 new in `server/test/sequential.test.ts` (hand-checked rho and half-width, hand-checked 10 vs 10 case, below-minimum,
   one arm empty, all-0, all-1/all-0 eventually excludes zero, monotone bounds, input validation). GREEN. No RED run was
   recorded: tests and module were written together.
-- tsc clean. Full serial vitest: see the hand-back message for the count.
+- tsc clean. Full serial vitest (--maxWorkers=1 --no-file-parallelism, load average 8.3 at the end, 792 s): 173 files passed, 1 skipped; 3581 tests passed, 36 skipped, 0 failed.
 
 ## Concerns
 - 0.00% is far below 5%: the method is very conservative (union bound plus a sub-Gaussian bound that ignores that
