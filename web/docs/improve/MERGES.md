@@ -830,3 +830,10 @@ Order merged: c72 (6511c04), c73 (59b78cf), c74 (8d9a9c3), c75 (af54328), c78 (9
 - **Merged:** `--no-ff` of 1f8ba45, merge commit 4df4ae2, no conflicts, no migration. **`fix(c88 merge)` 7a3acc6:** removed the `/organization/proposals` FINDINGS entry; the sweep passes (member evidence invariant). The optional stray whitespace line in `proposals.ts:92` was left alone.
 - server and web tsc OK. test/tenant, c88 and c83 tests, contracts: 14 files, 104/104. **Full serial vitest: 172 files + 1 skipped, 3573 passed, 36 skipped, 0 failed.**
 - api-c88 (DATA_MODE=api), api-c64, api-c20 via api-e2e.sh on 5192/5193: 0 FAIL lines (57 PASS lines); `check-help.mjs` (verify-all's help-keys step): 540 entries defined, "All referenced help keys are defined" (`org.proposal.evidenceHidden` is defined in `help/pages/overview-org-agent.ts` and used in `OrgRestructure.tsx`). fit-check api 1366x768 ALL FIT; fit-check demo (5190) exit 0.
+
+## Batches 45, 46, 47 (Phase 2 · Wave 8e): c92-script-guards, c90-sequential, c91-skill-gate (integrator #6)
+
+- **Batch 45, c92-script-guards (fd6a021, merge 15d7a68), batch 46, c90-sequential (16efdda, merge e87de40), batch 47, c91-skill-gate (8734f80, merge 060f9ab):** all three tips verified, merged back to back, no conflicts, no migration. Server and web tsc OK.
+- **One full serial vitest after all three: 175 files passed + 1 skipped, 3620 passed, 36 skipped, 0 failed** (includes c92-script-base, c83-registry-columns, the sequential and skill-gate tests; a first run on batch 45 alone was stopped by the integrator to merge 46 and 47 first, so it counts for nothing).
+- **verify-all from the integration tree (default BASE, 5190, nothing exported): ALL 10 STEPS PASSED** (typecheck+build, route x tab crawl 81 views, deep crawl, flows, auth flow, u1 flows, dialog smoke, dialog ids, help keys, dev-server file guard); no FAIL or Error lines.
+- Not run: browser checks beyond verify-all (these batches are scripts and pure server modules).
