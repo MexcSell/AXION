@@ -11,7 +11,7 @@ import { snapshotTx } from '../company/clock.ts';
 import { changeBounds, countObservations, labelOf, unitOf, whyNotPlannable } from './plan-metrics.ts';
 import {
   AMENDMENT_REASON_MAX, AMENDMENT_REASON_MIN, PLAN_MAX_GUARDRAILS, PLAN_MIN_N_MAX, PLAN_WHY_MAX, PLAN_WHY_MIN, PLAN_WINDOW_MAX_DAYS, PLAN_WINDOW_MIN_DAYS,
-  type ChangePlan, type OrgPlanDto, type PlanAmendmentDto, type PlanObservation, type PlanVerdict,
+  type ChangePlan, type OrgPlanDto, type PlanSetDto, type PlanAmendmentDto, type PlanObservation, type PlanVerdict,
 } from '../../../shared/contracts/src/index.ts';
 
 /**
@@ -130,7 +130,7 @@ export default async function planRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const A = 'org.proposal.plan.set';
     const plan = normPlan(parse(PlanIn, req.body));
-    const out = await tx(app.db, async (c): Promise<{ err: ApiError } | { dto: OrgPlanDto }> => {
+    const out = await tx(app.db, async (c): Promise<{ err: ApiError } | { dto: PlanSetDto }> => {
       await expireDue(c, ctx.tenantId);
       const p = (await c.query('select id, status from org_proposals where id=$1 and tenant_id=$2 for update', [id, ctx.tenantId])).rows[0];
       const deny = async (err: ApiError) => { await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: A, subject: id, result: 'denied', correlationId: ctx.correlationId, detail: { code: err.code } }); return { err }; };
@@ -138,7 +138,7 @@ export default async function planRoutes(app: FastifyInstance) {
       if (p.status !== 'pending') return deny(new ApiError('PLAN_LOCKED', 409, `This proposal is ${p.status}. A plan can be set only while it is pending; after approval a change is an amendment.`));
       await c.query('update org_proposals set plan=$3::jsonb where id=$1 and tenant_id=$2 and status=\'pending\'', [id, ctx.tenantId, JSON.stringify(plan)]);
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: A, subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { planSha: planSha(plan), primary: plan.primary.metric, guardrails: plan.guardrails.length } });
-      return { dto: await planReadout(c, ctx.tenantId, id) };
+      return { dto: { proposalId: id, plan, sha: planSha(plan), locked: false } };
     });
     if ('err' in out) throw out.err;
     return out.dto;

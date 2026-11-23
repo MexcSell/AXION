@@ -170,6 +170,8 @@ export const ROUTE_NO_INPUT: Record<string, string> = {
   'POST /failure-tags/:id/attributions': 'c60: appends an attribution (which step or mechanism a tag points at) to its own append-only table; no scorecard, KPI or dimension row reads attributions, only the OTel export does',
   'POST /skills': 'writes a skill record; no row reads skills', 'POST /skills/:sid/approve': 'writes a skill record; no row reads skills', 'POST /skills/:sid/retire': 'writes a skill record; no row reads skills',
   'POST /organization/proposals': ORG, 'POST /organization/proposals/:id/withdraw': ORG, 'POST /organization/revisions/:seq/rollback-proposal': ORG,
+  'PUT /organization/proposals/:id/plan': 'c85: writes the plan record of a pending organisation proposal (a plan names registry metrics but is not an input of any row); no row reads plans',
+  'POST /organization/proposals/:id/plan/amendments': 'c85: appends an amendment to the plan of an applied organisation proposal, in its own append-only table; no scorecard, KPI or dimension row reads plans',
 };
 
 export const ALL_WRITE_ROUTES: readonly string[] = [...new Set([...Object.values(WRITE_SITES).flatMap((s) => s.routes), ...Object.keys(ROUTE_NO_INPUT)])].sort();

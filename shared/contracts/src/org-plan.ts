@@ -84,4 +84,6 @@ export interface OrgPlanDto {
   /** the database clock when this was computed */
   checkedAt: string;
 }
+/** PUT .../plan answers with the plan as stored (the proposal is still pending, so there is no change, window or count yet). */
+export interface PlanSetDto { proposalId: string; plan: ChangePlan; sha: string; locked: boolean }
 export interface PlanAmendIn { plan: ChangePlan; reason: string; baseAmendments: number }
