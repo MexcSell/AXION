@@ -3,8 +3,8 @@ import type pg from 'pg';
 import { makeSchema } from './helpers.ts';
 import { makeDataset, addRun } from './eval-fixtures.ts';
 import {
-  ESTIMATOR, ESTIMATOR_SCOPE, MIN_CALIBRATION_PER_CLASS, correctedPassRate, calibratedVerdict, calibrationCounts, recordCalibrationLabel, calibratedEvaluation,
-  type Calibration,
+  ESTIMATOR, ESTIMATOR_SCOPE, MIN_CALIBRATION_PER_CLASS, correctedPassRate, correctedPassRateGate, calibratedVerdict, calibrationCounts, recordCalibrationLabel, calibratedEvaluation,
+  splitCalibration, type Calibration,
 } from '../src/evolution/judge-calibration.ts';
 
 // c61 R2-1: judge calibration SCAFFOLD. Judges exist today only as family labels (c53), so nothing in a proposal's verdict calls this yet.
@@ -23,14 +23,23 @@ describe('the estimator is named and scoped', () => {
 
 describe('correctedPassRate', () => {
   const cal: Calibration = { tp: 45, fn: 5, tn: 40, fp: 10 }; // sensitivity .9, specificity .8
-  it('matches the closed form (A1 Eq. 7) on a hand-checked case', () => {
-    const e = correctedPassRate({ judgedPass: 120, n: 200, calibration: cal });
+  it('matches the closed form (A1 Eq. 7) on a hand-checked case (c61 gate, all labels)', () => {
+    const e = correctedPassRateGate({ judgedPass: 120, n: 200, calibration: cal });
     expect(e.status).toBe('ok');
     expect(e.sensitivity).toBeCloseTo(0.9, 10); expect(e.specificity).toBeCloseTo(0.8, 10);
     expect(e.raw.rate).toBeCloseTo(0.6, 10);
     expect(e.corrected.rate).toBeCloseTo((0.6 + 0.8 - 1) / (0.8 + 0.9 - 1), 10); // 0.5714...
     expect(e.corrected.low!).toBeLessThan(e.corrected.rate!); expect(e.corrected.high!).toBeGreaterThan(e.corrected.rate!);
     expect(e.corrected.low!).toBeGreaterThanOrEqual(0); expect(e.corrected.high!).toBeLessThanOrEqual(1);
+  });
+  it('c84 wired split: the point estimate and interval come from the holdout half only, the reported sensitivity and specificity from all labels', () => {
+    const e = correctedPassRate({ judgedPass: 120, n: 200, calibration: cal });
+    expect(e.status).toBe('ok');
+    expect(e.sensitivity).toBeCloseTo(0.9, 10); expect(e.specificity).toBeCloseTo(0.8, 10);
+    const { holdout } = splitCalibration(cal);
+    const q0 = holdout.tn / (holdout.tn + holdout.fp), q1 = holdout.tp / (holdout.tp + holdout.fn);
+    expect(e.corrected.rate).toBeCloseTo((0.6 + q0 - 1) / (q0 + q1 - 1), 10);
+    expect(e.corrected.low!).toBeLessThan(e.corrected.rate!); expect(e.corrected.high!).toBeGreaterThan(e.corrected.rate!);
   });
   it('a perfect judge gives the raw rate back', () => {
     const e = correctedPassRate({ judgedPass: 30, n: 100, calibration: { tp: 40, fn: 0, tn: 40, fp: 0 } });
@@ -121,14 +130,18 @@ describe('coverage of the corrected interval (seeded Monte Carlo, simulated judg
   /** a cell with fewer gate-passing draws than this has no usable coverage figure: it is a REFUSED regime (reported, not asserted) */
   const MIN_OK = 30;
   // With the 0.5 margin policy, what still misses is judges whose TRUE margin is 0.35-0.45 that passed the gate by a lucky calibration set (selection bias).
-  const NOT_MET: Record<number, string[]> = {
+  // c84: the wired remedy is the sample split (correctedPassRate). Pins removed: every cell of the c61 lists except the one below, which still
+  // misses 93% on both seeds (88.1%). The c61 gate (correctedPassRateGate) is kept in the loop below with its OLD pins, as the reproduction baseline.
+  const NOT_MET_SPLIT: Record<number, string[]> = { 424242: ['0.05/0.7/0.65/100/20+60'], 77031: ['0.05/0.7/0.65/100/20+60'] };
+  const NOT_MET_GATE: Record<number, string[]> = {
     424242: ['0.05/0.7/0.65/200/50+50',  '0.05/0.7/0.65/100/20+20',  '0.05/0.7/0.65/100/20+60',  '0.05/0.55/0.9/200/50+50',  '0.05/0.55/0.9/100/20+20',  '0.05/0.55/0.9/100/20+60',  '0.5/0.55/0.9/100/20+20',  '0.5/0.55/0.9/100/20+60',  '0.95/0.7/0.65/200/50+50',  '0.95/0.7/0.65/100/20+20',  '0.95/0.7/0.65/100/20+60',  '0.95/0.55/0.9/200/50+50'],
     77031: ['0.05/0.7/0.65/200/50+50',  '0.05/0.7/0.65/100/20+20',  '0.05/0.7/0.65/100/20+60',  '0.05/0.55/0.9/200/50+50',  '0.05/0.55/0.9/100/20+20',  '0.05/0.55/0.9/100/20+60',  '0.5/0.7/0.65/100/20+60',  '0.5/0.55/0.9/200/50+50',  '0.5/0.55/0.9/100/20+20',  '0.5/0.55/0.9/100/20+60',  '0.95/0.7/0.65/200/50+50',  '0.95/0.7/0.65/100/20+20',  '0.95/0.7/0.65/100/20+60'],
   };
 
 
+  for (const [method, estimate, NOT_MET] of [['split (wired)', correctedPassRate, NOT_MET_SPLIT], ['c61 gate (baseline)', correctedPassRateGate, NOT_MET_GATE]] as const)
   for (const seed of [424242, 77031]) {
-    it(`seed ${seed}: conditional coverage per cell, with the skip rate`, () => {
+    it(`${method}, seed ${seed}: conditional coverage per cell, with the skip rate`, () => {
       const failing: string[] = []; const lines: string[] = []; let ci = 0; let refused = 0;
       let okAll = 0, covAll = 0;
       for (const theta of thetas) for (const [q0, q1] of judges) for (const [n, m0, m1] of sizes) {
@@ -140,7 +153,7 @@ describe('coverage of the corrected interval (seeded Monte Carlo, simulated judg
           let tp = 0, fp = 0;
           for (let i = 0; i < m1; i++) tp += bern(rng, q1);
           for (let i = 0; i < m0; i++) fp += bern(rng, 1 - q0);
-          const e = correctedPassRate({ judgedPass, n, calibration: { tp, fn: m1 - tp, tn: m0 - fp, fp } });
+          const e = estimate({ judgedPass, n, calibration: { tp, fn: m1 - tp, tn: m0 - fp, fp } });
           if (e.status !== 'ok') continue;
           ok++; if (e.corrected.low! <= theta && theta <= e.corrected.high!) cov++;
         }
@@ -150,7 +163,7 @@ describe('coverage of the corrected interval (seeded Monte Carlo, simulated judg
         if (ok < MIN_OK) refused++; else { okAll += ok; covAll += cov; if (c < 0.93) failing.push(name); }
       }
       console.log(lines.join('\n'));
-      console.log(`seed ${seed}: ${72 - refused} cells assessed (gate passes >= ${MIN_OK}), ${refused} refused regimes; pooled conditional coverage ${(covAll / okAll * 100).toFixed(2)}%; cells under 93%: ${failing.length} ${JSON.stringify(failing)}`);
+      console.log(`${method} seed ${seed}: ${72 - refused} cells assessed (gate passes >= ${MIN_OK}), ${refused} refused regimes; pooled conditional coverage ${(covAll / okAll * 100).toFixed(2)}%; cells under 93%: ${failing.length} ${JSON.stringify(failing)}`);
       expect(failing).toEqual(NOT_MET[seed]);
     });
   }

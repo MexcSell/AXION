@@ -21,6 +21,17 @@ import { EVALUATION_POLICY_V2 } from './verdict-v2.ts';
  * passScore), so the n units are distinct cases. A1 assumes the judge's error rates on the test set equal those on the calibration
  * items (its Eq. 18), human labels are ground truth, and q0 + q1 > 1.
  *
+ * METHOD NOTE (c84, E1e): WHAT IS CONDITIONED ON, AND WHAT IS NOT. c61 let a judge through when its margin, estimated from the calibration labels, was
+ * at least 0.5, and then built the interval from the same labels. A judge of middling true quality gets through mostly when its labels were
+ * lucky, and those same lucky labels then make its interval too narrow and too optimistic: coverage fell to 66-93% in pinned cells. A lower bound on the margin
+ * does not help, because it uses the same labels. Now (correctedPassRate, default method 'split'): half of each class (a fixed pseudo-random
+ * draw, rule above splitCalibration) decides eligibility, and the interval is built only from the other half. The interval is conditioned on
+ * the pilot passing, which says nothing about the holdout, and on the holdout margin being above 0 (needed for any finite interval). It is
+ * NOT conditioned on the holdout margin being large. The price: each half has half the labels, so intervals are wider and fewer judges are
+ * admitted. One simulated cell (theta 0.05, judge specificity .7 / sensitivity .65, 100 test items, 20 + 60 labels) still covers only about 88% and stays pinned.
+ * The alternative, fiellerInterval, is kept as a tested pure function; it needs no gate but admits weak judges whose intervals miss 93% in small samples.
+ * Coverage figures are CONDITIONAL on being admitted; see web/docs/improve/cycles/c84-report.md and c84-sim-seed*.txt.
+ *
  * What is OURS, not A1's: the minimum calibration size per class, the minimum margin q̃0 + q̃1 − 1, the Wilson interval shown for the
  * RAW rate, and the two-version comparison rule in calibratedVerdict (non-overlap by the margin).
  */
@@ -50,8 +61,7 @@ const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 const isCount = (x: unknown) => typeof x === 'number' && Number.isInteger(x) && x >= 0;
 const NONE: Interval = { rate: null, low: null, high: null };
 
-/** The c61 behaviour (margin gate on all labels, interval from the same labels). Kept as the reproduction baseline for the c84 simulation. */
-export function correctedPassRateGate(o: { judgedPass: number; n: number; calibration: Calibration | null; z?: number; center?: boolean; minPerClass?: number; minJudgeMargin?: number }): RateEstimate {
+export function correctedPassRate(o: { judgedPass: number; n: number; calibration: Calibration | null; z?: number; center?: boolean; minPerClass?: number; minJudgeMargin?: number; method?: 'split' | 'gate' }): RateEstimate {
   const minPerClass = o.minPerClass ?? MIN_CALIBRATION_PER_CLASS, minMargin = o.minJudgeMargin ?? MIN_JUDGE_MARGIN;
   const { judgedPass, n, calibration } = o;
   const z = o.z ?? Z95;
@@ -70,6 +80,13 @@ export function correctedPassRateGate(o: { judgedPass: number; n: number; calibr
     return { ...base, raw, sensitivity: sens, specificity: spec, status: 'too_few_calibration', reason: `${m1} human-positive and ${m0} human-negative calibration items; ${minPerClass} of each are needed` };
   }
   const weak = (why: string): RateEstimate => ({ ...base, raw, sensitivity: q1, specificity: q0, status: 'judge_too_weak', reason: why });
+  if (o.method !== 'gate') {
+    // c84: the wired remedy. Eligibility on the pilot half, the interval from the holdout half only (rule above splitCalibration).
+    const { pilot, holdout } = splitCalibration(calibration);
+    const r = splitInterval({ judgedPass, n, pilot, holdout, z, center: o.center, minJudgeMargin: minMargin });
+    if (r.status !== 'ok') return weak(r.reason!);
+    return { ...base, raw, sensitivity: q1, specificity: q0, status: 'ok', reason: null, corrected: r.corrected };
+  }
   if (q0 + q1 <= 1) return weak(`sensitivity ${q1.toFixed(2)} plus specificity ${q0.toFixed(2)} is not above 1: the judge is no better than chance, so its verdicts cannot be corrected`);
   const nT = n + z * z, m0T = m0 + 2, m1T = m1 + 2;
   const pT = (judgedPass + z * z / 2) / nT, q0T = (calibration.tn + 1) / m0T, q1T = (calibration.tp + 1) / m1T;
@@ -83,7 +100,8 @@ export function correctedPassRateGate(o: { judgedPass: number; n: number; calibr
   return { ...base, raw, sensitivity: q1, specificity: q0, status: 'ok', reason: null, corrected: { rate: clamp01(theta), low: clamp01(thetaT + d - half), high: clamp01(thetaT + d + half) } };
 }
 
-export const correctedPassRate = correctedPassRateGate;
+/** The c61 behaviour (margin gate on all labels, interval from the same labels). Kept only as the reproduction baseline of the c84 simulation; it has the selection bias. */
+export const correctedPassRateGate = (o: Parameters<typeof correctedPassRate>[0]): RateEstimate => correctedPassRate({ ...o, method: 'gate' });
 
 // ---- c84 (E1e): remedies for selection bias in the margin gate ----------------------------------------------------------
 /**
