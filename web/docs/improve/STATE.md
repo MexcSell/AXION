@@ -64,7 +64,7 @@ Rewritten 2026-11-22T07:35Z, 17:50Z, and 2026-11-23T03:40Z by the controller; up
 | w89 | c91 skill promotion gate (R5-5), e2e14 | MERGED at 060f9ab (batch 47) |
 | w90 | c92 script live-port guard (H23) and scanner gap (M2c-1), e2e3 | MERGED at 15d7a68 (batch 45) |
 | w91 | c93 connection-cap resilience (H14b), e2e4 | CLEARED at 1a5d2b6, batch 49 |
-| w92 | c94 execution profile validator (R6-1), e2e17 | dispatched ~10:45Z |
+| w92 | c94 execution profile validator (R6-1), e2e17 | CLEARED at db0995f, batch 52 |
 | w93 | c95 run budget and halt checker (R6-5), e2e14 | CLEARED at f71fa58, batch 51 |
 | — | Final report draft (FINAL-REPORT-PHASE2.md) | draft committed; finalise at the end |
 

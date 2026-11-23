@@ -18,3 +18,27 @@ Checked and OK:
 - Fail-closed. Nothing throws on my probes; requests and items are strict. Exception: finding 1 for profiles.
 - Tests. The claims hold: 192 own fixtures plus 169 reused hostile-origins entries, with a count floor. The DNS-spy test is weak, but the static import check backs it up.
 - c92-script-base failure (`c82-pixel.mjs:7`). I did not run full vitest. The branch touches no web/ or scripts file (diff stat), so it is unrelated by inspection. Consistent with the known merge interaction.
+
+## Scoped re-review of the fix round (360de7a..db0995f): CLEAR
+
+All of findings 1–5 are resolved, and there is no regression: 544/544 c94 tests pass, including the original 508.
+
+**1. TOCTOU (major): resolved.**
+- `validate(snapshot(input))` reads the input once, and the return value is the snapshot.
+- These are all refused: a getter on an object or an array index, `toJSON`, Array subclasses, Proxies, symbol keys, String objects and BigInt.
+- The depth limit is exact: depth 6 is allowed and depth 7 refused.
+
+**2. ReDoS (major): resolved.**
+- Worst cases within the caps take at most 1.2 ms on a 4096-character path.
+- A differential run against the old regex, over 300k random pattern and path pairs, found 0 differences.
+- The cap boundaries are exact.
+
+**3–5. Minors: resolved.**
+- `/`, `/etc`, `/proc`, `/root`, `/sys` and `/dev` are refused at any depth, while `/etcetera` and `/rooted` are allowed.
+- Credential directories are denied, with or without a trailing slash.
+- Internal redirect hops are tagged `redirect_internal`.
+
+**New notes (not blocking):**
+- (a) `/var/run` is still accepted as a scope.
+- (b) A hostile profile (32 patterns of 128 characters each) costs about 36 ms per path on 4096-character paths. A request of 1000 items could take about 36 s, so cap the items per request.
+- (c) A U+0130 character in a pattern never matches. The built-in patterns are ASCII, so this has no practical effect.

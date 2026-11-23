@@ -165,3 +165,5 @@ A1 → B1 → C1 → A3 → B3 → C2 → A2 → B2 → C3 → A5 → B4 → C4 
 | H23 | Web scripts default BASE to 5190 (the live dev server), so a lane or reviewer that forgets BASE hits the live port (c88 review). Make every script refuse a 5190/5191 default when its cwd is not `/home/luca/AXION`, or derive BASE from the lane's port. | 3 | 5 | 5 | 13 |
 
 | H14c | c93 follow-ups (review). (1) Move the test-only fault hook out of `src/db.ts` behind a `makePool` option (`acquireHook`) set from the test helpers. (2) The callback form of the wrapped `pool.connect` turns a throwing callback into an unhandled rejection: catch and rethrow on `process.nextTick`. (3) Peak test connections only fell from 15 to 11–12; the retry is the real protection. | 2 | 4 | 5 | 11 |
+
+| X1 | c94 follow-ups (re-review). (1) `/var/run` is still accepted as a scope. (2) Cap the requests per decide call: a hostile but valid profile costs about 36 ms per 4096-char path. (3) Patterns containing U+0130 never match (toLowerCase expands it). Next phase: enforcement (sandbox and egress proxy, owner point O1), and binding the profile hash into the approval digest (a digest version change). | 2 | 4 | 5 | 11 |
