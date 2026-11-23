@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { makeTestApp, withAdmin, type TestApp } from './helpers.ts';
 import { requestApproval, consumeApproval, loadBoundAction } from '../src/approvals/service.ts';
 import { verifyChain } from '../src/audit.ts';
+import { approvalDecideAuditDetail } from './contracts/validators.ts';
+import { check } from './contracts/validate.ts';
 import { tx } from '../src/db.ts';
 
 let t: TestApp;
@@ -37,6 +39,7 @@ describe('c75 item 2: the decide audit row carries the decision evidence, inside
     const d = await decideAudit(r.id);
     const rec = (await t.pool.query('select latency_ms, queue_size, fast_bulk from approval_decisions where approval_id=$1', [r.id])).rows[0];
     expect(d).toMatchObject({ decision: 'approved', mission: mid, latencyMs: Number(rec.latency_ms), queueSize: 3, fastBulk: false, fired: false, rule: null });
+    expect(check('approval.decide detail', approvalDecideAuditDetail, d)).toEqual([]); // the shape is registered in the contract validators
     const row = (await t.pool.query('select rule_of_two from approval_requests where id=$1', [r.id])).rows[0];
     expect(d.evidenceDigest).toBe(row.rule_of_two.evidenceDigest);
   });
