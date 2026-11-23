@@ -8,7 +8,7 @@ import { DEFAULT_WINDOW_DAYS, WINDOWS, MIN_EVIDENCE, aggregateQuality, approverQ
 import { parse } from '../auth/routes.ts';
 import { emit } from '../events/hooks.ts';
 import { VISIBLE_SQL } from '../missions/visibility.ts';
-import { approvalDto, decideRefusal, rowDigest, settleMission, sweepExpired } from './service.ts';
+import { approvalDto, decideRefusal, evidenceMismatch, evidenceState, rowDigest, settleMission, sweepExpired } from './service.ts';
 import { tx as txRun } from '../db.ts';
 
 export default async function approvalRoutes(app: FastifyInstance) {
@@ -57,6 +57,8 @@ export default async function approvalRoutes(app: FastifyInstance) {
         if (a.state === 'pending') { await c.query(`update approval_requests set state='expired' where id=$1`, [id]); await settleMission(c, ctx.tenantId, a.mission_id, ctx.correlationId); }
         return { stale: refusal.message };
       }
+      // c75: the recorded flags and fired rule must still be what was bound when the request was made
+      if (evidenceState(a) === 'mismatch') throw evidenceMismatch();
       // the stored digest must still match the row, and the client must have seen it (the client's value is only compared, never used)
       if (rowDigest(a) !== a.action_digest || b.digest !== a.action_digest) return { stale: 'This request changed since you opened it. Review it again.' };
       // compare-and-set: only a still-pending request can be decided (axor execution-gateway pattern)

@@ -70,17 +70,35 @@ export async function requestApproval(c: Tx, a: ApprovalInput) {
   await c.query(
     `insert into approval_requests(id, tenant_id, mission_id, agent_id, kind, title, detail, risk, payload, action_digest, digest_version, task_id, origin, target, requested_by, demo, created_at, expires_at, rule_of_two)
      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,2,$11,$12,$13,$14,$15,$16,$17,$18)`,
-    [id, a.tenantId, a.missionId, a.agentId, a.kind, a.title, a.detail, risk, JSON.stringify(a.payload), digest, a.taskId ?? null, a.origin ?? null, a.target ?? null, requestedBy, a.demo ?? false, createdAt, expiresAt, JSON.stringify(ruleRecord(flags, d.policyVersion))]);
+    [id, a.tenantId, a.missionId, a.agentId, a.kind, a.title, a.detail, risk, JSON.stringify(a.payload), digest, a.taskId ?? null, a.origin ?? null, a.target ?? null, requestedBy, a.demo ?? false, createdAt, expiresAt, JSON.stringify(sealEvidence(id, digest, ruleRecord(flags, d.policyVersion)))]);
   await emit(c, { tenantId: a.tenantId, type: 'approval.requested', subject: a.missionId, missionId: a.missionId, actor: a.agentId, actorKind: 'agent', payload: { approvalId: id, kind: a.kind, risk, policyVersion: d.policyVersion, reasons: d.reasons } });
   return { id, digest };
 }
 
 /** What is stored with a request and shown to the reviewer: the three flags, why each holds, and whether the rule fired. */
-export interface RuleOfTwoRecord { flags: { untrustedInput: boolean; sensitiveAccess: boolean; canChangeState: boolean }; because: DerivedFlags['because']; fired: boolean; rule: 'rule_of_two' | null; policyVersion: number }
-export const ruleRecord = (f: DerivedFlags, policyVersion: number): RuleOfTwoRecord => ({
+export interface RuleOfTwoRecord { flags: { untrustedInput: boolean; sensitiveAccess: boolean; canChangeState: boolean }; because: DerivedFlags['because']; fired: boolean; rule: 'rule_of_two' | null; policyVersion: number; evidenceDigest?: string }
+export const ruleRecord = (f: DerivedFlags, policyVersion: number): Omit<RuleOfTwoRecord, 'evidenceDigest'> => ({
   flags: { untrustedInput: f.untrustedInput, sensitiveAccess: f.sensitiveAccess, canChangeState: f.canChangeState }, because: f.because,
   fired: allThree(f), rule: allThree(f) ? 'rule_of_two' : null, policyVersion,
 });
+
+/**
+ * c75: the evidence a decision is checked against. The digest is sha256 over the approval id, the action digest and the whole Rule-of-Two record
+ * (flags, why, fired rule, policy version), taken when the request is made and kept inside the record. The decision route and consume recompute it,
+ * so an edited flag or rule is refused with APPROVAL_EVIDENCE_MISMATCH. The decision's audit row repeats it, which puts it in the hash chain.
+ * Requests made before c75 have no digest and are accepted as they were (until they are decided; after that the audit row pins it).
+ */
+export const evidenceDigestOf = (approvalId: string, actionDigest: string, rec: Omit<RuleOfTwoRecord, 'evidenceDigest'>) =>
+  createHash('sha256').update(canonical({ v: 1, approvalId, actionDigest, evidence: rec })).digest('hex');
+export const sealEvidence = (approvalId: string, actionDigest: string, rec: Omit<RuleOfTwoRecord, 'evidenceDigest'>): RuleOfTwoRecord => ({ ...rec, evidenceDigest: evidenceDigestOf(approvalId, actionDigest, rec) });
+/** 'legacy' = nothing was bound for this request; 'mismatch' = the stored record no longer matches what was bound. */
+export function evidenceState(r: any): 'ok' | 'legacy' | 'mismatch' {
+  const rec = r.rule_of_two;
+  if (!rec || typeof rec !== 'object' || rec.evidenceDigest === undefined) return 'legacy';
+  const { evidenceDigest, ...rest } = rec;
+  return evidenceDigest === evidenceDigestOf(r.id, r.action_digest, rest) ? 'ok' : 'mismatch';
+}
+export const evidenceMismatch = () => new ApiError('APPROVAL_EVIDENCE_MISMATCH', 409, 'The recorded reasons for this request were changed after it was made. It cannot be used; the agent must ask again.');
 
 const kindRule = (k: string) => (CURRENT_BASELINE.kinds as Record<string, { effect: string; why: string }>)[k];
 
@@ -117,7 +135,7 @@ export function approvalDto(r: any, now: number, viewer: Decider) {
     agoMin: Math.max(0, Math.round((now - new Date(r.created_at).getTime()) / 60000)),
     expiresAt: new Date(r.expires_at).getTime(),
     canDecide: !refusal, decideBlockedReason: refusal?.reason ?? null,
-    ruleOfTwo: (r.rule_of_two ?? null) as RuleOfTwoRecord | null,
+    ruleOfTwo: r.rule_of_two ? (({ evidenceDigest: _e, ...rest }) => rest)(r.rule_of_two as RuleOfTwoRecord) : null, // the digest is for the server's checks, not for display
     // how it was decided: for administrators only (it describes a person's pace), and only once decided
     decisionRecord: viewer.role === 'admin' && (state === 'approved' || state === 'denied') && r.dec_latency_ms != null
       ? { latencyMs: Number(r.dec_latency_ms), queueSize: Number(r.dec_queue_size), fastBulk: !!r.dec_fast_bulk } : null,
@@ -159,6 +177,13 @@ export async function sweepExpired(c: Tx, tenantId?: string): Promise<string[]> 
 }
 
 
+/**
+ * At consume: the stored record must still match what was bound when the request was made.
+ */
+async function assertEvidence(c: Tx, r: any) {
+  if (evidenceState(r) === 'mismatch') throw evidenceMismatch();
+}
+
 export interface ConsumeInput { approvalId: string; action: BoundAction; /** who is executing (an agent or service id) */ by: string; /** test clock; without it expiry is judged by the database clock, the same as the sweep */ now?: number }
 
 /**
@@ -174,6 +199,7 @@ export async function consumeApproval(c: Tx, i: ConsumeInput): Promise<{ approva
   if (i.now !== undefined ? new Date(r.expires_at).getTime() <= i.now : r.db_expired) throw new ApiError('APPROVAL_EXPIRED', 409, 'This approval expired. The agent must ask again.');
   const presented = (r.digest_version ?? 1) === 2 ? digestV2(i.action) : digestOf(i.action.missionId, i.action.kind, i.action.payload);
   if (presented !== rowDigest(r) || presented !== r.action_digest) throw new ApiError('APPROVAL_DIGEST_MISMATCH', 409, 'The action differs from the one that was approved.');
+  await assertEvidence(c, r);
   const u = await c.query(`update approval_requests set consumed_at=now(), consumed_by=$2 where id=$1 and consumed_at is null and state='approved' returning consumed_at`, [i.approvalId, i.by]);
   if (!u.rowCount) throw new ApiError('APPROVAL_ALREADY_CONSUMED', 409, 'This approval was already used. The agent must ask again.');
   await emit(c, { tenantId: r.tenant_id, type: 'approval.consumed', subject: r.mission_id, missionId: r.mission_id, actor: i.by, actorKind: 'agent', payload: { approvalId: r.id, kind: r.kind, tier: r.risk, by: i.by } });
