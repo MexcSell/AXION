@@ -64,14 +64,9 @@ async function ownerHistory(c: Tx | Db, t: TaskRow): Promise<{ rows: number; cur
   return { rows: h.length, current, actors: new Set([...h, ...rs].map((r) => r.agent_id as string).filter(Boolean)) };
 }
 
-/**
- * The review stays valid only for the attempt it judged (c51). A review is STALE (before attempt N) when the task has a later
- * attempt than the one it was written against, or when the latest attempt started (database time) after the review was created.
- * Evaluated in SQL so only the database clock is compared. `r` is the alias of task_reviews.
- */
-export const STALE_BEFORE_SQL = (r = 'r') => `(select la.attempt_no from task_attempts la where la.task_id = ${r}.task_id
-    and la.attempt_no = (select max(x.attempt_no) from task_attempts x where x.task_id = ${r}.task_id)
-    and (coalesce((select ra.attempt_no from task_attempts ra where ra.id = ${r}.attempt_id), 0) < la.attempt_no or (la.started_at is not null and ${r}.created_at < la.started_at)))`;
+// c71 (F4): the freshness rule lives in company/stale.ts (both of its SQL forms, one source); re-exported so every caller keeps its import.
+import { STALE_BEFORE_SQL } from '../company/stale.ts';
+export { STALE_BEFORE_SQL };
 
 /** The producing agent of a task, with the model family of the version its instance is pinned to (the active version only when the task has no instance). */
 async function producerOf(c: Tx | Db, t: TaskRow): Promise<ReviewActor | null> {
