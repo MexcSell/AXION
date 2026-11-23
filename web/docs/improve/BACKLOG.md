@@ -163,3 +163,5 @@ A1 → B1 → C1 → A3 → B3 → C2 → A2 → B2 → C3 → A5 → B4 → C4 
 | T2 | Org proposal evidence for members (c87 finding). `GET /organization/proposals` (requireUser) returns each proposal's stored `result.evidence`, counted over all non-demo missions including private ones; a member sees e.g. "Agents with at least one open task" move when another member's private mission gains an open task. c88 redacts it for non-admins at read time. | 4 | 4 | 5 | 13 |
 
 | H23 | Web scripts default BASE to 5190 (the live dev server), so a lane or reviewer that forgets BASE hits the live port (c88 review). Make every script refuse a 5190/5191 default when its cwd is not `/home/luca/AXION`, or derive BASE from the lane's port. | 3 | 5 | 5 | 13 |
+
+| H14c | c93 follow-ups (review). (1) Move the test-only fault hook out of `src/db.ts` behind a `makePool` option (`acquireHook`) set from the test helpers. (2) The callback form of the wrapped `pool.connect` turns a throwing callback into an unhandled rejection: catch and rethrow on `process.nextTick`. (3) Peak test connections only fell from 15 to 11–12; the retry is the real protection. | 2 | 4 | 5 | 11 |
