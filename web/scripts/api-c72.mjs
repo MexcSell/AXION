@@ -92,6 +92,7 @@ try {
     check(`${theme}: the picker lists agents by name, not by a rating`, opts.slice(1).join('|') === [...opts.slice(1)].sort((x, y) => x.localeCompare(y)).join('|'));
     const f2 = await fit(q);
     check(`${theme}: still fits one screen with the comparison open`, f2.page <= 0 && f2.wide <= 0 && f2.main <= 0, JSON.stringify(f2));
+    await q.screenshot({ path: `${SHOTS}/c72-performance-${theme}-compare.png` });
     // ? help in the panel header
     await q.locator('[data-testid="skill-vector"] .panel-head button[aria-label*="elp" i], [data-testid="skill-vector"] .panel-head [data-help]').first().click();
     check(`${theme}: the ? help opens and says the rating depends on stated difficulty`, await until(async () => /stated|set by the person or agent/i.test(await q.locator('body').innerText()) && /Pair ratings/i.test(await q.locator('body').innerText()), 5000));
