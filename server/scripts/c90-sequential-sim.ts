@@ -16,10 +16,10 @@ console.log(`limit for (a): ${(ALPHA * 100).toFixed(2)}% + 2 x MC SE (${(SE * 10
 let allPass = true;
 for (const [pi, p] of PS.entries()) {
   const rng = mulberry32(seed + 7919 * (pi + 1));
-  let cs = 0, naive = 0, csTrueCov = 0;
+  let cs = 0, naive = 0;
   const w: Record<number, number[]> = { 20: [], 50: [], 100: [] }, wNaive: Record<number, number[]> = { 20: [], 50: [], 100: [] };
   for (let t = 0; t < T; t++) {
-    let s = initialState(), sb = 0, sa = 0, csHit = false, nvHit = false, covered = true;
+    let s = initialState(), sb = 0, sa = 0, csHit = false, nvHit = false;
     for (let i = 1; i <= N; i++) {
       const xb = rng() < p ? 1 : 0, xa = rng() < p ? 1 : 0;
       s = update(update(s, { arm: 'before', outcome: xb as 0 | 1 }), { arm: 'after', outcome: xa as 0 | 1 });
@@ -27,13 +27,11 @@ for (const [pi, p] of PS.entries()) {
       if (i < MIN_PER_ARM) continue;
       const r = readout(s);
       if (r.zeroExcluded) csHit = true;
-      if (r.lower! > 0 || r.upper! < 0) csHit = csHit || false;
-      if (!(r.lower! <= 0 && 0 <= r.upper!)) covered = covered && true; // true difference is 0: a miss is the same event as csHit
       const pb = sb / i, pa = sa / i, d = pa - pb, se = Math.sqrt(pb * (1 - pb) / i + pa * (1 - pa) / i);
       if (se > 0 ? Math.abs(d) > Z * se : d !== 0) nvHit = true;
       if (WIDTH_AT.includes(i)) { w[i].push(r.upper! - r.lower!); wNaive[i].push(2 * Z * se); }
     }
-    if (csHit) cs++; if (nvHit) naive++; csTrueCov += covered ? 1 : 0;
+    if (csHit) cs++; if (nvHit) naive++;
   }
   const rate = cs / T, pass = rate <= LIMIT; if (!pass) allPass = false;
   console.log(`p=${p}: ever-exclude-zero, confidence sequence ${(rate * 100).toFixed(2)}% (${cs}/${T}) -> ${pass ? 'PASS' : 'NOT MET'}; naive 95% Wald re-checked every observation ${(naive / T * 100).toFixed(2)}% (${naive}/${T})`);
