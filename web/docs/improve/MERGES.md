@@ -799,3 +799,13 @@ Order merged: c72 (6511c04), c73 (59b78cf), c74 (8d9a9c3), c75 (af54328), c78 (9
 - Targeted (judge-calibration, judge-calibration-remedies, eval-attestation, eval-audit, eval-evidence, eval-evidence-db, eval-integrity-db, eval-model): 8 files, **324/324 passed**.
 - **Full vitest `--maxWorkers=1 --no-file-parallelism` (heavy.sh, normal slot): 152 files passed + 1 skipped, 3429 passed, 36 skipped, 1 failed.** The failure: `test/auth.test.ts > connect > disabling a signed-in user revokes their session`, first error line `Error: admin connect failed {"code":"INTERNAL","message":"Something went wrong on the server. Try again.",...}` (withAdmin, test/helpers.ts:73). A transient 500 on the admin connect during a run with other heavy jobs on the machine; **re-run of auth.test.ts alone: 22/22 passed.** c84 does not touch auth. Treat as a flake, watch for recurrence.
 - Not run (server-only batch): web checks, api-mobile (the controller's baseline holds ports 5192/5193), verify-all.
+
+## Batch 39 (Phase 2 · Wave 8 · M2b): c83-metric-guard-2 (integrator #6)
+
+- **Merged:** 2026-11-23 about 07:45Z, `--no-ff`, tip 3ef9d2d verified. **Merge commit 6ade4d4.** No conflicts, no migration. Server and web tsc OK. A served `metric-registry.ts` on 5190 exports `parseSampleRef`.
+- Targeted (c83 x3, c66 x6, c69 x3, test/contracts): 15 files, 116/116. **Full vitest `--maxWorkers=1 --no-file-parallelism`: 156 files passed + 1 skipped, 3450 passed, 36 skipped, 0 failed.**
+- Browser checks on ports 5292/5293, database `axion_e2e5` (the controller's api-mobile baseline held 5192/5193): api-c46 36/36, api-c69 40/40, api-c66 28/28 (100 typed records labelled, free-text ref refused 400, run last), no FAIL lines, no page errors.
+
+## Batch 40 (Phase 2 · Wave 8 · T1): c81-tenant-fixes (integrator #6) -- IN PROGRESS, finding open
+
+- **Merged:** `--no-ff` of 2afe16c, merge commit 2181361, no conflicts, tsc OK. tenant, approvals, departments-order and ops tests: 50 passed, **1 failed: `test/tenant/c81-swap.test.ts > MR2 tenant-id swap`**: `MR2 | POST /company/metric-audits (body)` and `(all)` "the answer differs from the same request without the foreign tenant id". Cause is visible in `test/tenant/swap.ts:61`: the case's body is `sampleRef: newName('s')` (free text), which c83 now refuses; the plain request and the forged one no longer answer alike. Reported to the controller; nothing changed, batch 41 not merged.
