@@ -64,6 +64,15 @@ describe('guardrail path rule (pure)', () => {
   });
 });
 
+describe('F3: the guard also covers the migration runner, guardrails, metric audits and policies', () => {
+  it.each(['server/src/migrate.ts', 'server/src/migrate-cli.ts', 'server/src/organization/guardrails.ts', 'server/src/company/metric-audit.ts', 'server/src/policies/x.ts', 'server/src/company/metric-audits.ts'])('%s is guarded, in TypeScript and in the database', async (p) => {
+    expect(isGuardedPath(p), p).toBe(true);
+    expect((await t.pool.query(`select (${GUARDED_SQL('$1::text')}) as g`, [p])).rows[0].g).toBe(true);
+    expect((await release({ version: 'f3', what: 'x', changePaths: [p] })).status).toBe(403);
+  });
+  it('near misses stay unguarded', () => { for (const p of ['server/src/migrated-users.ts', 'web/src/pages/Policing.tsx', 'docs/metric-auditing.md']) expect(isGuardedPath(p), p).toBe(false); });
+});
+
 describe('release records', () => {
   it('records a release with who, what, version and the approvals it came from; nothing else happens', async () => {
     const m = await mission();

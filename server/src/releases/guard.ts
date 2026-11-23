@@ -7,11 +7,11 @@ import { canonical } from '../approvals/service.ts';
  * approvals, the audit trail, the locks or the migrations is refused unless an R4 approval bound to that exact release is named.
  * This module only classifies paths. It never reads or writes a file and never runs anything.
  *
- * The rule errs on the side of "guarded": a path segment that STARTS WITH one of the five names (policy, approval(s), audit..., lock(s), migration(s))
+ * The rule errs on the side of "guarded": a path segment that STARTS WITH one of these names (policy or policies, approval(s), audit..., lock(s), migration(s), migrate, guardrail(s), metric-audit(s))
  * and continues with a separator, dot, dash, underscore or the end counts. `server/src/audit-anchor.ts` and `docs/policy-notes.md` are guarded on purpose.
  * The same expression lives in the 0056 trigger (GUARDED_SQL); a test checks that the two agree.
  */
-export const GUARDED_RE_SOURCE = '(^|/)(policy|approvals?|audit[a-z_-]*|locks?|migrations?)([/._-]|$)';
+export const GUARDED_RE_SOURCE = '(^|/)(polic(y|ies)|approvals?|audit[a-z_-]*|locks?|migrations?|migrate|guardrails?|metric-audits?)([/._-]|$)';
 const GUARDED_RE = new RegExp(GUARDED_RE_SOURCE);
 export const MAX_PATH_LEN = 300;
 

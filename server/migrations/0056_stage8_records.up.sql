@@ -26,7 +26,7 @@ create index releases_tenant_time on releases(tenant_id, created_at desc, id);
 create function releases_check() returns trigger language plpgsql as $$
 declare g text[]; a approval_requests;
 begin
-  select coalesce(array_agg(p order by p), '{}') into g from unnest(new.change_paths) p where lower(normalize(p, NFKC)) ~ '(^|/)(policy|approvals?|audit[a-z_-]*|locks?|migrations?)([/._-]|$)';
+  select coalesce(array_agg(p order by p), '{}') into g from unnest(new.change_paths) p where lower(normalize(p, NFKC)) ~ '(^|/)(polic(y|ies)|approvals?|audit[a-z_-]*|locks?|migrations?|migrate|guardrails?|metric-audits?)([/._-]|$)';
   if (select coalesce(array_agg(p order by p), '{}') from unnest(new.guarded_paths) p) is distinct from g then raise exception 'release guarded_paths do not match its change_paths'; end if;
   if cardinality(g) = 0 then
     if new.guardrail_approval_id is not null then raise exception 'a release that touches no guarded path carries no guardrail approval'; end if;
