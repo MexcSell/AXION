@@ -19,17 +19,20 @@ const isClass = (s: unknown): s is TaskClassId => typeof s === 'string' && (TASK
 
 export async function loadSkillOutcomes(c: Tx | Db, viewer: { tenantId: string; admin: boolean; userId: string }, includeSimulated: boolean): Promise<SkillOutcome[]> {
   // c72 fix round (F1). `fin` is the time the task FIRST became passed, failed or canceled (the first such state-change event; a task with no event, such as a
-  // fixture, uses its creation time). The owner is the agent that owned the task at `fin` (task_owner_history; before the first row, the first owner), so a
+  // fixture, uses its creation time). N1 (re-review): the OUTCOME is that first finish's status too (a failure later retried, reassigned and passed stays
+  // the first owner's failure; the later attempts are not rated, because they have no clean label). The owner is the agent that owned the task at `fin` (task_owner_history; before the first row, the first owner), so a
   // reassignment after a failure moves nothing. A label counts only from a brief to that owner created before `fin` (the first such brief).
   const rows = (await c.query(
-    `select o.owner, o.status, b.brief->>'taskClass' as cls, b.brief->>'difficulty' as diff
-       from (select t.id, t.status, t.fin, (select coalesce(h.agent_id, h.owner_agent) from task_owner_history h where h.task_id = t.id
+    `select o.owner, o.first_status as status, b.brief->>'taskClass' as cls, b.brief->>'difficulty' as diff
+       from (select t.id, t.first_status, t.fin, (select coalesce(h.agent_id, h.owner_agent) from task_owner_history h where h.task_id = t.id
                                                order by (h.at <= t.fin) desc, (case when h.at <= t.fin then -h.seq else h.seq end) limit 1) as owner
-               from (select t.id, t.status, coalesce((select min(e.occurred_at) from events e where e.tenant_id = t.tenant_id and e.type = 'task.stateChanged' and e.subject_id = t.id
-                                                         and e.payload->>'to' in ('passed','failed','canceled')), t.created_at) as fin
+               from (select t.id, coalesce(fe.to_status, t.status) as first_status, coalesce(fe.at, t.created_at) as fin
                        from tasks t join missions m on m.id = t.mission_id
+                       left join lateral (select e.occurred_at as at, e.payload->>'to' as to_status from events e where e.tenant_id = t.tenant_id and e.type = 'task.stateChanged' and e.subject_id = t.id
+                                             and e.payload->>'to' in ('passed','failed','canceled') order by e.occurred_at, e.id limit 1) fe on true
                       where m.tenant_id = $1 and m.deleted_at is null and ${VISIBLE_SQL('$2', '$3')}
-                        and t.status in ('passed','failed') and ($4::boolean or not (t.simulated or m.demo))) t) o
+                        and ($4::boolean or not (t.simulated or m.demo))) t
+              where t.first_status in ('passed','failed')) o
        left join lateral (select d.brief from delegation_briefs d where d.task_id = o.id and d.to_agent = o.owner and d.created_at < o.fin order by d.seq asc limit 1) b on true
       where o.owner is not null`,
     [viewer.tenantId, viewer.admin, viewer.userId, includeSimulated])).rows as { owner: string; status: string; cls: string | null; diff: string | null }[];

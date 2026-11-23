@@ -226,3 +226,44 @@ describe('F1 (review): a label counts only if its brief existed before the task 
     expect(s.unrated).toBe(5); // counted apart, in no cell
   });
 });
+
+describe('N1 (re-review): the outcome is the status of the first finish; later attempts are not rated', () => {
+  const base = (over: Record<string, unknown> = {}) => ({ goal: 'Do the fixture task', inputs: [], acceptance: ['Done'], capabilities: [{ kind: 'read' }], escalation: 'Ask', ...over });
+  const ev = (tn: string, m: string, id: string, to: string, ago: string) => t.pool.query(`insert into events(tenant_id, type, mission_id, subject_kind, subject_id, payload, occurred_at) values ($1,'task.stateChanged',$2,'task',$3,$4,now() - $5::interval)`, [tn, m, id, JSON.stringify({ taskId: id, from: 'running', to }), ago]);
+  const mk = async (m: string, tn: string, id: string, agent: { id: string; agent_id: string }) => {
+    await t.pool.query(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent, owner_instance_id, created_at) values ($1,$2,$3,'A task','running',$4,$5, now() - interval '5 hours')`, [id, tn, m, agent.agent_id, agent.id]);
+    const b = base({ taskClass: 'coding', difficulty: 3 });
+    await t.pool.query(`insert into delegation_briefs(tenant_id, mission_id, task_id, from_id, from_kind, to_instance, to_agent, brief, sha256, depth, created_by, created_at) values ($1,$2,$3,'c72','user',$4,$5,$6,$7,1,'c72', now() - interval '4 hours')`, [tn, m, id, agent.id, agent.agent_id, JSON.stringify(b), briefSha(b)]);
+    await t.pool.query(`update tasks set status='failed' where id=$1`, [id]);
+    await ev(tn, m, id, 'failed', '3 hours');
+  };
+  it('fail, retry_ready, reassign, then the new owner passes it: A keeps the failure and B is credited with nothing', async () => {
+    const { A, m, inst } = await setup();
+    const tn = inst[1].tenant_id;
+    for (let i = 0; i < 5; i++) {
+      const id = `T-c72n1-${i}`;
+      await mk(m, tn, id, inst[1]);
+      const r = await A.admin.req('POST', `/tasks/${id}/reassign`, { toInstanceId: inst[2].id, reason: 'x', brief: base({ taskClass: 'coding', difficulty: 1 }) }, key());
+      expect(r.status, JSON.stringify(r.body)).toBe(200);
+      await t.pool.query(`update tasks set status='passed' where id=$1`, [id]);
+      await ev(tn, m, id, 'passed', '1 minute');
+    }
+    const a = (await skills(A.admin, inst[1].agent_id)).body.skills.classes.find((x: any) => x.classId === 'coding');
+    const b = (await skills(A.admin, inst[2].agent_id)).body.skills.classes.find((x: any) => x.classId === 'coding');
+    expect(a.levels).toEqual([expect.objectContaining({ difficulty: 3, n: 5, successes: 0 })]);
+    expect(b.n).toBe(0);
+  });
+  it('fail, retry by the same owner, then pass: the first failure stays a failure and the later pass is not rated', async () => {
+    const { A, m, inst } = await setup();
+    const tn = inst[1].tenant_id;
+    for (let i = 0; i < 5; i++) {
+      const id = `T-c72n1r-${i}`;
+      await mk(m, tn, id, inst[1]);
+      await t.pool.query(`update tasks set status='passed' where id=$1`, [id]);
+      await ev(tn, m, id, 'passed', '1 minute');
+    }
+    const a = (await skills(A.admin, inst[1].agent_id)).body.skills.classes.find((x: any) => x.classId === 'coding');
+    expect(a.levels).toEqual([expect.objectContaining({ difficulty: 3, n: 5, successes: 0 })]);
+    expect(a.n).toBe(5);
+  });
+});
