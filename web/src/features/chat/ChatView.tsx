@@ -276,6 +276,9 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
   // wrote, so the scroll event that write causes is not mistaken for the reader's; `moving` is when the reader's scroll
   // last moved. Near the top the correction stays on (an older page landing there must keep its row in place).
   const own = useRef(-1);
+  // c73 (P2c): the last scrollTop seen by onScroll, and the catch-up timer of a follow-scroll the growing thread outran
+  const lastTop = useRef(0);
+  const catchT = useRef(0);
   const moving = useRef(-1e9);
   // c44: after an older page is restored, the row the reader was on (not the first row the next record() happens to find: the
   // window may be cut a little off while estimates are replaced by measurements) is the anchor, as long as nobody scrolled.
@@ -425,7 +428,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
     el.scrollTo({ top: 1e6 });
     moveVp(el);
     setGeoV((v) => v + 1);
-    return () => { o.disconnect(); meter.ro = null; window.clearTimeout(meter.t); window.clearTimeout(restoreT.current); };
+    return () => { o.disconnect(); meter.ro = null; window.clearTimeout(meter.t); window.clearTimeout(restoreT.current); window.clearTimeout(catchT.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meter]);
   const firstId = messages[0]?.id;
@@ -439,11 +442,21 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
     scroller.current?.scrollTo({ top: 1e6 });
     armed.current = true; prevLen.current = messages.length; prevLast.current = lastId;
   }, [messages.length, lastId]);
+  // c73 (P2c): the way to the bottom. A glide only for a short way and when motion is allowed; a long way, or reduced motion, jumps
+  // (a long smooth scroll falls behind a burst and, once started, pulls a reader back who has scrolled up meanwhile).
+  const toBottom = (el: HTMLElement | null) => {
+    if (!el) return;
+    const far = el.scrollHeight - el.scrollTop - el.clientHeight > el.clientHeight;
+    const still = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    el.scrollTo({ top: 1e6, behavior: far || still ? 'auto' : 'smooth' });
+  };
+  // follow the newest message: decided when the timer fires, not when it was set, so a reader who scrolled up in between is left alone
+  const follow = () => { if (atBottomRef.current) toBottom(scroller.current); };
   useEffect(() => {
     // only messages added at the end are new (older pages are prepended)
     if (messages.length > prevLen.current && lastId !== prevLast.current) {
       const i = messages.findIndex((m) => m.id === prevLast.current);
-      if (atBottom) window.setTimeout(() => scroller.current?.scrollTo({ top: 1e6, behavior: 'smooth' }), 30);
+      if (atBottom) window.setTimeout(follow, 30);
       else setNewCount((n) => n + Math.max(1, i >= 0 ? messages.length - 1 - i : messages.length - prevLen.current)); // only rows after the last one seen (an older page may land in the same render)
       if (i >= 0) { // announce what arrived from others, in order (the log is not a live region: see above)
         const fresh = messages.slice(i + 1).filter((m) => !m.pending && m.from !== `human:${myId}`); // not my own
@@ -474,7 +487,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
     anchor.current = null;
   }, [firstId]);
   useEffect(() => { if (!loadingOlder) anchor.current = null; }, [loadingOlder]); // a failed or empty load leaves nothing to restore
-  useEffect(() => { if (typing && atBottom) window.setTimeout(() => scroller.current?.scrollTo({ top: 1e6, behavior: 'smooth' }), 30); }, [typing, atBottom]);
+  useEffect(() => { if (typing && atBottom) window.setTimeout(follow, 30); }, [typing, atBottom]);
   // a reader pinned to the bottom stays there when measured heights replace estimates above (the browser's scroll
   // anchoring does not move a scroller that sits at its end)
   useLayoutEffect(() => { const el = scroller.current; if (el && atBottom && geoV) { el.scrollTop = el.scrollHeight; own.current = el.scrollTop; } }, [geoV]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -570,7 +583,18 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
             if (t === r && id !== tabId) setTabId(id);
           }}
           onScroll={(ev) => {
-            const el = ev.currentTarget; const b = el.scrollHeight - el.scrollTop - el.clientHeight < 40; setAtBottom(b); if (b) setNewCount(0);
+            const el = ev.currentTarget; let b = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+            // c73 (P2c): the smooth follow-scroll ends at the bottom as it was when it started; a burst of messages grows the
+            // thread meanwhile, so its last scroll event saw "not at the bottom" and unpinned the reader (15-17k px behind, no
+            // more following). A scroll that moves down while pinned is the follow itself, not the reader leaving: stay pinned
+            // and finish the scroll. Only a scroll up (or a reader far from the bottom to begin with) unpins.
+            const down = el.scrollTop > lastTop.current; lastTop.current = el.scrollTop;
+            if (!b && down && atBottomRef.current) {
+              b = true;
+              window.clearTimeout(catchT.current);
+              catchT.current = window.setTimeout(() => { const e = scroller.current; if (e && atBottomRef.current && e.scrollHeight - e.scrollTop - e.clientHeight >= 40) { e.scrollTop = e.scrollHeight; own.current = e.scrollTop; } }, 80);
+            }
+            setAtBottom(b); if (b) setNewCount(0);
             if (el.scrollTop !== own.current) moving.current = performance.now();
             atBottomRef.current = b; record(); // the reader's position now: later changes keep this row in place
             const far = Math.abs(el.scrollTop - vpRef.current.top) > DRIFT || el.clientHeight !== vpRef.current.h;
@@ -598,7 +622,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
       <div className="sr-only" role="status">{said}</div>
       <AnimatePresence>
         {newCount > 0 && (
-          <motion.button className="new-pill" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} onClick={() => { scroller.current?.scrollTo({ top: 1e6, behavior: 'smooth' }); setNewCount(0); }}>
+          <motion.button className="new-pill" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} onClick={() => { toBottom(scroller.current); setNewCount(0); }}>
             <ArrowDown size={13} /> {newCount} new
           </motion.button>
         )}
