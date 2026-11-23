@@ -30,6 +30,9 @@ import { EVALUATION_POLICY_V2 } from './verdict-v2.ts';
  * NOT conditioned on the holdout margin being large. The price: each half has half the labels, so intervals are wider and fewer judges are
  * admitted. One simulated cell (theta 0.05, judge specificity .7 / sensitivity .65, 100 test items, 20 + 60 labels) still covers only about 88% and stays pinned.
  * The alternative, fiellerInterval, is kept as a tested pure function; it needs no gate but admits weak judges whose intervals miss 93% in small samples.
+ * CAVEAT: the split is a deterministic draw seeded by a hash of the four calibration counts, so its independence from the holdout is heuristic, not
+ * guaranteed: re-labelling or adding one item re-rolls it, and a caller who chooses the counts could search for a favourable split. The simulation, which calls
+ * the real wired function, is the evidence. Intervals of [0,1] or near it come back as ok; calibratedVerdict compares by non-overlap, so they stay inconclusive.
  * Coverage figures are CONDITIONAL on being admitted; see web/docs/improve/cycles/c84-report.md and c84-sim-seed*.txt.
  *
  * What is OURS, not A1's: the minimum calibration size per class, the minimum margin q̃0 + q̃1 − 1, the Wilson interval shown for the

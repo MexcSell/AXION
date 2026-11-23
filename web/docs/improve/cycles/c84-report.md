@@ -11,7 +11,7 @@ The result is honest but not perfect. On both seeds, 29 of the 30 assessed cells
 
 ## What was conditioned on, and what was not (method note)
 - **c61 gate:** conditioned on the estimated margin of all labels being at least 0.5, and used the same labels for the interval. That is selection on the data the interval is built from.
-- **Split:** the interval is conditioned on the pilot half passing (this is independent of the holdout half apart from the fixed total counts) and on the holdout showing a margin above 0, which any finite interval needs. It is not conditioned on the holdout margin being large.
+- **Split:** the interval is conditioned on the pilot half passing (the split is a deterministic draw seeded by a hash of the four calibration counts, so its independence from the holdout is heuristic, not guaranteed: re-labelling or adding one item re-rolls the split, and a caller who chooses the counts could search for a favourable split; the simulation, which calls the real wired function, is the evidence) and on the holdout showing a margin above 0, which any finite interval needs. It is not conditioned on the holdout margin being large.
 - **Fieller:** no gate. It uses all labels and gives no bound at all when the confidence set of the margin reaches 0.
 - All coverage numbers are **conditional on being admitted** (the judge got an interval). A judge that is refused has no coverage figure, and that is the point of failing closed.
 
@@ -64,6 +64,8 @@ Totals, cells with enough admitted draws, NOT MET cells and pooled conditional c
 - **Split's one miss:** theta 0.05, judge .7/.65, 100 test items, 20 + 60 labels: 88.1% (SE 4.21, 59 admitted) on seed 424242 and 88.1% (SE 3.96, 67 admitted) on seed 77031. It is the same cell on both seeds, so I treat it as real. The holdout there holds only 10 human-positive items.
 - **Fieller's misses:** all in the weakest judge (.6/.6) with 20+20 or 20+60 labels: 90.7%, 91.6%, 88.6%, 92.9% on seed 424242; 86.4%, 90.3%, 89.8% on seed 77031. The sets of cells differ between seeds, but the 20+20 cells fail on both.
 - **Width:** median interval width is wider under split than under the gate in the same cell (for example .55/.9, 100 items, 20+20: 0.70 versus 0.49), and 1.000 (the whole range) in some weak-judge cells with 20+20 labels, where split admits a handful of draws. Fieller is narrower than split in most cells (it uses all labels) but admits far more weak judges.
+- **Passing with uninformative or marginal intervals (seed 77031 unless stated):** 0.05/0.7/0.65/100/20+20 and 0.95/0.7/0.65/100/20+20 pass with a median width of 1.000 (the whole range); on seed 424242 the widths in these cells are 0.922 and 0.863. Marginal passes: 0.05/0.55/0.9/100/20+20 at 93.2% (SE 1.59) on seed 77031 and 93.7% (SE 1.57) on seed 424242.
+- **[0,1] intervals:** an interval of [0,1] or close to it is returned as `ok`. Because `calibratedVerdict` compares by non-overlap, such an interval keeps the verdict inconclusive and is never evidence.
 - **Weak evidence flagged:** some PASS cells rest on few admitted draws (for example 34 admitted at 100% with SE 0.00, or 33 at 93.9% with SE 4.15). SE of 2 points or more means the PASS is only weakly established. These are the .6/.6 and a few .7/.65 cells; see the output files.
 
 ## Item 5: what is wired in
@@ -95,6 +97,9 @@ The method note is in the header of `judge-calibration.ts` and in this report.
 - Splitting halves the labels, so with 20 per class the holdout has 10, and eligible judges there often get a very wide interval (up to the whole 0 to 1). Raising the minimum is a policy question and would be tuning against this grid, so I did not.
 - The split is a deterministic draw from the four counts rather than a split by item, because the function sees only the 2x2 table. The simulation runs the real wired function, so that is what was tested.
 - Cells are small-sample Monte Carlo (1000 draws, admitted often a few dozen to a few hundred): a cell around 93% to 95% can fall under on another seed.
+
+- Proposed backlog (a): seed the split by item ids or a stored per-dataset salt, so it cannot be re-rolled.
+- Proposed backlog (b): the point estimate uses the holdout half, while the displayed sensitivity and specificity use all labels; make the display consistent.
 
 ## Files changed
 - `server/src/evolution/judge-calibration.ts` (split rule, `splitCalibration`, `splitInterval`, `fiellerInterval`, wiring, method note)
