@@ -22,7 +22,7 @@ M2c-1 (comma join after a sub-select, `extract(epoch from t.col)`) was fixed in 
 server/src/db.ts, server/src/config.ts (comment), server/vitest.config.ts, server/test/setup.ts (new), server/test/c98-db-hooks.test.ts (new), server/test/c93-conn-retry.test.ts.
 
 ## Full serial run
-FULLRUN
+Tree 8b1cc941 plus the report commit, `heavy.sh npx vitest run --maxWorkers=1 --no-file-parallelism`, started 12:41Z, finished 12:53Z (about 11.5 min; an earlier attempt was cut off by my own `timeout 590`, not a failure): **189 files (188 passed, 1 skipped), 4412 tests passed, 36 skipped, 0 failed.** `tsc --noEmit` clean. Load average at start about 6.
 
 ## Concerns
 - `setPoolDefaults` is a module-level mutable in src. Inert unless called; only `test/setup.ts` calls it.
