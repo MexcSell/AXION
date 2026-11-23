@@ -98,6 +98,21 @@ try {
   check('member body carries no user id or name', !JSON.stringify(mb).includes(s.admin) && !JSON.stringify(mb).includes(s.member) && !/Luca|Mina|userId/.test(JSON.stringify(mb)));
   check('member sees numbers because the floor is met (24+ items, 3 people)', mb.review.total.shown === true && mb.review.total.people === 3);
   check('fits one screen at 1366x768 (member)', await fits(B.p));
+  // c87: a member under the floor gets openNow, avgOpen and lambdaTimesW as null from the server; the panel must say so in words, never print "null"
+  check('member (floor met): the panel text has no "null" and no "undefined"', !/\bnull\b|undefined/.test(await Q.innerText()));
+  {
+    await B.p.route(/\/api\/v1\/review-capacity(\?|$)/, async (route) => {
+      const resp = await route.fetch(); const j = await resp.json();
+      j.review.littles = { ...j.review.littles, openNow: null, avgOpen: null, lambdaTimesW: null };
+      await route.fulfill({ response: resp, json: j });
+    });
+    await goQueues(B.p);
+    const Q2 = B.p.locator('.ops-review-capacity');
+    const lt = (await Q2.locator('[data-cell="littles"]').innerText()).replace(/\s+/g, ' ');
+    check('member under the floor (openNow null): the data check says "hidden below the floor"', /hidden below the floor/.test(lt), lt);
+    check('member under the floor: the panel never shows the text "null"', !/\bnull\b/.test(await Q2.innerText()));
+    await B.p.unroute(/\/api\/v1\/review-capacity(\?|$)/);
+  }
   await B.p.screenshot({ path: `${SHOTS}/member-dark.png` });
   // light mode (the same admin session, theme switched through the stored settings)
   await A.p.evaluate(() => { const k = 'axion.settings.v1'; const v = JSON.parse(localStorage.getItem(k) || '{"state":{}}'); v.state.themeMode = 'light'; localStorage.setItem(k, JSON.stringify(v)); });

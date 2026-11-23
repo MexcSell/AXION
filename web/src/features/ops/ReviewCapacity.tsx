@@ -68,7 +68,7 @@ export function ReviewCapacity() {
                 <span className={cx('rc-cv', 'rc-small', r.littles.status === 'fail' && 'bad')} role={r.littles.status === 'fail' ? 'alert' : undefined}>
                   {r.littles.status === 'pass' ? 'No lost records' : r.littles.status === 'insufficient' ? 'Nothing to compare' : r.littles.reason === 'missing_close' ? `${r.littles.missingClose} item${r.littles.missingClose === 1 ? '' : 's'} lost a close record` : `${r.littles.missingOpen} waiting task${r.littles.missingOpen === 1 ? '' : 's'} lost a start record`}
                 </span>
-                <span className="rc-cm tnum">{r.littles.avgOpen !== null && r.littles.lambdaTimesW !== null ? `avg open ${two(r.littles.avgOpen)} · rate×time ${two(r.littles.lambdaTimesW)}` : `open now ${r.littles.openNow}`}</span>
+                <span className="rc-cm tnum">{r.littles.avgOpen !== null && r.littles.lambdaTimesW !== null ? `avg open ${two(r.littles.avgOpen)} · rate×time ${two(r.littles.lambdaTimesW)}` : r.littles.openNow === null ? 'hidden below the floor' : `open now ${r.littles.openNow}`}</span>
               </motion.div>
             </div>
             {!t.shown && <p className="dim rc-note" data-floor="shown">{floor} {t.n} item{t.n === 1 ? '' : 's'} so far.</p>}
