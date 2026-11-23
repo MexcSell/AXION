@@ -98,3 +98,63 @@ const checks: Array<[string, boolean, string]> = [
 ];
 console.log('\nthreshold | met | observed');
 for (const [n, ok, obs] of checks) console.log(`${n} | ${ok ? 'MET' : 'NOT MET'} | ${obs}`);
+
+// ---------------------------------------------------------------------------------------------------------------------------------------
+// ADDED AFTER REVIEW (c91 follow-up). Drawn AFTER the original families from the same generator, so the table above is unchanged.
+//   no_gain_noisy   : zero true effect everywhere; per-class noise sd 0.10 on the class mean difference (items are noisier or unpaired),
+//                     half the candidates at n=20 per class, half at n=40; 1000 candidates per seed. Same constants. False-admit rate with its
+//                     standard error, against the same 2% bound.
+//   replay_neutral  : true +0.10 on A and B, zero true change on replay, realistic noise (item sd 0.15, so class-mean sd 0.15/sqrt(n):
+//                     0.034 at n=20, 0.024 at n=40); 500 candidates at each n. Reports how often the 0.02 replay budget refuses it.
+//                     At n=20 the replay noise (0.034) is larger than the budget (0.02), so a candidate with NO real harm is refused often.
+//   past_cap        : true-gain candidates with probeAAttempts 21..70 (past the cap of 20): must all be refused with probe_a_attempts_exhausted.
+function noisySet(prefix: string, n: number, effect: number, sd: (n: number) => number): ScoreSet {
+  const candidate: ClassScores = {}, incumbent: ClassScores = {};
+  for (const c of CLASSES) { incumbent[c] = { n, mean: INC }; candidate[c] = { n, mean: clamp(INC + effect + normal() * sd(n)) }; }
+  return { taskIds: Array.from({ length: 3 * n }, (_, i) => `${prefix}-${i}`), candidate, incumbent };
+}
+const contract = 'Synthetic contract: when the task class matches, apply the procedure; observable: the review passes.';
+function extra(family: string, k: number, n: number, eA: number, eB: number, eR: number, sd: (n: number) => number, attempts = 1): GateInput {
+  const tag = `${seed}-${family}-${k}`;
+  return { candidate: { id: tag, evidenceTaskIds: [`${tag}-ev-0`, `${tag}-ev-1`], contract }, probeA: noisySet(`${tag}-A`, n, eA, sd), probeB: noisySet(`${tag}-B`, n, eB, sd), replay: noisySet(`${tag}-R`, n, eR, sd), probeAAttempts: attempts };
+}
+const se = (p: number, m: number) => Math.sqrt((p * (1 - p)) / m);
+console.log('\n=== ADDED FAMILIES (after review) ===');
+{
+  const fixedSd = () => 0.1;
+  const rows: string[] = [];
+  let admit = 0, total = 0;
+  for (const n of [20, 40]) {
+    let a = 0; const M = 500;
+    for (let k = 0; k < M; k++) { if (skillGate(extra(`ngn${n}`, k, n, 0, 0, 0, fixedSd)).verdict === 'admit') a++; }
+    admit += a; total += M;
+    rows.push(`no_gain_noisy n=${n} | ${M} | ${a} admitted | ${((100 * a) / M).toFixed(2)}% (SE ${(100 * se(a / M, M)).toFixed(2)}%)`);
+  }
+  console.log('\nno_gain_noisy: per-class noise sd 0.10 on the class mean difference, zero true effect, same constants');
+  console.log('family | n candidates | admitted | false-admit rate');
+  rows.forEach((r) => console.log(r));
+  const p = admit / total;
+  console.log(`no_gain_noisy pooled | ${total} | ${admit} | ${(100 * p).toFixed(2)}% (SE ${(100 * se(p, total)).toFixed(2)}%) | bound 2%: ${p <= 0.02 ? 'MET' : 'NOT MET'} (point estimate; upper 95% limit ${(100 * (p + 1.96 * se(p, total))).toFixed(2)}%)`);
+}
+{
+  const realSd = (n: number) => SD_ITEM / Math.sqrt(n);
+  console.log('\nreplay_neutral: true +0.10 on A and B, zero true change on replay, class-mean noise sd = 0.15/sqrt(n)');
+  console.log('family | n candidates | admitted | refused by replay budget | other');
+  for (const n of [20, 40]) {
+    const M = 500; let adm = 0, rep = 0, oth = 0;
+    for (let k = 0; k < M; k++) {
+      const d = skillGate(extra(`rn${n}`, k, n, 0.1, 0.1, 0, realSd));
+      if (d.verdict === 'admit') adm++; else if (d.reasons.some((r) => r.code === 'replay_regression')) rep++; else oth++;
+    }
+    console.log(`replay_neutral n=${n} (replay noise sd ${(SD_ITEM / Math.sqrt(n)).toFixed(3)} vs budget ${REGRESSION_BUDGET}) | ${M} | ${adm} (${((100 * adm) / M).toFixed(1)}%) | ${rep} (${((100 * rep) / M).toFixed(1)}%) | ${oth}`);
+  }
+}
+{
+  const M = 50; let refused = 0, capReason = 0;
+  for (let k = 0; k < M; k++) {
+    const d = skillGate(extra('cap', k, N, 0.1, 0.1, 0.08, (n) => SD_ITEM / Math.sqrt(n), MAX_ATTEMPTS_PER_PROBE_A + 1 + k));
+    if (d.verdict === 'refuse') refused++;
+    if (d.reasons.some((r) => r.code === 'probe_a_attempts_exhausted')) capReason++;
+  }
+  console.log(`\npast_cap (true-gain scores, attempts ${MAX_ATTEMPTS_PER_PROBE_A + 1}..${MAX_ATTEMPTS_PER_PROBE_A + M}) | ${M} | refused ${refused} | with attempts_exhausted reason ${capReason} | ${refused === M && capReason === M ? 'MET' : 'NOT MET'}`);
+}

@@ -115,3 +115,39 @@ describe('repeated-candidate cap', () => {
     expect(skillGate(base({ probeAAttempts: MAX_ATTEMPTS_PER_PROBE_A })).verdict).toBe('admit');
   });
 });
+
+describe('malformed and edge inputs', () => {
+  const empty = (): ScoreSet => ({ taskIds: ['x'], candidate: {}, incumbent: {} });
+  it('an empty class set refuses with a clear reason and no NaN', () => {
+    const d = skillGate(base({ probeA: { ...empty(), taskIds: ['a1'] }, probeB: { ...empty(), taskIds: ['b1'] }, replay: { ...empty(), taskIds: ['r1'] } }));
+    expect(d.verdict).toBe('refuse');
+    expect(d.reasons.map((r) => r.code)).toEqual(['no_classes']);
+    expect(d.metrics.gainA).toBeNull();
+  });
+  it('n = 0 is too small, not a division by zero', () => {
+    const z = set('a', 0.7, 0.6); z.candidate.build.n = 0; z.incumbent.build.n = 0;
+    const d = skillGate(base({ probeA: z }));
+    expect(d.verdict).toBe('not_enough_evidence');
+    expect(d.metrics.gainA).toBeNull();
+  });
+  it('a class only in the candidate arm is required of the incumbent too', () => {
+    const x = set('b', 0.7, 0.6); x.candidate.extra = { n: 40, mean: 0.9 };
+    expect(codes(base({ probeB: x }))).toContain('probe_b_too_small');
+  });
+  it('a class missing only from probe A is not silently skipped', () => {
+    const a = set('a', 0.7, 0.6); delete a.candidate.fix; delete a.incumbent.fix;
+    const d = skillGate(base({ probeA: a }));
+    expect(d.verdict).toBe('not_enough_evidence');
+    expect(d.reasons.find((r) => r.code === 'probe_a_too_small')?.classes).toEqual(['fix']);
+  });
+  it('a set with no task ids is refused as unverifiable', () => {
+    const a = set('a', 0.7, 0.6); a.taskIds = [];
+    expect(codes(base({ probeA: a }))).toContain('invalid_scores');
+  });
+  it('probe A and probe B sharing a task id is refused', () => {
+    const b = set('b', 0.7, 0.6); b.taskIds = ['a2', 'b2'];
+    const d = skillGate(base({ probeB: b }));
+    expect(d.verdict).toBe('refuse');
+    expect(d.reasons.find((r) => r.code === 'probe_overlap')?.taskIds).toEqual(['a2']);
+  });
+});

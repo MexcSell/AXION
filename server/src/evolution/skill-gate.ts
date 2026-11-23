@@ -14,6 +14,9 @@
  *  (v)   MIN_ITEMS_PER_CLASS per class per set     : a verdict from too few items; the result is "not_enough_evidence", not a pass.
  *  cap   probeAAttempts <= MAX_ATTEMPTS_PER_PROBE_A : see "REPEATED CANDIDATES".
  *
+ * KNOWN LIMIT: A and B have no per-class floor. Net gain is a class-balanced mean, so a candidate can win overall on A and B while losing some
+ * classes there. Only replay has a per-class check (iii).
+ *
  * NET GAIN is class-balanced: the plain mean over classes of (candidate mean - incumbent mean). A class with many items does not outvote one with few.
  * Comparisons: a gain must be strictly ABOVE its margin; a loss may be AT the budget but not beyond it. Both with a tolerance of 1e-9 so that
  * float noise (0.6 + 0.03 - 0.6) cannot flip a boundary case.
@@ -54,7 +57,7 @@ export type GateInput = {
 export type ReasonCode =
   | 'all_checks_passed' | 'probe_a_gain_too_small' | 'probe_b_gain_too_small' | 'replay_regression' | 'evidence_leakage'
   | 'probe_a_too_small' | 'probe_b_too_small' | 'replay_too_small' | 'probe_a_attempts_exhausted'
-  | 'contract_missing' | 'evidence_missing' | 'invalid_scores';
+  | 'contract_missing' | 'evidence_missing' | 'invalid_scores' | 'no_classes' | 'probe_overlap';
 export type Reason = { code: ReasonCode; message: string; classes?: string[]; taskIds?: string[] };
 export type Decision = {
   verdict: 'admit' | 'refuse' | 'not_enough_evidence';
@@ -97,8 +100,24 @@ export function skillGate(input: GateInput): Decision {
   }
   if (leaked.size) reasons.push({ code: 'evidence_leakage', message: `evidence tasks also in ${where.join(', ')}`, taskIds: [...leaked].sort() });
 
-  // sufficiency (v) and the numeric checks (i)-(iii); the required classes are the ones probe A's incumbent was scored on
-  const required = Object.keys(probeA.incumbent).sort();
+  // A and B must be disjoint, and neither may share tasks with replay: otherwise B is not held out
+  const pairs: Array<[string, ScoreSet, string, ScoreSet]> = [['probe A', probeA, 'probe B', probeB], ['probe A', probeA, 'replay', replay], ['probe B', probeB, 'replay', replay]];
+  for (const [na, sa, nb, sb] of pairs) {
+    const ids = new Set(sa.taskIds);
+    const shared = [...new Set(sb.taskIds.filter((t) => ids.has(t)))].sort();
+    if (shared.length) reasons.push({ code: 'probe_overlap', message: `${na} and ${nb} share ${shared.length} task id(s); the sets must be disjoint`, taskIds: shared });
+  }
+  for (const [name, s] of [['probe A', probeA], ['probe B', probeB], ['replay', replay]] as const) {
+    if (s.taskIds.length === 0) reasons.push({ code: 'invalid_scores', message: `${name} lists no task ids, so leakage and overlap cannot be checked` });
+  }
+
+  // sufficiency (v) and the numeric checks (i)-(iii). Required classes = every class named anywhere (union over all six score tables),
+  // so a class missing from one set, or present only in the candidate arm, is "too small" there instead of being silently skipped.
+  const required = [...new Set([probeA, probeB, replay].flatMap((s) => [...Object.keys(s.candidate), ...Object.keys(s.incumbent)]))].sort();
+  if (required.length === 0) {
+    reasons.push({ code: 'no_classes', message: 'no task class has any score in probe A, probe B or replay; nothing to compare' });
+    return { verdict: 'refuse', reasons, metrics: { gainA: null, gainB: null, replayDeltaByClass: null } };
+  }
   const a = inspect(probeA, required), b = inspect(probeB, required), r = inspect(replay, required);
   let gainA: number | null = null, gainB: number | null = null, replayDelta: Record<string, number> | null = null;
   const note = (c: Check, name: string, code: 'probe_a_too_small' | 'probe_b_too_small' | 'replay_too_small') => {
