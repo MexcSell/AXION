@@ -1,0 +1,5 @@
+c90 power simulation: seed 90001, 1000 streams per cell, arms alternate, checked after every observation from 10 per arm; share of streams that EVER exclude zero by n per arm (real effect, so higher is better)
+0.3 vs 0.5 (gap 20 points): n=50: 0.4%, n=100: 4.1%, n=200: 25.0%
+0.3 vs 0.7 (gap 40 points): n=50: 24.3%, n=100: 85.5%, n=200: 99.8%
+0.2 vs 0.8 (gap 60 points): n=50: 95.7%, n=100: 100.0%, n=200: 100.0%
+SUMMARY power seed 90001: elapsed 0.2s, load average 7.80 8.52 7.29
