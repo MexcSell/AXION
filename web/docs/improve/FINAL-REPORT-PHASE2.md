@@ -1,10 +1,10 @@
 # AXION improvement programme: final report
 
-Status: **DRAFT 2**, rewritten 2026-11-23 about 09:55Z. The work after that time is marked **[pending]**: the last web lanes, the final checks on the frozen tree, and the final live update.
+Status: **FINAL**, 2026-11-23 about 12:40Z. Every lane is merged or parked, the final checks passed on the frozen tree, and the final live update is done (12:22Z).
 
 Periods covered:
 - **30-hour loop:** 2026-11-21 11:36Z to 2026-11-22 17:36Z, cycles c01 to c52. Done.
-- **Phase 2, "evolve for 28 hours":** 2026-11-22 17:45Z to 2026-11-23 21:45Z. Cycles c53 to c93, plus four research rounds (2 to 5).
+- **Phase 2, "evolve for 28 hours":** 2026-11-22 17:45Z to 2026-11-23 21:45Z. Cycles c53 to c97, plus five research rounds (2 to 6).
 
 Sources: everything is in `web/docs/improve/`.
 - Process and planning: STATE.md, PHASE2.md, LOG.md, QUEUE.md, MERGES.md.
@@ -14,29 +14,29 @@ Sources: everything is in `web/docs/improve/`.
 
 ## 1. Summary
 
-- **Built:** cycles c01 to c93. c62 was not built. Two branches are parked for you: c76 and c77.
+- **Built:** cycles c01 to c97. c62 was not built. Two branches are parked for you: c76 and c77.
   - Every cycle went through the same steps: a brief, an implementer, an independent reviewer, a fix round, then a merge.
   - Everything is on the branch `improve-30h`. It is local only; nothing has been pushed and no tag was moved.
-- **Live:** everything merged through batch 47 runs on the real `axion` database. The last live update was at 07:34Z, at schema version 59, after a backup and a restore check.
-  - It covers batches through 42. The server parts of batches 43 to 47 go live at the final update **[pending, about 19:30Z]**.
+- **Live:** every merged batch (through 54) runs on the real `axion` database, at schema version 59. The final live update was at 12:22Z, after a backup and a restore check. The audit chain verifies, and the anchor file has 5 lines.
 - **Quality gates:**
-  - **Server tests:** from 219 at the start to **3620 passed**, 0 failed, on the tree at 060f9ab.
+  - **Server tests:** from 219 at the start to **4409 passed**, 0 failed, on the final tree 98fecbf.
   - **Demo suite:** verify-all passed all 10 steps.
-  - **Phone-width run, api mode:** 877 states and 500 dialogs, no failures (tree ebea695).
-  - **Fit and accessibility:** both fit checks are ALL FIT, and accessibility shows 0 violations.
+  - **Phone-width run, api mode:** no failures on the frozen tree.
+  - **Fit and accessibility:** both fit checks are ALL FIT at both sizes, accessibility shows 0 violations in both modes, and the production build under the strict CSP passes 31/31.
 - **Direction:** agents do not execute yet. So the programme built the measuring, safety and governance layers, not performance gains, and there is no agent or company performance number to compare. Phase 2's last day added three things:
-  - **(a)** honest tools for "did a change help": change plans, a forecast ledger, a peek-safe sequential readout and a skill promotion gate;
+  - **(a)** honest tools for "did a change help": change plans, a forecast ledger, a peek-safe sequential readout and a skill promotion gate, with screens for the first two;
   - **(b)** privacy sweeps that check every route automatically, between tenants and between members of one tenant;
-  - **(c)** fixes for what those sweeps found.
+  - **(c)** fixes for what those sweeps found;
+  - **(d)** the first pure building blocks for letting agents execute: an execution-profile validator, run caps with a halt, a plan-conformance checker, and outcome graders with a tamper tripwire (section 12).
 - **Privacy findings fixed today:**
   - **Before merge:** reviews caught two aggregate leaks (c85, c86).
   - **From c87's generated sweep:** two more (review capacity counts, org proposal evidence).
   - **From c79's cross-tenant sweep:** one cross-tenant total (database size) and orphan acknowledgements (c81).
   - None of these reached a real second user; the live system has one tenant and no members.
-- **Research:** five rounds, each checked by a separate verifier. Of the 34 candidate ideas from rounds 2 to 5:
-  - 23 were built;
-  - 4 are parked or wait for you;
-  - 7 were dropped or deferred, with reasons (section 4).
+- **Research:** six rounds, each checked by a separate verifier. Of the 42 candidate ideas from rounds 2 to 6:
+  - 27 were built, all or as a first slice;
+  - 6 are parked or wait for you;
+  - 9 were dropped or deferred, with reasons (sections 4 and 12).
 - **Honest limits:** several statistical results are NOT MET or nominal, and the new statistics tools have low power at AXION's volumes (section 6).
 - **Your actions:**
   - copy the audit anchor file and key off the machine;
@@ -59,7 +59,7 @@ All rows are merged and live unless marked. Cycle ids are in brackets.
 - **Change plans (c85, new):** an admin can attach a plan to an org proposal: one registry metric, a direction, a margin, a minimum n, a window and up to 3 guardrails.
   - The plan's sha is locked at approval, and later changes are append-only amendments.
   - An admin-only readout gives **counts per window only**: "not enough evidence yet" or "ready for analysis (not computed in this version)".
-  - It records what was planned before the change; it gives no verdict. The plan view in the app is **[pending, c89]**.
+  - It records what was planned before the change; it gives no verdict. Admins see the plan and its readout on each proposal card, and approving sends the plan sha (c89).
 - **Failure learning:** a repeated failure (3 or more, in 2 or more departments, in 30 days) opens a candidate lesson for review (c63).
 - **Records and briefs:** department facts from recorded data (c06). Typed delegation briefs, required on every reassignment (c42, c51). Mission ledgers (c39).
 - **Demo department heads** are chosen from the structure (c72).
@@ -89,7 +89,7 @@ All rows are merged and live unless marked. Cycle ids are in brackets.
 - **Forecast ledger (c86, new):** a person can record the chance that a task is accepted at its first review, before that review exists.
   - Each forecast gets Brier and log scores, calibration bins and a reference-class baseline. The baseline counts only missions the viewer can see.
   - There is no leaderboard: you see only your own scores, and an admin sees one person at a time.
-  - The screens are **[pending, c89]**.
+  - The screens (c89): a forecast control in the task drawer, which starts unset and warns that a forecast is final; a Settings > Forecasts tab; and an admin dialog for one person at a time.
 - **Not wired to any page yet:**
   - a peek-safe sequential readout library (c90);
   - a skill promotion gate with two probes, a regression budget and a leakage check (c91).
@@ -117,20 +117,38 @@ All rows are merged and live unless marked. Cycle ids are in brackets.
 - **Holdouts and clocks:** a holdout content key, a regrader-is-author check, and SQL clock bounds (c70, c54).
 - **OpenTelemetry:** a mapping and a local OTLP-JSON export (c60, c73). **Never run it on the live DB.**
 
+### Groundwork for agent execution (pure modules; nothing executes, nothing is wired in)
+- **Execution profile and request decider (c94).** A deny-by-default profile per task class: file scopes, forbidden credential files, egress origins from the site grants, resource limits and a required isolation tier.
+  - The decider rules on URLs (with redirect hops) and paths. 361+ cases are refused or allowed as specified.
+  - The review found two security bugs, both fixed before merge: a profile that changed when read twice, and a pattern that could freeze the server. A differential test over 300k inputs shows the rewritten matcher behaves exactly as before.
+  - It **decides**; it does not enforce. Enforcement needs a sandbox and proxy (section 12).
+- **Run caps and halt (c95).** Budgets for steps, time, rate, origins, money and tokens, plus a halt flag and a fencing token.
+  - 29 scripted runaways each stop at or before the cap plus one step, and 1296 halt interleavings accept no step after the halt.
+  - It is an engineering control, not evidence.
+- **Plan conformance (c96).**
+  - A call that narrows the approved plan is allowed for trusted callers only.
+  - A call that expands the plan needs approval.
+  - An untrusted call that is off-plan, or narrows it, is denied.
+  - Under injected content, 2–6 of 240 attack cases still go through as in-plan calls on realistic plans. A plan check cannot stop those; data-flow labels are next phase.
+- **Outcome graders and a tamper tripwire (c97).**
+  - 10 toy graders: every reference solution passes and every null solution fails. A validity check catches lenient graders.
+  - The lexical tamper detector fails closed. Its realistic strength on held-out probes was 25/30, as an upper bound, and it is a tripwire, not a guarantee.
+  - It tests the harness, not any agent.
+
 ### Operator UX
 - **"Needs you" queue:** an attention queue on Overview (c68).
 - **Threads:** long threads load fast and are virtualised (c22, c26, c44, c55). Following a fast burst now stays pinned (c73).
 - **Loading and fit:** loading states are announced (c23). Phone-width fit (c24, c40). Agent Profile fits one screen (c18, c67).
 - **Help:** an owner guide in the app (c17). Command palette fixes (c28).
-- **Phone tab strips (c82):** at 390 px the tab strips scroll instead of overlapping **[pending merge]**.
+- **Phone tab strips (c82):** at 390 px the tab strips scroll instead of overlapping, and a focused tab is scrolled into view.
 
 ### Engineering health
 - **Speed and gates:** a smaller first load (c07). Honest exit codes in verify-all (c21).
-- **Flaky checks fixed:** c08, c25, c29, c43, c57, c78, and c82 [pending].
+- **Flaky checks fixed:** c08, c25, c29, c43, c57, c78, and c82 (a fit-check race and a network-change retry).
 - **Contract tests** are generated from the route table (c50).
 - **Dev server:** it now watches the shared contracts by polling, which ended the stale-server incidents (c74).
 - **Live ports:** web scripts refuse to fall back to the live ports when run from a lane (c92).
-- **Connection cap:** test-suite resilience to the shared database connection cap **[pending, c93]**.
+- **Connection cap (c93):** test pools are bounded, and connection acquisition is retried on "too many connections" (SQLSTATE 53300) only, and never a query. All five flaky files were reproduced by fault injection and fixed. Production gets the bounded retry too.
 
 ## 3. Built but parked for your decision
 
@@ -152,6 +170,7 @@ All rows are merged and live unless marked. Cycle ids are in brackets.
 | 3 (structure, performance, agent performance, operator UX) | 29 | 27 confirmed, 2 corrected | 10: R3-1 folded into R3-7, R3-2 dropped, R3-3 parked, 7 kept | c63, c64, c65, c66, c68, c69, c72 |
 | 4 (retention, tenant isolation, incidents, freezes, migrations) | 16 | 14 confirmed, 1 corrected, 1 overstated | 6: R4-4 and R4-6 built, R4-2 needs a v2 chain, R4-1/3/5 need your targets | c79, c80 (and c81, c87 from what they found) |
 | 5 (did a change help; making agents better) | 26 numbered | 23 confirmed, 3 corrected (licences, venue); one attribution overstated | 8: R5-1, R5-7, R5-4 and R5-5 built as first slices; R5-8 not started (needs a table); R5-2, R5-3 and R5-6 not today (no power at our volumes, or needs execution) | c85, c86, c90, c91 |
+| 6 (letting agents execute: sandboxing, staged autonomy, grading real runs, injection defences) | 22 | 16 confirmed, 6 corrected (titles, a venue, one wrong paraphrase), 0 wrong; one ranking claim and one source use overstated | 8: R6-1, R6-5, R6-8 (part 1) and R6-7 built as pure first slices; R6-3 and R6-4 next (R6-3 needs a table); R6-2 and R6-6 on hold | c94, c95, c96, c97, plus the roadmap in section 12 |
 
 Two rules held throughout:
 - Only citations in `phase2/*-verified.md` are used.
@@ -163,19 +182,20 @@ All numbers are code-level. The load average is stated where the log gives it.
 
 | Measure | Baseline (c00, b621fbb) | Now | Source |
 |---|---|---|---|
-| Server tests | 219 in 17 files | **3620 passed**, 36 skipped, 0 failed (175 files, serial), tree 060f9ab **[final run pending]** | MERGES.md batches 45–47 |
+| Server tests | 219 in 17 files | **4409 passed**, 36 skipped, 0 failed (187 files, serial), final tree 98fecbf | MERGES.md (final checks) |
 | Demo suite (verify-all) | 10 steps | ALL 10 STEPS PASSED (integration tree, 2026-11-23 ~06:07Z and after batch 47) | LOG.md |
-| Phone-width run (api-mobile, api mode) | not recorded | 877 states, 500 dialogs, NO FAILURES on ebea695 (07:30Z). **Final run on the frozen web tree [pending].** | LOG.md |
+| Phone-width run (api-mobile, api mode) | not recorded | NO FAILURES on the frozen web tree (it now also probes every tab strip, c82); 877 states and 500 dialogs on ebea695 | MERGES.md, LOG.md |
 | Stage 6 suite, api mode | 94/94 | 20 of 20 runs at 94/94 (load 5 to 8) | MERGES.md |
-| Api-mode fit at 1366×768 and 1280×760 | 10 BAD views | ALL FIT (every batch); **final [pending]** | MERGES.md |
-| Accessibility | 0 violations | 0 violations in both modes on every web batch; **final [pending]** | MERGES.md |
+| Api-mode fit at 1366×768 and 1280×760 | 10 BAD views | ALL FIT in demo and api, both sizes, on the frozen tree | MERGES.md |
+| Accessibility | 0 violations | 0 violations: demo 55 views and 66 dialogs, api 45 views and 66 dialogs | MERGES.md |
 | Page switch (threshold 179 ms) | median 163 ms | 168, 161, 174 ms at load 5 to 7 | MERGES.md |
 | c71 scale, 25k tasks | scorecard 830/1027 ms (p50/p95) | 440/519; slowest p95 952 ms | cycles/c71-report.md |
 | c84 judge gate, 72-cell grid, 2 seeds | 12 and 13 cells under 93% coverage | 1 cell under 93% (88.1%, pinned) | cycles/c84-report.md |
 | c79/c81/c87 seeded leaks | none | 23 cross-tenant and 11 in-tenant seeded leaks, all caught | cycles/c81, c87 reports |
-| First-load JS, /missions | 307,502 B gzip | 243,127 B (c07). **Re-measure [pending].** | LOG.md c07 |
+| Production JS | 176.5 kB gzip main chunk | entry chunk 107.2 kB gzip, Missions chunk 30.1 kB, all JS together 669.7 kB gzip (with far more features). The build prints no /missions first-load figure, so c07's 243,127 B is not re-measured. | MERGES.md |
+| Strict CSP, production build | n/a | 31/31 (api-c14 through the preview server) | MERGES.md |
 
-SCORECARD.md "Final" column: **[pending]**, filled from the final runs.
+The SCORECARD.md "Final" column is filled from these runs.
 
 ## 6. Honestly NOT MET or limited
 
@@ -192,11 +212,17 @@ SCORECARD.md "Final" column: **[pending]**, filled from the final runs.
   - With noisy synthetic candidates the false admit rate was 0.4 to 0.9% (bound 2%).
   - The 0.02 replay budget is smaller than the replay noise at n ≤ 40, so a harmless candidate is refused 56 to 74% of the time.
   - Real scores need agents to execute.
-- **c85 and c86 are first slices.** c85 gives counts only and computes no effect. c86 covers human forecasts of one question only. Their screens are **[pending, c89]**.
+- **c85 and c86 are first slices.** c85 gives counts only and computes no effect. c86 covers human forecasts of one question only. Their screens (c89) are first slices: there is no plan editor in the app yet.
+- **c94–c97 are first slices.**
+  - c94 decides and does not enforce.
+  - c95's "zero steps after a halt" assumes the check and the effect are atomic, which a later lane must build.
+  - c96 cannot stop harmful in-plan arguments.
+  - c97's detector misses `>|`, xargs, globbed reads and heredoc bodies, and its rates come from the same author's fixtures.
+  - None of these was tested against a real model.
 - **The c66 fixture is circular**, and 6 counter-metrics stay "weak" (c83).
 - **Connection-cap flakes:**
-  - The 45-connection role cap caused about 6 unrelated test failures today, each passing alone. c93 is meant to fix this **[pending]**.
-  - The c82 api a11y run also printed "Request failed (500)" on two views, probably the same cause. To be checked in the final run **[pending]**.
+  - The 45-connection role cap caused about 6 unrelated test failures today, each passing alone. c93 fixed this, and the final full runs had no failures. The peak test connections only fell from 15 to 11–12; the retry is the real protection.
+  - The "Request failed (500)" lines in the a11y output turned out to be the check's own mocked failure probes, not server errors.
 - **Fixture-only until agents execute:** skill ratings, failure patterns, review capacity, process metrics, the skill gate and most dimension cells.
 - **Scale margin is thin:** dimensions at 25,000 tasks ran 916 to 977 ms against a 1000 ms limit.
 - **Not verified by a person:** long-thread behaviour with a real screen reader (Q8).
@@ -225,7 +251,10 @@ SCORECARD.md "Final" column: **[pending]**, filled from the final runs.
 | c86 | A new forecast route; reviews now take a per-task lock. |
 | c87 | Members below the privacy floor see the review-capacity open counts as hidden. |
 | c88 | Members see org proposal evidence as "Counts visible to administrators". |
-| c82, c89, c93 | **[pending]**: phone tab strips scroll; plan and forecast screens; connection retry on "too many connections". |
+| c82 | Phone tab strips scroll under an edge fade at 390 px; desktop layouts are unchanged. |
+| c89 | New screens: an admin plan section on proposal cards (approve sends the plan sha), a task forecast control, a Settings > Forecasts tab, and an admin one-person forecast dialog. |
+| c93 | The server retries getting a database connection when PostgreSQL says "too many connections" (bounded, under 3 s). Queries are never retried. |
+| c94–c97 | Nothing visible: pure modules for future execution, not wired in. |
 | c49 | The live server needs `AUDIT_ANCHOR_KEY`, a domain and a file in `server/.env`. |
 
 ## 8. Your actions
@@ -264,7 +293,7 @@ SCORECARD.md "Final" column: **[pending]**, filled from the final runs.
 ## 10. Incidents and process lessons
 
 - **Stale dev server, 3 times.** The watcher missed changes to shared contracts. c74 switched the dev server to polling, and it has not recurred since.
-- **Role connection cap.** The 45-connection limit, shared by every lane, is the main source of flaky tests. heavy.sh gates the DB slots, and c93 adds bounded pools and a retry when connecting **[pending]**.
+- **Role connection cap.** The 45-connection limit, shared by every lane, is the main source of flaky tests. heavy.sh gates the DB slots, and c93 added bounded pools and a retry when connecting. The final full runs were clean.
 - **Aggregates leak too.** Three of today's privacy findings were counts or rates computed over private missions, not raw data.
   - A cross-tenant suite cannot see this. So c87 added an in-tenant sweep, and it immediately found two more such counts.
   - Lesson: every new aggregate is computed over what the viewer can see, or carries a cited privacy ruling.
@@ -286,7 +315,9 @@ SCORECARD.md "Final" column: **[pending]**, filled from the final runs.
 
 | Id | Item | Why |
 |---|---|---|
-| U8 rest | Plan editing in the app, and an admin per-person forecast view if c89 didn't build it | c85 and c86 screens are first slices |
+| U8 rest | Plan editing in the app; a has-plan flag on the proposal list (c89 fetches one plan per card) | c85 and c86 screens are first slices |
+| X1, c96/c97 rest | Profile `/var/run` scope and request caps; label propagation (R6-8 part 2); detector gaps (`>|`, xargs, globbed reads, heredoc bodies) | Listed in the c94, c96 and c97 reports |
+| H14c, E1f, M2c, M2d | c93 fault hook out of src; seed the judge split; scanner edge cases | From today's reviews |
 | E1f | Seed the judge split by item ids or a salt; consistent displayed sensitivity and specificity | c84 review |
 | T1(1) | Tenant-scoped agent ids (composite key) | A second tenant can't get the standard company seed. Large migration. |
 | R4-2 | Audit chain v2 for redaction | Redacting today breaks verification |
