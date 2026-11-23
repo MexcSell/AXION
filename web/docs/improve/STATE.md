@@ -1,6 +1,6 @@
 # Improvement loop state (resume from here)
 
-Rewritten 2026-11-22T07:35Z, 17:50Z, and 2026-11-23T03:40Z by the controller. Older lane lists are history in LOG.md.
+Rewritten 2026-11-22T07:35Z, 17:50Z, and 2026-11-23T03:40Z by the controller; updated 06:05Z. Older lane lists are history in LOG.md.
 
 ## Clocks
 - **30 h loop:** 2026-11-21T11:36:18Z → 2026-11-22T17:36:18Z (done).
@@ -13,8 +13,8 @@ Rewritten 2026-11-22T07:35Z, 17:50Z, and 2026-11-23T03:40Z by the controller. Ol
 
 ## Branch and live
 - Integration tree `/home/luca/AXION`, branch `improve-30h`, local only. Never push or move the tag without the owner.
-- **Web dev 5190** serves the working tree. It was restarted 2026-11-23T02:22Z after a stale watcher (the 3rd time; BACKLOG H19). PID in /tmp/axion-5190.pid. After any merge touching `shared/`, curl a served contracts file.
-- **API 5191** runs the real `axion` DB. Restarted 2026-11-23T02:22Z on 229536a (batches 14–30), from a clean tree; PID in /tmp/axion-5191.pid.
+- **Web dev 5190** serves the working tree. Restarted 2026-11-23T05:52Z with c74's polling watcher (`server.watch.usePolling`, 300 ms; H19); PID 714937 in /tmp/axion-5190.pid (the vite PID, not the setsid wrapper). After any merge touching `shared/`, curl a served contracts file.
+- **API 5191** runs the real `axion` DB. Restarted 2026-11-23T02:22Z on 229536a (batches 14–30), from a clean tree; PID in /tmp/axion-5191.pid. **Skew:** the tree is at ebea695 (batches 31–37, no migration), so 5190 serves c72's skill UI against a 5191 without its routes until the next live update.
   - Schema version 53: 38 migration files, with 0036, 0038, 0041, 0042, 0049 and 0051 unused.
   - Backup `backups/axion-20261123T012236Z.dump`, restore check PASS. Previous backups: 20261122T174415Z (v39).
   - Audit anchor: 2 lines in `server/data/audit-anchors.jsonl` (git-ignored); chain and anchor OK. **The owner should copy the file off-host.**
@@ -34,21 +34,22 @@ Rewritten 2026-11-22T07:35Z, 17:50Z, and 2026-11-23T03:40Z by the controller. Ol
 - Ports 8790 and 9090 belong to other apps.
 
 ## Integration
-- Merged through batch 30, and live. Batch 31 (c72) is CLEARED and queued.
-- Integrator #5 is running the low-load verification (verify-all, api-mobile, stage6 ×20), then batch 31. Start a **fresh integrator** after that for the final stretch (MERGES.md and QUEUE.md are the hand-off).
+- Merged through **batch 37** at ebea695 (2026-11-23 ~05:45Z), integrator #5 (stopped 05:51Z). Its three merge-time fixes were diff-checked by the controller: e206210 (c69 registry fixture lists task_owner_history.owner), 62d4d81 (c72's `classes[].adjusted.value` in RATING_FIELDS plus a RATED_LIST_ALLOWED entry for one agent's own cells, as c78 designed), 444edfc (c79 sweep sends `?with=` to the compare route). Gap: the sweep never sends an own `:id` with a foreign `?with=`; until a lane adds it, the report must not claim the compare route is isolation-tested on both ids.
+- Verification on 229536a: verify-all 10/10, api-mobile 862 states 0 FAIL, stage6 ×20 20/20. On ebea695: full serial vitest 3414 passed / 36 skipped / 0 failed; fit and a11y both modes pass. **Not yet on ebea695:** full api-mobile, verify-all after the 5190 restart (running 05:52Z).
+- Wave 8 is being planned (lanes w79+). Spawn integrator #6 when the first Wave 8 lane clears.
 
 ## Lanes now
 | Lane | Cycle | Status |
 |---|---|---|
-| w70 | c72 difficulty-adjusted skill ratings (R3-7 + R3-1) | CLEARED at 6511c04, batch 31 |
-| w71 | c73 polish bundle (P2c, H18, P4c, H15) | CLEARED at 59b78cf, batch 32 |
-| w72 | c74 dev server watches shared (H19), e2e15 | CLEARED at 8d9a9c3, batch 33 |
-| w73 | c75 approval evidence tamper-evident (P3c), e2e17, no migration | CLEARED at af54328, batch 34 |
+| w70 | c72 difficulty-adjusted skill ratings (R3-7 + R3-1) | MERGED at ebea695 (batch 31, tip 6511c04) |
+| w71 | c73 polish bundle (P2c, H18, P4c, H15) | MERGED at ebea695 (batch 32, tip 59b78cf) |
+| w72 | c74 dev server watches shared (H19), e2e15 | MERGED at ebea695 (batch 33, tip 8d9a9c3) |
+| w73 | c75 approval evidence tamper-evident (P3c), e2e17, no migration | MERGED at ebea695 (batch 34, tip af54328) |
 | w74 | c76 Stage 8 records (R1, A1), e2e18, mig 0056 | CLEARED at dfd1bff, **PARKED (Q11): never queue** |
 | w75 | c77 Stage 9 records (M2, G1), e2e2, mig 0057 | CLEARED at da75e62, **PARKED (Q11): never queue** |
-| w76 | c78 test hygiene II (H21, H20, O1c), e2e3, tests only | CLEARED at 96ed66e, batch 35 |
-| w77 | c79 tenant-isolation suite (R4-4), e2e4, tests only | CLEARED at 6ee88cf, batch 37 |
-| w78 | c80 migration guard (R4-6), e2e5 | CLEARED at 909577e, batch 36 |
+| w76 | c78 test hygiene II (H21, H20, O1c), e2e3, tests only | MERGED at ebea695 (batch 35, tip 96ed66e) |
+| w77 | c79 tenant-isolation suite (R4-4), e2e4, tests only | MERGED at ebea695 (batch 37, tip 6ee88cf) |
+| w78 | c80 migration guard (R4-6), e2e5 | MERGED at ebea695 (batch 36, tip 909577e) |
 | — | Final report draft (FINAL-REPORT-PHASE2.md) | draft committed; finalise at the end |
 
 Every other Wave 5–7 lane (c53–c71) is MERGED and live (2026-11-23T02:22Z). Details are in QUEUE.md, MERGES.md and LOG.md.
@@ -67,4 +68,4 @@ Every other Wave 5–7 lane (c53–c71) is MERGED and live (2026-11-23T02:22Z). 
 
 ## Ids already taken
 - **Dialog ids:** up to DL-100 in use. DL-96, 97, 98 (retired) and 99 are not in use.
-- **Migrations:** files up to 0053. 0054 was reserved for c72 and is unused. The next free number is **0055**.
+- **Migrations:** files up to 0053 on improve-30h. 0054 (c72) and 0055 (c75) were reserved and are unused; 0056 and 0057 are used on the parked c76/c77 branches. c80's lint covers 0058+. The next free number is **0058**; Wave 8 lanes should add none.
