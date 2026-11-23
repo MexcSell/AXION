@@ -135,6 +135,20 @@ describe('caps presence and shape', () => {
   });
 });
 
+describe('out-of-order time and unvalidated outcomes', () => {
+  it('a proposal older than the latest recorded call is refused (it would see an emptier rate window)', () => {
+    const long = { ...CAPS, maxWallMs: 1_000_000, maxToolCallsPerMinute: 2 };
+    const c = counters({ callTimesMs: [100_000, 100_001], steps: 2 });
+    expect(reason(ask({ caps: long, counters: c, step: { atMs: 100_002 } }))).toBe('rate_limit');
+    expect(reason(ask({ caps: long, counters: c, step: { atMs: 50_000 } }))).toBe('bad_input');
+    expect(reason(ask({ caps: long, counters: c, step: { atMs: 100_000 } }))).toBe('bad_input');
+  });
+  it('a bad outcome recorded by recordRunStep is caught as bad_input at the next check', () => {
+    const c = recordRunStep(newRunCounters(0), STEP, { ok: true, actualMoneyMicros: NaN, actualTokens: 1 });
+    expect(reason(ask({ counters: c, step: { atMs: 1000 } }))).toBe('bad_input');
+  });
+});
+
 describe('recordRunStep', () => {
   it('uses actual cost, tracks origins once, resets failures on success and prunes old calls', () => {
     let c = newRunCounters(0);

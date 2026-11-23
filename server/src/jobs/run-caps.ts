@@ -9,6 +9,10 @@
  * Time is an input (`step.atMs`, `counters.startedAtMs`). A real enforcement must take both from the database clock (`now()`),
  * never from the app clock; this module never reads a clock.
  *
+ * Origins are compared as raw strings, so callers must pre-normalise them with `normaliseOrigin` (server/src/grants/origin.ts); an
+ * un-normalised spelling of one origin counts as a new origin (it over-counts, so it fails safe). `recordRunStep` does not validate
+ * the outcome it is given; a bad value (NaN, negative) lands in the counters and is refused as `bad_input` at the NEXT check.
+ *
  * `checkRunStep` must be called BEFORE a step and again, atomically with the step taking effect, by whatever stores the effect:
  * a step admitted before a halt can take effect after it, and only the second check catches that.
  */
@@ -61,6 +65,8 @@ export function checkRunStep(a: CheckInput): RunCapsDecision {
   // 6. counters and step are well formed (a NaN would make every comparison false and never stop)
   if (!c || !isInt(c.steps) || !isInt(c.startedAtMs) || !isInt(c.moneyMicrosUsed) || !isInt(c.tokensUsed) || !isInt(c.consecutiveFailures) || !Array.isArray(c.callTimesMs) || !c.callTimesMs.every(isInt) || !Array.isArray(c.origins)) return stop('bad_input', 'counters are malformed');
   if (typeof s.tool !== 'string' || s.tool === '' || !(s.origin === null || (typeof s.origin === 'string' && s.origin !== '')) || !isInt(s.atMs) || !isInt(s.estMoneyMicros) || !isInt(s.estTokens) || s.atMs < c.startedAtMs) return stop('bad_input', 'step proposal is malformed');
+  // time must not run backwards: an older atMs would make the rate window see fewer calls (fail closed)
+  if (c.callTimesMs.length > 0 && s.atMs < Math.max(...c.callTimesMs)) return stop('bad_input', 'atMs is below the latest recorded call time');
   // 7. circuit breaker
   if (c.consecutiveFailures >= breaker.maxConsecutiveFailures) return stop('circuit_breaker', `${c.consecutiveFailures} failed steps in a row (limit ${breaker.maxConsecutiveFailures})`);
   if (cs.kind !== 'ok') return { action: 'continue' }; // stage 0 or 1 without caps: only halt, token and breaker apply

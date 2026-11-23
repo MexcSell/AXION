@@ -30,7 +30,11 @@ Plain words: this is an engineering control, not evidence. Nothing executes yet:
 | (d) cap change after approval needs a new approval | DEFERRED, not omitted | needs the approval digest version change, which the verifier ruled out of this slice. |
 | Halt-record table | DEFERRED | its own lane; here halt is an input. |
 
-No fixture spec needed correcting after the runs (no separate spec-fix commit).
+## Review fixes (after hand-back)
+- F1: the first version of the two hidden-spike specs had capSteps equal to the accepted count, so the +1 slack was never exercised. Corrected in a separate visible commit ("fix(c95): hidden-spike specs exercise the +1 slack"): capSteps 2 and 1 (in actual terms), accepted 3 and 2 = capSteps + 1. The checker was not changed for this; the earlier claim "no spec needed correcting" was wrong.
+- F2: an `atMs` below the latest recorded call time is refused as `bad_input` (fail closed); probe (calls at 100000 and 100001, limit 2, proposal at 50000) is now a test.
+- F3: module header states origins must be pre-normalised with `normaliseOrigin`, and that `recordRunStep` does not validate outcomes (a bad value is caught as `bad_input` at the next check; one test).
+- Tests now 94 (26 unit, 68 fixture).
 
 ## Tests
 - New: `server/test/c95-run-caps.test.ts` (24) and `server/test/c95-run-caps-fixtures.test.ts` (68): 92 tests, all GREEN.
