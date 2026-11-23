@@ -93,7 +93,7 @@ Use your number only if you really need a migration.
   concerns.
 - Other lanes change files in parallel. Keep your diff to what your brief needs, and prefer new files over editing
   shared ones (for example a new browser-check script `web/scripts/api-cNN.mjs` instead of extending `api-improve.mjs`).
-- **Finishing:** start your final check script (verify-all, fit, a11y, api-mobile) as soon as the code is done, and write the report while it runs. Record every background PID in `/tmp/wL-<name>.pid`. Stop your servers by port before handing back. **Hand back exactly once**, and never leave a background job running after your hand-back (2026-11-22: lanes ran out of context mid-checks or looped re-sending reports).
+- **Finishing:** start your final check script (verify-all, fit, a11y, api-mobile) as soon as the code is done, and write the report while it runs. Record every background PID in `/tmp/wL-<name>.pid`. Stop your servers by port before handing back. **Before you report, check that `git status` is clean and that `git diff <base>..HEAD --stat` lists every file your report says you changed; take your final GREEN runs from that committed tree** (2026-11-23: c73 reported a ChatView fix that was never committed). **Hand back exactly once**, and never leave a background job running after your hand-back (2026-11-22: lanes ran out of context mid-checks or looped re-sending reports).
 - In api mode never wait for `networkidle`, and never add fixed sleeps. Use `domcontentloaded` + `settle()` and
   condition waits.
 
