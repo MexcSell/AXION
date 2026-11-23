@@ -11,7 +11,7 @@ import {
  * shared/contracts/src/skills.ts. Read model: nothing here writes, assigns or ranks, and no function returns agents ordered by a rating.
  *
  * An outcome is a finished (passed or failed) task of a mission the viewer can see, owned by the agent when it finished, with a delegation
- * brief to that agent (the newest one for the task) that names BOTH a task class and a difficulty. A task whose brief names only one of the
+ * brief to that agent (the FIRST one for the task, i.e. the label stated when the task was handed over, so a later brief cannot relabel an outcome that is already known) that names BOTH a task class and a difficulty. A task whose brief names only one of the
  * two is counted as "unrated" and left out of every cell. Simulated (DEMO) tasks are left out unless includeSimulated.
  */
 export interface SkillOutcome { agentId: string; classId: TaskClassId | null; difficulty: number | null; success: boolean }
@@ -24,7 +24,7 @@ export async function loadSkillOutcomes(c: Tx | Db, viewer: { tenantId: string; 
                from tasks t join missions m on m.id = t.mission_id left join agent_instances i on i.id = t.owner_instance_id
               where m.tenant_id = $1 and m.deleted_at is null and ${VISIBLE_SQL('$2', '$3')}
                 and t.status in ('passed','failed') and ($4::boolean or not (t.simulated or m.demo))) o
-       join lateral (select d.brief from delegation_briefs d where d.task_id = o.id and d.to_agent = o.owner order by d.seq desc limit 1) b on true
+       join lateral (select d.brief from delegation_briefs d where d.task_id = o.id and d.to_agent = o.owner order by d.seq asc limit 1) b on true
       where o.owner is not null`,
     [viewer.tenantId, viewer.admin, viewer.userId, includeSimulated])).rows as { owner: string; status: string; cls: string | null; diff: string | null }[];
   return rows.map((r) => {

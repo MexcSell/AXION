@@ -87,7 +87,8 @@ describe('no response orders agents by a rating', () => {
     const problems: string[] = [];
     const bodies: [string, any][] = [];
     const get = async (url: string) => { const r = await A.admin.req('GET', url); expect(r.status, url).toBe(200); bodies.push([`GET ${url}`, r.body]); return r.body; };
-    for (const url of ['/agents', '/agents?includeSimulated=1', '/organization/graph', '/agent-instances', '/departments', '/company/dimensions?window=30d', '/company/scorecard?window=30d', '/company/metric-guard', `/missions/${m}/delegation-briefs`, `/missions/${m}`]) await get(url).catch(() => undefined);
+    const sweep = ['/agents', '/agents?includeSimulated=1', '/organization/graph', '/agent-instances', '/departments', '/company/dimensions?window=30d', '/company/scorecard?window=30d', '/company/metric-guard', `/missions/${m}/delegation-briefs`, `/missions/${m}`];
+    for (const url of sweep) await get(url); // every sweep route must answer 200: a failing route is a failure, not a skip
     for (const ag of rated) { await get(`/agents/${ag.agent_id}`); await get(`/agents/${ag.agent_id}/skills`); await get(`/agents/${ag.agent_id}/skills/compare?with=${rated.find((r) => r !== ag)!.agent_id}`); }
     for (const [route, body] of bodies) {
       problems.push(...rankingKeyProblems(body, route));
@@ -106,7 +107,7 @@ describe('no response orders agents by a rating', () => {
     }
     expect(problems).toEqual([]);
     expect(bodies.some(([r]) => r === 'GET /agents')).toBe(true);
-    expect(bodies.length).toBeGreaterThan(14);
+    expect(bodies.map(([r]) => r).sort()).toEqual([...sweep.map((u) => `GET ${u}`), ...rated.flatMap((ag) => [`GET /agents/${ag.agent_id}`, `GET /agents/${ag.agent_id}/skills`, `GET /agents/${ag.agent_id}/skills/compare?with=${rated.find((r) => r !== ag)!.agent_id}`])].sort());
   });
 
   it('RED proof: a route that returns the same agents sorted by rating is caught by the same scan', async () => {

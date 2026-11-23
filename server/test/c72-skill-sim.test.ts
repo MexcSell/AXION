@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { mulberry32 } from '../src/evolution/stats.ts';
-import { compareSkill, compareRaw, type LevelCount } from '../../shared/contracts/src/index.ts';
+import { compareSkill, compareRaw, standardise, type LevelCount } from '../../shared/contracts/src/index.ts';
 
 /**
  * Improvement cycle 72, item 4 (threshold): a seeded simulation of the difficulty confound.
@@ -35,9 +35,15 @@ function draw(rng: () => number, skill: number, mix: readonly number[], n: numbe
   return [...lv.values()].sort((a, b) => a.d - b.d);
 }
 
-export interface Rates { rawBetter: number; rawDistinct: number; adjDistinct: number; trials: number }
+export interface Rates {
+  rawBetter: number; rawDistinct: number; adjDistinct: number; trials: number;
+  /** adjusted comparison outcomes by reason (they add up to 1): no shared level, under 5 outcomes on the shared levels, intervals overlap, intervals apart */
+  noShared: number; tooFew: number; overlap: number; apart: number;
+  /** each agent's OWN adjusted cell (over the levels it has, as the profile shows it): share of trials where the two cells' intervals do not overlap. NOT a valid comparison; reported because a reader of two profiles would do it. */
+  ownCellsApart: number;
+}
 export function run(seed0: number, o: { skillA: number; skillB: number; mixA: readonly number[]; mixB: readonly number[]; n: number; delta?: number }): Rates {
-  let rawBetter = 0, rawDistinct = 0, adjDistinct = 0;
+  let rawBetter = 0, rawDistinct = 0, adjDistinct = 0, noShared = 0, tooFew = 0, overlap = 0, ownApart = 0;
   const saved = DELTA.slice();
   if (o.delta) for (let d = 1; d <= 5; d++) DELTA[d] = saved[d] * o.delta;
   try {
@@ -46,14 +52,18 @@ export function run(seed0: number, o: { skillA: number; skillB: number; mixA: re
       const a = draw(rng, o.skillA, o.mixA, o.n), b = draw(rng, o.skillB, o.mixB, o.n);
       const raw = compareRaw(a, b);
       if (raw.verdict === 'distinguishable') { rawDistinct++; if (raw.aHigher) rawBetter++; }
-      if (compareSkill(a, b).verdict === 'distinguishable') adjDistinct++;
+      const adj = compareSkill(a, b);
+      if (adj.verdict === 'distinguishable') adjDistinct++;
+      else if (adj.sharedLevels.length === 0) noShared++; else if (/Fewer than/.test(adj.reason)) tooFew++; else overlap++;
+      const sa = standardise(a)!, sb = standardise(b)!;
+      if (sa.hi < sb.lo || sb.hi < sa.lo) ownApart++;
     }
   } finally { for (let d = 1; d <= 5; d++) DELTA[d] = saved[d]; }
-  return { rawBetter: rawBetter / TRIALS, rawDistinct: rawDistinct / TRIALS, adjDistinct: adjDistinct / TRIALS, trials: TRIALS };
+  return { rawBetter: rawBetter / TRIALS, rawDistinct: rawDistinct / TRIALS, adjDistinct: adjDistinct / TRIALS, trials: TRIALS, noShared: noShared / TRIALS, tooFew: tooFew / TRIALS, overlap: overlap / TRIALS, apart: adjDistinct / TRIALS, ownCellsApart: ownApart / TRIALS };
 }
 const EASY = [1, 1, 0, 0, 0], HARD = [0, 0, 0, 1, 1];
 const A_MIX = [0.4, 0.3, 0.2, 0.1, 0], B_MIX = [0, 0.1, 0.2, 0.3, 0.4];
-const fmt = (r: Rates) => `raw calls A better ${(100 * r.rawBetter).toFixed(1)}% | raw distinguishable ${(100 * r.rawDistinct).toFixed(1)}% | adjusted distinguishable ${(100 * r.adjDistinct).toFixed(1)}%`;
+const fmt = (r: Rates) => `raw calls A better ${(100 * r.rawBetter).toFixed(1)}% | raw distinguishable ${(100 * r.rawDistinct).toFixed(1)}% | adjusted distinguishable ${(100 * r.adjDistinct).toFixed(1)}% | skipped: no shared level ${(100 * r.noShared).toFixed(1)}%, under 5 shared ${(100 * r.tooFew).toFixed(1)}%, overlap ${(100 * r.overlap).toFixed(1)}% | own-level cells apart ${(100 * r.ownCellsApart).toFixed(1)}%`;
 
 describe('seeded simulation: easy tasks for A, hard tasks for B, equal true skill (threshold)', () => {
   for (const [name, seed] of Object.entries(SEEDS)) {
@@ -62,6 +72,9 @@ describe('seeded simulation: easy tasks for A, hard tasks for B, equal true skil
       console.log(`[c72 sim] PRIMARY ${name} seed ${seed}: ${fmt(r)}`);
       expect(r.rawBetter).toBeGreaterThanOrEqual(0.9);
       expect(r.adjDistinct).toBeLessThanOrEqual(0.1);
+      // honesty about HOW it passes: every trial is a refusal for lack of a shared level, and the two profile cells, each adjusted over its own levels only, are NOT comparable
+      expect(r.noShared).toBe(1);
+      expect(r.ownCellsApart).toBeGreaterThan(0.5); // reported: a reader comparing two such profiles would still see A as better
     });
   }
 

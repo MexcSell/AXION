@@ -157,3 +157,32 @@ describe('GET /agents/:id/skills/compare', () => {
     expect((await A.admin.req('GET', `/agents/${a.agent_id}/skills/compare?with=nobody`)).status).toBe(404);
   });
 });
+
+describe('how a brief reaches a task', () => {
+  const base = (over: Record<string, unknown> = {}) => ({ goal: 'Do the fixture task', inputs: [], acceptance: ['Done'], capabilities: [{ kind: 'read' }], escalation: 'Ask', ...over });
+  it('POST /tasks/:id/reassign with a brief stores the class and the difficulty, and the finished task then counts in that cell', async () => {
+    const { A, m, inst } = await setup();
+    const tn = inst[1].tenant_id;
+    for (let i = 0; i < 5; i++) {
+      await t.pool.query(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent, owner_instance_id) values ($1,$2,$3,'A task','ready',$4,$5)`, [`T-c72re-${i}`, tn, m, inst[1].agent_id, inst[1].id]);
+      const ok = await A.admin.req('POST', `/tasks/T-c72re-${i}/reassign`, { toInstanceId: inst[2].id, reason: 'x', brief: base({ taskClass: 'planning', difficulty: 4 }) }, key());
+      expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+    }
+    const stored = (await t.pool.query(`select brief->>'taskClass' c, brief->>'difficulty' d from delegation_briefs where mission_id=$1 and task_id like 'T-c72re-%'`, [m])).rows;
+    expect(stored).toHaveLength(5); expect(stored.every((r) => r.c === 'planning' && r.d === '4')).toBe(true);
+    await t.pool.query(`update tasks set status='passed' where id like 'T-c72re-%'`);
+    const c = (await skills(A.admin, inst[2].agent_id)).body.skills.classes.find((x: any) => x.classId === 'planning');
+    expect(c.n).toBe(5); expect(c.levels).toEqual([expect.objectContaining({ difficulty: 4, n: 5, successes: 5 })]);
+  });
+
+  it('a brief that supersedes the first one after the task finished does not change its label: the label stated when the task was handed over counts', async () => {
+    const { A, m, inst, outcome } = await setup();
+    for (let i = 0; i < 5; i++) await outcome(m, inst[1], 'passed', 'coding', 5);
+    const first = (await t.pool.query(`select id, task_id from delegation_briefs where mission_id=$1 and task_id like 'T-c72-%' order by seq limit 1`, [m])).rows[0];
+    const sup = await A.admin.req('POST', `/missions/${m}/delegation-briefs`, { toInstanceId: inst[1].id, supersedes: first.id, taskId: first.task_id, brief: base({ taskClass: 'coding', difficulty: 1 }) }, key());
+    expect(sup.status, JSON.stringify(sup.body)).toBe(201);
+    const c = (await skills(A.admin, inst[1].agent_id)).body.skills.classes.find((x: any) => x.classId === 'coding');
+    expect(c.levels.map((l: any) => l.difficulty)).toEqual([5]); // not moved to level 1 after the outcome was known
+    expect(c.n).toBe(5);
+  });
+});
