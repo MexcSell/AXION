@@ -1,6 +1,7 @@
 import type { Browser } from '../helpers.ts';
 import { ROUTES } from '../contracts/registry.ts';
 import { idem, type Tenant, type World } from './fixture.ts';
+import { PLAN } from '../c85-helpers.ts';
 import { atRestText, freshSessions, getCases, snapshot, diffSnaps, markerHits, type Violation } from './isolation.ts';
 
 /**
@@ -42,6 +43,8 @@ export const WRITE_CASES: Record<string, Builder> = {
   'POST /missions/:id/threads': (t) => ({ url: `/missions/${t.ids.mission}/threads`, body: { instanceId: t.ids.instance } }),
   'POST /notifications/:id/ack': (t) => ({ url: `/notifications/${t.ids.notification}/ack` }),
   'POST /organization/proposals/:id/decision': (t) => ({ url: `/organization/proposals/${t.ids.orgProposal}/decision`, body: { decision: 'approve', sha: D64, note: 'planted' } }),
+  'PUT /organization/proposals/:id/plan': (t) => ({ url: `/organization/proposals/${t.ids.orgProposal}/plan`, body: PLAN }),
+  'POST /organization/proposals/:id/plan/amendments': (t) => ({ url: `/organization/proposals/${t.ids.orgProposal}/plan/amendments`, body: { plan: PLAN, reason: 'Planted amendment for the isolation check.', baseAmendments: 0 } }),
   'POST /organization/proposals/:id/withdraw': (t) => ({ url: `/organization/proposals/${t.ids.orgProposal}/withdraw`, body: {} }),
   'POST /site-grants/:id/revoke': (t) => ({ url: `/site-grants/${t.ids.grant}/revoke`, body: { reason: 'planted' } }),
   'POST /skills/:sid/approve': (t) => ({ url: `/skills/${t.ids.skill}/approve`, body: {} }),
@@ -67,7 +70,7 @@ export const WRITE_EXCEPTIONS: Record<string, string> = {
  */
 export const SELF_SCOPED_OK: Record<string, (w: World, view: Tenant, other: Tenant, rq: Req) => Promise<string | null>> = {};
 /** Which records exist per tenant: tenant B has no organisation chart, so org ids only exist for A. Cases whose target lacks the id are skipped and counted. */
-const needs: Record<string, string[]> = { 'POST /organization/proposals/:id/decision': ['orgProposal'], 'POST /organization/proposals/:id/withdraw': ['orgProposal'] };
+const needs: Record<string, string[]> = { 'POST /organization/proposals/:id/decision': ['orgProposal'], 'POST /organization/proposals/:id/withdraw': ['orgProposal'], 'PUT /organization/proposals/:id/plan': ['orgProposal'], 'POST /organization/proposals/:id/plan/amendments': ['orgProposal'] };
 
 /** Every write route in the table with a `:param` in its path (the generated population). */
 export const writeRoutesWithIds = (t: Tenant): string[] =>

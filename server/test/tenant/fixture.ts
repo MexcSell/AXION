@@ -137,6 +137,8 @@ export async function seedTenant(w: World, t: Tenant): Promise<void> {
     const g = must(await admin.req('GET', '/organization/graph'), 200, 'graph').body;
     const moved = g.edges.map((e: any) => (e.subordinateId === 'tester-01' ? { ...e, supervisorId: 'coder-01' } : e));
     ids.orgProposal = must(await admin.req('POST', '/organization/proposals', { ...ST, title: 'Move tester ' + mk('org.title'), why: 'Shorter path ' + mk('org.why'), baseRevision: g.revision.seq, edges: moved, triggers: ['coverage_gap'] }, idem()), 201, 'org proposal').body.proposal.id;
+    // c85: a plan whose free text carries a marker, so the isolation relations also cover the plan routes
+    must(await admin.req('PUT', `/organization/proposals/${ids.orgProposal}/plan`, { primary: { metric: 'process.first_pass_acceptance', direction: 'up', margin: 5 }, minN: 20, windowDays: 14, guardrails: [{ metric: 'scorecard.failure_rate', margin: 2 }], why: 'A shorter path should raise first-pass acceptance ' + mk('org.plan.why') }), 200, 'org plan');
     ids.revision = String(g.revision.seq);
   }
   const plan = must(await admin.req('POST', `/agents/${testerId}/mentoring`, { mentorId: coderId, skill: 'Testing ' + mk('mentoring.skill'), milestones: ['Write one test ' + mk('mentoring.milestone'), 'Review one'], reevalOn: dayIso(30).slice(0, 10) }, idem()), 201, 'mentoring').body.plan;

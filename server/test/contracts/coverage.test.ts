@@ -18,6 +18,7 @@ import { enqueueJob } from '../../src/jobs/store.ts';
 import { makeDataset, addRun } from '../eval-fixtures.ts';
 import { recordRegrade } from '../../src/evolution/eval-runs.ts';
 import { check } from './validate.ts';
+import { PLAN } from '../c85-helpers.ts';
 import { errorEnvelope } from './validators.ts';
 import { checkEvent, eventValidator, EVENT_VALIDATORS } from './events.ts';
 import type { EventType } from '../../../shared/contracts/src/index.ts';
@@ -314,9 +315,15 @@ describe('API coverage run', () => {
     const baseRev = async () => (await admin.req('GET', '/organization/graph')).body.revision.seq as number;
     await call(admin, 'POST', '/organization/proposals', '/organization/proposals', { status: 200, query: '?dryRun=1', body: { title: 'dry', why: 'x', baseRevision: await baseRev(), edges: moved(g.edges, 'tester-01', 'coder-01'), triggers: ['repeated_reassigns'] } });
     const p1 = (await call(admin, 'POST', '/organization/proposals', '/organization/proposals', { status: 201, body: { ...ST, title: 'Move tester', why: 'Shorter path.', baseRevision: await baseRev(), edges: moved(g.edges, 'tester-01', 'coder-01'), triggers: ['coverage_gap', 'load_imbalance'] }, headers: key() })).body.proposal;
-    await call(bea.b, 'POST', '/organization/proposals/:id/decision', `/organization/proposals/${p1.id}/decision`, { body: { decision: 'approve', sha: p1.sha, note: 'ok' } });
+    // c85: a plan on the pending proposal, read before and after approval, amended after it (so every field of the plan routes is filled in some call)
+    const planSet = (await call(admin, 'PUT', '/organization/proposals/:id/plan', `/organization/proposals/${p1.id}/plan`, { body: PLAN })).body;
+    await call(admin, 'GET', '/organization/proposals/:id/plan', `/organization/proposals/${p1.id}/plan`);
+    await call(bea.b, 'POST', '/organization/proposals/:id/decision', `/organization/proposals/${p1.id}/decision`, { body: { decision: 'approve', sha: p1.sha, planSha: planSet.sha, note: 'ok' } });
+    await call(admin, 'POST', '/organization/proposals/:id/plan/amendments', `/organization/proposals/${p1.id}/plan/amendments`, { status: 201, body: { plan: { ...PLAN, minN: 25 }, reason: 'The first plan asked for too few observations.', baseAmendments: 0 } });
+    await call(admin, 'GET', '/organization/proposals/:id/plan', `/organization/proposals/${p1.id}/plan`);
     const g2 = (await admin.req('GET', '/organization/graph')).body;
     const p2 = (await admin.req('POST', '/organization/proposals', { ...ST, title: 'Move writer', why: 'x', baseRevision: g2.revision.seq, edges: moved(g2.edges, 'writer-01', 'ops-01') }, key())).body.proposal;
+    await call(admin, 'GET', '/organization/proposals/:id/plan', `/organization/proposals/${p2.id}/plan`); // no plan: the null fields
     await call(admin, 'POST', '/organization/proposals/:id/withdraw', `/organization/proposals/${p2.id}/withdraw`, { body: {} });
     const p3 = (await admin.req('POST', '/organization/proposals', { ...ST, title: 'Expire me', why: 'x', baseRevision: g2.revision.seq, edges: moved(g2.edges, 'writer-01', 'coder-01') }, key())).body.proposal;
     await t.pool.query(`update org_proposals set expires_at = now() - interval '1 minute' where id=$1`, [p3.id]);

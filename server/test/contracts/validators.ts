@@ -18,6 +18,7 @@ import {
   type CapacityCellDto, type CapacityDeptDto, type CapacityPersonDto, type CapacityPeopleBody, type ReviewCapacityDto, type LittleLawDto, type SpanDto, type SpanRowDto,
   type MetricGuardDto, type MetricGuard, type MetricGuardRow, type MetricAuditState, type MetricAuditResult, QUALITY_DIMENSION_IDS,
   type ProcessDto, type ProcessCell, PROCESS_WINDOWS,
+  type ChangePlan, type PlanGuardrail, type PlanAmendmentDto, type PlanWindow, type PlanWindows, type PlanObservation, type OrgPlanDto, type PlanSetDto,
   TASK_CLASS_IDS, type AgentSkillsDto, type SkillCellDto, type SkillCompareDto, type SkillInterval,
   type ForecastDto, type ForecastBaseline, type ForecastLedgerDto, type ForecastRecordDto, type ForecastRecorded, type CalibrationBin, type ForecastSkill, type ForecastClassRow, type ForecastCounts, FORECAST_QUESTION,
 } from '../../../shared/contracts/src/index.ts';
@@ -297,6 +298,23 @@ export const proposalsBody = obj<{ proposals: OrgProposalDto[]; activeRevision: 
 export const dryRunBody = obj<{ result: OrgDryRun; baseRevision: number }>({ result: dryRun, baseRevision: int });
 /** POST /organization/proposals answers a proposal (201) or, with ?dryRun=1, the dry-run result (200). */
 export const proposalOrDryRun = either(proposalBody, dryRunBody);
+
+// ---- c85: change plans
+const changePlan: V<ChangePlan> = obj<ChangePlan>({
+  primary: obj<ChangePlan['primary']>({ metric: str, direction: oneOf(['up', 'down'] as const), margin: num }), minN: int, windowDays: int,
+  guardrails: arr(obj<PlanGuardrail>({ metric: str, margin: num })), why: str,
+});
+const planAmendment: V<PlanAmendmentDto> = obj<PlanAmendmentDto>({ seq: int, plan: changePlan, sha: str, reason: str, createdBy: str, createdByName: str, createdAt: iso, changed: arr(str), afterChange: lit(true) });
+const planWindow: V<PlanWindow> = obj<PlanWindow>({ from: iso, to: iso });
+const planObservation: V<PlanObservation> = obj<PlanObservation>({ role: oneOf(['primary', 'guardrail'] as const), metric: str, label: str, unit: str, pre: int, post: int, minN: int, preMet: bool, postMet: bool });
+export const orgPlanBody: V<OrgPlanDto> = obj<OrgPlanDto>({
+  proposalId: str, proposalStatus: oneOf(['pending', 'approved', 'rejected', 'applied', 'failed', 'expired', 'withdrawn'] as const), plan: nullable(changePlan), sha: nullable(str), shaMatches: bool, locked: bool,
+  amendments: arr(planAmendment), effectivePlan: nullable(changePlan), amendedAfterChange: bool, otherChanges: int,
+  change: nullable(obj<{ revision: number; activeFrom: string }>({ revision: int, activeFrom: iso })),
+  windows: nullable(obj<PlanWindows>({ pre: planWindow, post: planWindow, postComplete: bool })),
+  observations: arr(planObservation), verdict: oneOf(['no_plan', 'not_applied', 'not_enough_evidence', 'ready_for_analysis'] as const), verdictText: str, checkedAt: iso,
+});
+export const planSetBody: V<PlanSetDto> = obj<PlanSetDto>({ proposalId: str, plan: changePlan, sha: str, locked: bool });
 
 // ---- mentoring
 const milestone: V<MentoringMilestoneDto> = obj<MentoringMilestoneDto>({ id: str, seq: int, text: str, doneBy: nullable(str), doneByName: nullable(str), doneAt: nullable(iso) });

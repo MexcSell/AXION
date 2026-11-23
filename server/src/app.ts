@@ -22,6 +22,7 @@ import { tx } from './db.ts';
 import { checkOrigin } from './auth/session.ts';
 import agentRoutes from './agents/routes.ts';
 import proposalRoutes from './organization/proposals.ts';
+import planRoutes from './organization/plan.ts';
 import versionRoutes from './agents/versions.ts';
 import historyRoutes from './organization/history.ts';
 import mentoringRoutes from './agents/mentoring.ts';
@@ -111,6 +112,7 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   await app.register(auditRoutes, { prefix: '/api/v1' });
   await app.register(agentRoutes, { prefix: '/api/v1' });
   await app.register(proposalRoutes, { prefix: '/api/v1' });
+  await app.register(planRoutes, { prefix: '/api/v1' });
   await app.register(versionRoutes, { prefix: '/api/v1' });
   await app.register(historyRoutes, { prefix: '/api/v1' });
   await app.register(mentoringRoutes, { prefix: '/api/v1' });
