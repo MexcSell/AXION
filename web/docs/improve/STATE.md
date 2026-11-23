@@ -14,10 +14,10 @@ Rewritten 2026-11-22T07:35Z, 17:50Z, and 2026-11-23T03:40Z by the controller; up
 ## Branch and live
 - Integration tree `/home/luca/AXION`, branch `improve-30h`, local only. Never push or move the tag without the owner.
 - **Web dev 5190** serves the working tree. Restarted 2026-11-23T05:52Z with c74's polling watcher (`server.watch.usePolling`, 300 ms; H19); PID 714937 in /tmp/axion-5190.pid (the vite PID, not the setsid wrapper). After any merge touching `shared/`, curl a served contracts file.
-- **API 5191** runs the real `axion` DB. Restarted 2026-11-23T02:22Z on 229536a (batches 14–30), from a clean tree; PID in /tmp/axion-5191.pid. **Skew:** the tree is at ebea695 (batches 31–37, no migration), so 5190 serves c72's skill UI against a 5191 without its routes until the next live update.
-  - Schema version 53: 38 migration files, with 0036, 0038, 0041, 0042, 0049 and 0051 unused.
-  - Backup `backups/axion-20261123T012236Z.dump`, restore check PASS. Previous backups: 20261122T174415Z (v39).
-  - Audit anchor: 2 lines in `server/data/audit-anchors.jsonl` (git-ignored); chain and anchor OK. **The owner should copy the file off-host.**
+- **API 5191** runs the real `axion` DB. Interim live update 2026-11-23T06:08Z to 2c3b7d5 (code = ebea695, batches 31–37; no migration): stopped by PID, backup `axion-20261123T060758Z.dump` (counts identical to the 01:22Z backup: 1 tenant, 1 audit row), restore check PASS, migrate no-op (schema 53), audit verify OK, restarted from a clean tree, PID 802504 in /tmp/axion-5191.pid, anchor line 3, verify OK, health 200 direct and via 5190, c72 skills route present (401 unauthenticated).
+  - Schema version 53 (unchanged at 06:08Z): 38 migration files, with 0036, 0038, 0041, 0042, 0049 and 0051 unused.
+  - Latest backup `backups/axion-20261123T060758Z.dump`, restore check PASS. Previous backups: 20261123T012236Z, 20261122T174415Z (v39).
+  - Audit anchor: 3 lines in `server/data/audit-anchors.jsonl` (git-ignored); chain and anchor OK. **The owner should copy the file off-host.**
 - **Every live update:**
   1. Stop 5191 by its recorded PID or port.
   2. `npm run db:backup`, then `npm run db:restore-check`.
@@ -35,7 +35,7 @@ Rewritten 2026-11-22T07:35Z, 17:50Z, and 2026-11-23T03:40Z by the controller; up
 
 ## Integration
 - Merged through **batch 37** at ebea695 (2026-11-23 ~05:45Z), integrator #5 (stopped 05:51Z). Its three merge-time fixes were diff-checked by the controller: e206210 (c69 registry fixture lists task_owner_history.owner), 62d4d81 (c72's `classes[].adjusted.value` in RATING_FIELDS plus a RATED_LIST_ALLOWED entry for one agent's own cells, as c78 designed), 444edfc (c79 sweep sends `?with=` to the compare route). Gap: the sweep never sends an own `:id` with a foreign `?with=`; until a lane adds it, the report must not claim the compare route is isolation-tested on both ids.
-- Verification on 229536a: verify-all 10/10, api-mobile 862 states 0 FAIL, stage6 ×20 20/20. On ebea695: full serial vitest 3414 passed / 36 skipped / 0 failed; fit and a11y both modes pass. **Not yet on ebea695:** full api-mobile, verify-all after the 5190 restart (running 05:52Z).
+- Verification on 229536a: verify-all 10/10, api-mobile 862 states 0 FAIL, stage6 ×20 20/20. On ebea695: full serial vitest 3414 passed / 36 skipped / 0 failed; fit and a11y both modes pass. On ebea695 after the 5190 restart: verify-all ALL 10 STEPS PASSED (06:07Z). Full api-mobile on ebea695 running as a baseline (slot 0, started ~06:05Z).
 - Wave 8 (PHASE2.md) dispatched ~06:15Z: c81–c84 plus research round 5. Spawn integrator #6 when the first Wave 8 lane clears.
 
 ## Lanes now
