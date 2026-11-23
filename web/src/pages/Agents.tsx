@@ -382,9 +382,9 @@ function StageBoard() {
 
 function TopPerformers() {
   const nav = useNavigate();
-  const list = staff().filter((a) => !needsEvidence(a)).sort((a, b) => b.success - a.success || b.sample - a.sample).slice(0, 5);
+  const list = staff().filter((a) => !needsEvidence(a)).sort((a, b) => a.name.localeCompare(b.name)).slice(0, 5); // c72 fix round: listed by name, not by performance (no leaderboard)
   return (
-    <Panel icon={Gauge} title={<>Agent Performance <span className="dim" style={{ fontSize: 13, fontWeight: 500 }}>(Top 5)</span></>} help="agents.performance" delay={.25} className="bottom-panel">
+    <Panel icon={Gauge} title={<>Agent Performance <span className="dim" style={{ fontSize: 13, fontWeight: 500 }}>(first 5 by name)</span></>} help="agents.performance" delay={.25} className="bottom-panel">
       <div className="col" style={{ gap: 7 }}>
         {list.map((a, i) => (
           <button key={a.id} className="perf-row" onClick={() => nav(`/agents/${a.id}?tab=performance`)} aria-label={`${a.name} ${a.success}% success`}>

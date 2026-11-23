@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { BarChart3, ClipboardCheck, Code2, Globe, ListChecks, MessageSquare, PenLine, Search, Shield, Users, Layers, Equal, Diff, type LucideIcon } from 'lucide-react';
-import { SKILL_MIN_N, type AgentSkillsDto, type SkillCellDto, type SkillCompareDto, type TaskClassId } from '@contracts';
+import { SKILL_MIN_N, SKILL_LEVEL_MIN_N, SKILL_HEADLINE_MIN_LEVELS, type AgentSkillsDto, type SkillCellDto, type SkillCompareDto, type TaskClassId } from '@contracts';
 import { Panel } from '@/components/ui/Panel';
 import { Tip } from '@/components/ui/Tip';
 import { DemoTag } from '@/components/ui/Chips';
@@ -14,7 +14,7 @@ import '@/theme/pages/c72-skills.css';
 
 /**
  * c72 (R3-7): the skill vector on the Agent Profile's Performance tab. One row per task class in the FIXED class order (never sorted by a rating),
- * with n, the 95% interval and "not enough evidence" below 5. It never shows a rank or a position. The optional comparison says only
+ * with n, the nominal 95% interval and "not enough evidence" below 5. It never shows a rank or a position. The optional comparison says only
  * "distinguishable" or "indistinguishable" per class, from the levels both agents share.
  */
 const ICON: Record<TaskClassId, LucideIcon> = { research: Search, writing: PenLine, coding: Code2, data: BarChart3, browsing: Globe, planning: ListChecks, review: ClipboardCheck, communication: MessageSquare };
@@ -42,20 +42,23 @@ function Bar({ c }: { c: SkillCellDto }) {
 function Row({ c, i, verdict }: { c: SkillCellDto; i: number; verdict?: SkillCompareDto['classes'][number] }) {
   const Icon = ICON[c.classId];
   const a = c.adjusted;
-  const lv = c.levels.map((l) => l.difficulty);
+  const used = c.levels.filter((l) => l.used).map((l) => l.difficulty);
+  const left = c.levels.filter((l) => !l.used);
+  const detail = `${c.evidence}${c.raw ? ` · unadjusted: ${c.raw.value}% (${c.raw.lo}–${c.raw.hi})` : ''}${left.length ? ` · left out (fewer than ${SKILL_LEVEL_MIN_N} tasks): ${levelText(left.map((l) => l.difficulty))}` : ''}`;
   return (
     <motion.li className={cx('sk-row', !a && 'none')} data-skill-class={c.classId} data-skill-state={c.state} data-skill-n={c.n} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .03 * i }}>
       <span className="sk-name"><Icon size={14} aria-hidden />{c.label}</span>
-      <span className="sk-n tnum" title="finished tasks with a stated class and difficulty">n={c.n}</span>
+      <Tip label="Finished tasks of this class that had a class and a difficulty stated before they finished."><span className="sk-n tnum" tabIndex={0}>n={c.n}</span></Tip>
+      <span className="sk-lv">{used.length ? <Tip label={`The difficulty levels the rate is built from. Rates are comparable between agents only on the same levels.${left.length ? ` Left out, fewer than ${SKILL_LEVEL_MIN_N} tasks: ${levelText(left.map((l) => l.difficulty))}.` : ''}`}><span className="chip sm" tabIndex={0} data-skill-levels>{levelText(used)}</span></Tip> : null}</span>
       {a ? (
-        <Tip label={c.evidence}>
-          <span className="sk-val" tabIndex={0} data-skill-value={a.value}><b className="tnum">{a.value}%</b><small className="tnum">{a.lo}–{a.hi}</small><Bar c={c} /></span>
-        </Tip>
+        <span className={cx('sk-val', !c.headline && 'muted')} data-skill-value={a.value} data-skill-headline={c.headline ? '1' : '0'}>
+          {c.headline ? <><b className="tnum">{a.value}%</b><small className="tnum">{a.lo}–{a.hi}</small></> : <small className="tnum" title={`Built from fewer than ${SKILL_HEADLINE_MIN_LEVELS} difficulty levels, so shown only as a range`}>{a.lo}–{a.hi}%</small>}
+          <Bar c={c} />
+        </span>
       ) : (
-        <span className="sk-val none" data-skill-null>{c.n === 0 ? 'no tasks yet' : `not enough evidence (${c.n} of ${SKILL_MIN_N})`}<Bar c={c} /></span>
+        <span className="sk-val none" data-skill-null>{c.n === 0 ? 'no tasks yet' : c.state === 'thin' ? `no level has ${SKILL_LEVEL_MIN_N} tasks yet` : `not enough evidence (${c.n} of ${SKILL_MIN_N})`}<Bar c={c} /></span>
       )}
-      <span className="sk-lv" title="The difficulty levels the adjusted rate is built from. Rates are comparable between agents only on the same levels.">{lv.length ? <span className="chip sm">{levelText(lv)}</span> : null}</span>
-      <span className="sk-raw tnum dim" title="Raw pass rate, not adjusted for difficulty">{c.raw ? `raw ${c.raw.value}%` : ''}</span>
+      <Tip label={detail}><button type="button" className="sk-q" aria-label={`Details for ${c.label}: evidence, unadjusted rate and levels left out`}>?</button></Tip>
       {verdict !== undefined && <VerdictChip v={verdict} />}
     </motion.li>
   );
@@ -85,7 +88,7 @@ export function SkillVector({ agentId, agentName }: { agentId: string; agentName
   return (
     <Panel icon={Layers} titleSize="lg" title="Skills by task class" help="agent.skillVector" delay={.03} className="sk-panel" data-testid="skill-vector"
       sub={data ? `${rated} of ${data.classes.length} classes have enough evidence (${SKILL_MIN_N} or more tasks)` : undefined}
-      actions={<div className="row" style={{ gap: 8 }}>
+      actions={<div className="row sk-actions" style={{ gap: 8 }}>
         <label className="sk-cmp"><span className="dim">Compare with</span>
           <select className="select" aria-label="Compare with another agent" value={withId} onChange={(e) => setWithId(e.target.value)}>
             <option value="">no one</option>
@@ -96,12 +99,13 @@ export function SkillVector({ agentId, agentName }: { agentId: string; agentName
       </div>}>
       {!data ? <div className="dim" style={{ fontSize: 13 }}>{srv.error ?? 'Loading the skill ratings…'}</div> : (
         <>
-          <div className="sk-head dim" aria-hidden><span>Task class</span><span>Tasks</span><span>Adjusted pass rate, 95% interval</span><span>Levels used</span><span>Unadjusted</span>{cmp && <span>vs {others.find((o) => o.id === withId)?.name ?? withId}</span>}</div>
+          <div className="sk-head dim" aria-hidden><span>Task class</span><span>Tasks</span><span>Levels it has</span><span>On the levels it has (nominal 95% range)</span><span />{cmp && <span>vs {others.find((o) => o.id === withId)?.name ?? withId}</span>}</div>
           <ul className={cx('sk-rows', cmp && 'cmp')} aria-label={`Skills of ${agentName}, one row per task class`}>
             {data.classes.map((c, i) => <Row key={c.classId} c={c} i={i} verdict={cmp ? cmp.classes.find((x) => x.classId === c.classId) : undefined} />)}
           </ul>
           {withId && (cmp ? <div className="sk-note dim"><Equal size={12} aria-hidden /> Compared only on difficulty levels both agents have. It says whether the two are distinguishable, never who is better.{cmp.classes.length === 0 ? ' Neither agent has any rated task yet.' : ''}</div> : srvCmp.loading ? <div className="sk-note dim">Comparing…</div> : srvCmp.error ? <div className="sk-note dim">{srvCmp.error}</div> : null)}
           <div className="sk-foot dim">
+            <Tip label={`Share of this agent's finished tasks that count toward a cell: they had a class and a difficulty stated before they finished. A low share means the missing labels could hide failures.`}><span className="sk-f" tabIndex={0} data-skill-share><ClipboardCheck size={12} aria-hidden /> Labelled: {data.finished - data.unrated} of {data.finished} finished task{data.finished === 1 ? '' : 's'}{data.finished ? ` (${Math.round(100 * (data.finished - data.unrated) / data.finished)}%)` : ''}</span></Tip>
             <Tip label={data.dependsOn.text}><span className="sk-f" tabIndex={0}><Shield size={12} aria-hidden /> Depends on the difficulty the delegator stated{data.unrated ? ` · ${data.unrated} finished task${data.unrated === 1 ? '' : 's'} without class and difficulty left out` : ''}</span></Tip>
             <Tip label={data.pairRatings.why}><span className="sk-f" tabIndex={0}><Users size={12} aria-hidden /> Pair ratings: not built</span></Tip>
           </div>

@@ -30,8 +30,11 @@ function levelsFor(agentId: string): Map<TaskClassId, LevelCount[]> {
 }
 
 export function demoSkills(agentId: string): AgentSkillsDto {
+  const classes = skillCells(levelsFor(agentId));
+  const rated = classes.reduce((a, c) => a + c.n, 0);
+  const unrated = Math.round(rated * 0.12); // a made-up share of finished tasks without a usable label
   return {
-    agentId, method: SKILL_METHOD, minN: SKILL_MIN_N, classes: skillCells(levelsFor(agentId)), unrated: 0, includesSimulated: true,
+    agentId, method: SKILL_METHOD, minN: SKILL_MIN_N, classes, unrated, finished: rated + unrated, includesSimulated: true,
     pairRatings: { built: false, why: PAIR_RATING_NOTE }, dependsOn: { gameable: true, text: skillRatingDependsText() },
   };
 }

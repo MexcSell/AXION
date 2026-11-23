@@ -73,7 +73,11 @@ try {
     check(`${theme}: the skill vector shows 8 rows`, await until(async () => (await q.locator('[data-testid="skill-vector"] .sk-row').count()) === 8, 20000));
     await q.waitForTimeout(700);
     const row = (id) => q.locator(`.sk-row[data-skill-class="${id}"]`);
-    check(`${theme}: coding shows n=16, a value and the levels used`, /n=16/.test(await row('coding').innerText()) && (await row('coding').locator('[data-skill-value]').count()) === 1 && /levels 2–3/.test(await row('coding').innerText()), (await row('coding').innerText()).replace(/\n/g, ' | '));
+    check(`${theme}: coding shows n=16, the levels used and a range`, /n=16/.test(await row('coding').innerText()) && (await row('coding').locator('[data-skill-value]').count()) === 1 && /levels 2–3/.test(await row('coding').innerText()), (await row('coding').innerText()).replace(/\n/g, ' | '));
+    check(`${theme}: a cell built from 2 levels is a muted range, not a headline percentage, and no raw figure is printed beside it`, (await row('coding').locator('[data-skill-headline="0"]').count()) === 1 && (await row('coding').locator('b.tnum').count()) === 0 && !/raw|unadjusted/i.test(await row('coding').innerText()), `${await row('coding').locator('[data-skill-headline]').count()} headline attr, ${await row('coding').locator('b').count()} bold, text: ${(await row('coding').innerText()).replace(/\n/g, ' | ')}`);
+    check(`${theme}: the column is headed "On the levels it has" and the footer shows the labelled share with n`, /on the levels it has/i.test(await q.locator('.sk-head').innerText()) && /Labelled: 24 of 25 finished tasks \(96%\)/.test(await q.locator('[data-skill-share]').innerText()), await q.locator('[data-skill-share]').innerText());
+    check(`${theme}: the levels chip, n and the row ? are focusable`, (await row('coding').locator('[data-skill-levels][tabindex="0"]').count()) === 1 && (await row('coding').locator('.sk-n[tabindex="0"]').count()) === 1 && (await row('coding').locator('button.sk-q').count()) === 1);
+    check(`${theme}: nothing on the panel says 95% without "nominal"`, !/(?<!nominal )95%/i.test(await q.locator('[data-testid="skill-vector"]').innerText()), (await q.locator('[data-testid="skill-vector"]').innerText()).match(/.{0,30}95%.{0,10}/g)?.join(' // '));
     check(`${theme}: writing shows "not enough evidence (3 of 5)" and no rate`, /not enough evidence \(3 of 5\)/.test(await row('writing').innerText()) && (await row('writing').locator('[data-skill-value]').count()) === 0);
     check(`${theme}: classes without tasks say "no tasks yet"`, /no tasks yet/.test(await row('data').innerText()));
     const panelText = await q.locator('[data-testid="skill-vector"]').innerText();
@@ -99,6 +103,20 @@ try {
     await q.screenshot({ path: `${SHOTS}/c72-performance-${theme}.png` });
     await q.keyboard.press('Escape');
   }
+
+  // ---- 390 px: the picker and the tag stay inside the panel (a panel-level check: the page-wide scroll check misses this)
+  await p.setViewportSize({ width: 390, height: 844 });
+  await p.goto(`${base}/agents/${fx.a}?tab=performance`, { waitUntil: 'domcontentloaded' });
+  await p.locator('.sk-row').first().waitFor({ timeout: 20000 });
+  await p.waitForTimeout(500);
+  const pr = await p.evaluate(() => {
+    const panel = document.querySelector('[data-testid="skill-vector"]'); const r = panel.getBoundingClientRect();
+    const inside = (el) => { if (!el) return false; const b = el.getBoundingClientRect(); return b.width > 0 && b.left >= r.left - 1 && b.right <= r.right + 1; };
+    return { sw: panel.scrollWidth - panel.clientWidth, select: inside(panel.querySelector('.sk-cmp select')), tag: inside(panel.querySelector('.demo-tag')), label: inside(panel.querySelector('.sk-cmp')), rows: [...panel.querySelectorAll('.sk-row')].every((row) => row.getBoundingClientRect().right <= r.right + 1), selW: Math.round(panel.querySelector('.sk-cmp select').getBoundingClientRect().width) };
+  });
+  check('390 px: the panel does not overflow and the Compare picker and the tag are inside it', pr.sw <= 0 && pr.select && pr.tag && pr.label && pr.rows && pr.selW >= 120, JSON.stringify(pr));
+  await p.screenshot({ path: `${SHOTS}/c72-performance-390.png` });
+  await p.setViewportSize({ width: 1366, height: 768 });
 
   // ---- a person who is not enough evidence: the agent with no rated tasks shows all-null rows
   await p.goto(`${base}/agents/${fx.b === 'planner-01' ? 'designer-01' : 'planner-01'}?tab=performance`, { waitUntil: 'domcontentloaded' });
