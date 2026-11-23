@@ -12,6 +12,8 @@ import { isApi } from './mode';
 const useTick = create<{ n: number }>(() => ({ n: 0 }));
 export const bumpTaskReviews = () => useTick.setState((s) => ({ n: s.n + 1 }));
 export const taskReviewsTick = () => useTick.getState().n;
+/** c89: lets the forecast ledger re-read after a review (a review resolves forecasts) */
+export const useReviewsTick = () => useTick((s) => s.n);
 
 export interface ReviewsRead { data: TaskReviewsDto | null; error: string | null; retry: () => void }
 export function useTaskReviews(taskId: string | undefined): ReviewsRead {
