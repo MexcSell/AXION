@@ -97,7 +97,7 @@ export const approversBody: V<ApproverQualityBody> = obj<ApproverQualityBody>({ 
 const capCell = { n: int, decided: nullable(int), people: nullable(int), shown: bool, arrivalPerDay: nullable(num), openBacklog: nullable(int), p50Ms: nullable(num), p95Ms: nullable(num), medianQueueSize: nullable(num) };
 const littleLaw: V<LittleLawDto> = obj<LittleLawDto>({
   status: oneOf(['pass', 'fail', 'insufficient'] as const), reason: oneOf(['ok', 'missing_close', 'missing_open', 'no_arrivals'] as const),
-  avgOpen: nullable(num), lambdaTimesW: nullable(num), missingClose: int, missingOpen: int, openNow: int,
+  avgOpen: nullable(num), lambdaTimesW: nullable(num), missingClose: int, missingOpen: int, openNow: nullable(int),
 });
 const spanRow = obj<SpanRowDto>({ supervisorId: str, name: str, dept: str, agents: int, openItems: nullable(int) });
 export const reviewCapacity: V<ReviewCapacityDto> = obj<ReviewCapacityDto>({

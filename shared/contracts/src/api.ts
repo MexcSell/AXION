@@ -118,7 +118,7 @@ export interface CapacityDeptDto extends CapacityCellDto { dept: string }
  */
 export interface LittleLawDto {
   status: 'pass' | 'fail' | 'insufficient'; reason: 'ok' | 'missing_close' | 'missing_open' | 'no_arrivals';
-  avgOpen: number | null; lambdaTimesW: number | null; missingClose: number; missingOpen: number; openNow: number;
+  avgOpen: number | null; lambdaTimesW: number | null; missingClose: number; missingOpen: number; /** null for a member when the total is under c58's floor (c87) */ openNow: number | null;
 }
 /** GET /review-capacity/people (administrators only): one row per person who decided in the window. Never offered to anyone else. */
 export interface CapacityPersonDto { userId: string; name: string; decided: number; p50Ms: number | null; p95Ms: number | null; medianQueueSize: number | null }
