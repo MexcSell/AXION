@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 
 // c92 (H23): web scripts must not default to the live ports (5190 web, 5191 API) outside the integration tree.
 // Safety: this test never runs a real script (before the fix that would reach 5190); it only calls the helper.
@@ -32,7 +33,7 @@ describe('c92 H23: script BASE resolution', () => {
     expect(pickBase({ env: { BASE: '' }, cwd: '/tmp' }).base).toBeUndefined();
   });
   it('resolveBase() exits non-zero with a message when run from a lane worktree with no BASE (helper only, no script)', () => {
-    const r = spawnSync('node', ['-e', `import(${JSON.stringify(join(SCRIPTS, '_base.mjs'))}).then((m) => console.log('RESOLVED ' + m.resolveBase()))`], { cwd: join(__dirname, '../../web'), env: { PATH: process.env.PATH, HOME: process.env.HOME }, encoding: 'utf8', timeout: 15_000 });
+    const r = spawnSync('node', ['-e', `import(${JSON.stringify(join(SCRIPTS, '_base.mjs'))}).then((m) => console.log('RESOLVED ' + m.resolveBase()))`], { cwd: tmpdir(), env: { PATH: process.env.PATH, HOME: process.env.HOME }, encoding: 'utf8', timeout: 15_000 });
     expect(r.status).not.toBe(0);
     expect(r.stdout).not.toMatch(/RESOLVED/);
     expect(r.stderr).toMatch(/BASE/);

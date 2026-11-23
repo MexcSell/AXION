@@ -132,19 +132,25 @@ describe('c88: plan-metrics.ts is in the scan; forecasts/ is an explicit exclusi
     }
     expect(Object.keys(SCAN_EXCLUSIONS)).toEqual(['forecasts/']);
   });
-  it('c92 M2c-1: a sub-select or function in a FROM list does not hide the entries after it; extract(epoch from col) is not a FROM list; fail-closed holds', () => {
-    const c: SchemaCols = { tasks: ['id', 'status', 'title', 'created_at'], task_reviews: ['id', 'verdict', 'task_id'] };
+});
+
+describe('c92 M2c-1: the scanner and FROM lists', () => {
+  const c: SchemaCols = { tasks: ['id', 'status', 'title', 'created_at'], task_reviews: ['id', 'verdict', 'task_id'] };
+  it('a sub-select, lateral or function in a FROM list does not hide the entries after it', () => {
     const r1 = reads('select x.n, t.title from (select count(*) as n from task_reviews) x, tasks t where t.status = 1', c);
     expect([...r1.tables].sort()).toEqual(['task_reviews', 'tasks']);
     expect([...r1.reads]).toEqual(expect.arrayContaining(['tasks.title', 'tasks.status']));
     expect(r1.unresolved).toEqual([]);
     expect([...reads('select t.id from tasks t, lateral (select 1 as k) l, task_reviews r where r.verdict = 1', c).tables].sort()).toEqual(['task_reviews', 'tasks']);
     expect([...reads('select u.v, t.id from unnest($1::text[]) u(v), tasks t', c).tables]).toEqual(['tasks']);
+  });
+  it('extract(epoch from col), substring(.. from ..) and trim(.. from ..) are not FROM lists (no false unresolved)', () => {
     const r2 = reads('select extract(epoch from t.created_at) as e, extract(epoch from (now() - created_at)) from tasks t', c);
     expect(r2.unresolved).toEqual([]);
     expect([...r2.reads]).toEqual(['tasks.created_at']);
     expect(reads(`select substring(t.title from 2), trim(both ' ' from t.title) from tasks t`, c).unresolved).toEqual([]);
-    // never loosened: an unknown real table is still unresolved, after a sub-select and inside an extract's sub-select
+  });
+  it('fail-closed is kept: an unknown table is still unresolved after a sub-select, inside an extract sub-select and beside an extract', () => {
     expect(reads('select 1 from (select 1) x, nosuch n', c).unresolved).toEqual(['nosuch']);
     expect(reads('select extract(epoch from (select max(z.q) from nosuch z))', c).unresolved).toEqual(['nosuch']);
     expect(reads('select 1 from tasks t, nosuch n where extract(epoch from t.created_at) > 0', c).unresolved).toEqual(['nosuch']);
