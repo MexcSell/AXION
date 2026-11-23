@@ -1,7 +1,8 @@
 // Cycle 73 (lane w71), item P2c: a reader pinned to the bottom of an open thread stays pinned through a fast live burst
 // (BURST live messages posted 10 at a time into a thread of FILL messages). Before the fix the reader ended 15-17k px above the
-// bottom with `pinned` false (found by c55). DOM-only conditions, so it also runs against a production build.
-// Run through scripts/api-e2e.sh. Env: REPS (1), FILL (300), BURST (200).
+// bottom with `pinned` false (found by c55). Also: a reader who scrolls UP in the middle of a burst is not pulled back down.
+// Dev server only (api-e2e.sh); the checks are DOM-only. Env: REPS (1), FILL (300), BURST (200).
+// The scroll log (printed always) lists the scroll events that left the reader more than 40 px from the bottom while it followed.
 import { chromium } from 'playwright';
 import { readFileSync } from 'node:fs';
 const base = process.env.BASE || 'http://127.0.0.1:5193';
@@ -31,6 +32,8 @@ const api = async (method, path, data, headers = {}) => {
 };
 let k = 0; const key = () => `c73p-${Date.now()}-${k++}`;
 const blocks = () => p.locator('.conv-main .minimap .mm-block').count(); // one block per message the page holds
+// the burst is posted 10 at a time in parallel, so its last text is not always the newest row: the newest row is the last one rendered
+const lastRowVisible = () => p.evaluate(() => { const body = document.querySelector('.conv-main .thread-body'); const rows = body ? [...body.querySelectorAll('[data-mid]')] : []; const n = rows[rows.length - 1]; if (!n) return false; const box = body.getBoundingClientRect(), r = n.getBoundingClientRect(); return r.bottom > box.top && r.top < box.bottom; });
 const quiet = (ms, cap) => until(() => p.evaluate((ms) => { const l = window.__lt; const end = l.length ? Math.max(...l.map(([s, d]) => s + d)) : 0; return performance.now() - end > ms; }, ms), cap, 200);
 const burst = async (tid, n, tag) => { for (let i = 0; i < n; i += 10) await Promise.all(Array.from({ length: Math.min(10, n - i) }, (_, j) => api('POST', `/threads/${tid}/messages`, { kind: 'command', text: `${tag} ${String(i + j + 1).padStart(4, '0')}`, to: 'gm' }, { 'idempotency-key': key() }))); };
 const newestVisible = (text) => p.evaluate((text) => { const body = document.querySelector('.conv-main .thread-body'); if (!body) return false; const box = body.getBoundingClientRect(); const n = [...body.querySelectorAll('[data-mid]')].reverse().find((e) => e.textContent.includes(text)); if (!n) return false; const r = n.getBoundingClientRect(); return r.bottom > box.top && r.top < box.bottom; }, text);
@@ -56,7 +59,7 @@ for (let rep = 1; rep <= REPS; rep++) {
   await p.locator('.conv-main .thread-body').evaluate((el) => { el.scrollTop = el.scrollHeight; });
   await quiet(800, 20000);
   const have = await blocks();
-  await p.locator('.conv-main .thread-body').evaluate((el) => { window.__minDist = 0; window.__scrolls = 0; el.addEventListener('scroll', () => { window.__scrolls++; }, { passive: true }); });
+  await p.locator('.conv-main .thread-body').evaluate((el) => { window.__minDist = 0; window.__scrolls = 0; window.__log = []; let last = el.scrollTop; el.addEventListener('scroll', () => { window.__scrolls++; const d = Math.round(el.scrollHeight - el.scrollTop - el.clientHeight); if (d >= 40 && window.__log.length < 5) window.__log.push({ n: window.__scrolls, d, dir: el.scrollTop > last ? 'down' : el.scrollTop < last ? 'up' : 'same', t: Math.round(performance.now()) }); last = el.scrollTop; }, { passive: true }); });
   const tb = Date.now();
   await burst(tid, BURST, 'live');
   const caught = await until(async () => (await blocks()) >= have + BURST, 180000, 100);
@@ -64,16 +67,31 @@ for (let rep = 1; rep <= REPS; rep++) {
   await quiet(1000, 120000);
   const dist = async () => p.locator('.conv-main .thread-body').evaluate((el) => Math.round(el.scrollHeight - el.scrollTop - el.clientHeight));
   const d = await dist();
-  const last = `live ${String(BURST).padStart(4, '0')}`;
-  const visible = await newestVisible(last);
+  const visible = await lastRowVisible();
   const pill = await p.locator('.new-pill').count();
   console.log(`rep ${rep} · load ${load()} · ${FILL} filled, ${BURST} live in ${caughtMs} ms (store has it ${caught}) · ${d} px from the bottom · newest visible ${visible} · "new" pill ${pill}`);
+  console.log('  scroll events that left the reader >= 40 px from the bottom (first 5):', JSON.stringify(await p.evaluate(() => ({ scrolls: window.__scrolls, log: window.__log }))));
   check('the whole live burst arrived', caught);
   check('after a fast live burst the reader is still pinned: the newest message is in view, within 60 px of the bottom, no "N new" pill', visible && d < 60 && pill === 0, `${d} px from the bottom, newest visible ${visible}, pill ${pill}`);
   // and it follows one more message afterwards
   await burst(tid, 1, 'after');
   const followed = await until(async () => newestVisible('after 0001'), 8000, 100);
   check('and still follows the next single message', followed, `${await dist()} px from the bottom`);
+  // a reader who scrolls up in the middle of a burst stays where they are (the pin must not pull them back down)
+  const have2 = await blocks();
+  const UP = Math.max(60, Math.floor(BURST / 2));
+  const pending = burst(tid, UP, 'upburst');
+  await until(async () => (await blocks()) >= have2 + 20, 60000, 50);
+  await p.locator('.conv-main .thread-body').evaluate((el) => { window.__ev = []; let last = el.scrollTop; el.addEventListener('scroll', () => { const d = Math.round(el.scrollHeight - el.scrollTop - el.clientHeight); window.__ev.push([Math.round(performance.now()), d, el.scrollTop > last ? 'down' : 'up']); last = el.scrollTop; }, { passive: true }); });
+  const box = await p.locator('.conv-main .thread-body').boundingBox();
+  await p.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await p.mouse.wheel(0, -1500);
+  await pending;
+  await until(async () => (await blocks()) >= have2 + UP, 180000, 100);
+  await quiet(1000, 120000);
+  const d2 = await dist();
+  if (process.env.DEBUG_UP) console.log('  scroll events after the wheel (t, distance, dir):', JSON.stringify(await p.evaluate(() => window.__ev)));
+  check('a reader who scrolls up in the middle of a burst is not pulled back to the bottom', d2 > 1000, `${d2} px from the bottom after the burst`);
 }
 check('no page errors', errors.length === 0, errors.join(' | '));
 await b.close();
