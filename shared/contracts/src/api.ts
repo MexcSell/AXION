@@ -84,6 +84,11 @@ export interface RuleOfTwoDto {
 
 /** c58 (R2-9): how a decision was made. Administrators only, decided requests only. Advisory: it never changed a decision. */
 export interface DecisionRecordDto { latencyMs: number; queueSize: number; fastBulk: boolean }
+/**
+ * c75: the detail of an `approval.decide` audit row. The evidence is hashed into the per-tenant chain with the row, and consume cross-checks it.
+ * Not served by any route (audit rows are not readable through the API; /audit/verify is administrators only and returns no detail).
+ */
+export interface ApprovalDecideAuditDetail { decision: 'approved' | 'denied'; mission: string; latencyMs: number; queueSize: number; fastBulk: boolean; fired: boolean; rule: 'rule_of_two' | null; evidenceDigest: string | null }
 /** One cell of the approval-quality statistics. Below `minEvidence` decisions the numbers are null and the cell reads "not enough evidence". */
 export interface QualityCellDto { n: number; enough: boolean; approvalRate: number | null; medianLatencyMs: number | null; fastBulk: number | null }
 /** GET /approvals/quality (everyone): the aggregate over the tenant, no names. */

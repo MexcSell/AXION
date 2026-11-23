@@ -1,7 +1,7 @@
 import { nul, str, num, int, bool, iso, rec, lit, oneOf, nullable, opt, arr, either, obj, openObj, dict, type V } from './validate.ts';
 import {
   ERROR_CODES, ORIGIN_CHANNELS, ORIGIN_CLASSES, MISSION_STATUSES, SCORECARD_WINDOWS, REVIEW_VERDICTS, RUBRIC_RESULTS, EVIDENCE_KINDS, FAILURE_SUBJECT_KINDS, DETECTION_CHANNELS, FAILURE_MECHANISMS, FAILURE_CONTROLS, STEP_STATUSES, STALL_POLICY,
-  type AccountDto, type PhaseDto, type StaffingDto, type AgentDto, type AgentVersionDto, type ApprovalDto, type RuleOfTwoDto, type DecisionRecordDto, type QualityCellDto, type ApprovalQualityDto, type ApproverQualityDto, type ApproverQualityBody, type AttachmentDto, type AuditVerifyDto, type AvatarDto, type BriefTier, type ChannelDto,
+  type AccountDto, type PhaseDto, type StaffingDto, type AgentDto, type AgentVersionDto, type ApprovalDto, type RuleOfTwoDto, type DecisionRecordDto, type ApprovalDecideAuditDetail, type QualityCellDto, type ApprovalQualityDto, type ApproverQualityDto, type ApproverQualityBody, type AttachmentDto, type AuditVerifyDto, type AvatarDto, type BriefTier, type ChannelDto,
   type CompanyScorecardDto, type ConnectResult, type DelegableKind, type DelegationBriefDto, type DelegationBriefList, type DepartmentFacts, type DepartmentsDto, type DeviceDto,
   type ErrorEnvelope, type EvidenceRef, type DetectionFieldCount, type FailurePatternDto, type FailurePatternsDto, type FailureDetectionDto, type FailureAttributionDto, type FailureCategoryCount, type FailureModeCount, type FailureModesDto, type FailureSubjectInfo, type FailureTagDto, type HealthDto,
   type HierarchyDto, type HierarchyEdgeDto, type HierarchyNodeDto, type InstanceDto, type InstancesPageDto, type LedgerDto, type LedgerVersionDto, type LedgerVersionPageDto,
@@ -87,6 +87,7 @@ export const upload: V<UploadDto> = obj<UploadDto>({ id: str, name: str, kind: f
 const ruleFlags = obj<RuleOfTwoDto['flags']>({ untrustedInput: bool, sensitiveAccess: bool, canChangeState: bool });
 const ruleBecause = obj<RuleOfTwoDto['because']>({ untrustedInput: arr(str), sensitiveAccess: arr(str), canChangeState: arr(str) });
 export const ruleOfTwo: V<RuleOfTwoDto> = obj<RuleOfTwoDto>({ flags: ruleFlags, because: ruleBecause, fired: bool, rule: nullable(oneOf(['rule_of_two'] as const)), policyVersion: int });
+export const approvalDecideAuditDetail: V<ApprovalDecideAuditDetail> = obj<ApprovalDecideAuditDetail>({ decision: oneOf(['approved', 'denied'] as const), mission: str, latencyMs: int, queueSize: int, fastBulk: bool, fired: bool, rule: nullable(oneOf(['rule_of_two'] as const)), evidenceDigest: nullable(str) });
 const decisionRecord = obj<DecisionRecordDto>({ latencyMs: num, queueSize: int, fastBulk: bool });
 const qualityCell = { n: int, enough: bool, approvalRate: nullable(num), medianLatencyMs: nullable(num), fastBulk: nullable(int) };
 export const approvalQuality: V<ApprovalQualityDto> = obj<ApprovalQualityDto>({ ...qualityCell, medianQueueSize: nullable(num), windowDays: int, windowStart: iso, minEvidence: int, approverCount: int, minApprovers: int });
