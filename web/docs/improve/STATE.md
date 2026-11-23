@@ -51,7 +51,7 @@ Rewritten 2026-11-22T07:35Z, 17:50Z, and 2026-11-23T03:40Z by the controller; up
 | w77 | c79 tenant-isolation suite (R4-4), e2e4, tests only | MERGED at ebea695 (batch 37, tip 6ee88cf) |
 | w78 | c80 migration guard (R4-6), e2e5 | MERGED at ebea695 (batch 36, tip 909577e) |
 | w79 | c81 tenant fixes (T1 2–4, MR2, MR4), e2e13, server only | CLEARED at 2afe16c, batch 40 |
-| w80 | c82 390 px tab strips (H16, H22), e2e16, **web: done by ~12:00Z** | dispatched ~06:15Z |
+| w80 | c82 390 px tab strips (H16, H22), e2e16 | CLEARED at 67d995d, batch 48 (web: before 16:00Z) |
 | w81 | c83 metric guard follow-ups (M2b), e2e15 | CLEARED at 3ef9d2d, batch 39 |
 | w82 | c84 judge gate without selection bias (E1e), e2e17 | MERGED at 69c799c (batch 38) |
 | — | Research round 5 (docs only) | verified: 23 CONFIRMED, 3 CORRECTED |
