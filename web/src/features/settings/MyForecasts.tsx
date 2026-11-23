@@ -27,7 +27,7 @@ export function kpisOf(l: ForecastLedgerDto): KpiItem[] {
     { key: 'count', icon: Crosshair, value: l.counts.total, label: 'Forecasts', color: '#3b82f6', help: 'forecasts.count', hint: <span data-fc-counts>{l.counts.resolved} resolved · {l.counts.open} open · {l.counts.void} void · {l.counts.late} late</span> },
     { key: 'brier', icon: Sigma, value: l.meanBrier ?? 0, decimals: 3, label: 'Mean Brier', color: '#10b981', help: 'forecasts.brier', badge: `n=${n}`, ...(l.meanBrier === null ? { text: 'none resolved yet' } : {}), hint: 'lower is better' },
     { key: 'log', icon: Activity, value: l.meanLogLoss ?? 0, decimals: 3, label: 'Mean log loss', color: '#8b5cf6', help: 'forecasts.log', badge: `n=${n}`, ...(l.meanLogLoss === null ? { text: 'none resolved yet' } : {}), hint: 'lower is better' },
-    { key: 'skill', icon: Scale, value: sk.skill ?? 0, decimals: 2, label: 'Skill against the baseline', color: '#f59e0b', help: 'forecasts.skill', badge: `n=${sk.n}`,
+    { key: 'skill', icon: Scale, value: sk.skill ?? 0, decimals: 2, label: 'Skill against the baseline', color: '#f59e0b', help: 'forecasts.skill',
       ...(sk.state === 'ok' && sk.skill !== null ? {} : { text: sk.state === 'ok' ? 'no comparison' : sk.text }), hint: sk.state === 'ok' ? sk.text : `${sk.needed} with a baseline are needed` },
   ];
 }

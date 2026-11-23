@@ -49,6 +49,7 @@ export function TaskForecast({ taskId, rv, canceled }: { taskId: string; rv: Rev
             </div>
           )}
         </motion.div>
+        {err && <div className="oa-banner" role="alert" data-forecast-error style={{ marginTop: 6 }}><ShieldAlert size={15} /><span>{err}</span></div>}
       </div>
     );
   }
