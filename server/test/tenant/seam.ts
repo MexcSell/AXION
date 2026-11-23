@@ -70,3 +70,5 @@ export const writeWithTenant = (stmt: RegExp, from: string, to: string): Rewrite
   return { sql, params: [to, ...params.slice(1)] };
 };
 export const useSeams = (app: FastifyInstance) => SEAMS.get(app)!;
+/** Apply a rewrite only for statements whose parameters satisfy `when` (a fault that hits one kind of lookup, not every one). */
+export const onlyWhen = (when: (params: unknown[]) => boolean, r: Rewrite): Rewrite => (sql, params) => (when(params) ? r(sql, params) : null);
