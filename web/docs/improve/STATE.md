@@ -65,7 +65,7 @@ Rewritten 2026-11-22T07:35Z, 17:50Z, and 2026-11-23T03:40Z by the controller; up
 | w90 | c92 script live-port guard (H23) and scanner gap (M2c-1), e2e3 | MERGED at 15d7a68 (batch 45) |
 | w91 | c93 connection-cap resilience (H14b), e2e4 | CLEARED at 1a5d2b6, batch 49 |
 | w92 | c94 execution profile validator (R6-1), e2e17 | dispatched ~10:45Z |
-| w93 | c95 run budget and halt checker (R6-5), e2e14 | dispatched ~10:45Z |
+| w93 | c95 run budget and halt checker (R6-5), e2e14 | CLEARED at f71fa58, batch 51 |
 | — | Final report draft (FINAL-REPORT-PHASE2.md) | draft committed; finalise at the end |
 
 Every other Wave 5–7 lane (c53–c71) is MERGED and live (2026-11-23T02:22Z). Details are in QUEUE.md, MERGES.md and LOG.md.
