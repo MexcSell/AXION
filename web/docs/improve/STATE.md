@@ -66,6 +66,8 @@ Rewritten 2026-11-22T07:35Z, 17:50Z, and 2026-11-23T03:40Z by the controller; up
 | w91 | c93 connection-cap resilience (H14b), e2e4 | CLEARED at 1a5d2b6, batch 49 |
 | w92 | c94 execution profile validator (R6-1), e2e17 | CLEARED at db0995f, batch 52 |
 | w93 | c95 run budget and halt checker (R6-5), e2e14 | CLEARED at f71fa58, batch 51 |
+| w94 | c96 plan conformance checker (R6-8 part 1), e2e3 | dispatched ~11:10Z |
+| w95 | c97 outcome graders and tamper detector (R6-7), e2e5 | dispatched ~11:10Z |
 | — | Final report draft (FINAL-REPORT-PHASE2.md) | draft committed; finalise at the end |
 
 Every other Wave 5–7 lane (c53–c71) is MERGED and live (2026-11-23T02:22Z). Details are in QUEUE.md, MERGES.md and LOG.md.

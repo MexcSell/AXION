@@ -228,3 +228,9 @@ R5-8 was not started: its handoff record needs a new table, and no more migratio
 | c94 execution profile validator, deny by default (R6-1) | w92, e2e17 | server pure module and contracts | 18:30Z |
 | c95 run budget and halt checker (R6-5) | w93, e2e14 | server pure module and contracts | 18:30Z |
 The other round-6 candidates (R6-3 trajectory record, R6-4 stage ledger, R6-7 graders, R6-8 plan conformance; R6-2 and R6-6 on hold) go to the next-phase roadmap in the final report.
+
+### Wave 8h (planned ~11:10Z; the last lanes)
+| Cycle | Lane | Scope | Merge by |
+|---|---|---|---|
+| c96 plan conformance and privilege checker (R6-8 part 1) | w94, e2e3 | server pure module and contracts | 18:30Z |
+| c97 outcome graders and tamper detector on toy tasks (R6-7) | w95, e2e5 | server pure module | 18:30Z |
