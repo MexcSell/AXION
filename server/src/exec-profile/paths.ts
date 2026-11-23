@@ -81,5 +81,5 @@ export function matchesAnyPattern(path: string, patterns: readonly string[]): bo
 }
 
 /** Directories that are never a scope (and everything under them): they hold the system's own state and credentials. /proc/self/root reaches the whole file system. */
-export const SENSITIVE_ROOTS: readonly string[] = Object.freeze(['/etc', '/proc', '/root', '/sys', '/dev']);
+export const SENSITIVE_ROOTS: readonly string[] = Object.freeze(['/etc', '/proc', '/root', '/sys', '/dev', '/var/run', '/run']);
 export const isSensitiveScope = (path: string): boolean => path === '/' || SENSITIVE_ROOTS.some((r) => isUnder(path, r));
