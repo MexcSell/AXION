@@ -16,8 +16,8 @@ const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/roo
 const results = [], errors = [];
 const check = (name, ok, extra = '') => { results.push(`${ok ? 'PASS' : 'FAIL'} ${name}${extra ? ' — ' + extra : ''}`); console.log(results[results.length - 1]); };
 const until = async (f, ms = 10000, step = 150) => { const t0 = Date.now(); for (;;) { try { if (await f()) return true; } catch { /* retry */ } if (Date.now() - t0 > ms) return false; await new Promise((r) => setTimeout(r, step)); } };
-const KEYS = ['rework_rate', 'first_pass_acceptance', 'duplicate_delegation', 'reassign_churn', 'handoff_wait_h'];
-const UNMEASURED = ['approval_decision_h', 'cost'];
+const KEYS = ['rework_rate', 'first_pass_acceptance', 'duplicate_delegation', 'reassign_churn', 'handoff_wait_h', 'approval_decision_h'];
+const UNMEASURED = ['cost']; // c69 merge: the approval wait is measured from c58's stored latency (n = 0 here: the seed has no non-demo decisions)
 let adminPage = null;
 const device = { name: 'Chrome on Linux (script)', kind: 'desktop', browser: 'Chrome' };
 async function open(name, theme = 'dark') {
@@ -92,8 +92,8 @@ try {
   check('GET /company/process has the seven cells in order', JSON.stringify(srv.cells?.map((c) => c.key)) === JSON.stringify([...KEYS, ...UNMEASURED].map((k) => `process.${k}`)), JSON.stringify(srv.cells?.map((c) => c.key)));
   const cards = () => p.locator('.proc-card[data-pcell]').evaluateAll((els) => els.map((e) => ({ key: e.getAttribute('data-pcell'), state: e.getAttribute('data-state'), value: e.getAttribute('data-value'), n: e.getAttribute('data-n') === '' ? null : Number(e.getAttribute('data-n')), open: e.getAttribute('data-open'), text: e.innerText })));
   const dom = await cards();
-  check('five measured cards, in order', JSON.stringify(dom.map((d) => d.key)) === JSON.stringify(KEYS.map((k) => `process.${k}`)));
-  check('the two figures with no source are a strip of honest blanks with the reason, n unknown, no number', (await p.locator('.proc-bl[data-state="unmeasured"]').count()) === 2 && (await p.locator('[data-unmeasured]').getAttribute('data-unmeasured')) === UNMEASURED.map((k) => `process.${k}`).join(',') && /not measured/.test(await p.locator('.proc-blank').innerText()));
+  check('six measured cards, in order', JSON.stringify(dom.map((d) => d.key)) === JSON.stringify(KEYS.map((k) => `process.${k}`)));
+  check('the one figure with no source (cost) is a strip of honest blanks with the reason, n unknown, no number', (await p.locator('.proc-bl[data-state="unmeasured"]').count()) === 1 && (await p.locator('[data-unmeasured]').getAttribute('data-unmeasured')) === UNMEASURED.map((k) => `process.${k}`).join(',') && /not measured/.test(await p.locator('.proc-blank').innerText()));
   check('every card agrees with the server (state, value, n)', srv.cells.filter((c) => c.state !== 'unmeasured').every((c, i) => dom[i].state === c.state && dom[i].value === (c.value === null ? '' : String(c.value)) && dom[i].n === c.n), JSON.stringify(dom.map((d) => [d.key, d.state, d.value, d.n])));
   check('every card shows n and the window, or "not enough evidence (n = k)", never a bare number', dom.every((c) => (c.state === 'none' ? new RegExp(`not enough evidence \\(n = ${c.n}\\)`).test(c.text) : new RegExp(`n = ${c.n}`).test(c.text) && /last 30 days/.test(c.text))));
   const get = (k) => srv.cells.find((c) => c.key === `process.${k}`);
@@ -102,7 +102,7 @@ try {
   check('hand-off wait: median 2 h, p90 4 h over 3, 1 open', get('handoff_wait_h').value === 2 && get('handoff_wait_h').p90 === 4 && get('handoff_wait_h').n === 3 && get('handoff_wait_h').open?.n === 1, JSON.stringify(get('handoff_wait_h')));
   check('duplicate delegations: 2 of 3 = 66.7%', get('duplicate_delegation').value === 66.7 && get('duplicate_delegation').n === 3);
   check('reassign churn is "not enough evidence" below 20 tasks and says how many', get('reassign_churn').state === 'none' && /not enough evidence \(n = \d+\)/.test(dom.find((d) => d.key === 'process.reassign_churn').text));
-  check('the approval time and the cost are "unmeasured" in the API (no source): value null, n null', UNMEASURED.every((k) => get(k).state === 'unmeasured' && get(k).value === null && get(k).n === null));
+  check('cost is "unmeasured" in the API (no source): value null, n null; the approval wait has no decided real approval yet: none, value null, n 0, needs 20', UNMEASURED.every((k) => get(k).state === 'unmeasured' && get(k).value === null && get(k).n === null) && JSON.stringify([get('approval_decision_h').state, get('approval_decision_h').value, get('approval_decision_h').n]) === JSON.stringify(['none', null, 0]));
   check('the open count is shown beside the figure on the rework, first-pass and hand-off cards ("not in the rate")', (await Promise.all(['rework_rate', 'first_pass_acceptance', 'handoff_wait_h'].map(async (k) => /1 open/.test(await p.locator(`[data-pcell="process.${k}"] .proc-open`).innerText()) && /not in the rate/.test(await p.locator(`[data-pcell="process.${k}"] .proc-open`).innerText())))).every(Boolean));
   check('the hand-off card shows the p90 beside the median', /p90 4\.0 h/.test(await p.locator('[data-pcell="process.handoff_wait_h"]').innerText()));
   check('the rework card shows the cause breakdown with n', await p.locator('[data-pcell="process.rework_rate"] [data-cause="criterion failed, no tag"]').count() === 1 && /no recorded cause\s*1/.test(await p.locator('[data-pcell="process.rework_rate"] .proc-causes').innerText()));
@@ -171,7 +171,7 @@ try {
   await until(async () => (await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)), 5000);
   await calm(p);
   const mob = await p.evaluate(() => ({ over: document.documentElement.scrollWidth - innerWidth, cells: [...document.querySelectorAll('.proc-card')].map((c) => Math.round(c.getBoundingClientRect().width)), clip: [...document.querySelectorAll('.proc-card')].filter((c) => c.getBoundingClientRect().right > innerWidth + 1).length }));
-  check('390 px: no horizontal scroll and every process card is on screen', mob.over <= 0 && mob.cells.length === 5 && mob.clip === 0, JSON.stringify(mob));
+  check('390 px: no horizontal scroll and every process card is on screen', mob.over <= 0 && mob.cells.length === 6 && mob.clip === 0, JSON.stringify(mob));
   const noteBox = await p.evaluate(() => { const n = document.querySelector('.proc-note'); return { over: n.scrollHeight - n.clientHeight, h: n.clientHeight }; });
   check('F5: at 390 px the footnote is not clipped (scrollHeight <= clientHeight)', noteBox.over <= 1, JSON.stringify(noteBox));
   await p.locator('.proc-grid').scrollIntoViewIfNeeded();
