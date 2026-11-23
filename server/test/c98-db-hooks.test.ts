@@ -17,6 +17,25 @@ describe('c98 H14c-1: no test hook in src/db.ts, fault injection through the acq
     const pool = makePool(TEST_DB(), undefined, 2, (i) => warns.push(i), { acquireHook: (n) => { if (n <= 2) throw capErr(); } });
     try { expect((await pool.query('select 1 as n')).rows[0].n).toBe(1); expect(warns.length).toBe(2); } finally { await pool.end(); }
   });
+  it('a failed QUERY is never retried, and the promise-form pool.connect() goes through the hook and retry too (c93 assertions, kept)', async () => {
+    const warns: unknown[] = []; let hookCalls = 0;
+    const pool = makePool(TEST_DB(), undefined, 2, (i) => warns.push(i), { acquireHook: (n) => { hookCalls++; if (n <= 2) throw capErr(); } });
+    try {
+      expect((await pool.query('select 1 as n')).rows[0].n).toBe(1);
+      expect(warns.length).toBe(2);
+      let acquired = 0; pool.on('acquire', () => acquired++);
+      await expect(pool.query('select 1/0')).rejects.toMatchObject({ code: '22012' });
+      expect(acquired).toBe(1); expect(warns.length).toBe(2); // one acquisition, no retry of the failed statement
+      const before = hookCalls;
+      const c = await pool.connect(); c.release(); // promise form
+      expect(hookCalls).toBe(before + 1); expect(warns.length).toBe(2);
+    } finally { await pool.end(); }
+  });
+  it('promise-form pool.connect() retries a 53300 on the first attempts', async () => {
+    const warns: unknown[] = [];
+    const pool = makePool(TEST_DB(), undefined, 2, (i) => warns.push(i), { acquireHook: (n) => { if (n <= 2) throw capErr(); } });
+    try { const c = await pool.connect(); c.release(); expect(warns.length).toBe(2); } finally { await pool.end(); }
+  });
   it('with retry: false the same fault surfaces as 53300 (the flake)', async () => {
     const pool = makePool(TEST_DB(), undefined, 2, undefined, { retry: false, acquireHook: (n) => { if (n <= 1) throw capErr(); } });
     try { await expect(pool.query('select 1')).rejects.toMatchObject({ code: '53300' }); } finally { await pool.end(); }
