@@ -787,3 +787,4 @@ One entry per cycle: times (UTC), theme, hypothesis, measure + threshold (fixed 
 - 2026-11-23T12:23Z FINAL-REPORT-PHASE2.md finalised (status FINAL; c94–c97, research round 6, final numbers, release notes, backlog) and the SCORECARD Final column filled.
 - 2026-11-23T12:27Z Advisor check before publishing. Found: web tsc fails on HEAD (c94 node:crypto in contracts), sent to the integrator; report counts wrong (now 25 built, 5 owner, 11 deferred of 42), anchor line and verify-all citation fixed, Q18 added (phone strips scroll or icon-collapse); STATE.md rewritten. Decision: one last small server-only wave (c98, c99), final live update ~19:30Z, report republished then.
 - 2026-11-23T12:27Z Wave 9 briefs: c98 (H14c, M2c; w96) and c99 (X1, c97 detector gaps; w97, based after the c94 merge fix).
+- 2026-11-23T12:28Z BACKLOG status cleaned up: rows closed by c54–c93 are marked Done or Partly done. Memory pointer updated.
