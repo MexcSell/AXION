@@ -17,6 +17,10 @@ await ctx.addInitScript(() => { try { localStorage.setItem('axion.testhook', '1'
 const p = await ctx.newPage();
 // c57 (H12) race hunting knobs, all off by default: A11Y_ROUTE=<one view> A11Y_REPEAT=<n> A11Y_THROTTLE=<cpu slowdown factor>
 const ROUTE = process.env.A11Y_ROUTE || '';
+// c73 (H18): A11Y_PROBE=<text> (api mode) runs only the live-region probes whose route contains the text, A11Y_REPEAT times, with
+// no views and no dialogs (A11Y_THROTTLE applies): `A11Y_PROBE=sub=proposals A11Y_REPEAT=20 A11Y_THROTTLE=6`
+const PROBE = process.env.A11Y_PROBE || '';
+const LAZY_DELAY = Number(process.env.A11Y_DELAY_LAZY) || 0; // c73 (H18) test knob: the lazy proposals page module arrives this many ms late (api probes only)
 const DELAY_MAIN = Number(process.env.A11Y_DELAY_MAIN) || 0; // simulates a slow dev server: the app entry module arrives this many ms late
 if (DELAY_MAIN) await p.route(/\/src\/main\.tsx(\?|$)/, async (r) => { await new Promise((res) => setTimeout(res, DELAY_MAIN)); await r.continue().catch(() => {}); });
 const REPEAT = Math.max(1, Number(process.env.A11Y_REPEAT) || 1);
@@ -131,7 +135,7 @@ const pageErrs = [];
 p.on('pageerror', (e) => pageErrs.push(e.message));
 const t0 = Date.now();
 let vi = 0;
-const runViews = ROUTE ? Array.from({ length: REPEAT }, () => ROUTE) : views;
+const runViews = ROUTE ? Array.from({ length: REPEAT }, () => ROUTE) : PROBE ? [] : views;
 for (const v of runViews) {
   const walkIt = !FAST && (vi++ % 3 === 0 || /assignments|conversations|appearance/.test(v)); // the Tab walk is the slow part: every third view plus the dense ones
   await p.goto(base + v, { waitUntil: navWait() }); await settle(p, 400);
@@ -153,7 +157,7 @@ const bag = {
   attachment: { id: 'a1', name: 'evidence.png', kind: 'image', size: '12 KB' },
 };
 await p.goto(base + '/overview', { waitUntil: navWait() }); await settle(p, 400);
-const ids = (await p.evaluate(() => window.__axion.dialogIds())).sort();
+const ids = PROBE ? [] : (await p.evaluate(() => window.__axion.dialogIds())).sort();
 // a real, focusable opener so focus restore can be asserted
 await p.evaluate(() => { const o = document.createElement('button'); o.id = 'a11y-opener'; o.textContent = 'opener'; o.style.cssText = 'position:fixed;left:0;bottom:0;z-index:1'; document.body.appendChild(o); });
 for (const id of ids) {
@@ -212,7 +216,7 @@ if (API) {
   ];
   let holdRevisions = false; // only the history probe holds the revisions request (the proposals page reads it too)
   const hit = /\/api\/v1\/(.*instances|agent-instances|.*agent-versions|.*versions|.*proposals|.*versions|company\/scorecard|organization\/graph|missions\/[^/]+\/(hierarchy|tasks|threads)|threads\/|channels\/|organization\/revisions)/;
-  for (const mode of ['slow', 'fail']) {
+  for (const mode of PROBE ? Array.from({ length: REPEAT }, () => ['slow', 'fail']).flat() : ['slow', 'fail']) {
     let release; const gate = new Promise((r) => { release = r; });
     await p.route(hit, async (route) => {
       if (route.request().method() !== 'GET' || route.request().url().includes('/stream') || (!holdRevisions && route.request().url().includes('organization/revisions'))) return route.continue();
@@ -220,10 +224,18 @@ if (API) {
       return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: { code: 'internal', message: 'mocked failure' } }) });
     });
     for (const { v, slow, fail, none, click } of probes) {
+      if (PROBE && !v.includes(PROBE)) continue;
       holdRevisions = !!click;
+      if (LAZY_DELAY) await p.route(/\/src\/features\/agents\/(ServerProposals|VersionProposals)\.tsx(\?|$)/, async (r) => { await new Promise((res) => setTimeout(res, LAZY_DELAY)); await r.continue().catch(() => {}); }); // test knob (H18): the lazy proposals page arrives late
       await p.goto(base + v, { waitUntil: navWait() });
       await settle(p, mode === 'slow' ? 400 : 1000);
       if (click) { await p.locator('[aria-label="Proposals or history"]').getByText(click).click({ timeout: 8000 }).catch((e) => all.push({ where: `${v} (${mode})`, msg: `LIVEPROBE could not click ${click}: ${String(e.message).split('\n')[0]}` })); await settle(p, mode === 'slow' ? 400 : 1000); }
+      // c73 (H18): wait for the state to be rendered before sampling it. The request is held open (slow) or answered with a
+      // 500 (fail), so the loading / failed text is stable once the lazy page has mounted and asked; a fixed settle can sample
+      // while the page is still the skeleton (a slow chunk under load) and report a missing live region that was only late.
+      // The check below is unchanged: if the text never shows within the wait, it is still a LIVEPROBE violation.
+      const liveSel = mode === 'slow' ? '[role=status]' : '[role=alert]', wantRe = mode === 'slow' ? slow : fail;
+      if (!none?.[mode]) await p.waitForFunction(([sel, src, flags]) => new RegExp(src, flags).test([...document.querySelectorAll(sel)].map((e) => (e.innerText || e.textContent || '').replace(/\s+/g, ' ').trim()).join(' | ')), [liveSel, wantRe.source, wantRe.flags], { timeout: 15000 }).catch(() => {});
       const found = await p.evaluate(audit);
       for (const m of found) all.push({ where: `${v} (${mode})`, msg: m });
       probed.push(`${v} ${mode} [${await p.evaluate(() => (document.body.innerText.match(/(Loading|Reading)[^\n]{0,30}/g) || []).join(';'))}]: ${await p.evaluate(() => [...document.querySelectorAll('[role=status],[role=alert]')].map((e) => (e.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 40)).filter(Boolean).join(' | ').slice(0, 160))}`);
