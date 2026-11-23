@@ -1,0 +1,9 @@
+c90 sequential simulation: seed 90001, 1000 no-effect streams per p, 200 obs per arm (arms alternate), checked after every observation from 10 per arm, alpha 0.05, rho 1.3153
+limit for (a): 5.00% + 2 x MC SE (0.69 points) = 6.38%
+p=0.1: ever-exclude-zero, confidence sequence 0.00% (0/1000) -> PASS; naive 95% Wald re-checked every observation 33.10% (331/1000)
+  median width, confidence sequence: n=20: 0.936, n=50: 0.644, n=100: 0.517; fixed-horizon Wald (single look): n=20: 0.367, n=50: 0.233, n=100: 0.165
+p=0.3: ever-exclude-zero, confidence sequence 0.00% (0/1000) -> PASS; naive 95% Wald re-checked every observation 36.30% (363/1000)
+  median width, confidence sequence: n=20: 1.293, n=50: 0.866, n=100: 0.614; fixed-horizon Wald (single look): n=20: 0.560, n=50: 0.356, n=100: 0.253
+p=0.5: ever-exclude-zero, confidence sequence 0.00% (0/1000) -> PASS; naive 95% Wald re-checked every observation 37.70% (377/1000)
+  median width, confidence sequence: n=20: 1.410, n=50: 0.859, n=100: 0.602; fixed-horizon Wald (single look): n=20: 0.607, n=50: 0.389, n=100: 0.276
+SUMMARY seed 90001: threshold (a) PASS on all p; elapsed 0.2s, load average 2.11 2.99 4.61
