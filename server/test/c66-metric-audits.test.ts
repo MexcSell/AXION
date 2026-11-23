@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { makeTestApp, withAdmin, Browser, type TestApp } from './helpers.ts';
 import { seedDemo, clearDemo } from '../src/seed/demo.ts';
 import { AUDIT_BAR, AUDIT_MIN_N } from '../src/company/metric-audit.ts';
+import { insertMissionRefs } from './c83-refs.ts';
 
 /**
  * Improvement cycle 66, item 4: the audit label store and its route. Append-only (all four guards), administrators only, the
@@ -10,11 +11,16 @@ import { AUDIT_BAR, AUDIT_MIN_N } from '../src/company/metric-audit.ts';
 let t: TestApp;
 let A: Browser, M: Browser, adminId = '';
 const q = (sql: string, p: unknown[] = []) => t.pool.query(sql, p);
-const samples = (n: number, gamed: number, prefix = 's') => Array.from({ length: n }, (_, i) => ({ sampleRef: `${prefix}${i}`, metricLabel: true, auditLabel: i >= gamed }));
+// c83: sample references are typed (`mission:<id>`) and name real records, so the tests create the missions they label
+const ref = (prefix: string, i: number) => `mission:M-${prefix}${i}`;
+const samples = (n: number, gamed: number, prefix = 's') => Array.from({ length: n }, (_, i) => ({ sampleRef: ref(prefix, i), metricLabel: true, auditLabel: i >= gamed }));
 const post = (b: Browser, body: unknown) => b.req('POST', '/company/metric-audits', body);
 const guard = async (id: string) => ((await A.req('GET', '/company/metric-guard')).body.rows as any[]).find((r) => r.id === id);
 
-beforeAll(async () => { t = await makeTestApp({ staffingStepMs: 3_600_000, conversationSimMs: 3_600_000 }); const w = await withAdmin(t.app); A = w.admin; adminId = w.adminId; M = (await w.member('Mina')).b; });
+beforeAll(async () => {
+  t = await makeTestApp({ staffingStepMs: 3_600_000, conversationSimMs: 3_600_000 }); const w = await withAdmin(t.app); A = w.admin; adminId = w.adminId; M = (await w.member('Mina')).b;
+  for (const p of ['s', 'x', 'f']) await insertMissionRefs(t.pool, 't-1', adminId, 201, p);
+});
 afterAll(async () => { await t?.close(); });
 
 describe('POST /company/metric-audits', () => {
@@ -52,11 +58,11 @@ describe('POST /company/metric-audits', () => {
     await post(A, { metricId: 'scorecard.finished', samples: samples(90, 12, 'x') });
     g = await guard('scorecard.finished');
     expect(g.audit).toMatchObject({ n: 100, disagreements: 14, state: 'ok', divergence: 14, flagged: false, metricOver: 14, auditOver: 0 });
-    await post(A, { metricId: 'scorecard.finished', samples: [{ sampleRef: 'x50', metricLabel: true, auditLabel: false }] }); // x50 was agreeing, now disagrees
+    await post(A, { metricId: 'scorecard.finished', samples: [{ sampleRef: ref('x', 50), metricLabel: true, auditLabel: false }] }); // x50 was agreeing, now disagrees
     g = await guard('scorecard.finished');
     expect(g.audit).toMatchObject({ n: 100, disagreements: 15, divergence: 15, flagged: true });
     // an old, uncorrected label is not double counted; a correction back to agreeing un-flags the row
-    await post(A, { metricId: 'scorecard.finished', samples: [{ sampleRef: 'x50', metricLabel: true, auditLabel: true }] });
+    await post(A, { metricId: 'scorecard.finished', samples: [{ sampleRef: ref('x', 50), metricLabel: true, auditLabel: true }] });
     expect((await guard('scorecard.finished')).audit).toMatchObject({ n: 100, disagreements: 14, flagged: false });
     expect(g.audit.lastAuditedAt).toMatch(/Z$/);
   });
@@ -65,7 +71,7 @@ describe('POST /company/metric-audits', () => {
     expect((await guard('scorecard.started')).audit).toMatchObject({ n: 0, state: 'none', divergence: null, flagged: false, lastAuditedAt: null });
     const m = ((await M.req('GET', '/company/metric-guard')).body.rows as any[]).find((r) => r.id === 'scorecard.finished');
     expect(m.audit.n).toBe(100);
-    expect(JSON.stringify(m)).not.toMatch(/x\d/);
+    expect(JSON.stringify(m)).not.toMatch(/mission:M-x/);
   });
 
   it('changes nothing else: scorecard and dimensions are identical before and after a flagged audit', async () => {
@@ -94,9 +100,9 @@ describe('the label table is append-only (all four guards)', () => {
     try {
       await c.query('begin');
       await c.query(`set local axion.purge_demo = 'on'`);
-      await c.query(`delete from metric_audit_labels where sample_ref = 'f0'`);
+      await c.query(`delete from metric_audit_labels where sample_ref = '${ref('f', 0)}'`);
       await c.query('rollback');
     } finally { c.release(); }
-    await expect(q(`delete from metric_audit_labels where sample_ref = 'f0'`)).rejects.toThrow(/append-only/);
+    await expect(q(`delete from metric_audit_labels where sample_ref = '${ref('f', 0)}'`)).rejects.toThrow(/append-only/);
   });
 });

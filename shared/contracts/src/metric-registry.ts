@@ -184,6 +184,23 @@ export interface MetricAuditState {
   lastAuditedAt: string | null;
 }
 export interface MetricGuardRow extends MetricGuard { audit: MetricAuditState }
+/**
+ * c83 (M2b): a sample reference is typed. It names one stored record by a kind from a closed set and an id (`mission:M-126`), never free text,
+ * so the server can check that the record exists and can remove the label when a demo purge deletes the record. A kind is added here, and
+ * the server maps it to a table (a Record over this union, so TypeScript fails until it does).
+ */
+export const SAMPLE_REF_KINDS = ['mission', 'task', 'review', 'approval', 'failure_tag'] as const;
+export type SampleRefKind = (typeof SAMPLE_REF_KINDS)[number];
+export const SAMPLE_REF_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+export function parseSampleRef(s: unknown): { kind: SampleRefKind; id: string } | null {
+  if (typeof s !== 'string') return null;
+  const i = s.indexOf(':');
+  if (i < 1) return null;
+  const kind = s.slice(0, i), id = s.slice(i + 1);
+  return (SAMPLE_REF_KINDS as readonly string[]).includes(kind) && SAMPLE_REF_ID.test(id) ? { kind: kind as SampleRefKind, id } : null;
+}
+export const sampleRefOf = (kind: SampleRefKind, id: string): string => `${kind}:${id}`;
+/** `sampleRef` is `<kind>:<id>` (see parseSampleRef); anything else is refused. */
 export interface MetricAuditIn { metricId: string; samples: { sampleRef: string; metricLabel: boolean; auditLabel: boolean; note?: string }[] }
 export interface MetricAuditResult { recorded: number; audit: MetricAuditState }
 

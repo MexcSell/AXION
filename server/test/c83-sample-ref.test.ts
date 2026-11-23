@@ -3,6 +3,8 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { makeTestApp, withAdmin, Browser, type TestApp } from './helpers.ts';
 import { seedDemo, clearDemo } from '../src/seed/demo.ts';
+import { tx } from '../src/db.ts';
+import { requestApproval } from '../src/approvals/service.ts';
 import { insertMissionRefs } from './c83-refs.ts';
 
 /**
@@ -41,10 +43,10 @@ describe('sample_ref is a typed reference', () => {
     const [m] = await insertMissionRefs(t.pool, 't-1', adminId, 1, 'k');
     const id = m.slice('mission:'.length);
     await q(`insert into tasks(id, tenant_id, mission_id, title, status) values ('T-c83-1','t-1',$1,'A task','ready')`, [id]);
-    await q(`insert into approval_requests(id, tenant_id, mission_id, agent_id, kind, title, risk, action_digest, expires_at) values ('APR-c83-1','t-1',$1,'a','k','t','R1','d', now() + interval '1 day')`, [id]);
-    const r = await post([label(m), label('task:T-c83-1'), label('approval:APR-c83-1')]);
+    const ap = await tx(t.app.db, (c) => requestApproval(c, { tenantId: 't-1', missionId: id, agentId: 'release-01', kind: 'release', title: 'Publish', detail: 'x', payload: { v: 1 }, expiresInMin: 30 }));
+    const r = await post([label(m), label('task:T-c83-1'), label(`approval:${ap.id}`)]);
     expect(r.status, JSON.stringify(r.body)).toBe(201);
-    expect((await q('select sample_ref from metric_audit_labels order by id')).rows.map((x) => x.sample_ref)).toEqual([m, 'task:T-c83-1', 'approval:APR-c83-1']);
+    expect((await q('select sample_ref from metric_audit_labels order by id')).rows.map((x) => x.sample_ref)).toEqual([m, 'task:T-c83-1', `approval:${ap.id}`]);
   });
 
   it('has one write path: only the store inserts into metric_audit_labels, and it validates every reference there', () => {
