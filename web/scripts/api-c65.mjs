@@ -103,13 +103,13 @@ try {
   {
     await B.p.route(/\/api\/v1\/review-capacity(\?|$)/, async (route) => {
       const resp = await route.fetch(); const j = await resp.json();
-      j.review.littles = { ...j.review.littles, openNow: null, avgOpen: null, lambdaTimesW: null };
+      j.review.littles = { ...j.review.littles, openNow: null, avgOpen: null, lambdaTimesW: null, missingClose: null, missingOpen: null };
       await route.fulfill({ response: resp, json: j });
     });
     await goQueues(B.p);
     const Q2 = B.p.locator('.ops-review-capacity');
     const lt = (await Q2.locator('[data-cell="littles"]').innerText()).replace(/\s+/g, ' ');
-    check('member under the floor (openNow null): the data check says "hidden below the floor"', /hidden below the floor/.test(lt), lt);
+    check('member under the floor (openNow null): the data check says "open count hidden below the floor"', /open count hidden below the floor/.test(lt), lt);
     check('member under the floor: the panel never shows the text "null"', !/\bnull\b/.test(await Q2.innerText()));
     await B.p.unroute(/\/api\/v1\/review-capacity(\?|$)/);
   }

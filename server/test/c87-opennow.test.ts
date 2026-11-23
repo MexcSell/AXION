@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { makeTestApp, withAdmin, type TestApp } from './helpers.ts';
-import { addAgent, decided, addApproval, type Fx } from './c65-fixtures.ts';
+import { addAgent, decided, addApproval, addTask, type Fx } from './c65-fixtures.ts';
 
 /** c87: the item-counting figures of the data check (littles.openNow, avgOpen, lambdaTimesW) follow the c58 floor for a member (c65-brief.md item 5). */
 let t: TestApp; let f: Fx; let A: Awaited<ReturnType<typeof withAdmin>>; let M: { b: any; id: string };
@@ -20,8 +20,8 @@ describe('c87: littles figures under the c58 floor', () => {
     await seed([A.adminId, M.id, 'u-third'], 3, 'F');
     await addApproval(f, 'OPEN1', 'c65-ops-1', 2 * HOUR); // one item waiting now (4 items, under 5)
     const m = await littles(M.b), a = await littles(A.admin);
-    expect(m.openNow).toBeNull(); expect(m.avgOpen).toBeNull(); expect(m.lambdaTimesW).toBeNull();
-    expect(a.openNow).toBe(1); expect(a.avgOpen).not.toBeNull();
+    expect(m.openNow).toBeNull(); expect(m.avgOpen).toBeNull(); expect(m.lambdaTimesW).toBeNull(); expect(m.missingClose).toBeNull(); expect(m.missingOpen).toBeNull();
+    expect(a.openNow).toBe(1); expect(a.missingClose).toBe(0); expect(a.avgOpen).not.toBeNull();
   });
   it('at the floor (5 items, 3 people) a member gets the numbers', async () => {
     await seed([A.adminId, M.id, 'u-third'], 6, 'G');
@@ -34,5 +34,12 @@ describe('c87: littles figures under the c58 floor', () => {
     const before = await littles(M.b);
     await addApproval(f, 'OPEN3', 'c65-ops-1', 2 * HOUR);
     expect(await littles(M.b)).toEqual(before);
+  });
+  it('a lost record of a hidden task: a member below the floor gets the status but no count, an administrator the count', async () => {
+    await seed([A.adminId, M.id, 'u-third'], 3, 'L');
+    await addTask(f, 'NOEV', 'c65-ops-1', 'waiting_user'); // waiting with no event that started the wait
+    const m = await littles(M.b), a = await littles(A.admin);
+    expect(m.status).toBe('fail'); expect(m.missingOpen).toBeNull(); expect(m.missingClose).toBeNull();
+    expect(a.status).toBe('fail'); expect(a.missingOpen).toBe(1);
   });
 });

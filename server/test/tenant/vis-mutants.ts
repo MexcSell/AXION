@@ -32,6 +32,8 @@ export const VIS_MUTANTS: VisMutant[] = [
   { id: 'V04', kind: 'id route', what: 'the task lookup by id drops VISIBLE_SQL (GET /tasks/:id and the review routes)', sql: visibleAnyone(/from tasks t join missions m[\s\S]*where t\.id=\$1/), expect: /^(ID|IDW) (GET|POST) \/tasks\/:id/ },
   { id: 'V05', kind: 'id route', what: 'the thread lookup by id drops VISIBLE_SQL (GET /threads/:id/messages)', sql: visibleAnyone(/from conversation_threads c left join missions m/), expect: /^(ID|IDW) (GET|POST) \/threads\/:id/ },
   { id: 'V06', kind: 'list route', what: 'the approval list drops VISIBLE_SQL', sql: visibleAnyone(/from approval_requests a join missions m/), expect: /^(V1|V2) GET \/approvals$/ },
+  { id: 'V09', kind: 'join (c86 shape)', what: 'every department count that joins `missions m` drops VISIBLE_SQL in its join clause (GET /departments)', sql: visibleAnyone(/join missions m/i), expect: /^V1 GET \/departments$/ },
+  { id: 'V10', kind: 'gate query feeding later aggregates', what: 'the mission gate of the company process and dimensions loaders drops VISIBLE_SQL, so their task, review, attempt and approval aggregates read private missions', sql: visibleAnyone(/select m\.id, m\.demo from missions m/), expect: /^V1 GET \/company\/(process|dimensions)$/ },
   { id: 'V07', kind: 'nested field', what: 'GET /agents/:id carries a private mission\'s text in a nested field (agent.recent[].events[].detail.items[].text)', leak: true, expect: /^V2 GET \/agents\/:id$/ },
   { id: 'V08', kind: 'SSE', what: 'the event stream treats every mission as shared, so a private mission\'s events reach every member', sql: streamSeesAllShared, expect: /^SSE GET \/events\/stream$/ },
 ];

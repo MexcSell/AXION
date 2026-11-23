@@ -50,11 +50,24 @@ export async function buildVisWorld(configure?: (app: import('fastify').FastifyI
 
 const mkTask = (v: VisWorld, id: string, status: string, instanceId: string, mission: string, title: string) =>
   v.w.pool.query(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent, owner_instance_id) values ($1,$2,$3,$4,$5,$6,$7)`, [id, v.t.tenantId, mission, title, status, instanceId.split(':')[1], instanceId]);
+/** Attempts of a task, the way the retry route writes them (attempt_no 1, 2, ...; the table is append-only, so a flip adds attempts, it never rewrites). `from` is the first attempt number. */
+export async function addAttempts(v: VisWorld, taskId: string, results: string[], from = 1) {
+  for (const [i, r] of results.entries()) await v.w.pool.query(`insert into task_attempts(task_id, attempt_no, started_at, finished_at, result) values ($1,$2::int, now() - interval '3 hours' + ($2::int * interval '10 minutes'), now() - interval '2 hours' + ($2::int * interval '10 minutes'), $3)`, [taskId, from + i, r]);
+}
+/** An admin org proposal (c64 evidence is stored at creation: counts of open tasks, failures and approvals). Different edges per call, because a pending proposal with the same edges is refused. */
+export async function createOrgProposal(v: VisWorld, which: 'a' | 'b'): Promise<string> {
+  const g = must(await v.t.admin.req('GET', '/organization/graph'), 200, 'graph').body;
+  const sub = which === 'a' ? 'tester-01' : 'release-01';
+  const edges = g.edges.map((e: any) => (e.subordinateId === sub ? { ...e, supervisorId: 'coder-01' } : e));
+  const r = must(await v.t.admin.req('POST', '/organization/proposals', { title: 'Move ' + sub + ' (' + which + ')', why: 'Evidence check ' + which, baseRevision: g.revision.seq, edges, triggers: ['load_imbalance', 'failure_concentration', 'repeated_reassigns'], baseline: 'No change: keep the current chart as it is.', expectedCost: 'No added cost is expected in this test.' }, idem()), 201, 'org proposal ' + which);
+  return r.body.proposal.id as string;
+}
 /** A task with a brief (class and difficulty) written BEFORE the task finishes (the skill rating only counts a label given before the first finish). */
-async function finishedTask(v: VisWorld, id: string, owner: string, mission: string, title: string, outcome: 'passed' | 'failed', cls: string, diff: number, verdict?: 'accepted' | 'rejected', briefGoal?: string) {
+async function finishedTask(v: VisWorld, id: string, owner: string, mission: string, title: string, outcome: 'passed' | 'failed', cls: string, diff: number, verdict?: 'accepted' | 'rejected', briefGoal?: string, attempts: string[] = []) {
   await mkTask(v, id, 'ready', owner, mission, title);
   must(await v.t.admin.req('POST', `/missions/${mission}/delegation-briefs`, { toInstanceId: owner, taskId: id, brief: brief(briefGoal ?? 'Goal for ' + id, D(cls, diff)) }, idem()), 201, 'brief ' + id);
   await v.w.pool.query(`update tasks set status=$2, created_at = now() + interval '2 minutes' where id=$1`, [id, outcome]);
+  await addAttempts(v, id, attempts); // before the review, which records the latest attempt
   if (verdict) must(await v.t.admin.req('POST', `/tasks/${id}/reviews`, { verdict, rubric: [{ criterion: 'Output attached', result: verdict === 'accepted' ? 'pass' : 'fail', note: 'Seen' }], evidence: [{ kind: 'url', ref: 'https://example.com/' + id.toLowerCase() }] }, idem()), 201, 'review ' + id);
 }
 /** The instance of `agent` in `mission`; staffing only creates a few agents' instances, so the others are stored directly (as c79 does for tenant B). */
@@ -73,11 +86,12 @@ async function seedMemberOutcomes(v: VisWorld) {
   const m3 = v.t.ids.mission3;
   const inst = await agentInstance(v, m3, 'coder-01');
   const tag = 'mv';
-  await finishedTask(v, `T-${tag}-1`, inst, m3, 'Member task one', 'passed', 'coding', 3, 'accepted');
-  await finishedTask(v, `T-${tag}-2`, inst, m3, 'Member task two', 'passed', 'coding', 3, 'accepted');
+  await finishedTask(v, `T-${tag}-1`, inst, m3, 'Member task one', 'passed', 'coding', 3, 'accepted', undefined, ['failed', 'passed']);
+  await finishedTask(v, `T-${tag}-2`, inst, m3, 'Member task two', 'passed', 'coding', 3, 'accepted', undefined, ['passed']);
   await finishedTask(v, `T-${tag}-3`, inst, m3, 'Member task three', 'failed', 'coding', 3, 'rejected');
   await finishedTask(v, `T-${tag}-4`, inst, m3, 'Member task four', 'failed', 'coding', 3, 'rejected');
   v.priv.memberTaskCount = '4';
+  v.priv.orgA = await createOrgProposal(v, 'a'); // stored evidence made while the private mission does not exist
 }
 
 /** State b1: the private mission with GOOD outcomes. Everything here belongs to the private mission (no lesson, skill or channel message of O's own). */
@@ -91,9 +105,9 @@ export async function addPrivate(v: VisWorld): Promise<void> {
   const coder = await agentInstance(v, priv.mission, 'coder-01');
   priv.instance = coder;
   // outcomes on the SAME agent, class and difficulty as M's four: M sits at n = 4 (under the floor of 5), the private mission adds more
-  await finishedTask(v, 'T-pv-1', coder, priv.mission, 'Hidden task ' + mk('task.title'), 'passed', 'coding', 3, 'accepted', 'Draft the secret copy ' + mk('brief.goal'));
-  await finishedTask(v, 'T-pv-2', coder, priv.mission, 'Hidden task two ' + mk('task.title2'), 'passed', 'coding', 3, 'accepted', 'Second brief ' + mk('brief.goal2'));
-  await finishedTask(v, 'T-pv-3', coder, priv.mission, 'Hidden task three ' + mk('task.title3'), 'passed', 'research', 2, 'accepted', 'Third ' + mk('brief.goal3'));
+  await finishedTask(v, 'T-pv-1', coder, priv.mission, 'Hidden task ' + mk('task.title'), 'passed', 'coding', 3, 'accepted', 'Draft the secret copy ' + mk('brief.goal'), ['failed', 'passed']);
+  await finishedTask(v, 'T-pv-2', coder, priv.mission, 'Hidden task two ' + mk('task.title2'), 'passed', 'coding', 3, 'accepted', 'Second brief ' + mk('brief.goal2'), ['failed', 'passed']);
+  await finishedTask(v, 'T-pv-3', coder, priv.mission, 'Hidden task three ' + mk('task.title3'), 'passed', 'research', 2, 'accepted', 'Third ' + mk('brief.goal3'), ['failed', 'passed']);
   priv.task = 'T-pv-1'; priv.task2 = 'T-pv-2'; priv.task3 = 'T-pv-3';
   await mkTask(v, 'T-pv-open', 'ready', coder, priv.mission, 'Open hidden ' + mk('task.open'));
   priv.taskOpen = 'T-pv-open';
@@ -119,8 +133,10 @@ export async function flipPrivate(v: VisWorld): Promise<void> {
   await pool.query(`update tasks set status='failed' where id = any($1)`, [['T-pv-1', 'T-pv-2']]);
   await pool.query(`update tasks set status='passed' where id = $1`, ['T-pv-open']);
   const coder = priv.instance;
-  await finishedTask(v, 'T-pv-4', coder, priv.mission, 'Hidden failed ' + mk('task.title4'), 'failed', 'coding', 3, 'rejected', 'Fourth ' + mk('brief.goal4'));
-  await finishedTask(v, 'T-pv-5', coder, priv.mission, 'Hidden failed two ' + mk('task.title5'), 'failed', 'coding', 3, 'rejected', 'Fifth ' + mk('brief.goal5'));
+  await addAttempts(v, 'T-pv-1', ['failed'], 3); await addAttempts(v, 'T-pv-2', ['failed'], 3); // the flip: a third attempt that fails
+  await mkTask(v, 'T-pv-open2', 'running', coder, priv.mission, 'Open again ' + mk('task.open2'));
+  await finishedTask(v, 'T-pv-4', coder, priv.mission, 'Hidden failed ' + mk('task.title4'), 'failed', 'coding', 3, 'rejected', 'Fourth ' + mk('brief.goal4'), ['failed', 'failed']);
+  await finishedTask(v, 'T-pv-5', coder, priv.mission, 'Hidden failed two ' + mk('task.title5'), 'failed', 'coding', 3, 'rejected', 'Fifth ' + mk('brief.goal5'), ['failed', 'failed']);
   must(await admin.req('POST', `/approvals/${priv.approval}/decision`, { decision: 'denied', digest: priv.approvalDigest, reason: 'no ' + mk('approval.reason2') }), 200, 'reject');
   priv.tag = must(await admin.req('POST', '/failure-tags', { subjectKind: 'task', subjectId: 'T-pv-4', modeId: 'FM-1.1', note: 'Ignored the hidden spec ' + mk('tag.note'), attribution: { agentId: 'agent-' + mk('tag.agent').toLowerCase(), stepRef: 'step ' + mk('tag.step') } }, idem()), 201, 'tag').body.tag.id;
   priv.notification3 = String(await tx(t.app.db, (c) => createNotification(c, { tenantId: t.tenantId, severity: 'critical', category: 'system', title: 'Hidden failure ' + mk('notice.title3'), body: mk('notice.body3'), missionId: priv.mission })));

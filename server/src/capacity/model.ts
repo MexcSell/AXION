@@ -117,9 +117,9 @@ export const MISSING_OPEN_SQL = `
 export function reviewCapacity(db: Db | Tx, tenantId: string, windowDays: number, viewerIsAdmin: boolean): Promise<ReviewCapacityDto> {
   return 'totalCount' in db ? snapshotTx(db as Db, (c) => reviewCapacityIn(c, tenantId, windowDays, viewerIsAdmin)) : reviewCapacityIn(db as Tx, tenantId, windowDays, viewerIsAdmin);
 }
-/** c87: the item-counting figures of the data check follow the same c58 floor as the cells (c65-brief.md item 5): a member gets openNow, avgOpen and lambdaTimesW only when the total clears the floor, else null. Administrators and the record flags are unchanged. */
+/** c87: the item-counting figures of the data check follow the same c58 floor as the cells (c65-brief.md item 5): a member gets openNow, avgOpen, lambdaTimesW, missingClose and missingOpen only when the total clears the floor, else null. Administrators and the record flags are unchanged. */
 function floorLittles(l: LittleLawDto, shown: boolean): LittleLawDto {
-  return shown ? l : { ...l, openNow: null, avgOpen: null, lambdaTimesW: null };
+  return shown ? l : { ...l, openNow: null, avgOpen: null, lambdaTimesW: null, missingClose: null, missingOpen: null };
 }
 async function reviewCapacityIn(db: Tx, tenantId: string, windowDays: number, viewerIsAdmin: boolean): Promise<ReviewCapacityDto> {
   const rows = (await db.query(

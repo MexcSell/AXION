@@ -7,13 +7,13 @@ import type { VViolation } from './vis.ts';
  *  - VISIBILITY_FINDINGS: anything else. It keeps the run green and the route visible. `backlog` is the id the controller assigns ("TBD" until then).
  */
 export interface Allowed { route: string; relation: 'V1'; paths: string[]; reason: string; citation: string }
-export interface Finding { /** set when the leak is already fixed on another branch: the entry may match nothing (the integrator removes it at merge) */ fixedBy?: string; route: string; relation: VViolation['relation']; paths?: string[]; leaks: string; repro: string; fix: string; backlog: string }
+export interface Finding { /** the entry excuses a violation only when its detail matches (pins the ack entry to status 200) */ detailRe?: RegExp; /** set when the leak is already fixed on another branch: the entry may match nothing (the integrator removes it at merge) */ fixedBy?: string; route: string; relation: VViolation['relation']; paths?: string[]; leaks: string; repro: string; fix: string; backlog: string }
 
 export const VISIBILITY_ALLOWED: Allowed[] = [
   {
     route: 'GET /approvals/quality', relation: 'V1', paths: ['quality.n'],
-    reason: 'Accepted residual (c58 review F3, c58-review.md:83; n allowed by the c58 brief), not an endorsement: a tenant-wide count of decided approvals in the window. Every other value is null below 5 items and 3 approvers for a member; the count itself stays visible.',
-    citation: 'web/docs/improve/cycles/c58-review.md:83 ("Backlog only: ... n/approverCount visibility below the floor (F3 residue)"), c58-review.md:79 (floor for a non-admin), c58-brief.md:25',
+    reason: 'Unruled residue: c58-review.md:83 left the visibility of n below the floor for the backlog. A tenant-wide count of decided approvals in the window; every other value is null below 5 items and 3 approvers for a member. Not a ruling that it is right.',
+    citation: 'web/docs/improve/cycles/c58-review.md:83 ("Backlog only: ... n/approverCount visibility below the floor (F3 residue)")',
   },
   {
     route: 'GET /review-capacity', relation: 'V1', paths: ['review.total.n', 'review.departments[].n'],
@@ -24,7 +24,15 @@ export const VISIBILITY_ALLOWED: Allowed[] = [
 
 export const VISIBILITY_FINDINGS: Finding[] = [
   {
+    route: 'GET /organization/proposals', relation: 'V1', paths: ['proposals[].result.evidence'],
+    leaks: 'The stored dry-run result of an org proposal (result.evidence, server/src/organization/evidence.ts:48-111, stored at creation by proposals.ts:137-143) holds counts over ALL non-demo missions of the tenant with no VISIBLE_SQL (open tasks of the busiest agent, agents with open tasks, confirmed failure tags and the share on tasks, reassigns). GET /organization/proposals needs only a signed-in user (proposals.ts:158), so a member reads a snapshot that includes private missions. A snapshot, so it needs a design decision (fix at read time is impossible; the counts would have to be computed per viewer or hidden from members).',
+    repro: 'vis.test.ts: an admin creates org proposal P_a before O\'s private mission exists and P_b after it (different edges, same triggers). As M, the state-based evidence blocks (load_imbalance, failure_concentration, repeated_reassigns) of P_b differ from P_a\'s; the differing facts are printed in the violation detail. The administrator sees the same difference.',
+    fix: 'Do not store viewer-independent counts that include private missions where a member can read them: compute evidence over VISIBLE missions at read time, or return result.evidence only to administrators. Design decision needed (snapshot).',
+    backlog: 'TBD',
+  },
+  {
     fixedBy: "fixed by c81 (batch 40): 404 for an invisible id, nothing stored; not in this branch's base. The integrator removes this entry at merge. Until then it tolerates either outcome (200 here, 404 after the merge).",
+    detailRe: /: status 200 /,
     route: 'POST /notifications/:id/ack', relation: 'IDW',
     leaks: 'Not a read leak: the route answers 200 for ANY well-formed notice id, including a private mission\'s notification, and stores a read marker for the caller without looking the notice up. It gives the same answer for a nonexistent id, so it reveals nothing; but the id is a sequential number (n-8), the route never checks visibility, and it breaks "404 for an id you may not see". Known since c79 (concern 3).',
     repro: 'As M: POST /notifications/<id of a notification of O\'s private mission>/ack answers 200 {"ok":true}, and so does a nonexistent id. (vis.test.ts, IDW.)',
@@ -44,7 +52,7 @@ export function classify(vs: VViolation[], allowed = VISIBILITY_ALLOWED, finding
       allowed.forEach((a, i) => { if (a.route === v.route && residual.some((p) => a.paths.includes(p))) { out.usedAllowed.add(i); residual = residual.filter((p) => !a.paths.includes(p)); } });
       if (!residual.length) { out.byDesign.push(v); continue; }
     }
-    const fi = findings.findIndex((f) => f.route === v.route && f.relation === v.relation && (!f.paths || residual.every((p) => f.paths!.includes(p))));
+    const fi = findings.findIndex((f) => f.route === v.route && f.relation === v.relation && (!f.detailRe || f.detailRe.test(v.detail)) && (!f.paths || residual.every((p) => f.paths!.includes(p))));
     if (fi >= 0) { out.usedFindings.add(fi); out.findings.push(v); } else out.unexplained.push(v);
   }
   return out;
