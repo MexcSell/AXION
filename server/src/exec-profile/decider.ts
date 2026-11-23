@@ -98,7 +98,9 @@ function urlWith(profile: ExecProfile, raw: unknown): ItemDecision {
   for (const [i, h] of redirects.entries()) {
     const c = urlWithinGrantedOrigins(h, granted);
     if (c.ok) continue;
-    const internal = c.reason === 'ip_literal_denied' || c.reason === 'internal_host';
+    // a hop with a wrong scheme is still tagged internal when its host is (so the audit tag says what the hop was aiming at)
+    const asHttps = c.reason === 'scheme_not_https' && typeof h === 'string' ? urlWithinGrantedOrigins('https://' + h.replace(/^(?:[a-z][a-z0-9+.-]*:)?\/\//i, ''), granted) : c;
+    const internal = c.reason === 'ip_literal_denied' || c.reason === 'internal_host' || (!asHttps.ok && (asHttps.reason === 'ip_literal_denied' || asHttps.reason === 'internal_host'));
     return { kind: 'url', input: shown(url), allow: false, reason: internal ? 'redirect_internal' : 'redirect_not_granted', detail: `hop ${i + 1}: ${c.reason}` };
   }
   return { kind: 'url', input: shown(url), allow: true, reason: 'allowed' };

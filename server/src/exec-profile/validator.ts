@@ -2,9 +2,10 @@
 // Pure: no network, no DNS, no file system, no clock. Allowed origins go through the c36/c56 normaliseOrigin: there is no second parser.
 // Deny by default and fail closed: unknown fields, wrong types and anything unexpected are refusals, and every refusal has a reason code.
 // Enforcement needs a sandbox and a proxy (next phase, owner point O1). Binding the profile hash into an approval digest is a later item.
+import { types } from 'node:util';
 import { normaliseOrigin } from '../grants/origin.ts';
 import { EXEC_PROFILE_VERSION, ISOLATION_TIERS, execProfileSha256, tierRank, type ExecProfile } from '../../../shared/contracts/src/exec-profile.ts';
-import { BUILTIN_CREDENTIAL_PATTERNS, matchesAnyPattern, normaliseAbsolutePath } from './paths.ts';
+import { BUILTIN_CREDENTIAL_PATTERNS, MAX_PATTERNS, isSensitiveScope, matchesAnyPattern, normaliseAbsolutePath, patternProblem } from './paths.ts';
 
 export const REFUSAL_CODES = [
   'unparseable', 'not_object', 'unknown_field', 'bad_version', 'bad_field_type', 'permissive_default', 'wildcard_origin', 'origin_invalid', 'origin_not_normalised',
@@ -37,8 +38,33 @@ function cidrOk(s: unknown): boolean {
   return !!m6 && m6[1].includes(':') && !/:::/.test(m6[1]) && Number(m6[2]) <= 128;
 }
 
+/** One deep clone made BEFORE any check. Accessors, proxies, symbols, non-plain prototypes, functions, cycles and deep nesting throw, so a profile that could answer
+ *  differently on a second read is refused. The clone is what is validated and what is returned: the input is never read again. */
+function snapshot(v: unknown, depth = 0): unknown {
+  if (depth > 6) throw new Error('too deep');
+  if (v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return v;
+  if (typeof v !== 'object' || types.isProxy(v)) throw new Error('not plain data');
+  if (Array.isArray(v)) {
+    if (Object.getPrototypeOf(v) !== Array.prototype || v.length > 1000) throw new Error('odd array');
+    const out: unknown[] = [];
+    for (let i = 0; i < v.length; i++) { const d = Object.getOwnPropertyDescriptor(v, i); if (!d || !('value' in d)) throw new Error('hole or accessor'); out.push(snapshot(d.value, depth + 1)); }
+    if (Reflect.ownKeys(v).length !== v.length + 1) throw new Error('extra array keys');
+    return out;
+  }
+  const proto = Object.getPrototypeOf(v);
+  if (proto !== Object.prototype && proto !== null) throw new Error('odd prototype');
+  const out: Record<string, unknown> = {};
+  for (const k of Reflect.ownKeys(v)) {
+    if (typeof k !== 'string') throw new Error('symbol key');
+    const d = Object.getOwnPropertyDescriptor(v, k);
+    if (!d || !('value' in d)) throw new Error('accessor');
+    Object.defineProperty(out, k, { value: snapshot(d.value, depth + 1), enumerable: true, writable: true, configurable: true });
+  }
+  return out;
+}
+
 export function validateExecProfile(input: unknown): ValidationResult {
-  try { return validate(input); } catch { return { ok: false, refusals: [{ code: 'unparseable', path: '', message: 'The profile could not be read safely, so it is refused.' }] }; }
+  try { return validate(snapshot(input)); } catch { return { ok: false, refusals: [{ code: 'unparseable', path: '', message: 'The profile could not be read safely, so it is refused.' }] }; }
 }
 
 function validate(input: unknown): ValidationResult {
@@ -106,9 +132,11 @@ function validate(input: unknown): ValidationResult {
     let patterns: string[] = [];
     if (!Array.isArray(f.forbiddenPatterns) || f.forbiddenPatterns.length === 0) no('missing_credential_patterns', 'filesystem.forbiddenPatterns', 'List at least one forbidden credential-file pattern.');
     else {
-      for (const [i, g] of f.forbiddenPatterns.entries()) {
-        if (typeof g !== 'string' || g === '' || g.length > 200 || g.includes('\0')) no('bad_pattern', `filesystem.forbiddenPatterns[${i}]`, 'A pattern must be a non-empty text of at most 200 characters.');
-        else patterns.push(g);
+      if (f.forbiddenPatterns.length > MAX_PATTERNS) no('bad_pattern', 'filesystem.forbiddenPatterns', `At most ${MAX_PATTERNS} patterns.`);
+      else for (const [i, g] of f.forbiddenPatterns.entries()) {
+        const why = patternProblem(g);
+        if (why) no('bad_pattern', `filesystem.forbiddenPatterns[${i}]`, `Pattern refused: ${why}.`);
+        else patterns.push(g as string);
       }
     }
     patterns = [...BUILTIN_CREDENTIAL_PATTERNS, ...patterns];
@@ -124,13 +152,13 @@ function validate(input: unknown): ValidationResult {
           if (r.problem === 'wildcard') return no('path_wildcard', at, 'Scope paths are exact directories: no wildcards.');
           return no('path_not_absolute', at, 'A scope path must be an absolute path without control characters, backslashes or percent-encoding.');
         }
-        if (r.path === '/') return no('path_too_broad', at, 'The root directory cannot be a scope.');
+        if (isSensitiveScope(r.path)) return no('path_too_broad', at, 'The root directory and /etc, /proc, /root, /sys and /dev (with everything under them) cannot be a scope.');
         if (matchesAnyPattern(r.path, patterns) || matchesAnyPattern(r.path + '/probe', patterns)) no('path_forbidden', at, 'This directory holds credential files and cannot be a scope.');
       });
     }
   }
 
   if (refusals.length) return { ok: false, refusals };
-  const profile = JSON.parse(JSON.stringify(input)) as ExecProfile; // a plain copy: later mutation of the input cannot change what was validated
+  const profile = input as unknown as ExecProfile; // `input` here is already the private snapshot
   return { ok: true, profile, sha256: execProfileSha256(profile) };
 }
