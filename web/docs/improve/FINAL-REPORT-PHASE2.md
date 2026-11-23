@@ -1,6 +1,8 @@
 # AXION improvement programme: final report
 
-Status: **FINAL**, 2026-11-23 about 12:40Z. Every lane is merged or parked, the final checks passed on the frozen tree, and the final live update is done (12:22Z).
+Status: **CHECKPOINT**, 2026-11-23 about 12:50Z.
+- Every lane through c97 is merged or parked, the final checks passed on the frozen web tree, and the live system was updated at 12:22Z.
+- One last small server-only wave (c98, c99) runs until 18:30Z, with a final live update about 19:30Z. This report is updated and republished after that.
 
 Periods covered:
 - **30-hour loop:** 2026-11-21 11:36Z to 2026-11-22 17:36Z, cycles c01 to c52. Done.
@@ -17,7 +19,7 @@ Sources: everything is in `web/docs/improve/`.
 - **Built:** cycles c01 to c97. c62 was not built. Two branches are parked for you: c76 and c77.
   - Every cycle went through the same steps: a brief, an implementer, an independent reviewer, a fix round, then a merge.
   - Everything is on the branch `improve-30h`. It is local only; nothing has been pushed and no tag was moved.
-- **Live:** every merged batch (through 54) runs on the real `axion` database, at schema version 59. The final live update was at 12:22Z, after a backup and a restore check. The audit chain verifies, and the anchor file has 5 lines.
+- **Live:** every merged batch (through 54) runs on the real `axion` database, at schema version 59. The latest live update was at 12:22Z, after a backup and a restore check. The audit chain verifies, and the anchor file has 5 lines.
 - **Quality gates:**
   - **Server tests:** from 219 at the start to **4409 passed**, 0 failed, on the final tree 98fecbf.
   - **Demo suite:** verify-all passed all 10 steps.
@@ -34,13 +36,13 @@ Sources: everything is in `web/docs/improve/`.
   - **From c79's cross-tenant sweep:** one cross-tenant total (database size) and orphan acknowledgements (c81).
   - None of these reached a real second user; the live system has one tenant and no members.
 - **Research:** six rounds, each checked by a separate verifier. Of the 42 candidate ideas from rounds 2 to 6:
-  - 27 were built, all or as a first slice;
-  - 6 are parked or wait for you;
-  - 9 were dropped or deferred, with reasons (sections 4 and 12).
+  - 25 were built, all or as a first slice, and R3-1 was folded into R3-7;
+  - 5 wait for your decision (R2-7, R3-3, R4-1, R4-3, R4-5);
+  - 11 were dropped or deferred, with reasons (sections 4 and 12).
 - **Honest limits:** several statistical results are NOT MET or nominal, and the new statistics tools have low power at AXION's volumes (section 6).
 - **Your actions:**
   - copy the audit anchor file and key off the machine;
-  - answer Q1 to Q17;
+  - answer Q1 to Q18;
   - decide on the parked branches and on the local branch (section 8).
 
 ## 2. What is live now
@@ -183,7 +185,7 @@ All numbers are code-level. The load average is stated where the log gives it.
 | Measure | Baseline (c00, b621fbb) | Now | Source |
 |---|---|---|---|
 | Server tests | 219 in 17 files | **4409 passed**, 36 skipped, 0 failed (187 files, serial), final tree 98fecbf | MERGES.md (final checks) |
-| Demo suite (verify-all) | 10 steps | ALL 10 STEPS PASSED (integration tree, 2026-11-23 ~06:07Z and after batch 47) | LOG.md |
+| Demo suite (verify-all) | 10 steps | ALL 10 STEPS PASSED on the frozen web tree (after batch 50), run from the integration tree | MERGES.md (final checks) |
 | Phone-width run (api-mobile, api mode) | not recorded | NO FAILURES on the frozen web tree (it now also probes every tab strip, c82); 877 states and 500 dialogs on ebea695 | MERGES.md, LOG.md |
 | Stage 6 suite, api mode | 94/94 | 20 of 20 runs at 94/94 (load 5 to 8) | MERGES.md |
 | Api-mode fit at 1366×768 and 1280×760 | 10 BAD views | ALL FIT in demo and api, both sizes, on the frozen tree | MERGES.md |
@@ -259,14 +261,14 @@ The SCORECARD.md "Final" column is filled from these runs.
 
 ## 8. Your actions
 
-1. **Copy `server/data/audit-anchors.jsonl` off the machine.** It has 4 lines now, and gets one more at the final update. Also store a copy of `AUDIT_ANCHOR_KEY` (in `server/.env`) safely off-host. Never paste the key in chat or commit it.
-2. Answer Q1 to Q17 (section 9). The loop used the listed defaults meanwhile.
+1. **Copy `server/data/audit-anchors.jsonl` off the machine.** It has 5 lines after the final update. Also store a copy of `AUDIT_ANCHOR_KEY` (in `server/.env`) safely off-host. Never paste the key in chat or commit it.
+2. Answer Q1 to Q18 (section 9). The loop used the listed defaults meanwhile.
 3. Set the Q15 values, or tell me to keep the guardrails off.
 4. Take or drop the parked branches c76 and c77 (Q11). Decide on c62 (Q12) and R3-3 (Q13).
 5. Decide what to do with `improve-30h`: push it, merge it to `main`, tag it, or leave it. It is local only, and I will do none of these without you.
 6. Verify long-thread screen-reader behaviour by hand (Q8).
 
-## 9. Owner questions Q1 to Q17
+## 9. Owner questions Q1 to Q18
 
 "Default" means what the loop used meanwhile.
 
@@ -289,6 +291,7 @@ The SCORECARD.md "Final" column is filled from these runs.
 | 15 | What values should c64's guardrails use? | Built, off by default. | Suggested: 24 h cooldown, 6 changes per 7 days, 6 escalation levels. Default: off. |
 | 16 | Keep the hidden header aside on the "Needs you" tab? | Hiding it fits 13 rows instead of 9. | Keep (default). |
 | 17 | Which kinds of change should be allowed or required to carry a change plan? | c85 covers org proposals only. | Org proposals only, optional (default); or also process toggles and version promotions; or required. |
+| 18 | At phone width (390 px), should long tab strips collapse to icons, or scroll as they do now? | c82 made them scroll under an edge fade, so labels stay readable and the last tabs are reached by swiping. Your icon-first rule would suggest collapsing to icons instead. | Scroll (default, built) or icon-collapse at narrow widths. |
 
 ## 10. Incidents and process lessons
 

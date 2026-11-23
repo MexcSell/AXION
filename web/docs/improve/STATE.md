@@ -1,89 +1,62 @@
 # Improvement loop state (resume from here)
 
-Rewritten 2026-11-22T07:35Z, 17:50Z, and 2026-11-23T03:40Z by the controller; updated 06:05Z. Older lane lists are history in LOG.md.
+Rewritten 2026-11-23 ~12:50Z by the controller. History is in LOG.md, MERGES.md and QUEUE.md.
 
 ## Clocks
-- **30 h loop:** 2026-11-21T11:36:18Z → 2026-11-22T17:36:18Z (done).
-- **Phase 2:** 2026-11-22T17:45Z → **2026-11-23T21:45Z**. Waves 5–7 are built. Schedule to the end:
+- **30 h loop:** 2026-11-21T11:36Z → 2026-11-22T17:36Z (done).
+- **Phase 2:** 2026-11-22T17:45Z → **2026-11-23T21:45Z**.
+- **Remaining schedule:**
   - **13:45Z:** no new lane starts.
-  - **About 16:00Z:** last merge that touches `web/`. Then the final api-mobile, verify-all and fit (demo and api) on the frozen web tree.
-  - **About 18:30Z:** last merge of any kind (server-only after 16:00Z).
-  - **About 19:30Z:** final live update.
-  - **Then:** final report (FINAL-REPORT-PHASE2.md, plus a published page) before 21:45Z.
+  - **About 18:30Z:** the last merge. Everything still open is server-only; the web tree has been frozen since batch 50.
+  - **About 19:30Z:** the final live update, then republish the report page before 21:45Z.
 
 ## Branch and live
-- Integration tree `/home/luca/AXION`, branch `improve-30h`, local only. Never push or move the tag without the owner.
-- **Web dev 5190** serves the working tree. Restarted 2026-11-23T05:52Z with c74's polling watcher (`server.watch.usePolling`, 300 ms; H19); PID 714937 in /tmp/axion-5190.pid (the vite PID, not the setsid wrapper). After any merge touching `shared/`, curl a served contracts file.
-- **API 5191** runs the real `axion` DB. **Final live update 2026-11-23T12:22Z** to 98fecbf (every batch through 54; no new migration, schema 59): stopped by PID, backup `axion-20261123T122135Z.dump`, restore check PASS, migrate no-op (59), audit verify OK, restarted from a clean tree, PID 2550058 in /tmp/axion-5191.pid, anchor line 5, verify OK, health 200 direct and via 5190. Earlier today: 07:34Z (0058/0059), 06:08Z, 02:22Z.
-  - Schema version 59 (07:34Z): 40 migration files; 0036, 0038, 0041, 0042, 0049, 0051, 0054–0057 unused on improve-30h (0056/0057 only on the parked branches).
-  - Latest backup `backups/axion-20261123T122135Z.dump` (v59), restore check PASS. Previous: 20261123T073339Z (v53), 20261123T060758Z, 20261123T012236Z, 20261122T174415Z (v39).
-  - Audit anchor: 5 lines in `server/data/audit-anchors.jsonl` (git-ignored); chain and anchor OK. **The owner should copy the file off-host.**
-- **Every live update:**
-  1. Stop 5191 by its recorded PID or port.
-  2. `npm run db:backup`, then `npm run db:restore-check`.
-  3. `npm run migrate`.
-  4. `npm run audit:verify`.
+- **Integration tree:** `/home/luca/AXION`, branch `improve-30h`, local only. Never push or move the tag without the owner.
+- **Web dev 5190:** serves the working tree. It uses a polling watcher (c74). PID 714937 is in /tmp/axion-5190.pid.
+- **API 5191:** runs the real `axion` DB.
+  - Live update 2026-11-23T12:22Z, to 98fecbf (batches through 54).
+  - Schema 59, with no new migration since 07:34Z.
+  - Backup `backups/axion-20261123T122135Z.dump`; restore check PASS.
+  - PID 2550058 is in /tmp/axion-5191.pid.
+  - Audit anchor: **5 lines** in `server/data/audit-anchors.jsonl` (git-ignored). The owner must copy the file and `AUDIT_ANCHOR_KEY` off-host.
+- **Live-update procedure:**
+  1. Stop 5191 by PID.
+  2. `npm run db:backup`, then `db:restore-check`.
+  3. `migrate`.
+  4. `audit:verify`.
   5. Restart from a clean tree: `node --env-file=.env --import tsx src/main.ts >> data/api.log`, and record the PID.
-  6. `npm run audit:anchor`, then `npm run audit:verify`.
-  7. Check health directly and through 5190.
-
-## Process
-- PROCESS.md, LANES.md and QUEUE.md. Every lane goes brief → implementer → independent reviewer → fix round → re-review → QUEUE batch → integrator (`--no-ff`).
-- `/home/luca/AXION-lanes/new-lane.sh <L> <branch> [base]`. After it runs, edit the lane `.env` to a reused e2e DB (LANES.md).
-- `heavy.sh` has 6 slots plus slot 0, reserved for the integrator (`HEAVY_PRIORITY=1`).
-- Ports 8790 and 9090 belong to other apps.
+  6. `audit:anchor`, then `audit:verify`.
+  7. Health direct and via 5190.
 
 ## Integration
-- Merged through **batch 37** at ebea695 (2026-11-23 ~05:45Z), integrator #5 (stopped 05:51Z). Its three merge-time fixes were diff-checked by the controller: e206210 (c69 registry fixture lists task_owner_history.owner), 62d4d81 (c72's `classes[].adjusted.value` in RATING_FIELDS plus a RATED_LIST_ALLOWED entry for one agent's own cells, as c78 designed), 444edfc (c79 sweep sends `?with=` to the compare route). Gap: the sweep never sends an own `:id` with a foreign `?with=`; until a lane adds it, the report must not claim the compare route is isolation-tested on both ids.
-- Verification on 229536a: verify-all 10/10, api-mobile 862 states 0 FAIL, stage6 ×20 20/20. On ebea695: full serial vitest 3414 passed / 36 skipped / 0 failed; fit and a11y both modes pass. On ebea695 after the 5190 restart: verify-all ALL 10 STEPS PASSED (06:07Z). Full api-mobile on ebea695 (controller baseline, 07:30Z): 877 states, 500 dialogs, NO FAILURES.
-- Wave 8 (PHASE2.md) dispatched ~06:15Z: c81–c84 plus research round 5. Spawn integrator #6 when the first Wave 8 lane clears.
+- **Merged:** through batch 54. The final tree is 98fecbf plus docs.
+- **Final checks on the frozen web tree:**
+  - full serial vitest: 4409 passed, 0 failed;
+  - verify-all: 10/10;
+  - fit: ALL FIT ×4;
+  - a11y: 0 violations;
+  - api-c14 under strict CSP: 31/31;
+  - api-mobile: NO FAILURES.
+- **Open at 12:50Z:** web tsc fails on HEAD, because `shared/contracts/src/exec-profile.ts` imports node:crypto (c94). Integrator #6 is fixing it as `fix(c94 merge)`. The build and CSP checks pass meanwhile.
+- **Integrator #6** is active. MERGES.md and QUEUE.md are the hand-off.
 
 ## Lanes now
 | Lane | Cycle | Status |
 |---|---|---|
-| w70 | c72 difficulty-adjusted skill ratings (R3-7 + R3-1) | MERGED at ebea695 (batch 31, tip 6511c04) |
-| w71 | c73 polish bundle (P2c, H18, P4c, H15) | MERGED at ebea695 (batch 32, tip 59b78cf) |
-| w72 | c74 dev server watches shared (H19), e2e15 | MERGED at ebea695 (batch 33, tip 8d9a9c3) |
-| w73 | c75 approval evidence tamper-evident (P3c), e2e17, no migration | MERGED at ebea695 (batch 34, tip af54328) |
-| w74 | c76 Stage 8 records (R1, A1), e2e18, mig 0056 | CLEARED at dfd1bff, **PARKED (Q11): never queue** |
-| w75 | c77 Stage 9 records (M2, G1), e2e2, mig 0057 | CLEARED at da75e62, **PARKED (Q11): never queue** |
-| w76 | c78 test hygiene II (H21, H20, O1c), e2e3, tests only | MERGED at ebea695 (batch 35, tip 96ed66e) |
-| w77 | c79 tenant-isolation suite (R4-4), e2e4, tests only | MERGED at ebea695 (batch 37, tip 6ee88cf) |
-| w78 | c80 migration guard (R4-6), e2e5 | MERGED at ebea695 (batch 36, tip 909577e) |
-| w79 | c81 tenant fixes (T1 2–4, MR2, MR4), e2e13, server only | CLEARED at 2afe16c, batch 40 |
-| w80 | c82 390 px tab strips (H16, H22), e2e16 | CLEARED at 67d995d, batch 48 (web: before 16:00Z) |
-| w81 | c83 metric guard follow-ups (M2b), e2e15 | CLEARED at 3ef9d2d, batch 39 |
-| w82 | c84 judge gate without selection bias (E1e), e2e17 | MERGED at 69c799c (batch 38) |
-| — | Research round 5 (docs only) | verified: 23 CONFIRMED, 3 CORRECTED |
-| w83 | c85 change plans (R5-1), e2e14, mig 0058 | CLEARED at 0f1a26b, batch 42 |
-| w84 | c86 forecast ledger (R5-7), e2e3, mig 0059 | CLEARED at d84882d, batch 41 |
-| w85 | c87 private-mission visibility sweep, e2e4 | MERGED at 7b1bbc5 (batch 43) |
-| w86 | c88 org evidence for members (T2) and column guard scope (M2d), e2e13 | MERGED at 4df4ae2 (batch 44) |
-| w87 | c89 plans and forecasts UI (U8), e2e15 | CLEARED at 1983259, batch 50 (last web merge) |
-| w88 | c90 sequential readout library (R5-4), e2e17 | MERGED at e87de40 (batch 46) |
-| w89 | c91 skill promotion gate (R5-5), e2e14 | MERGED at 060f9ab (batch 47) |
-| w90 | c92 script live-port guard (H23) and scanner gap (M2c-1), e2e3 | MERGED at 15d7a68 (batch 45) |
-| w91 | c93 connection-cap resilience (H14b), e2e4 | CLEARED at 1a5d2b6, batch 49 |
-| w92 | c94 execution profile validator (R6-1), e2e17 | CLEARED at db0995f, batch 52 |
-| w93 | c95 run budget and halt checker (R6-5), e2e14 | CLEARED at f71fa58, batch 51 |
-| w94 | c96 plan conformance checker (R6-8 part 1), e2e3 | CLEARED at 381304e, batch 53 |
-| w95 | c97 outcome graders and tamper detector (R6-7), e2e5 | CLEARED at c69e5b1, batch 54 |
-| — | Final report draft (FINAL-REPORT-PHASE2.md) | draft committed; finalise at the end |
+| w74 | c76 Stage 8 records (mig 0056) | CLEARED at dfd1bff, **PARKED (Q11)**: never queue |
+| w75 | c77 Stage 9 records (mig 0057) | CLEARED at da75e62, **PARKED (Q11)**: never queue |
+| w96 | c98 test-infra follow-ups (H14c, M2c) | planned ~12:55Z |
+| w97 | c99 execution-module hardening (X1, c97 detector gaps) | planned ~12:55Z |
 
-Every other Wave 5–7 lane (c53–c71) is MERGED and live (2026-11-23T02:22Z). Details are in QUEUE.md, MERGES.md and LOG.md.
+Every other lane, w19–w95 (c01–c97), is merged. Each cycle's brief, report and review is in cycles/.
 
-**Parked, by design:**
-- c62 (R2-7 signed receipts) waits for owner Q12.
-- R3-3 (earned autonomy) waits for Q13.
-- The gated Stage 8/9 items (R1, A1, M2, G1) wait for Q11. They are to be built as **unmerged branches** (CLEARED, with no QUEUE row and no live migration) for the owner to take or drop.
-
-## Owner questions (for the final report)
-- **Q1–Q12:** see LOG.md and PHASE2.md. Q11 covers the gated Stage 8/9 items; Q12 covers signing-key custody.
-- **Q13:** may an autonomy level ever be a policy input?
-- **Q14:** should there be a "read private company data" capability (Rule of Two flag b)?
-- **Q15:** values for c64's cooldown and churn budget (off by default).
-- **Q16:** keep the Needs-you tab's hidden header aside, or fold the header?
+## Owner questions
+Q1–Q18 are listed in FINAL-REPORT-PHASE2.md §9:
+- Q17: the scope of change plans;
+- Q18: phone tab strips, scroll or icon-collapse.
+Round 6's approval points O1–O5 are in §12.
 
 ## Ids already taken
-- **Dialog ids:** up to DL-100 in use. DL-96, 97, 98 (retired) and 99 are not in use.
-- **Migrations:** files up to 0053 on improve-30h. 0054 (c72) and 0055 (c75) were reserved and are unused; 0056 and 0057 are used on the parked c76/c77 branches. c80's lint covers 0058+. 0058 is reserved for c85 (w83) and 0059 for c86 (w84), each only if needed; the next free number is **0060**.
+- **Dialog ids:** up to **DL-101** (c89 forecasts dialog).
+- **Migrations:** files up to **0059** on improve-30h. 0056 and 0057 exist only on the parked branches. The next free number is **0060**. The last wave adds none.
+- **Lanes:** w97 is the last. The e2e DBs are reused, per LANES.md.
