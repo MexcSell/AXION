@@ -19,3 +19,18 @@ leaky refused 100% | MET | 50/50 refused
 overfit_to_a not admitted >= 90% | MET | 0 admitted; 50 had B gain below margin
 no_gain false-admit <= 2% | MET | 0/50
 too_small never admitted | MET | 0 admitted; 50 not enough evidence
+
+=== ADDED FAMILIES (after review) ===
+
+no_gain_noisy: per-class noise sd 0.10 on the class mean difference, zero true effect, same constants
+family | n candidates | admitted | false-admit rate
+no_gain_noisy n=20 | 500 | 4 admitted | 0.80% (SE 0.40%)
+no_gain_noisy n=40 | 500 | 5 admitted | 1.00% (SE 0.44%)
+no_gain_noisy pooled | 1000 | 9 | 0.90% (SE 0.30%) | bound 2%: MET (point estimate; upper 95% limit 1.49%)
+
+replay_neutral: true +0.10 on A and B, zero true change on replay, class-mean noise sd = 0.15/sqrt(n)
+family | n candidates | admitted | refused by replay budget | other
+replay_neutral n=20 (replay noise sd 0.034 vs budget 0.02) | 500 | 131 (26.2%) | 369 (73.8%) | 0
+replay_neutral n=40 (replay noise sd 0.024 vs budget 0.02) | 500 | 220 (44.0%) | 280 (56.0%) | 0
+
+past_cap (true-gain scores, attempts 21..70) | 50 | refused 50 | with attempts_exhausted reason 50 | MET

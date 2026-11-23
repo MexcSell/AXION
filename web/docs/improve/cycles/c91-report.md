@@ -5,7 +5,7 @@
 Branch `c91-skill-gate` from `17c5ee8`. Files: `server/src/evolution/skill-gate.ts`, `server/test/skill-gate.test.ts`, `server/scripts/c91-gate-fixtures.ts`, `cycles/c91-gate-results-seed20261123.txt`, `cycles/c91-gate-results-seed91.txt`, this report. No route, DTO, migration or `web/` change.
 
 ## Commit order (evidence)
-1. `6329927` gate module with its constants, and the unit tests (written first; RED was "no tests, import fails" before the module existed, then 21 passed).
+1. `6329927` gate module with its constants, and the unit tests in ONE commit. I ran the tests before the module file existed (import failed), but that RED run is not in the history, so "RED first" cannot be shown from commits. What the commits do show: the constants and fixture design were committed before the fixture set was run.
 2. `a4c3088` the fixture design and runner, with the design written in its header. Not run until after this commit.
 3. The two result files and this report, after the runs.
 
@@ -55,3 +55,13 @@ Overfit candidates refused by the probe B check: 50/50 and 48/50 (all 50 were re
 
 ## Still EXEC (needs real use)
 Real skill scores; whether 20 items per class and the margins fit real variance; the owner's regression budget per class (open owner question from R5); gate-run records (append-only table, R5-5 threshold d) are not built here; a human activation step; probe rotation and retirement.
+
+## Follow-up after review (added, original sections unchanged)
+Gate changes: required classes are now the union over all six score tables (a class missing from one set, or only in the candidate arm, is "too small" there, not skipped); an empty class set refuses with `no_classes` (no NaN); a set with no task ids is `invalid_scores`; overlap between probe A, probe B or replay is refused as `probe_overlap`. 27 unit tests, including n=0, candidate-only class, class missing only from A, empty taskIds, A/B overlap.
+
+**Known limit:** probes A and B have no per-class floor. Net gain is a class-balanced mean, so a candidate can win overall on A and B while losing some classes there. Only replay checks classes one by one.
+
+Added families (results appended to both result files; the original table is byte-identical; both seeds):
+- `no_gain_noisy` (zero effect, per-class mean-difference noise sd 0.10, 500 at n=20 and 500 at n=40 per seed, same constants), false-admit rate against the 2% bound: seed 20261123 0.90% (SE 0.30%, 9/1000); seed 91 0.40% (SE 0.20%, 4/1000). MET on both; this matches the reviewer's 0.87-0.96%.
+- `replay_neutral` (true +0.10 on A and B, zero change on replay, class noise 0.15/sqrt(n)): refused by the 0.02 replay budget 73.8% (n=20) and 56.0% (n=40) on seed 20261123; 71.8% and 63.0% on seed 91. **Limit stated plainly:** at n=20 the replay noise (sd about 0.034) exceeds the budget (0.02), so the budget mostly measures noise there, and a candidate with no real harm is usually refused. That is a cost in lost good skills, not a safety failure; it argues for larger replay sets per class or a budget tied to the noise.
+- `past_cap` (true-gain scores, attempts 21..70): 50/50 refused with `probe_a_attempts_exhausted`.
