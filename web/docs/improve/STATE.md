@@ -14,10 +14,10 @@ Rewritten 2026-11-22T07:35Z, 17:50Z, and 2026-11-23T03:40Z by the controller; up
 ## Branch and live
 - Integration tree `/home/luca/AXION`, branch `improve-30h`, local only. Never push or move the tag without the owner.
 - **Web dev 5190** serves the working tree. Restarted 2026-11-23T05:52Z with c74's polling watcher (`server.watch.usePolling`, 300 ms; H19); PID 714937 in /tmp/axion-5190.pid (the vite PID, not the setsid wrapper). After any merge touching `shared/`, curl a served contracts file.
-- **API 5191** runs the real `axion` DB. Interim live update 2026-11-23T06:08Z to 2c3b7d5 (code = ebea695, batches 31–37; no migration): stopped by PID, backup `axion-20261123T060758Z.dump` (counts identical to the 01:22Z backup: 1 tenant, 1 audit row), restore check PASS, migrate no-op (schema 53), audit verify OK, restarted from a clean tree, PID 802504 in /tmp/axion-5191.pid, anchor line 3, verify OK, health 200 direct and via 5190, c72 skills route present (401 unauthenticated).
-  - Schema version 53 (unchanged at 06:08Z): 38 migration files, with 0036, 0038, 0041, 0042, 0049 and 0051 unused.
-  - Latest backup `backups/axion-20261123T060758Z.dump`, restore check PASS. Previous backups: 20261123T012236Z, 20261122T174415Z (v39).
-  - Audit anchor: 3 lines in `server/data/audit-anchors.jsonl` (git-ignored); chain and anchor OK. **The owner should copy the file off-host.**
+- **API 5191** runs the real `axion` DB. Live update 2026-11-23T07:34Z to 9f78c52 (batches through 42; **migrations 0058 and 0059 applied**): stopped by PID, backup `axion-20261123T073339Z.dump` (1 tenant, 1 audit row), restore check PASS, migrate → schema 59, audit verify OK, restarted from a clean tree, PID 1300579 in /tmp/axion-5191.pid, anchor line 4, verify OK, health 200 direct and via 5190, c86 forecasts route present (401). Earlier today: 06:08Z (no migration), 02:22Z.
+  - Schema version 59 (07:34Z): 40 migration files; 0036, 0038, 0041, 0042, 0049, 0051, 0054–0057 unused on improve-30h (0056/0057 only on the parked branches).
+  - Latest backup `backups/axion-20261123T073339Z.dump` (v53, before 0058/0059), restore check PASS. Previous: 20261123T060758Z, 20261123T012236Z, 20261122T174415Z (v39).
+  - Audit anchor: 4 lines in `server/data/audit-anchors.jsonl` (git-ignored); chain and anchor OK. **The owner should copy the file off-host.**
 - **Every live update:**
   1. Stop 5191 by its recorded PID or port.
   2. `npm run db:backup`, then `npm run db:restore-check`.
