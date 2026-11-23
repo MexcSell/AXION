@@ -296,3 +296,30 @@ SCORECARD.md "Final" column: **[pending]**, filled from the final runs.
 | P3b, E4b, P4a, H22 rest | Owner role, skill role cap, IDN grants, residual harness races | See BACKLOG.md |
 
 After agents execute: R3-2, R3-3 (Q13), R5-5 with real scores, R5-6, and signed receipts (c62, Q12).
+
+## 12. Next phase: letting agents execute, step by step (research round 6, verified)
+
+Round 6 asked what it takes to let agents actually run tools, safely and measurably. It used 22 sources; 16 were confirmed and 6 corrected, none wrong.
+- **What the evidence says:** filters and prompt-level defences fail against adaptive attackers. Structural controls help: a policy outside the model, plan conformance, and least-privilege tool policies. The best-known results are the authors' own benchmark numbers, not independent tests.
+- **What it leaves open:** nothing measures staged rollout, kill switches or caps. Those are engineering controls.
+
+**Already built today (pure modules, nothing executes):**
+- **c94:** an execution-profile validator and request decider, deny by default.
+- **c95:** a run-budget and halt checker.
+- **c96:** a plan-conformance checker.
+- **c97:** outcome graders and a tamper tripwire on toy tasks.
+
+The roadmap uses phases A to E, so the numbers don't collide with the stage ledger's own stages. Every phase ends in your decision; demotion is automatic and promotion is human. No model call happens before your approval O3.
+
+| Phase | What gets built | Exit check | Your decision |
+|---|---|---|---|
+| A. No execution, no model | Trajectory record schema, hash-chained into the audit log (R6-3, needs one migration). The halt-record table for c95. Binding the profile hash and caps into the approval digest (a digest version change). | Fixtures pass; you read the profile for one task class. | **O1:** approve one execution profile and egress allowlist, for one read-only browsing class over origins you have already granted. **O1b:** approve the approval-digest version change. |
+| B. Still no model | A real sandbox and egress proxy that enforce c94's decisions. A credential broker contract with a fake broker (R6-2). Label propagation for plan conformance (R6-8 part 2). The stage-ledger evidence calculator (R6-4). | The c94–c97 thresholds hold in the real sandbox. The extra-approval share on benign fixtures is measured. | **O2:** approve the plan-conformance policy and the extra-approval share you accept. |
+| C. Shadow | The first real model call, in an isolation tier, with no credentials and stubbed or read-only tools. Runs are recorded and graded. Agents propose; nothing runs. | A readiness report with your run floor, no severe incident, and agreement above your bound. | **O3:** approve the first model call, the provider, the per-lease budget and the run floor. |
+| D. Confirmed execution | Tools run, with each consequential step approved through an exact digest, plus a **real** credential broker scoped per task. | The readiness gate holds per class, and the broker is reviewed. | **O4:** approve the real broker, then promotion per class, with the evidence page open. |
+| E. Bounded autonomy | Only for reversible, low-tier actions under caps. A canary with a concurrent control for every agent-version change (R6-6). | The canary abort rule is tested. | **O5:** approve each class and each canary plan. A severe incident drops the class back to D automatically. |
+
+Throughout:
+- the Rule of Two stays on;
+- no phase is skipped;
+- the thresholds and floors are your risk decisions, not results from research.
