@@ -104,3 +104,26 @@ web/scripts/api-c69.mjs, web/docs/screenshots/improve-c69-*.png, this report
 ## Screenshots
 `web/docs/screenshots/improve-c69-dark.png`, `improve-c69-light.png`, `improve-c69-mobile.png` (the Process view with seeded rows; 1366x768 dark and light, 390 px).
 
+
+## Fix round (review: CLEAR AFTER FIXES)
+Base `6a25524`. One commit per item. Controller rulings stand: approval wait stays blank (the integrator wires it at merge) and the Outcomes/Process switch is accepted.
+
+| Item | Result | Commit | RED then GREEN |
+|---|---|---|---|
+| F1 first-pass = accepted on attempt 1 | DONE | 452e483 | RED: `c69-process` "F1: attempt 1 failed, a retry passed...": `AssertionError: expected { …(15) } to match object { value: 33.3, n: 9 }`. The loader now reads `task_attempts.attempt_no` of the review's attempt; a task counts only when its first review is accepted, not stale and on attempt 1 (null attempt = not counted). A DB test adds attempt 2 and an accepted first review: denominator +1, numerator unchanged. GREEN: 18/18 and 12/12 |
+| F2 relabel | DONE | c8b9118 | the chips are headed "failure tags:" and the list is named "Failure tags on the returned tasks, with n"; the help says a tag belongs to the task, not the review. The chip "a criterion failed (no failure tag)" became "criterion failed, no tag" (shorter, so the rework card keeps its height) |
+| F3 duplicate-reassign note | DONE | c8b9118 | the `?` says a reassign with the same goal text counts as a duplicate delegation |
+| F4 `?view=process` | DONE | 662c6e8 | `Dimensions.tsx` reads `view=process` and keeps the URL in step (`replace`). `a11y-check` lists `sub=dimensions` and `sub=dimensions&view=process`; `fit-check` and `api-mobile` list the Process view too. RED/GREEN: api-c69 "F4: ?view=process opens the Process view directly" |
+| F5 footnote at 390 px | DONE | c8b9118 | RED: api-c69 "F5: ...footnote is not clipped": `{"over":13,"h":28}` (the first CSS fix lost to c46's `.dim-note` height; `.dim-note.proc-note` wins). GREEN |
+| F6 arrow keys | DONE | b7ed027 | `Segmented` is a WAI-ARIA radio group: Left/Up and Right/Down move and select (wrapping), Home/End jump, roving tabindex, focus follows. api-c69 "F6" checks ArrowLeft, ArrowRight, the URL and the focus. A first try failed with `Cannot read properties of null (reading 'querySelectorAll')` (`currentTarget` is cleared after the handler); fixed by capturing the group. Other users of `Segmented` are covered by both a11y runs and api-c46/c66/c69 |
+| F7 covers | DONE | a12e745 | RED: `c69-registry` F7: `expected [ 'process.approval_decision_h', …(1) ] to deeply equal [ 'process.approval_decision_h', [] ]`; both unmeasured rows now declare `covers: []` |
+| F8 interpretation | DONE | c8b9118 | the "why" lines say "may" ("may be one that nobody owns for long; it may also be work that moved to the right specialist", and so on) |
+
+Re-run results (load 10-17):
+- `tsc`: clean for server and web. Full `vitest`: **82 files, 2210 tests passed, 0 failed**; no connection errors, so the serial fallback was not needed.
+- api-c69 **40/40**, api-c46 36/36, api-c66 26/26, api-stage6 94/94.
+- fit-check 1366x768: **ALL FIT**, including `/operations?tab=agents&sub=dimensions` and `...&view=process` (mainOver 0).
+- a11y demo: 53 views, 64 dialogs, **0 violations** (the two Dimensions views are now in the list). a11y api: 43 views, 64 dialogs: the first run reported **1 violation, `LIVEPROBE` "no loading text matching /loading proposals/i in a live region"** (the proposals loading probe, a timing race under load, unrelated to this change); a re-run alone: **0 violations**.
+- api-mobile: "NO FAILURES", and it now visits both Dimensions views at 390 px (over=0 clipped=0 small=0).
+- The Segmented change touches every use of the control; none of the a11y, api-c46, api-c66 or api-stage6 checks regressed.
+- Not re-run: verify-all (demo, default views; no demo-visible file other than `Form.tsx` and the Dimensions panel changed). The demo-mode Process view is now reachable by URL and covered by fit-check and the demo a11y run, which closes the earlier "NOT CHECKED".
