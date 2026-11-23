@@ -45,11 +45,23 @@ export function SwitchRow({ label, desc, checked, onChange, help }: { label: str
 /** Segmented control with sliding thumb. */
 export function Segmented<K extends string>({ options, value, onChange, ariaLabel, size }: { options: { key: K; label: ReactNode; title?: string }[]; value: K; onChange: (k: K) => void; ariaLabel: string; size?: 'sm' }) {
   return (
-    <div role="radiogroup" aria-label={ariaLabel} className={cx('segmented', size)}>
+    <div role="radiogroup" aria-label={ariaLabel} className={cx('segmented', size)}
+      onKeyDown={(e) => {
+        // WAI-ARIA radio group: Left/Up and Right/Down move to the previous/next option (wrapping) and select it; Home/End jump to the ends
+        const keys = ['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown', 'Home', 'End'];
+        if (!keys.includes(e.key) || e.altKey || e.ctrlKey || e.metaKey) return;
+        const i = options.findIndex((o) => o.key === value);
+        const n = options.length;
+        const to = e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : (i + (e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 1) + n) % n;
+        e.preventDefault();
+        const group = e.currentTarget; // React clears currentTarget after the handler
+        onChange(options[to].key);
+        requestAnimationFrame(() => (group.querySelectorAll('[role="radio"]')[to] as HTMLElement | undefined)?.focus());
+      }}>
       {options.map((o) => {
         const sel = o.key === value;
         return (
-          <button key={o.key} type="button" role="radio" aria-checked={sel} title={o.title} onClick={() => onChange(o.key)} className="seg-btn">
+          <button key={o.key} type="button" role="radio" aria-checked={sel} tabIndex={sel ? 0 : -1} title={o.title} onClick={() => onChange(o.key)} className="seg-btn">
             {sel && <motion.span layoutId={`seg-${ariaLabel}`} className="seg-thumb" transition={{ type: 'spring', stiffness: 500, damping: 38 }} />}
             <span style={{ position: 'relative', zIndex: 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>{o.label}</span>
           </button>

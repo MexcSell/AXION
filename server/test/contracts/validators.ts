@@ -17,6 +17,7 @@ import {
   type ProposalEvaluationDto, type EvalRefusalDto, type GradingDto, type DatasetValidityDto, type CompanyDimensionsDto, type DimensionRowDto, type DimensionCell, DIMENSION_KEYS, DIMENSION_WINDOWS,
   type CapacityCellDto, type CapacityDeptDto, type CapacityPersonDto, type CapacityPeopleBody, type ReviewCapacityDto, type LittleLawDto, type SpanDto, type SpanRowDto,
   type MetricGuardDto, type MetricGuard, type MetricGuardRow, type MetricAuditState, type MetricAuditResult, QUALITY_DIMENSION_IDS,
+  type ProcessDto, type ProcessCell, PROCESS_WINDOWS,
 } from '../../../shared/contracts/src/index.ts';
 
 export const errorEnvelope: V<ErrorEnvelope> = obj<ErrorEnvelope>({ code: oneOf(ERROR_CODES), message: str, correlationId: str, retryable: bool, fieldErrors: opt(dict(str)) });
@@ -420,12 +421,22 @@ export const dimensions: V<CompanyDimensionsDto> = obj<CompanyDimensionsDto>({
   window: oneOf(DIMENSION_WINDOWS), from: iso, to: iso, previousFrom: iso, previousTo: iso, department: nullable(str), departments: arr(str), dimensions: arr(dimensionRow),
 });
 
+// ---- process metrics (c69)
+const processCell: V<ProcessCell> = obj<ProcessCell>({
+  key: str, label: str, value: nullable(num), unit: oneOf(['%', 'h', 'count'] as const), n: nullable(int), minN: int, from: nullable(iso), to: nullable(iso), evidence: str,
+  state: oneOf(['ok', 'none', 'unmeasured'] as const), previous: obj<ProcessCell['previous']>({ value: nullable(num), n: int }), trend: nullable(oneOf(['up', 'down', 'flat'] as const)),
+  open: nullable(obj<NonNullable<ProcessCell['open']>>({ n: int, what: str })), p90: nullable(num), breakdown: arr(obj<ProcessCell['breakdown'][number]>({ label: str, n: int })),
+});
+export const processDto: V<ProcessDto> = obj<ProcessDto>({
+  window: oneOf(PROCESS_WINDOWS), from: iso, to: iso, previousFrom: iso, previousTo: iso, department: nullable(str), departments: arr(str), cells: arr(processCell),
+});
+
 // ---- metric guard (c66)
 const metricAuditState: V<MetricAuditState> = obj<MetricAuditState>({
   n: int, disagreements: int, metricOver: int, auditOver: int, divergence: nullable(num), bar: num, minN: int, state: oneOf(['none', 'ok'] as const), flagged: bool, lastAuditedAt: nullable(iso),
 });
 const metricGuardRow: V<MetricGuardRow> = obj<MetricGuardRow>({
-  id: str, kind: oneOf(['scorecard', 'dimension', 'kpi'] as const), label: str,
+  id: str, kind: oneOf(['scorecard', 'dimension', 'kpi', 'process'] as const), label: str,
   counter: either(obj<Extract<MetricGuard['counter'], { kind: 'metric' }>>({ kind: lit('metric' as const), ref: str, refLabel: str, why: str }), obj<Extract<MetricGuard['counter'], { kind: 'none' }>>({ kind: lit('none' as const), reason: str })),
   uncovered: arr(obj<MetricGuard['uncovered'][number]>({ id: oneOf(QUALITY_DIMENSION_IDS), label: str })),
   gameable: bool, gameableText: str, inputs: arr(obj<MetricGuard['inputs'][number]>({ id: str, what: str })), audit: metricAuditState,

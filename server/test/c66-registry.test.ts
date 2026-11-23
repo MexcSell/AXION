@@ -5,6 +5,7 @@ import { makeSchema } from './helpers.ts';
 import { METRICS, METRIC_BY_ID, INPUT_FIELDS, INPUT_FIELD_IDS, writabilityOf, guardOf, guardRows, registryProblems, type MetricMeta } from '../../shared/contracts/src/index.ts';
 import { computeScorecard } from '../src/company/scorecard.ts';
 import { computeDimensions, type DimInput } from '../src/company/dimensions.ts';
+import { computeProcess } from '../src/company/process.ts';
 import { loaderTables } from './contracts/writability.ts';
 
 /**
@@ -22,7 +23,9 @@ function liveIds(): string[] {
   // the weekly throughput chart is part of the scorecard panel but has no row key; its help key is scorecard.throughput
   const cc = readFileSync(join(__dirname, '../../web/src/components/layout/CommandCenter.tsx'), 'utf8');
   const throughput = /HelpTrigger k="scorecard\.throughput"/.test(cc) ? ['scorecard.throughput'] : [];
-  return [...sc, ...throughput, ...dims, ...kpiIds()];
+  // c69: the process rows (a pure function's output, so a new process cell without an entry fails on the day it is added)
+  const proc = computeProcess({ agents: [], missions: [], tasks: [], reviews: [], tags: [], briefs: [], ownerHistory: [], handoffs: [] }, { window: '30d', from, to: now, department: null }).cells.map((c) => c.key);
+  return [...sc, ...throughput, ...dims, ...kpiIds(), ...proc];
 }
 /** KPI tiles that show a measured number: every `help: 'kpi.*'` in the command center except the DEMO-only tiles, which show invented numbers. */
 const DEMO_ONLY_KPI = ['kpi.success', 'kpi.activeAgents', 'kpi.tokens'];
@@ -71,9 +74,11 @@ describe('the row registry covers every live row', () => {
     expect(guardRows().length).toBe(METRICS.length);
     // S2: the verified rule reads verifies edges, and no agent-reachable site writes that edge kind (joinMission writes delegated edges only)
     for (const id of ['scorecard.verified_success_rate', 'scorecard.completed_unverified', 'kpi.success.api']) expect(guardRows().find((g) => g.id === id)!.gameable, id).toBe(false);
-    expect(guardRows().filter((g) => g.gameable).length).toBe(11);
+    // c69: the two pins below cover the c66 row kinds (scorecard, KPI, dimension); the process rows have their own pin in c69-registry.test.ts
+    const c66Rows = guardRows().filter((g) => g.kind !== 'process');
+    expect(c66Rows.filter((g) => g.gameable).length).toBe(11);
     // the rows an agent identity can reach today, by the inventory (a change here is a reviewed decision)
-    expect(guardRows().filter((g) => g.gameable).map((g) => g.id).sort()).toMatchSnapshot();
+    expect(c66Rows.filter((g) => g.gameable).map((g) => g.id).sort()).toMatchSnapshot();
   });
 });
 

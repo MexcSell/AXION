@@ -1,0 +1,34 @@
+/* Improvement cycle 69: the Process view of the Dimensions panel. Five cards (value, n, window, open items, causes, guard, ?) and a strip for the two figures with no source. */
+.proc-wrap { display: flex; flex-direction: column; gap: 8px; }
+.proc-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.proc-li { min-width: 0; display: flex; }
+.proc-card { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 8px 11px 8px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); }
+.proc-ch { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.proc-ico { color: var(--accent-2); flex: none; }
+.proc-cl { flex: 1 1 auto; min-width: 0; font-size: 12.5px; font-weight: 700; line-height: 1.15; }
+.proc-cv { display: flex; align-items: baseline; flex-wrap: wrap; gap: 3px 8px; line-height: 1.05; }
+.proc-cv b { font-size: 26px; font-weight: 700; }
+.proc-card.low .proc-cv b { font-size: 21px; font-weight: 600; }
+.proc-n { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+.proc-card.low .proc-n { color: var(--text); }
+.proc-p90 { font-size: 11px; font-weight: 600; color: var(--text-muted); }
+.proc-tr { display: inline-flex; align-items: center; gap: 2px; font-size: 11px; font-weight: 700; color: var(--text); }
+.proc-none { font-size: 12px; font-weight: 600; color: var(--text-muted); line-height: 1.25; display: flex; align-items: center; gap: 5px; font-style: italic; }
+.proc-meta { font-size: 10.5px; color: var(--text-muted); font-family: var(--font-mono); }
+.proc-open { font-size: 11px; color: var(--text-muted); line-height: 1.25; }
+.proc-open b { color: var(--accent-2); font-weight: 700; }
+.proc-open.zero b { color: var(--text-muted); }
+.proc-causes { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.proc-causes li { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; padding: 1px 7px; border-radius: 999px; background: var(--panel-3, var(--panel)); border: 1px solid var(--border); }
+.proc-causes li b { font-weight: 700; }
+.proc-blank { display: flex; gap: 8px; }
+.proc-bl { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px; padding: 6px 11px; border-radius: 10px; border: 1px dashed var(--border); font-size: 11px; color: var(--text-muted); font-style: italic;
+  background: repeating-linear-gradient(135deg, transparent 0 6px, rgba(var(--accent-2-rgb), .05) 6px 12px); }
+.proc-bl b { color: var(--text); font-style: normal; white-space: nowrap; }
+.proc-bl span { flex: 1; min-width: 0; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; outline: none; }
+.proc-bl span:focus-visible { box-shadow: 0 0 0 1.5px var(--accent-2); border-radius: 4px; }
+.proc-cv { outline: none; }
+.proc-note { font-size: 11px; margin: 0; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 1100px) { .proc-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 720px) { .proc-grid { grid-template-columns: 1fr; } .proc-blank { flex-direction: column; } .dim-note.proc-note { white-space: normal; height: auto; overflow: visible; } }
+.proc-causes li.proc-cause-h { background: none; border: none; padding: 1px 0; color: var(--text-muted); font-style: italic; }
