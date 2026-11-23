@@ -5,6 +5,7 @@ import { ApiError, notFound } from '../errors.ts';
 import { evaluate } from '../policy/evaluate.ts';
 import { CURRENT_BASELINE, approverFor } from '../policy/baseline.ts';
 import { isTier, tierRank, type RiskTier } from '../policy/types.ts';
+import { audit } from '../audit.ts';
 import { allThree, deriveFlags, loadConfigProfile, type DerivedFlags } from '../policy/rule-of-two.ts';
 
 export type { RiskTier };
@@ -67,11 +68,14 @@ export async function requestApproval(c: Tx, a: ApprovalInput) {
   const createdAt = new Date(stamp.created);
   const expiresAt = new Date(stamp.expires);
   const digest = digestV2({ tenantId: a.tenantId, missionId: a.missionId, taskId: a.taskId, kind: a.kind, origin: a.origin, target: a.target, payload: a.payload, tier: risk, requestedBy, expiresAt: expiresAt.toISOString() });
+  const sealed = sealEvidence(id, digest, ruleRecord(flags, d.policyVersion));
   await c.query(
     `insert into approval_requests(id, tenant_id, mission_id, agent_id, kind, title, detail, risk, payload, action_digest, digest_version, task_id, origin, target, requested_by, demo, created_at, expires_at, rule_of_two)
      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,2,$11,$12,$13,$14,$15,$16,$17,$18)`,
-    [id, a.tenantId, a.missionId, a.agentId, a.kind, a.title, a.detail, risk, JSON.stringify(a.payload), digest, a.taskId ?? null, a.origin ?? null, a.target ?? null, requestedBy, a.demo ?? false, createdAt, expiresAt, JSON.stringify(sealEvidence(id, digest, ruleRecord(flags, d.policyVersion)))]);
+    [id, a.tenantId, a.missionId, a.agentId, a.kind, a.title, a.detail, risk, JSON.stringify(a.payload), digest, a.taskId ?? null, a.origin ?? null, a.target ?? null, requestedBy, a.demo ?? false, createdAt, expiresAt, JSON.stringify(sealed)]);
   await emit(c, { tenantId: a.tenantId, type: 'approval.requested', subject: a.missionId, missionId: a.missionId, actor: a.agentId, actorKind: 'agent', payload: { approvalId: id, kind: a.kind, risk, policyVersion: d.policyVersion, reasons: d.reasons } });
+  // c75: the evidence digest also goes into the chained audit log at request time, so stripping or rewriting it on the row later is caught against the original
+  await audit(c, { tenantId: a.tenantId, actor: requestedBy, action: 'approval.request', subject: id, result: 'ok', correlationId: '', detail: { mission: a.missionId, kind: a.kind, fired: sealed.fired, rule: sealed.rule, evidenceDigest: sealed.evidenceDigest } });
   return { id, digest };
 }
 
@@ -97,6 +101,16 @@ export function evidenceState(r: any): 'ok' | 'legacy' | 'mismatch' {
   if (!rec || typeof rec !== 'object' || rec.evidenceDigest === undefined) return 'legacy';
   const { evidenceDigest, ...rest } = rec;
   return evidenceDigest === evidenceDigestOf(r.id, r.action_digest, rest) ? 'ok' : 'mismatch';
+}
+/**
+ * The request-time anchor: the chained `approval.request` audit row. If it names a digest, the stored record must carry exactly that digest and still
+ * match it, so a stripped digest or a record rewritten together with its digest is refused. A request with no such row (or none naming a digest) predates c75: legacy.
+ */
+export async function assertEvidenceAnchored(c: Tx, r: any) {
+  const st = evidenceState(r);
+  if (st === 'mismatch') throw evidenceMismatch();
+  const a = (await c.query(`select detail from audit_events where tenant_id=$1 and action='approval.request' and subject=$2 and result='ok' order by seq limit 1`, [r.tenant_id, r.id])).rows[0]?.detail;
+  if (a?.evidenceDigest && (st === 'legacy' || r.rule_of_two.evidenceDigest !== a.evidenceDigest)) throw evidenceMismatch();
 }
 export const evidenceMismatch = () => new ApiError('APPROVAL_EVIDENCE_MISMATCH', 409, 'The recorded reasons for this request were changed after it was made. It cannot be used; the agent must ask again.');
 
@@ -189,7 +203,7 @@ export async function sweepExpired(c: Tx, tenantId?: string): Promise<string[]> 
  * (the evidence digest, and the latency, queue size and fast-bulk flag next to the decision record). Older decisions have no such audit detail and are skipped.
  */
 async function assertEvidence(c: Tx, r: any) {
-  if (evidenceState(r) === 'mismatch') throw evidenceMismatch();
+  await assertEvidenceAnchored(c, r);
   const a = (await c.query(`select detail from audit_events where tenant_id=$1 and action='approval.decide' and subject=$2 and result='ok' order by seq desc limit 1`, [r.tenant_id, r.id])).rows[0]?.detail;
   if (!a || a.evidenceDigest === undefined) return;
   const d = (await c.query('select latency_ms, queue_size, fast_bulk from approval_decisions where approval_id=$1 order by decided_at desc limit 1', [r.id])).rows[0];

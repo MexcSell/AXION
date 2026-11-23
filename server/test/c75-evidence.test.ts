@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { makeTestApp, withAdmin, type TestApp } from './helpers.ts';
-import { requestApproval, consumeApproval, loadBoundAction } from '../src/approvals/service.ts';
+import { requestApproval, consumeApproval, loadBoundAction, evidenceDigestOf } from '../src/approvals/service.ts';
 import { verifyChain } from '../src/audit.ts';
 import { tx } from '../src/db.ts';
 
@@ -26,6 +26,10 @@ async function tamperRow(sql: string, params: unknown[]) {
 async function tamperAudit(sql: string, params: unknown[]) {
   const c = await t.pool.connect();
   try { await c.query('alter table audit_events disable trigger user'); try { await c.query(sql, params); } finally { await c.query('alter table audit_events enable trigger user'); } } finally { c.release(); }
+}
+async function dropRequestRow(id: string) {
+  const c = await t.pool.connect();
+  try { await c.query('alter table audit_events disable trigger user'); try { await c.query(`delete from audit_events where action='approval.request' and subject=$1`, [id]); } finally { await c.query('alter table audit_events enable trigger user'); } } finally { c.release(); }
 }
 const flipFlag = (id: string) => tamperRow(`update approval_requests set rule_of_two = jsonb_set(rule_of_two, '{flags,untrustedInput}', 'true'::jsonb) where id=$1`, [id]);
 const decideAudit = async (id: string) => (await t.pool.query(`select detail from audit_events where action='approval.decide' and subject=$1`, [id])).rows[0]?.detail;
@@ -65,6 +69,7 @@ describe('c75 item 1: the Rule-of-Two evidence is bound to the request and re-ve
     const a = await ask(), b = await ask();
     await tamperRow(`update approval_requests set rule_of_two = rule_of_two - 'evidenceDigest' where id=$1`, [a.id]);
     await tamperRow(`update approval_requests set rule_of_two = null where id=$1`, [b.id]);
+    await dropRequestRow(a.id); await dropRequestRow(b.id); // a genuine pre-c75 request has no chained request row either
     for (const id of [a.id, b.id]) {
       expect((await decide(A.admin, id)).status).toBe(200);
       await expect(consume(id)).resolves.toMatchObject({ approvalId: id });
@@ -77,3 +82,39 @@ describe('c75 item 1: the Rule-of-Two evidence is bound to the request and re-ve
   });
 });
 
+
+describe('c75 fix round: the request-time anchor in the audit chain', () => {
+  it('the request writes a chained approval.request row naming the evidence digest', async () => {
+    const r = await ask();
+    const row = (await t.pool.query(`select detail from audit_events where action='approval.request' and subject=$1`, [r.id])).rows[0];
+    const rec = (await t.pool.query('select rule_of_two from approval_requests where id=$1', [r.id])).rows[0].rule_of_two;
+    expect(row.detail).toMatchObject({ mission: mid, kind: 'submit_form', fired: false, rule: null, evidenceDigest: rec.evidenceDigest });
+    expect((await verifyChain(t.pool, 't-1')).ok).toBe(true);
+  });
+  it('stripping the digest from a PENDING post-c75 request makes DECIDE refuse (it is not mistaken for an old request)', async () => {
+    const r = await ask();
+    await tamperRow(`update approval_requests set rule_of_two = rule_of_two - 'evidenceDigest' where id=$1`, [r.id]);
+    const res = await decide(A.admin, r.id);
+    expect(res.status).toBe(409); expect(res.body.code).toBe('APPROVAL_EVIDENCE_MISMATCH');
+    expect((await t.pool.query('select state from approval_requests where id=$1', [r.id])).rows[0].state).toBe('pending');
+  });
+  it('rewriting the flags AND their digest together on a pending request is caught against the chained original', async () => {
+    const r = await ask();
+    const row = (await t.pool.query('select id, action_digest, rule_of_two from approval_requests where id=$1', [r.id])).rows[0];
+    const { evidenceDigest: _old, ...rest } = row.rule_of_two;
+    const forged = { ...rest, flags: { ...rest.flags, untrustedInput: !rest.flags.untrustedInput } };
+    const rewritten = { ...forged, evidenceDigest: evidenceDigestOf(row.id, row.action_digest, forged) };
+    await tamperRow('update approval_requests set rule_of_two = $2::jsonb where id=$1', [r.id, JSON.stringify(rewritten)]);
+    const res = await decide(A.admin, r.id);
+    expect(res.status).toBe(409); expect(res.body.code).toBe('APPROVAL_EVIDENCE_MISMATCH');
+  });
+  it('the same rewrite after the decision is refused at consume', async () => {
+    const r = await ask();
+    expect((await decide(A.admin, r.id)).status).toBe(200);
+    const row = (await t.pool.query('select id, action_digest, rule_of_two from approval_requests where id=$1', [r.id])).rows[0];
+    const { evidenceDigest: _o, ...rest } = row.rule_of_two;
+    const forged = { ...rest, fired: true, rule: 'rule_of_two' };
+    await tamperRow('update approval_requests set rule_of_two = $2::jsonb where id=$1', [r.id, JSON.stringify({ ...forged, evidenceDigest: evidenceDigestOf(row.id, row.action_digest, forged as any) })]);
+    await expect(consume(r.id)).rejects.toMatchObject({ code: 'APPROVAL_EVIDENCE_MISMATCH' });
+  });
+});
