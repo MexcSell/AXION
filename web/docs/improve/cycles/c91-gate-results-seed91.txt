@@ -1,0 +1,21 @@
+c91 skill-gate fixture run: seed 91. SYNTHETIC candidates and scores; this tests the gate, not any skill.
+constants: margin A 0.03, margin B 0.03, regression budget 0.02, min items per class 20, attempt cap 20
+design: 4 classes, 40 items per class per set, incumbent 0.6, item sd 0.15, 50 candidates per kind, 300 per seed
+
+kind | n | admit | refuse | not enough evidence | reason counts (a candidate can have several)
+true_gain | 50 | 50 (100.0%) | 0 (0.0%) | 0 (0.0%) | all_checks_passed=50
+no_gain | 50 | 0 (0.0%) | 50 (100.0%) | 0 (0.0%) | probe_a_gain_too_small=50, probe_b_gain_too_small=50, replay_regression=27
+harmful_class | 50 | 0 (0.0%) | 50 (100.0%) | 0 (0.0%) | probe_a_gain_too_small=2, replay_regression=50
+overfit_to_a | 50 | 0 (0.0%) | 50 (100.0%) | 0 (0.0%) | probe_b_gain_too_small=48, replay_regression=30
+leaky | 50 | 0 (0.0%) | 50 (100.0%) | 0 (0.0%) | evidence_leakage=50
+too_small | 50 | 0 (0.0%) | 0 (0.0%) | 50 (100.0%) | probe_a_too_small=17, probe_b_too_small=14, replay_too_small=19
+
+mean net gain seen by the gate (where computed): true_gain.A 0.100, true_gain.B 0.103, no_gain.A -0.000, no_gain.B 0.001, harmful_class.A 0.058, harmful_class.B 0.062, overfit_to_a.A 0.100, overfit_to_a.B 0.002, leaky.A 0.099, leaky.B 0.102, too_small.A 0.096, too_small.B 0.100
+
+threshold | met | observed
+true_gain admitted 100% | MET | 50/50
+harmful_class refused 100% (not admitted) | MET | 0 admitted
+leaky refused 100% | MET | 50/50 refused
+overfit_to_a not admitted >= 90% | MET | 0 admitted; 48 had B gain below margin
+no_gain false-admit <= 2% | MET | 0/50
+too_small never admitted | MET | 0 admitted; 50 not enough evidence
