@@ -12,7 +12,7 @@ import { windowOf } from '../src/company/scorecard.ts';
 const NOW = new Date('2026-11-21T12:00:00Z');
 const H = 3_600_000, D = 24 * H;
 const ago = (ms: number) => new Date(NOW.getTime() - ms);
-const empty = (): ProcInput => ({ agents: [], missions: [], tasks: [], reviews: [], tags: [], briefs: [], ownerHistory: [], handoffs: [] });
+const empty = (): ProcInput => ({ agents: [], missions: [], tasks: [], reviews: [], tags: [], briefs: [], ownerHistory: [], handoffs: [], approvals: [] });
 const run = (i: ProcInput, dept: string | null = null, w: '7d' | '30d' | '90d' = '30d') => { const x = windowOf(w, NOW); return computeProcess(i, { window: w, from: x.from, to: x.to, department: dept }); };
 const cell = (r: ReturnType<typeof run>, key: string) => r.cells.find((c) => c.key === `process.${key}`)!;
 
@@ -65,10 +65,31 @@ describe('process metrics: the model shape', () => {
       }
     }
   });
-  it('cost and the approval decision time are unmeasured cells with the reason, never numbers', () => {
+  it('cost is an unmeasured cell with the reason, never a number; the approval wait is measured from c58\'s stored latency and says "not enough evidence" with none', () => {
     const r = run(reviewFixture());
     expect(cell(r, 'cost')).toMatchObject({ value: null, n: null, state: 'unmeasured', evidence: expect.stringContaining('Stage 9') });
-    expect(cell(r, 'approval_decision_h')).toMatchObject({ value: null, n: null, state: 'unmeasured', evidence: expect.stringContaining('not recomputed') });
+    expect(cell(r, 'approval_decision_h')).toMatchObject({ value: null, n: 0, state: 'none', minN: 20, evidence: expect.stringMatching(/^not enough evidence \(n = 0\)/) });
+  });
+});
+
+describe('approval time to decision (c58 stored latency_ms; hand-computed)', () => {
+  const ap = (missionId: string, agentId: string, latencyHours: number, decidedAgo = 2 * D): ProcInput['approvals'][number] => ({ missionId, agentId, decidedAt: ago(decidedAgo), latencyMs: latencyHours * H });
+  const base = (): ProcInput => ({ ...empty(), agents: AGENTS, missions: [{ id: 'M1', demo: false }, { id: 'MD', demo: true }] });
+  it('median and 90th percentile (nearest rank) of 20 decided approvals: latencies 1..20 h give median 10.5 h and p90 18 h', () => {
+    const i = base(); for (let h = 1; h <= 20; h++) i.approvals.push(ap('M1', 'a1', h));
+    expect(cell(run(i), 'approval_decision_h')).toMatchObject({ state: 'ok', value: 10.5, p90: 18, n: 20, unit: 'h' });
+  });
+  it('19 approvals are below the floor of 20: null with the count, never a number', () => {
+    const i = base(); for (let h = 1; h <= 19; h++) i.approvals.push(ap('M1', 'a1', h));
+    expect(cell(run(i), 'approval_decision_h')).toMatchObject({ state: 'none', value: null, p90: null, n: 19 });
+  });
+  it('only approvals decided in the window, on live missions, in the department count; the stored latency is used as is (no timestamps are subtracted)', () => {
+    const i = base(); for (let h = 1; h <= 20; h++) i.approvals.push(ap('M1', 'a1', h));
+    i.approvals.push(ap('M1', 'a1', 500, 40 * D));  // decided before the window
+    i.approvals.push(ap('MD', 'a1', 500));          // a demo mission
+    i.approvals.push(ap('M1', 'b1', 500));          // another department
+    expect(cell(run(i, 'Eng'), 'approval_decision_h')).toMatchObject({ state: 'ok', value: 10.5, p90: 18, n: 20 });
+    expect(cell(run(i, 'Ops'), 'approval_decision_h')).toMatchObject({ state: 'none', n: 1 });
   });
 });
 

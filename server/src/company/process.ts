@@ -18,7 +18,9 @@ import { MIN_N, trendOf } from './scorecard.ts';
  *   (nearest rank), null below CHURN_MIN_TASKS tasks.
  * - Handoff wait: for each delegation to a task made in the window, hours until the first attempt of that task started (computed by the
  *   database, DB time only). A delegation whose task has no started attempt is open: counted beside, never in the median.
- * - Approval time to decision is NOT recomputed here (see the report): it is an unmeasured cell until the stored decision latency is in this build.
+ * - Approval time to decision (c58's stored `approval_decisions.latency_ms`, written in SQL from the database clock when the person decides; never recomputed
+ *   from timestamps here): median and 90th percentile (nearest rank) in hours over the approvals decided in the window, on live missions, in the department of
+ *   the requesting agent. Null below APPROVAL_MIN_N (20, the same floor as c58's and c65's percentiles). A decision with no stored latency is not counted.
  * - Cost is an unmeasured cell until Stage 9.
  * A department keeps the rows of its own agents: tasks follow their current owner, delegations follow the receiving agent.
  * Simulated and DEMO rows are dropped here. No composite, no "good" threshold.
@@ -39,7 +41,11 @@ export interface ProcInput {
   ownerHistory: { taskId: string; agentId: string | null; at: Date; seq: number }[];
   /** delegations to a task; waitSeconds comes from SQL (first attempt start minus delegation time), null = no attempt has started */
   handoffs: { missionId: string; taskId: string; toAgent: string; at: Date; waitSeconds: number | null; simulated: boolean }[];
+  /** decided approvals with c58's stored decision latency (milliseconds, written by the database when the decision was recorded); demo requests are excluded by the loader */
+  approvals: { missionId: string; agentId: string; decidedAt: Date; latencyMs: number }[];
 }
+/** Percentiles of the approval time are null below this many decisions (the floor c58 and c65 use). */
+export const APPROVAL_MIN_N = 20;
 
 const round1 = (x: number) => Math.round(x * 10) / 10;
 const round2 = (x: number) => Math.round(x * 100) / 100;
@@ -139,8 +145,13 @@ const SPECS: Spec[] = [
     return { value: med, p90, n: waits.length, open,
       evidence: `median ${round1(med)} h and 90th percentile ${round1(p90)} h from a delegation to the first started attempt of its task, over ${plural(waits.length, 'delegation')} made in the window (database time)${tail}` };
   } },
-  { key: 'approval_decision_h', label: 'Approval wait', unit: 'h', minN: MIN_N,
-    measure: () => ({ value: null, n: null, state: 'unmeasured', evidence: 'not measured in this version: the stored approval decision time is not part of this build, and it is not recomputed from timestamps' }) },
+  { key: 'approval_decision_h', label: 'Approval wait', unit: 'h', minN: APPROVAL_MIN_N, measure: (i, c) => {
+    const hs = i.approvals.filter((a) => c.live.has(a.missionId) && c.inWin(a.decidedAt) && c.agentIn(a.agentId)).map((a) => a.latencyMs / 3_600_000);
+    if (hs.length < APPROVAL_MIN_N) return { ...none(hs.length, `${plural(hs.length, 'approval')} decided in the window with a stored decision time`, APPROVAL_MIN_N), open: null, p90: null };
+    const med = round2(median(hs)), p90 = round2(nearestRank(hs, 0.9));
+    return { value: med, p90, n: hs.length, open: null,
+      evidence: `median ${round1(med)} h and 90th percentile ${round1(p90)} h from a request to its decision (the decision time stored when the person decided), over ${plural(hs.length, 'approval')} decided in the window` };
+  } },
   { key: 'cost', label: 'Cost', unit: 'count', minN: MIN_N,
     measure: () => ({ value: null, n: null, state: 'unmeasured', evidence: 'not measured until Stage 9 (the usage ledger): nothing records what work cost yet, so there is no number' }) },
 ];

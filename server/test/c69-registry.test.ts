@@ -29,7 +29,7 @@ describe('c69 process rows in the c66 registry', () => {
     for (const m of METRICS.filter((x) => x.kind === 'process')) expect(rows.find((r) => r.id === m.id)!.gameable, m.id).toBe(writabilityOf(m.inputs).agentWritable);
     expect(Object.fromEntries(rows.map((r) => [r.id, r.gameable]))).toEqual({
       'process.rework_rate': true, 'process.first_pass_acceptance': true, 'process.duplicate_delegation': true, 'process.reassign_churn': false,
-      'process.handoff_wait_h': true, 'process.approval_decision_h': false, 'process.cost': false,
+      'process.handoff_wait_h': true, 'process.approval_decision_h': true /* c58 wiring: it now reads approval_requests.record, which an agent identity writes through requestApproval */, 'process.cost': false,
     });
   });
   it('task_owner_history is written only by a database trigger: the c66 source scan (insert, update, delete, merge, truncate, copy, quoted, schema-qualified, templated) finds no writer in server/src', () => {

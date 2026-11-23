@@ -24,7 +24,7 @@ function liveIds(): string[] {
   const cc = readFileSync(join(__dirname, '../../web/src/components/layout/CommandCenter.tsx'), 'utf8');
   const throughput = /HelpTrigger k="scorecard\.throughput"/.test(cc) ? ['scorecard.throughput'] : [];
   // c69: the process rows (a pure function's output, so a new process cell without an entry fails on the day it is added)
-  const proc = computeProcess({ agents: [], missions: [], tasks: [], reviews: [], tags: [], briefs: [], ownerHistory: [], handoffs: [] }, { window: '30d', from, to: now, department: null }).cells.map((c) => c.key);
+  const proc = computeProcess({ agents: [], missions: [], tasks: [], reviews: [], tags: [], briefs: [], ownerHistory: [], handoffs: [], approvals: [] }, { window: '30d', from, to: now, department: null }).cells.map((c) => c.key);
   return [...sc, ...throughput, ...dims, ...kpiIds(), ...proc];
 }
 /** KPI tiles that show a measured number: every `help: 'kpi.*'` in the command center except the DEMO-only tiles, which show invented numbers. */

@@ -2,7 +2,7 @@ import { PROCESS_KEYS, type ProcessCell, type ProcessDto, type ProcessWindow } f
 
 /**
  * DEMO mode (improvement cycle 69): labelled SAMPLE cells only. The numbers are invented to show the layout; nothing is measured and the panel says so.
- * The two unmeasured cells stay unmeasured, as they are in api mode.
+ * Only the cost cell stays unmeasured, as in api mode; the approval wait has no sample rows (n = 0, below its floor of 20).
  */
 type S = { label: string; unit: ProcessCell['unit']; value: number | null; n: number | null; minN?: number; p90?: number; open?: { n: number; what: string }; breakdown?: { label: string; n: number }[]; trend?: ProcessCell['trend']; prev?: number | null; unmeasured?: string };
 const SAMPLE: Record<(typeof PROCESS_KEYS)[number], S> = {
@@ -11,7 +11,7 @@ const SAMPLE: Record<(typeof PROCESS_KEYS)[number], S> = {
   duplicate_delegation: { label: 'Duplicate delegations', unit: '%', value: null, n: 2 },
   reassign_churn: { label: 'Reassign churn', unit: 'count', value: null, n: 7, minN: 20 },
   handoff_wait_h: { label: 'Wait on a hand-off', unit: 'h', value: 2.5, n: 9, p90: 6, open: { n: 1, what: 'delegated, no attempt started yet' } },
-  approval_decision_h: { label: 'Approval wait', unit: 'h', value: null, n: null, unmeasured: 'not measured in this version: the stored approval decision time is not part of this build, and it is not recomputed from timestamps' },
+  approval_decision_h: { label: 'Approval wait', unit: 'h', value: null, n: 0, minN: 20 },
   cost: { label: 'Cost', unit: 'count', value: null, n: null, unmeasured: 'not measured until Stage 9 (the usage ledger): nothing records what work cost yet, so there is no number' },
 };
 export function demoProcess(window: ProcessWindow, department: string | null): ProcessDto {

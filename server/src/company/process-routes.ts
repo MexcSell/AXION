@@ -54,6 +54,11 @@ export default async function processRoutes(app: FastifyInstance) {
           from mission_delegations d join agent_instances i on i.id = d.to_instance
          where i.tenant_id=$1 and d.mission_id = any($2::text[]) and d.edge_kind='delegated' and d.task_id is not null
            and d.at <= now() and d.at >= now() - ($3::double precision * interval '1 millisecond')`, [T, ids, sinceMs]);
+      // c58's stored latency (SQL, database clock) of the latest decision per approval; DEMO requests are never read
+      const approvals = await q(`select r.mission_id, r.agent_id, dd.decided_at, dd.latency_ms::float8 as latency_ms from approval_requests r
+          join lateral (select decided_at, latency_ms from approval_decisions d where d.approval_id = r.id order by d.decided_at desc limit 1) dd on true
+         where r.tenant_id=$1 and r.mission_id = any($2::text[]) and r.demo = false and dd.latency_ms is not null
+           and dd.decided_at <= now() and dd.decided_at >= now() - ($3::double precision * interval '1 millisecond')`, [T, ids, sinceMs]);
       const input: ProcInput = {
         agents: agents.map((a) => ({ id: a.id, dept: a.dept, active: a.status === 'active' })),
         missions: missions.map((m) => ({ id: m.id, demo: m.demo })),
@@ -63,6 +68,7 @@ export default async function processRoutes(app: FastifyInstance) {
         briefs: briefs.rows.map((b) => ({ id: b.id, missionId: b.mission_id, toAgent: b.to_agent, goal: typeof b.goal === 'string' ? b.goal : null, at: D(b.created_at), supersedesId: b.supersedes_id, simulated: b.simulated })),
         ownerHistory: history.rows.map((h) => ({ taskId: h.task_id, agentId: h.agent_id, at: D(h.at), seq: Number(h.seq) })),
         handoffs: handoffs.rows.map((h) => ({ missionId: h.mission_id, taskId: h.task_id, toAgent: h.to_agent, at: D(h.at), waitSeconds: h.wait_s === null ? null : Number(h.wait_s), simulated: h.simulated })),
+        approvals: approvals.rows.map((a) => ({ missionId: a.mission_id, agentId: a.agent_id, decidedAt: D(a.decided_at), latencyMs: Number(a.latency_ms) })),
       };
       const departments = new Set(input.agents.filter((a) => a.active).map((a) => a.dept));
       if (qs.department && !departments.has(qs.department)) throw notFound('No such department.');
