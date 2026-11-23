@@ -62,7 +62,7 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
     bodyLimit: 1_000_000,
     trustProxy: false, // review I1: never take the client address from X-Forwarded-For
   });
-  const db = makePool(cfg.databaseUrl, cfg.schema);
+  const db = makePool(cfg.databaseUrl, cfg.schema, cfg.dbPoolMax, (o, m) => app.log.warn(o, m));
   app.decorate('db', db);
   app.decorate('cfg', { tenantId: DEFAULT_TENANT, ...cfg });
   app.addHook('onClose', async () => { await db.end(); });
