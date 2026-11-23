@@ -45,7 +45,7 @@ c78's RATING_FIELDS and value-order scans, c50 allowlist sizes and c79 exception
 server/src/company/metric-audit-store.ts (new), metric-guard-routes.ts, server/src/seed/demo.ts; shared/contracts/src/metric-reads.ts (new), metric-registry.ts, index.ts; server/test/contracts/columns.ts (new), c83-sample-ref.test.ts, c83-registry-columns.test.ts, c83-weak-counters.test.ts, c83-refs.ts (new); c66-metric-audits.test.ts and contracts/coverage.test.ts (their sample references are now typed, naming real missions).
 
 ## Concerns
-1. `web/scripts/api-c66.mjs` posts free-text refs (`s0`...). It will now get 422, so it needs a follow-up in a web lane (create 100 missions and send `mission:<id>`). I did not run it; this cycle may not touch `web/`.
+1. (Resolved on the controller's instruction.) `web/scripts/api-c66.mjs` posted free-text refs. It now collects typed refs from the missions, tasks and approvals the database holds, creates real missions if fewer than 100 exist, and adds a check that a free-text ref is refused (400). Run in api mode on 13192/13193 against axion_e2e15: `28/28 passed`, no page errors (before the fix it failed 3 of 28 with a 17-record database). A grep of `web/scripts` and `server/test` found no other free-text sample_ref caller.
 2. The popover and help text in `web/` do not yet explain "weak"; the state reaches the screen only through the `counter.why` sentence.
 3. The old table-level `loaderTables()` test remains (4 files); the new test supersedes it for columns.
 4. The 10 re-pointed counters are judgement calls (the registry sentences say what each would show); the machine proves only that their input columns do not overlap, not that the signal is strong. This was run on a loaded machine; I took no timing measurements.

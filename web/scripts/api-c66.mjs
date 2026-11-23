@@ -128,7 +128,23 @@ try {
   if (DOC) await p.screenshot({ path: `${DOC}-dimensions-dark.png` });
 
   // ---- audit: a person's labels above the bar flag the row
-  const samples = Array.from({ length: 100 }, (_, i) => ({ sampleRef: `s${i}`, metricLabel: true, auditLabel: i >= 22 }));
+  // c83: a sample reference is typed (<kind>:<id>) and names a stored record: the missions and tasks and approvals this database really holds
+  const refs = [];
+  const ms = (await apiGet(p, '/missions')).body.missions ?? [];
+  for (const m of ms) refs.push(`mission:${m.id}`);
+  for (const m of ms) { if (refs.length >= 100) break; const t = (await apiGet(p, `/missions/${m.id}/tasks`)).body; for (const x of t.tasks ?? []) refs.push(`task:${x.id}`); }
+  for (const a of (await apiGet(p, '/approvals')).body.approvals ?? []) refs.push(`approval:${a.id}`);
+  const csrf = (await (await p.request.get(base + '/api/v1/me')).json()).me.csrf;
+  for (let i = 0; new Set(refs).size < 100 && i < 120; i++) { // too few records: the script creates real missions to label
+    const r = await p.request.post(base + '/api/v1/missions', { headers: { 'x-csrf': csrf, 'idempotency-key': `c83-audit-${Date.now()}-${i}` }, data: { text: `c83 audit sample ${i}`, files: [], shared: false } });
+    const b = await r.json().catch(() => ({}));
+    if (b.mission?.id) refs.push(`mission:${b.mission.id}`);
+  }
+  const uniq = [...new Set(refs)].slice(0, 100);
+  check('the database holds at least 100 records to label (typed references)', uniq.length === 100, `${uniq.length}`);
+  const free = await apiPost(p, '/company/metric-audits', { metricId: 'scorecard.verified_success_rate', samples: [{ sampleRef: 's0', metricLabel: true, auditLabel: false }] });
+  check('a free-text sample reference is refused (no label stored)', free.status === 400 || free.status === 422, `${free.status}`);
+  const samples = uniq.map((sampleRef, i) => ({ sampleRef, metricLabel: true, auditLabel: i >= 22 }));
   const post = await apiPost(p, '/company/metric-audits', { metricId: 'scorecard.verified_success_rate', samples });
   check('an administrator records 100 audit labels (22 disagreeing = 22%)', post.status === 201 && post.body.audit?.flagged === true && post.body.audit?.divergence === 22, JSON.stringify(post.body.audit));
   await p.goto(base + '/overview', { waitUntil: 'domcontentloaded' });
