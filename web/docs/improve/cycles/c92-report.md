@@ -14,4 +14,12 @@ Lane w90, branch `c92-script-guards`, from improve-30h 17c5ee8. Only `web/script
 - Fail-closed kept: tests assert that an unknown table after a sub-select, inside an extract's sub-select, and beside an extract is still reported. The existing real-loader tests pass unchanged.
 
 ## Checks
-See the bottom section (filled from the committed tree).
+- verify-all on my own dev server (port 14090, OUT=/tmp/axion-verify-w90, BASE set): ALL 10 STEPS PASSED (scripts identical to the final tree).
+- `api-e2e.sh` on lane ports 14092/14093 (axion_e2e3): `api-auth-flow.mjs` 15/15, `api-c09.mjs` 6/6. `api-c14.mjs` is 22/31 with the same 9 CSP-enforcement FAILs on the base 17c5ee8 scripts (re-run with `git checkout 17c5ee8 -- web/scripts`, then restored): unrelated to this cycle, not caused by it.
+- c83 column tests plus c92 tests: 20/20 (RED shown for each of the three M2c-1 probes against the 17c5ee8 scanner; all three fail there, all pass now).
+- Full serial vitest (`--maxWorkers=1 --no-file-parallelism`): 173 files passed, 1 skipped; 3582 tests passed, 36 skipped. (Run before the last test-only commit, which split one test into three and made the spawn test use a temp cwd; both files re-run green.)
+- `tsc --noEmit` in server: clean.
+
+## Concerns
+- `api-*.mjs` still default to port 5193 (the e2e web port, not a live one); left as is.
+- The helper's integration-tree test uses the pure function with a fake cwd, so nothing in the suite depends on where the tree lives.
