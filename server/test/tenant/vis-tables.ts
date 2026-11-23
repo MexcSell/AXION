@@ -30,15 +30,6 @@ export const VISIBILITY_FINDINGS: Finding[] = [
     fix: 'Do not store viewer-independent counts that include private missions where a member can read them: compute evidence over VISIBLE missions at read time, or return result.evidence only to administrators. Design decision needed (snapshot).',
     backlog: 'TBD',
   },
-  {
-    fixedBy: "fixed by c81 (batch 40): 404 for an invisible id, nothing stored; not in this branch's base. The integrator removes this entry at merge. Until then it tolerates either outcome (200 here, 404 after the merge).",
-    detailRe: /: status 200 /,
-    route: 'POST /notifications/:id/ack', relation: 'IDW',
-    leaks: 'Not a read leak: the route answers 200 for ANY well-formed notice id, including a private mission\'s notification, and stores a read marker for the caller without looking the notice up. It gives the same answer for a nonexistent id, so it reveals nothing; but the id is a sequential number (n-8), the route never checks visibility, and it breaks "404 for an id you may not see". Known since c79 (concern 3).',
-    repro: 'As M: POST /notifications/<id of a notification of O\'s private mission>/ack answers 200 {"ok":true}, and so does a nonexistent id. (vis.test.ts, IDW.)',
-    fix: 'Look the notification up with the viewer\'s visibility and answer 404 when it is missing or not visible (c79 suggested the same).',
-    backlog: 'TBD',
-  },
 ];
 
 export interface Classified { byDesign: VViolation[]; findings: VViolation[]; unexplained: VViolation[]; usedAllowed: Set<number>; usedFindings: Set<number> }
