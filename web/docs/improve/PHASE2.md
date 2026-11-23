@@ -207,3 +207,12 @@ This reverses Wave 8's "no migrations" deliberately. Both are new append-only ta
 |---|---|---|---|
 | c88 org proposal evidence for members (T2, from c87) and the column guard scope (M2d) | w86, e2e13 | server, contracts, tests | 18:30Z |
 | c89 screens for change plans and forecasts (U8) | w87, e2e15 | web only | **16:00Z** (done by 12:00Z or parked) |
+
+### Wave 8e (planned ~08:55Z; the last lanes before the 13:45Z cutoff)
+| Cycle | Lane | Scope | Merge by |
+|---|---|---|---|
+| c90 peek-safe sequential readout, library and simulation (R5-4) | w88, e2e17 | server pure module | 18:30Z |
+| c91 skill promotion gate, pure module on synthetic data (R5-5) | w89, e2e14 | server pure module | 18:30Z |
+| c92 scripts refuse live-port defaults (H23) and the scanner sub-select gap (M2c-1) | w90, e2e3 | web/scripts and server/test | **16:00Z** (done by 12:00Z) |
+
+R5-8 was not started: its handoff record needs a new table, and no more migrations go in this late.
