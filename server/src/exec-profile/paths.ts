@@ -32,7 +32,7 @@ export type PathProblem = 'not_string' | 'not_absolute' | 'traversal' | 'encoded
  *  Collapses duplicate slashes, `.` segments and a trailing slash. */
 export function normaliseAbsolutePath(p: unknown): { ok: true; path: string } | { ok: false; problem: PathProblem } {
   if (typeof p !== 'string') return { ok: false, problem: 'not_string' };
-  if (p.length === 0 || p.length > 4096 || !p.startsWith('/') || p.includes('\0') || p.includes('\\') || /[\u0000-\u001f\u007f]/.test(p)) return { ok: false, problem: 'not_absolute' };
+  if (p.length === 0 || p.length > 4096 || !p.startsWith('/') || p.includes('\0') || p.includes('\\') || /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u.test(p)) return { ok: false, problem: 'not_absolute' };
   if (/%[0-9a-f]{2}/i.test(p)) return { ok: false, problem: 'encoded' };
   if (/[*?[\]{}]/.test(p)) return { ok: false, problem: 'wildcard' };
   if (p.split('/').some((s) => s === '..' || /^\.{2,}$/.test(s))) return { ok: false, problem: 'traversal' };
