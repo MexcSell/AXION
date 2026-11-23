@@ -55,10 +55,36 @@ RED, the exact reported symptom, reproduced on demand: base script with a 2.5 s 
 `crawl-deep.mjs`: only an error text matching `net::ERR_NETWORK_CHANGED` (a console error or a failed navigation) retries the page once; it prints `RETRIED <path> (harness retry, browser network change): ...`, counts it (`harness retries (ERR_NETWORK_CHANGED, once per page): N` in the summary) and keeps every other error of that attempt as a FAIL. A second network change on the retry, or any other error class, is a normal FAIL. Self-test (`FAKE_NETCHANGE=<path>=<times>`, `CRAWL_SMOKE=1`): once -> RETRIED, NO PROBLEMS, exit 0; twice -> RETRIED, then the FAIL line, exit 1. Base crawl with the error injected once: FAIL (`c82/crawl-retry-evidence.txt`).
 
 ## Checks
-RESULTS_PLACEHOLDER
+All on the committed tree (src and CSS did not change after the first runs; later commits touched only `scripts/`). Load averages are the machine's 1/5/15 min values printed by the run.
+
+| Check | Result | Load |
+|---|---|---|
+| verify-all (own OUT `/tmp/axion-verify-w80`, dev 13090) | ALL 10 STEPS PASSED (build, crawl 81 views, deep crawl, flows, auth, u1, dialogs 65x2, ids, help keys, fs guard) | 10.53 |
+| fit-check demo 1366x768 / 1280x760 | ALL FIT / ALL FIT | 7.56 / 9.64 |
+| fit-check api 1366x768 / 1280x760 | ALL FIT / ALL FIT | 9.08 / 5.29 |
+| a11y demo | 54 views, 65 dialogs, 0 violations | 11.47 |
+| a11y api | 44 views, 65 dialogs, 0 violations | 5.72 |
+| api-mobile full, `DATA_MODE=api`, 390 and 900 px, new probe included | NO FAILURES (837 states, 476 dialogs, 343 strip probes over 3755 tabs); final run after the probe fix | 8.82 |
+| api-c82-tabs (80 views, 390 and 1280x760, 134 strips, 1058 tabs) | NO FAILURES, demo and api | 11.09 (api), 10 (demo) |
+| api-c82-strip-effects | A, B both PASS, demo and api | 9.00 |
+| api-c46 / api-c68 | 36/36 passed / all PASS | 9.00 |
+| c82-pixel (Tabs strips, 1366x768 and 1280x760) | ALL IDENTICAL (40 views) | 12.14 |
+| deep-crawl self-test, fit-check self-test | as in items 5 and 6 | |
+
+Failures seen and fixed during the cycle (all in my own probe, none in the app): (1) the first probe version flagged tabs without a `.tab-text` as "no text" (false positive, fixed); (2) api-mobile run 1 flagged `FAIL 390 /operations?tab=queues tab=Models: Models views: tab "Manager" content is clipped by its button (scrollWidth 104 > 101)`, and an earlier api run `Approvals 125 > 123` on `/missions/M-134`; the cause is the selected tab's animated pill (`inset: -1px`, spring-moved by `layoutId`), which makes the button's own scrollWidth flap by 1 to 3 px. The button-level check was removed (the label's own scrollWidth check and the spill check remain exact) and api-mobile was re-run in full: 0 FAIL.
 
 ## Files changed
-FILES_PLACEHOLDER
+`git diff 5891ad7..HEAD --stat`: no `server/` file, no migration.
+- `web/src/components/ui/Tabs.tsx`: effect keyed on the joined tab ids, `reveal()` helper, `onFocus`.
+- `web/src/theme/base.css`: `.tabs > .tab { flex: none }`.
+- `web/scripts/api-c82-tabs.mjs` (new probe), `api-c82-strip-effects.mjs` (new), `c82-pixel.mjs` (new), `api-mobile.mjs` (calls the probe), `fit-check.mjs`, `crawl-deep.mjs`.
+- `web/docs/improve/cycles/c82-report.md`, `c82/before/*.png`, `c82/after/*.png` (390 px, plus 1366x768 after), `c82/*.txt` evidence.
 
 ## Concerns
-CONCERNS_PLACEHOLDER
+- **Pixel-equivalence is shown against the old CSS rule reverted by `addStyleTag`, not against a base checkout.** Same code, one rule toggled, so the comparison is exact for what changed. `Tabs.tsx` also changed the scroll effect (32 px margin), which only moves a strip that scrolls.
+- The Models page has its own `mm-cats` role=tablist (not the Tabs component). The c82 rule does not touch it, the probe checks it and finds it clean at 390 px, and its screenshot differs run to run because of motion (the reason the pixel script covers `.tabs` only).
+- At 390 px, a long strip (the Operations agents sub-tabs, 9 views) now scrolls with the fade instead of squeezing; the unselected tabs there keep their text, so a visitor has to scroll to see the last ones. That matches the c54 and c68 pattern; icon-collapse for those strips would be a design change for the owner.
+- api a11y printed probe notes `Request failed (500)` for the proposals and mission-hierarchy views of the e2e stack; the check still reported 0 violations. No server file was touched here, so this is not from c82 (not investigated).
+- The retry in `crawl-deep` fires on the console message and on a failed navigation; the real `ERR_NETWORK_CHANGED` was seen once, as a console message, so the retry was self-tested with an injected message, not a real network change.
+- Screenshots are palette-quantised (48 colours) to stay small; banding in them is from that.
+- `api-mobile` takes about 80 min under load; plan for it.
