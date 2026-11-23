@@ -107,7 +107,7 @@ export async function planReadout(c: Q, tenantId: string, id: string): Promise<O
   const verdict: PlanVerdict = ready ? 'ready_for_analysis' : 'not_enough_evidence';
   const why = [...(bounds.postComplete ? [] : ['the observation window after the change is not complete']), ...short];
   const amended = amendments.length ? ` This plan was amended after the change (${amendments.length} amendment${amendments.length === 1 ? '' : 's'}); the counts above are for the plan as it was locked at approval.` : '';
-  const verdictText = (ready ? 'Ready for analysis (not computed in this version). These are counts of observations only: nothing here says whether the change worked.' : `There is not enough evidence yet: ${why.join('; ')}. These are counts of observations only.`) + amended;
+  const verdictText = (ready ? 'Ready for analysis (not computed in this version). These are counts of observations only; they say nothing about the result of the change.' : `There is not enough evidence yet: ${why.join('; ')}. These are counts of observations only.`) + amended;
   return {
     ...base, change: { revision: bounds.revision, activeFrom: iso(bounds.activeFrom) },
     windows: { pre: { from: iso(bounds.preFrom), to: iso(bounds.activeFrom) }, post: { from: iso(bounds.activeFrom), to: iso(bounds.postTo) }, postComplete: bounds.postComplete },

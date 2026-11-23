@@ -24,12 +24,7 @@ async function propose(sub: string, sup: string) {
   expect(r.status).toBe(201);
   return r.body.proposal as { id: string; sha: string };
 }
-export const PLAN = {
-  primary: { metric: 'process.first_pass_acceptance', direction: 'up', margin: 5 },
-  minN: 20, windowDays: 14,
-  guardrails: [{ metric: 'scorecard.failure_rate', margin: 2 }],
-  why: 'We think a shorter review path raises first-pass acceptance.',
-};
+import { PLAN } from './c85-helpers.ts';
 const putPlan = (by: Browser, id: string, plan: unknown) => by.req('PUT', `/organization/proposals/${id}/plan`, plan);
 const getPlan = (by: Browser, id: string) => by.req('GET', `/organization/proposals/${id}/plan`);
 /** Independent recomputation of the documented canonical form (key order fixed, guardrails sorted by metric id). */

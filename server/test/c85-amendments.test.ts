@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { makeTestApp, withAdmin, type TestApp, type Browser } from './helpers.ts';
 import { seedDemo } from '../src/seed/demo.ts';
-import { PLAN } from './c85-plan.test.ts';
+import { PLAN } from './c85-helpers.ts';
 
 const ST = { baseline: 'No change: keep the current chart as it is.', expectedCost: 'No added cost is expected in this test.' };
 /**
