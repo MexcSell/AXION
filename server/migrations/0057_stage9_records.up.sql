@@ -36,3 +36,32 @@ begin
 end $$;
 create trigger usage_ledger_no_update before update or delete on usage_ledger for each row execute function stage9_append_only();
 create trigger usage_ledger_no_truncate before truncate on usage_ledger for each statement execute function stage9_append_only();
+
+-- 2. model_entries: the model registry. A status change is a NEW row; the latest row per (tenant, model) counts. The family is checked against the
+-- c38 vendor table in code (src/models/registry.ts), because the table is code, not data.
+create table model_entries (
+  id bigserial primary key,
+  tenant_id text not null,
+  model text not null check (length(model) between 1 and 120),
+  family text not null check (length(family) between 1 and 40),
+  version text not null check (length(version) between 1 and 40),
+  capabilities text[] not null default '{}',
+  status text not null check (status in ('active','deprecated','disabled')),
+  recorded_at timestamptz not null default now()
+);
+create index model_entries_latest on model_entries(tenant_id, model, id desc);
+
+-- 3. routing_policies: the routing policy as DATA (ordered rules naming preferred models). Versioned rows; the latest version of a name counts.
+create table routing_policies (
+  id bigserial primary key,
+  tenant_id text not null,
+  name text not null check (length(name) between 1 and 80),
+  version int not null check (version >= 1),
+  rules jsonb not null check (jsonb_typeof(rules) = 'array' and jsonb_array_length(rules) between 1 and 50),
+  recorded_at timestamptz not null default now(),
+  unique (tenant_id, name, version)
+);
+create trigger model_entries_no_update before update or delete on model_entries for each row execute function stage9_append_only();
+create trigger model_entries_no_truncate before truncate on model_entries for each statement execute function stage9_append_only();
+create trigger routing_policies_no_update before update or delete on routing_policies for each row execute function stage9_append_only();
+create trigger routing_policies_no_truncate before truncate on routing_policies for each statement execute function stage9_append_only();

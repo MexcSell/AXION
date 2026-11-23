@@ -2,7 +2,7 @@ import type { Db, Tx } from '../db.ts';
 
 /**
  * c77 (M2): store functions for the append-only usage ledger. Nothing in src/ calls them: no route writes usage and nothing meters real usage.
- * Tests feed them from a fake meter under server/test/fakes. A mistake is a correction row (a signed delta), never an update.
+ * Tests feed them from a fake meter that lives only under the test folder. A mistake is a correction row (a signed delta), never an update.
  */
 export const LEDGER_UNITS = ['tokens_in', 'tokens_out', 'requests', 'seconds'] as const;
 export interface UsageInput { tenantId: string; subject: string; unit: string; quantity: number; costMicros: number; source: string }
