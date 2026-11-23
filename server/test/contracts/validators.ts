@@ -16,7 +16,7 @@ import {
   type AttentionDto, type AttentionRowDto, type AttentionMemberDto, type AttentionEvidence, type AttentionFact, type AttentionAction, ATTENTION_REASON_CODES, ATTENTION_KINDS, ATTENTION_ICONS,
   type ProposalEvaluationDto, type EvalRefusalDto, type GradingDto, type DatasetValidityDto, type CompanyDimensionsDto, type DimensionRowDto, type DimensionCell, DIMENSION_KEYS, DIMENSION_WINDOWS,
   type CapacityCellDto, type CapacityDeptDto, type CapacityPersonDto, type CapacityPeopleBody, type ReviewCapacityDto, type LittleLawDto, type SpanDto, type SpanRowDto,
-  type MetricGuardDto, type MetricGuard, type MetricGuardRow, type MetricAuditState, type MetricAuditResult, QUALITY_DIMENSION_IDS, TASK_CLASS_IDS,
+  type MetricGuardDto, type MetricGuard, type MetricGuardRow, type MetricAuditState, type MetricAuditResult, QUALITY_DIMENSION_IDS, TASK_CLASS_IDS, type AgentSkillsDto, type SkillCellDto, type SkillCompareDto, type SkillInterval,
 } from '../../../shared/contracts/src/index.ts';
 
 export const errorEnvelope: V<ErrorEnvelope> = obj<ErrorEnvelope>({ code: oneOf(ERROR_CODES), message: str, correlationId: str, retryable: bool, fieldErrors: opt(dict(str)) });
@@ -446,3 +446,19 @@ export const attention: V<AttentionDto> = obj<AttentionDto>({
   rows: arr(attentionRow), totals: obj<AttentionDto['totals']>({ items: int, rows: int, collapsed: int }),
   settings: obj<AttentionDto['settings']>({ waitingHours: int, nearExpiryHours: int, failureWindowDays: int }), ranking: str, checkedAt: iso,
 });
+
+// ---- c72 skill ratings (no field names a rank, a position or an ordering)
+const skillInterval = obj<SkillInterval>({ value: int, lo: int, hi: int });
+const skillCell: V<SkillCellDto> = obj<SkillCellDto>({
+  classId: oneOf(TASK_CLASS_IDS), label: str, n: int, successes: int, state: oneOf(['ok', 'not_enough_evidence'] as const),
+  raw: nullable(skillInterval), adjusted: nullable(skillInterval),
+  levels: arr(obj<SkillCellDto['levels'][number]>({ difficulty: int, label: str, n: int, successes: int })), evidence: str,
+});
+export const agentSkillsBody = obj<{ skills: AgentSkillsDto }>({ skills: obj<AgentSkillsDto>({
+  agentId: str, method: str, minN: int, classes: arr(skillCell), unrated: int, includesSimulated: bool,
+  pairRatings: obj<AgentSkillsDto['pairRatings']>({ built: lit(false as const), why: str }), dependsOn: obj<AgentSkillsDto['dependsOn']>({ gameable: bool, text: str }),
+}) });
+export const skillCompareBody = obj<{ compare: SkillCompareDto }>({ compare: obj<SkillCompareDto>({
+  agentId: str, withId: str, method: str,
+  classes: arr(obj<SkillCompareDto['classes'][number]>({ classId: oneOf(TASK_CLASS_IDS), label: str, verdict: oneOf(['distinguishable', 'indistinguishable'] as const), reason: str, sharedLevels: arr(int) })),
+}) });

@@ -2,13 +2,14 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { tx, type Tx, type Db } from '../db.ts';
 import { audit } from '../audit.ts';
-import { ApiError, notFound } from '../errors.ts';
+import { ApiError, notFound, badRequest } from '../errors.ts';
 import { requireUser, requireAdmin, type Ctx } from '../auth/session.ts';
 import { parse } from '../auth/routes.ts';
 import { idempotent } from '../idempotency.ts';
 import { emit } from '../events/hooks.ts';
 import { addVersion, getAgent, listAgents, lockAgent, type AgentBase } from './service.ts';
 import { attachReliability } from './reliability.ts';
+import { loadSkillOutcomes, skillsOf, compareSkills } from './skills.ts';
 import { activeRevision, createOrgRevision, edgesOf } from './org.ts';
 import { advisoryXactLock } from '../locks.ts';
 
@@ -29,6 +30,7 @@ const PatchIn = z.object({
 
 // improvement cycle 3: ?includeSimulated=1 adds simulated (DEMO) tasks to the reliability (default: real tasks only)
 const ReadIn = z.object({ includeSimulated: z.enum(['0', '1']).default('0') });
+const CompareIn = z.object({ with: z.string().min(1).max(120), includeSimulated: z.enum(['0', '1']).default('0') });
 const viewerOf = (ctx: Ctx) => ({ tenantId: ctx.tenantId, admin: ctx.user.role === 'admin', userId: ctx.user.id });
 const withRel = async (c: Tx | Db, ctx: Ctx, a: AgentBase, includeSimulated = false) => (await attachReliability(c, viewerOf(ctx), [a], includeSimulated))[0];
 
@@ -49,6 +51,26 @@ export default async function agentRoutes(app: FastifyInstance) {
     const a = await getAgent(app.db, ctx.tenantId, (req.params as { id: string }).id);
     if (!a) throw notFound('No such agent.');
     return { agent: await withRel(app.db, ctx, a, qs.includeSimulated === '1') };
+  });
+
+  // c72 (R3-7): the skill vector of one agent, and a comparison of two. Neither returns agents ordered by a rating: the first is about one agent,
+  // the second answers "distinguishable" or "indistinguishable" per task class in the fixed class order.
+  app.get('/agents/:id/skills', async (req) => {
+    const ctx = await requireUser(req);
+    const qs = parse(ReadIn, req.query ?? {});
+    const a = await getAgent(app.db, ctx.tenantId, (req.params as { id: string }).id);
+    if (!a) throw notFound('No such agent.');
+    return { skills: skillsOf(await loadSkillOutcomes(app.db, viewerOf(ctx), qs.includeSimulated === '1'), a.id, qs.includeSimulated === '1') };
+  });
+
+  app.get('/agents/:id/skills/compare', async (req) => {
+    const ctx = await requireUser(req);
+    const qs = parse(CompareIn, req.query ?? {});
+    const id = (req.params as { id: string }).id;
+    const [a, b] = [await getAgent(app.db, ctx.tenantId, id), await getAgent(app.db, ctx.tenantId, qs.with)];
+    if (!a || !b) throw notFound('No such agent.');
+    if (a.id === b.id) throw badRequest('Choose a different agent to compare with.', { with: 'the same agent' });
+    return { compare: compareSkills(await loadSkillOutcomes(app.db, viewerOf(ctx), qs.includeSimulated === '1'), a.id, b.id) };
   });
 
   app.post('/agents', async (req, reply) => {

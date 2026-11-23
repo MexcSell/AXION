@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -241,6 +242,27 @@ describe('API coverage run', () => {
     // ---- agents, versions, organisation
     await call(admin, 'GET', '/agents', '/agents');
     await call(admin, 'GET', '/agents/:id', '/agents/coder-01', { query: '?includeSimulated=1' });
+    // c72 (R3-7): skill vectors. Two agents of mission m1 finish tasks with a class and a difficulty, so every cell state, the unrated count and the compare rows are filled.
+    {
+      const two = (await t.pool.query(`select id, agent_id, tenant_id from agent_instances where mission_id=$1 order by seq limit 8`, [m1])).rows as { id: string; agent_id: string; tenant_id: string }[];
+      const [sa, sb] = [two[0], two.find((r) => r.agent_id !== two[0].agent_id)!];
+      let k = 0;
+      const fin = async (ag: typeof sa, status: string, cls: string | null, d: number | null) => {
+        const id = `T-c72s-${++k}`;
+        await t.pool.query(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent) values ($1,$2,$3,'c72 fixture',$4,$5)`, [id, ag.tenant_id, m1, status, ag.agent_id]);
+        const b = { goal: 'c72 fixture task', inputs: [], acceptance: ['Done'], capabilities: [{ kind: 'read' }], escalation: 'Ask', ...(cls ? { taskClass: cls } : {}), ...(d ? { difficulty: d } : {}) };
+        await t.pool.query(`insert into delegation_briefs(tenant_id, mission_id, task_id, from_id, from_kind, to_instance, to_agent, brief, sha256, depth, created_by) values ($1,$2,$3,'c72','user',$4,$5,$6,$7,1,'c72')`, [ag.tenant_id, m1, id, ag.id, ag.agent_id, JSON.stringify(b), createHash('sha256').update(JSON.stringify(b)).digest('hex')]);
+      };
+      for (let i = 0; i < 16; i++) { await fin(sa, i < 15 ? 'passed' : 'failed', 'coding', 2 + (i % 2)); await fin(sb, i < 3 ? 'passed' : 'failed', 'coding', 2 + (i % 2)); }
+      for (let i = 0; i < 5; i++) await fin(sa, 'passed', 'research', 1);
+      await fin(sb, 'passed', 'research', 5);
+      await fin(sa, 'passed', 'writing', null); // class without a difficulty: counted as unrated
+      const r = await call(admin, 'GET', '/agents/:id/skills', `/agents/${sa.agent_id}/skills`);
+      expect((r.body.skills.classes as { state: string }[]).some((c) => c.state === 'ok') && r.body.skills.unrated > 0).toBe(true);
+      await call(admin, 'GET', '/agents/:id/skills', `/agents/${sb.agent_id}/skills`, { query: '?includeSimulated=1' });
+      const cmp = await call(admin, 'GET', '/agents/:id/skills/compare', `/agents/${sa.agent_id}/skills/compare`, { query: `?with=${sb.agent_id}` });
+      expect((cmp.body.compare.classes as { verdict: string }[]).map((c) => c.verdict).sort()).toEqual(['distinguishable', 'indistinguishable']);
+    }
     const newAg = await call(admin, 'POST', '/agents', '/agents', { status: 201, body: { name: 'Audit Bot', role: 'Auditor', dept: 'Ops', duty: 'Audit the audits', model: 'test-model', skills: ['audit'], tools: [], parentId: 'ops-01' }, headers: key() });
     await call(admin, 'PATCH', '/agents/:id', `/agents/${newAg.body.agent.id}`, { body: { description: 'Audits things.' }, headers: { 'if-match': String(newAg.body.agent.rowVersion) } });
     const cur = (await admin.req('GET', `/agents/${newAg.body.agent.id}`)).body.agent;
