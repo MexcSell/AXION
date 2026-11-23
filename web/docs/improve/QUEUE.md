@@ -68,6 +68,7 @@ All heavy runs go through `HEAVY_PRIORITY=1 /home/luca/AXION-lanes/heavy.sh …`
 - `HEAVY_PRIORITY=1 heavy.sh ./scripts/verify-all.sh > out.txt` against the dev server on 5190 (it serves this tree), then `grep -nE "FAIL|✗|failed|Error" out.txt`. **verify-all's exit code ignores sub-script FAILs, so every FAIL line counts.**
 - `node scripts/fit-check.mjs` and `node scripts/ov-fit.mjs`.
 
+- **After any merge touching `shared/` (added c74, H19):** curl a served contracts file and expect the new export, e.g. `curl -s http://127.0.0.1:5190/@fs/home/luca/AXION/shared/contracts/src/index.ts | grep <new export>`. `BASE=http://127.0.0.1:5190 web/scripts/shared-watch-check.sh` does the full rename check (it restores what it touches). The dev server now polls (c74), so a stale answer means restart and tell the controller.
 - **api-mode fit-check (added 2026-11-22, c67):** from `web/`, each with its own fresh stack: `HEAVY_PRIORITY=1 E2E_API_PORT=5192 E2E_WEB_PORT=5193 /home/luca/AXION-lanes/heavy.sh ./scripts/api-e2e.sh "DATA_MODE=api node scripts/fit-check.mjs 1366 768"` and the same with `1280 760`. Expect ALL FIT. Never run fit-check bare in api mode (without BASE it defaults to 5190).
 
 ## Known, pre-existing failures (record them, don't block on them)
