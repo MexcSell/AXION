@@ -31,7 +31,8 @@ export const PROBE = () => {
         if (a.content.l < a.tr.left - 1 || a.content.r > a.tr.right + 1) out.push(`${sname}: label of "${a.name}" spills outside its own tab (${Math.round(a.content.l - a.tr.left)}/${Math.round(a.content.r - a.tr.right)}px)`);
       }
       if (a.textShown && a.text.scrollWidth > a.text.clientWidth + 1) out.push(`${sname}: label "${a.name}" is clipped (scrollWidth ${a.text.scrollWidth} > ${a.text.clientWidth})`);
-      if (a.t.scrollWidth > a.t.clientWidth + 1) out.push(`${sname}: tab "${a.name}" content is clipped by its button (scrollWidth ${a.t.scrollWidth} > ${a.t.clientWidth})`);
+      // +2: Chrome rounds the fractional width of scrollWidth and clientWidth apart by 1 px (seen on demo) and up to 2 px (seen on M-134); the spill check above is the exact one
+      if (a.t.scrollWidth > a.t.clientWidth + 2) out.push(`${sname}: tab "${a.name}" content is clipped by its button (scrollWidth ${a.t.scrollWidth} > ${a.t.clientWidth})`);
       // icon-only state: the accessible name must survive
       if (!a.textShown && !(a.t.getAttribute('aria-label') || '').trim()) out.push(`${sname}: tab "${a.name}" shows no text and has no aria-label`);
       // a label cut by the strip's own scroll edge, when the strip is not scrollable-with-affordance, is clipped; with data-fade it is reachable
