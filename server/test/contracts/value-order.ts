@@ -8,11 +8,12 @@
  *     missions that are sorted by time on purpose; a real hit needs a reviewed entry in ORDER_ALLOWED.
  *  2. RATING_FIELDS is the registry of fields that hold a rating (a skill rating, c72). An array in which two or more entries carry a marked field is
  *     a list of rated entries, in whatever order, and is flagged unless it is a single agent's own vector (RATED_LIST_ALLOWED).
- *     No rating field exists on this branch (the c72 module is not merged), so the registry starts empty; c72 adds `adjusted.value` here.
+ *     c72 is merged: `adjusted.value` is registered below.
  * Pure functions; the self-tests are in c78-value-order.test.ts, the sweep over every coverage response is in coverage.test.ts.
  */
 export const RATING_FIELDS: Record<string, string[]> = {
-  // 'GET /agents/:id/skills': ['classes[].adjusted.value'], (c72 adds its entry when it merges)
+  // c72 (registered at its merge): the adjusted rate of a skill cell; the cells are one agent's own, one per task class
+  'GET /agents/:id/skills': ['classes[].adjusted.value'],
 };
 /**
  * Matched against `route::array path::field path`. Every entry is a reviewed decision with the reason the order is not about agents and a rating:
@@ -25,7 +26,9 @@ export const ORDER_ALLOWED: [RegExp, string][] = [
   [/^(GET) \/missions::missions\[\]\.staffing\.log\[\]::at$/, 'the staffing log of each mission in the list, oldest first, by time'],
 ];
 /** Keyed `route::array path`: arrays that legitimately hold a rating on two or more entries (one agent's own cells, one per task class). */
-export const RATED_LIST_ALLOWED: Record<string, string> = {};
+export const RATED_LIST_ALLOWED: Record<string, string> = {
+  'GET /agents/:id/skills::classes': 'one agent\'s own skill cells, one per task class, always in the fixed class order (never sorted by a rating); a single agent\'s vector, not a list of agents',
+};
 
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => !!v && typeof v === 'object' && !Array.isArray(v);
