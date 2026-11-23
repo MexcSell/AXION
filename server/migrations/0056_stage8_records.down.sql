@@ -1,3 +1,6 @@
+drop table if exists artifact_versions;
+drop table if exists artifacts;
+drop function if exists artifact_versions_check();
 drop table if exists release_marks;
 drop table if exists releases;
 drop function if exists releases_check();

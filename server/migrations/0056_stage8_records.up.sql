@@ -58,3 +58,48 @@ create table release_marks (
 create index release_marks_tenant on release_marks(tenant_id, kind, id desc);
 create trigger release_marks_no_edit before update or delete on release_marks for each row execute function stage8_append_only();
 create trigger release_marks_no_truncate before truncate on release_marks for each statement execute function stage8_append_only();
+
+-- A1: artifact METADATA and immutable versions. No content is stored here or anywhere by this migration: there is no bytea, large object, path or URL column,
+-- and the routes (artifacts/routes.ts) record only what a person or agent CLAIMS about a file: its sha256, size, media type and producer.
+-- Deferred on purpose (needs file storage, which is not built): signed download tickets. Their data model would be an append-only artifact_tickets table
+-- (id, artifact_id, version, issued_to, issued_at, expires_at by the DB clock, single use consumed_at) signed with a server-held key. Without stored bytes
+-- a ticket opens nothing, and a ticket route is a download route, so none exists. Decide it with the storage backend (owner approval).
+create table artifacts (
+  id text primary key,                                        -- 'ART-' + 128 random bits (upper-case hex)
+  tenant_id text not null references tenants(id),
+  name text not null check (length(name) between 1 and 200),
+  created_by text not null,
+  created_at timestamptz not null default now(),
+  unique (tenant_id, name)
+);
+create trigger artifacts_no_edit before update or delete on artifacts for each row execute function stage8_append_only();
+create trigger artifacts_no_truncate before truncate on artifacts for each statement execute function stage8_append_only();
+
+create table artifact_versions (
+  artifact_id text not null references artifacts(id) on delete cascade,
+  version int not null check (version >= 1),
+  tenant_id text not null references tenants(id),
+  sha256 text not null check (sha256 ~ '^[0-9a-f]{64}$'),
+  size_bytes bigint not null check (size_bytes >= 0 and size_bytes <= 1099511627776),   -- at most 1 TiB, so the number is exact in JSON
+  media_type text not null check (media_type ~ '^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$'),
+  producer text not null check (length(producer) between 1 and 120),                      -- who or what made the file: a claim, not a foreign key
+  producer_kind text not null check (producer_kind in ('user','agent','system')),
+  recorded_by text not null,                                                              -- the signed-in person who recorded it
+  created_at timestamptz not null default now(),
+  primary key (artifact_id, version)
+);
+create index artifact_versions_tenant on artifact_versions(tenant_id, created_at desc);
+
+-- Versions are numbered 1, 2, 3 without a gap, and stay in their artifact's tenant, even for an insert that bypasses the service.
+create function artifact_versions_check() returns trigger language plpgsql as $$
+declare a artifacts; last int;
+begin
+  select * into a from artifacts where id = new.artifact_id;
+  if a.id is null or a.tenant_id <> new.tenant_id then raise exception 'artifact version does not match its artifact'; end if;
+  select coalesce(max(version), 0) into last from artifact_versions where artifact_id = new.artifact_id;
+  if new.version <> last + 1 then raise exception 'artifact versions must be added in sequence (next is %)', last + 1; end if;
+  return new;
+end $$;
+create trigger artifact_versions_check before insert on artifact_versions for each row execute function artifact_versions_check();
+create trigger artifact_versions_no_edit before update or delete on artifact_versions for each row execute function stage8_append_only();
+create trigger artifact_versions_no_truncate before truncate on artifact_versions for each statement execute function stage8_append_only();
