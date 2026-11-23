@@ -23,7 +23,7 @@ const assertUsable = (snaps: { who: string; label: string; status: number }[]) =
   const bad = snaps.filter((s) => s.status === 429 || s.status >= 500);
   if (bad.length) throw new DetectorInvalid('responses that make a comparison meaningless: ' + bad.slice(0, 3).map((s) => `${s.who} ${s.label} ${s.status}`).join(', '));
 };
-export interface Violation { relation: 'CONTROL' | 'MR1' | 'MR3' | 'FOREIGN-GET' | 'WRITE'; where: string; detail: string }
+export interface Violation { relation: 'CONTROL' | 'MR1' | 'MR2' | 'MR3' | 'MR4' | 'FOREIGN-GET' | 'WRITE'; where: string; detail: string }
 
 /** Pattern (as registered, without /api/v1) -> the value of each `:param` from a tenant's ids. First path segment + param name. */
 const PARAM: Record<string, (i: Record<string, string>) => string> = {

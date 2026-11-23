@@ -1,4 +1,4 @@
-import { dropTenantPredicate, swapTenantParam, writeWithTenant, onlyWhen, type Rewrite } from './seam.ts';
+import { dropTenantPredicate, swapTenantParam, writeWithTenant, onlyWhen, tenantFromHeader, type Rewrite } from './seam.ts';
 
 /**
  * Seeded-leak mutants (item 2 of c79). Each is applied only inside the test process (a SQL rewrite or a cache hook on one tenant's app,
@@ -9,7 +9,7 @@ import { dropTenantPredicate, swapTenantParam, writeWithTenant, onlyWhen, type R
 export interface Mutant {
   id: string; kind: string; what: string;
   on: 'A' | 'B'; viewer: 'A' | 'B';
-  sql?: Rewrite; cache?: true;
+  sql?: Rewrite; cache?: true; header?: true;
   expect: RegExp; // matched against `${relation} ${where}`
 }
 const ON_A = { on: 'A', viewer: 'A' } as const;
@@ -37,4 +37,5 @@ export const MUTANTS: Mutant[] = [
   // c81 (the researcher's own construction, like the rest of this file): mutants for the new checks.
   { id: 'M18', kind: 'ack without visibility (c81 item 3)', what: 'the visibility lookup behind POST /notifications/:id/ack loses its tenant predicate, so a foreign notice id is acknowledged (200) and a marker stored', ...ON_A, sql: dropTenantPredicate(/select n\.id from notifications n left join missions m/i), expect: /WRITE/ },
   { id: 'M19', kind: 'reverse compare id (c81 item 5)', what: 'the lookup of the SECOND agent of GET /agents/:id/skills/compare (?with=) loses its tenant predicate, only for tenant B\'s tester agent; the path id check stays', ...ON_A, sql: onlyWhen((p) => p[1] === 'b-tester-01', dropTenantPredicate(/from agent_definitions d\b/i)), expect: /FOREIGN-GET .*skills\/compare.*foreign query id/ },
+  { id: 'M20', kind: 'tenant from a header (c81 item 6)', what: 'every statement of tenant A\'s app is given the tenant named in an `x-tenant-id` request header, when one is sent', ...ON_A, header: true, sql: tenantFromHeader, expect: /MR2/ },
 ];
