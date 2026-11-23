@@ -86,3 +86,4 @@ Test edits to existing c76 tests were additions or tightenings (guarded fixtures
 - Migrate down/up 0056 once on axion_e2e18: up to 56, `down 55` to 53, up to 56.
 - api-stage6 (12492/12493, via heavy.sh): 94/94 passed, no page errors.
 - Full vitest serial (heavy.sh): see the final line below.
+- Full vitest serial at 727c01d (before the report commit): 137 files passed, 1 skipped; 3228 tests passed, 36 skipped (same pre-existing skips), 0 failed. The earlier run at c5dac89 had the one c58-sensitive failure named above.
