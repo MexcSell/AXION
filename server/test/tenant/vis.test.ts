@@ -44,7 +44,7 @@ describe('visibility sweep: M against the private mission of O', () => {
     console.log(`violations ${all().length}: by design ${c.byDesign.length}, findings ${c.findings.length}, unexplained ${c.unexplained.length}\n${show(c.byDesign)}\n${show(c.findings)}`);
     expect(show(c.unexplained), 'a route in neither table').toBe('');
     expect(VISIBILITY_ALLOWED.filter((_, i) => !c.usedAllowed.has(i)).map((a) => a.route), 'stale VISIBILITY_ALLOWED entries (the difference is gone: remove them)').toEqual([]);
-    expect(VISIBILITY_FINDINGS.filter((_, i) => !c.usedFindings.has(i)).map((f) => f.route), 'stale VISIBILITY_FINDINGS entries (the leak is fixed: remove them)').toEqual([]);
+    expect(VISIBILITY_FINDINGS.filter((f, i) => !f.fixedBy && !c.usedFindings.has(i)).map((f) => f.route), 'stale VISIBILITY_FINDINGS entries (the leak is fixed: remove them)').toEqual([]);
     for (const f of VISIBILITY_FINDINGS) { expect(f.backlog).toMatch(/^(TBD|[A-Z]+\d+[a-z]?)$/); expect(f.leaks.length).toBeGreaterThan(40); expect(f.fix.length).toBeGreaterThan(20); }
     for (const a of VISIBILITY_ALLOWED) { expect(a.citation).toMatch(/\.md:\d+|\.ts:\d+/); expect(a.reason.length).toBeGreaterThan(40); }
   });
