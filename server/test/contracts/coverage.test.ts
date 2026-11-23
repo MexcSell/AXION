@@ -28,6 +28,7 @@ import { SWEEP_SKIP, MEMBER_403_ALLOWED } from './allowlists.ts';
 import { UNEXERCISED_ALLOWED } from './exercised.ts';
 import { lenientMutations, unexercised } from './walk.ts';
 import { valueOrderProblems } from './value-order.ts';
+import { insertMissionRefs } from '../c83-refs.ts';
 const ST = { baseline: 'No change: keep the current chart as it is.', expectedCost: 'No added cost is expected in this test.' }; // c64: every proposal states a baseline and its expected cost
 
 /**
@@ -477,7 +478,9 @@ describe('API coverage run', () => {
       await call(mina, 'GET', '/company/process', '/company/process', { query: '?window=7d' });
     }
     await call(admin, 'GET', '/company/metric-guard', '/company/metric-guard');
-    await call(admin, 'POST', '/company/metric-audits', '/company/metric-audits', { status: 201, body: { metricId: 'scorecard.finished', samples: Array.from({ length: 100 }, (_, i) => ({ sampleRef: `m${i}`, metricLabel: true, auditLabel: i >= 20 })) } });
+    const auditOwner = (await t.pool.query(`select owner_id from missions where id=$1`, [m1])).rows[0].owner_id as string;
+    const auditRefs = await insertMissionRefs(t.pool, 't-1', auditOwner, 100, 'cov'); // c83: typed references name real records
+    await call(admin, 'POST', '/company/metric-audits', '/company/metric-audits', { status: 201, body: { metricId: 'scorecard.finished', samples: Array.from({ length: 100 }, (_, i) => ({ sampleRef: auditRefs[i], metricLabel: true, auditLabel: i >= 20 })) } });
     await call(mina, 'GET', '/company/metric-guard', '/company/metric-guard');
     await call(admin, 'GET', '/company/metric-guard', '/company/metric-guard'); // second read: the audit state is now filled
     await call(mina, 'GET', '/departments', '/departments');

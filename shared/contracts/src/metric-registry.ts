@@ -1,4 +1,5 @@
 import { INPUT_FIELDS, writabilityOf, type InputFieldId, type Writability } from './metric-guard.ts';
+import { METRIC_READS, CONTEXT_READS, SCOPE_ONLY_READS, type LoaderRef } from './metric-reads.ts';
 
 /**
  * Improvement cycle 66 (R3-4), item 1: the row registry. Every scorecard row, KPI tile and six-dimension cell declares three things
@@ -22,7 +23,12 @@ export const QUALITY_DIMENSIONS = {
 export type QualityDimension = keyof typeof QUALITY_DIMENSIONS;
 export const QUALITY_DIMENSION_IDS = Object.keys(QUALITY_DIMENSIONS) as QualityDimension[];
 
-export type CounterMetric = { ref: string; why: string } | { none: string };
+/**
+ * `weak` (c83): the counter-metric shares an input column with its primary row, so gaming that input moves both and the counter would not expose it.
+ * The reason says why no independent counter exists. The shared columns are computed from the declared `reads`, which are reviewed declarations at row level
+ * (the column test checks them as a union across the shared loader files, see metric-reads.ts), and `independent` means no shared input column, not a strong signal. A row whose counter shares an input and is not marked weak fails the registry test.
+ */
+export type CounterMetric = { ref: string; why: string; weak?: string } | { none: string };
 export interface MetricMeta {
   id: string;
   kind: 'scorecard' | 'dimension' | 'kpi' | 'process';
@@ -35,33 +41,38 @@ export interface MetricMeta {
   covers: readonly QualityDimension[];
   /** quality dimensions it does not cover; never empty */
   uncovered: readonly QualityDimension[];
+  /** c83: the loader files (`file` or `file#function`, under server/src) whose SQL feeds the row; empty only when the row reads no input */
+  loaders: readonly LoaderRef[];
+  /** c83: the `table.column` (or `table.*`) the row reads, besides the context columns of metric-reads.ts; a server test compares it with the loaders' SQL */
+  reads: readonly string[];
 }
+type MetricBase = Omit<MetricMeta, 'loaders' | 'reads'>;
 
-const S = (key: string, label: string, inputs: InputFieldId[], counter: CounterMetric, covers: QualityDimension[], uncovered: QualityDimension[]): MetricMeta => ({ id: `scorecard.${key}`, kind: 'scorecard', label, inputs, counter, covers, uncovered });
-const D = (key: string, label: string, inputs: InputFieldId[], counter: CounterMetric, covers: QualityDimension[], uncovered: QualityDimension[], inputsNote?: string): MetricMeta =>
+const S = (key: string, label: string, inputs: InputFieldId[], counter: CounterMetric, covers: QualityDimension[], uncovered: QualityDimension[]): MetricBase => ({ id: `scorecard.${key}`, kind: 'scorecard', label, inputs, counter, covers, uncovered });
+const D = (key: string, label: string, inputs: InputFieldId[], counter: CounterMetric, covers: QualityDimension[], uncovered: QualityDimension[], inputsNote?: string): MetricBase =>
   ({ id: `dimension.${key}`, kind: 'dimension', label, inputs, counter, covers, uncovered, ...(inputsNote ? { inputsNote } : {}) });
-const K = (key: string, label: string, inputs: InputFieldId[], counter: CounterMetric, covers: QualityDimension[], uncovered: QualityDimension[]): MetricMeta => ({ id: `kpi.${key}`, kind: 'kpi', label, inputs, counter, covers, uncovered });
-const P = (key: string, label: string, inputs: InputFieldId[], counter: CounterMetric, covers: QualityDimension[], uncovered: QualityDimension[], inputsNote?: string): MetricMeta =>
+const K = (key: string, label: string, inputs: InputFieldId[], counter: CounterMetric, covers: QualityDimension[], uncovered: QualityDimension[]): MetricBase => ({ id: `kpi.${key}`, kind: 'kpi', label, inputs, counter, covers, uncovered });
+const P = (key: string, label: string, inputs: InputFieldId[], counter: CounterMetric, covers: QualityDimension[], uncovered: QualityDimension[], inputsNote?: string): MetricBase =>
   ({ id: `process.${key}`, kind: 'process', label, inputs, counter, covers, uncovered, ...(inputsNote ? { inputsNote } : {}) });
-const via = (ref: string, why: string): CounterMetric => ({ ref, why });
+const via = (ref: string, why: string, weak?: string): CounterMetric => ({ ref, why, ...(weak ? { weak } : {}) });
 
-export const METRICS: readonly MetricMeta[] = [
+const BASE_METRICS: readonly MetricBase[] = [
   // ---- company scorecard (c02, c12, c38)
   S('started', 'Missions started', ['mission_runs.started'], via('scorecard.finished', 'starting many missions that never end raises started but not finished'), [], ['correctness', 'completeness', 'user_value', 'cost']),
-  S('finished', 'Missions finished', ['events.mission_state_changed'], via('scorecard.verified_success_rate', 'ending missions by failing or cancelling them raises finished without raising the verified share'), ['completeness'], ['correctness', 'independence', 'user_value', 'cost']),
-  S('verified_success_rate', 'Verified success', ['events.mission_state_changed', 'approval_decisions.decision', 'tasks.status', 'mission_delegations.verifies_edge'], via('scorecard.waiting_approval_median_h', 'rubber-stamped approvals shorten the time missions wait for one'), ['correctness', 'independence'], ['timeliness', 'durability', 'user_value', 'cost']),
-  S('completed_unverified', 'Completed, unverified', ['events.mission_state_changed', 'approval_decisions.decision', 'tasks.status', 'mission_delegations.verifies_edge'], via('scorecard.approved_by_non_owner', 'adding cosmetic approvals lowers the unverified count and raises the non-owner approvals'), ['independence'], ['correctness', 'timeliness', 'durability', 'cost']),
-  S('median_cycle_time_h', 'Median cycle time', ['mission_runs.started', 'events.mission_state_changed'], via('scorecard.failure_rate', 'finishing fast by failing or cancelling shortens the cycle and raises the failure rate'), ['timeliness'], ['correctness', 'completeness', 'user_value', 'cost']),
-  S('failure_rate', 'Failure rate', ['events.mission_state_changed'], via('scorecard.completed_unverified', 'hiding failures by completing without a check raises completions that nobody verified'), ['completeness'], ['durability', 'safety', 'user_value', 'cost']),
-  S('task_recovery_rate', 'Task recovery', ['tasks.status', 'task_attempts.times'], via('scorecard.tasks_verified_by_review', 'marking retried tasks passed raises recovery but not independently accepted reviews'), ['durability'], ['correctness', 'independence', 'timeliness', 'cost']),
+  S('finished', 'Missions finished', ['events.mission_state_changed'], via('scorecard.tasks_verified_by_review', 'finishing missions without real work raises the finished count but not the tasks that an independent review accepts with evidence'), ['completeness'], ['correctness', 'independence', 'user_value', 'cost']),
+  S('verified_success_rate', 'Verified success', ['events.mission_state_changed', 'approval_decisions.decision', 'tasks.status', 'mission_delegations.verifies_edge'], via('scorecard.waiting_approval_median_h', 'rubber-stamped approvals shorten the time missions wait for one', 'every stored signal that could expose an inflated verified share (mission state, approvals, task status, verifying edges) is also an input of this row, so only the human audit sample, which is not a stored metric, is independent'), ['correctness', 'independence'], ['timeliness', 'durability', 'user_value', 'cost']),
+  S('completed_unverified', 'Completed, unverified', ['events.mission_state_changed', 'approval_decisions.decision', 'tasks.status', 'mission_delegations.verifies_edge'], via('scorecard.approved_by_non_owner', 'adding cosmetic approvals lowers the unverified count and raises the non-owner approvals', 'it is the other side of the verified share: it and its counter read the same mission events and approval decisions, so one gamed input moves both'), ['independence'], ['correctness', 'timeliness', 'durability', 'cost']),
+  S('median_cycle_time_h', 'Median cycle time', ['mission_runs.started', 'events.mission_state_changed'], via('scorecard.tasks_verified_by_review', 'finishing fast by skipping work shortens the cycle but leaves the tasks that an independent review accepts flat'), ['timeliness'], ['correctness', 'completeness', 'user_value', 'cost']),
+  S('failure_rate', 'Failure rate', ['events.mission_state_changed'], via('scorecard.tasks_verified_by_review', 'hiding failures by relabelling them lowers the failure rate but does not raise the tasks that an independent review accepts'), ['completeness'], ['durability', 'safety', 'user_value', 'cost']),
+  S('task_recovery_rate', 'Task recovery', ['tasks.status', 'task_attempts.times'], via('scorecard.tasks_verified_by_review', 'marking retried tasks passed raises recovery but not independently accepted reviews', 'the only stored check that a retried task really recovered is a review, and a review counts a task only while its status is passed: the same status and attempt times this row reads'), ['durability'], ['correctness', 'independence', 'timeliness', 'cost']),
   S('waiting_approval_median_h', 'Waiting for approval', ['events.mission_state_changed'],
     { none: 'a short wait can mean quick care or rubber-stamping, and nothing stored tells them apart; only the human audit sample can' }, ['timeliness'], ['correctness', 'safety', 'independence', 'cost']),
   S('approved_by_non_owner', 'Approved by a non-owner', ['events.mission_state_changed', 'approval_decisions.decision'], via('dimension.cognitive.first_attempt_verified', 'approvals given without looking show up as accepted work that later reviews do not confirm'), ['independence'], ['correctness', 'timeliness', 'durability', 'cost']),
   S('tasks_verified_by_review', 'Tasks verified by review', ['task_reviews.review', 'tasks.status'], via('scorecard.failure_rate', 'reviews that pass bad work raise the verified share and later the failure rate'), ['correctness', 'independence'], ['timeliness', 'durability', 'user_value', 'cost']),
-  S('throughput', 'Weekly throughput', ['mission_runs.started', 'events.mission_state_changed'], via('scorecard.failure_rate', 'splitting or rushing missions raises the weekly counts and the failure rate'), ['completeness'], ['correctness', 'user_value', 'independence', 'cost']),
+  S('throughput', 'Weekly throughput', ['mission_runs.started', 'events.mission_state_changed'], via('scorecard.tasks_verified_by_review', 'splitting or rushing missions raises the weekly counts but leaves the tasks that an independent review accepts flat'), ['completeness'], ['correctness', 'user_value', 'independence', 'cost']),
 
   // ---- the command-center KPI tiles that show a measured number (the DEMO-only tiles show invented numbers and are not rows)
-  K('success.api', 'Verified Success', ['events.mission_state_changed', 'approval_decisions.decision', 'tasks.status', 'mission_delegations.verifies_edge'], via('scorecard.waiting_approval_median_h', 'the same scorecard row: rubber-stamped approvals shorten the wait'), ['correctness', 'independence'], ['timeliness', 'durability', 'user_value', 'cost']),
+  K('success.api', 'Verified Success', ['events.mission_state_changed', 'approval_decisions.decision', 'tasks.status', 'mission_delegations.verifies_edge'], via('scorecard.waiting_approval_median_h', 'the same scorecard row: rubber-stamped approvals shorten the wait', 'every stored signal that could expose an inflated verified share (mission state, approvals, task status, verifying edges) is also an input of this row, so only the human audit sample, which is not a stored metric, is independent'), ['correctness', 'independence'], ['timeliness', 'durability', 'user_value', 'cost']),
   K('staffedAgents', 'Staffed Agents', ['agent_instances.assignment', 'missions.state'], { none: 'a count of who is placed on live missions; padding it harms nothing a second stored number would show' }, [], ['correctness', 'completeness', 'timeliness', 'cost']),
   K('activeMissions', 'Active Missions', ['missions.state'], via('scorecard.finished', 'keeping missions open raises the active count and lowers finished'), [], ['correctness', 'completeness', 'timeliness', 'cost']),
   K('approvals', 'Pending Approvals', ['approval_requests.record'], via('scorecard.waiting_approval_median_h', 'a pile of unanswered requests lengthens the wait'), ['timeliness'], ['correctness', 'safety', 'cost']),
@@ -69,17 +80,17 @@ export const METRICS: readonly MetricMeta[] = [
   // ---- six dimensions (c46, c54)
   D('cognitive.first_attempt_verified', 'Verified on first attempt', ['task_reviews.review', 'tasks.owner'], via('scorecard.failure_rate', 'reviews that pass first attempts without checking raise this and later the failure rate'), ['correctness', 'independence'], ['timeliness', 'durability', 'cost']),
   D('cognitive.stalled_missions', 'Missions with a flagged stall', ['mission_ledgers.progress'], via('scorecard.median_cycle_time_h', 'a ledger that never says "looping" hides stalls and lengthens the cycle'), ['timeliness'], ['correctness', 'completeness', 'cost']),
-  D('cognitive.context_loss', 'Context-loss failures (FM-1.4, FM-2.1)', ['failure_tags.mode', 'failure_tags.status', 'tasks.status'], via('scorecard.failure_rate', 'tagging failures as something else lowers this and leaves the failure rate unchanged'), ['durability'], ['correctness', 'completeness', 'cost']),
-  D('capability.playbook_items', 'Playbook items in force', ['playbooks.items', 'agent_definitions.catalog'], via('dimension.knowledge.lessons_rolled_back', 'adding many weak items raises the count and later the rollbacks'), [], ['correctness', 'completeness', 'user_value', 'cost']),
-  D('capability.first_pass', 'Tasks passed first time', ['tasks.status', 'task_attempts.times', 'tasks.owner'], via('scorecard.tasks_verified_by_review', 'marking tasks passed without a check raises this but not independently accepted reviews'), ['correctness'], ['independence', 'timeliness', 'durability', 'cost']),
+  D('cognitive.context_loss', 'Context-loss failures (FM-1.4, FM-2.1)', ['failure_tags.mode', 'failure_tags.status', 'tasks.status'], via('scorecard.failure_rate', 'tagging failures as something else lowers this and leaves the failure rate unchanged', 'the only stored signals of a failed task are its status, its attempts and its tags, and this row reads all three: a failure tagged as another mode lowers this row and leaves the failure rate unchanged, so only a person reading the failures can catch a mis-tag'), ['durability'], ['correctness', 'completeness', 'cost']),
+  D('capability.playbook_items', 'Playbook items in force', ['playbooks.items', 'agent_definitions.catalog'], via('dimension.cognitive.first_attempt_verified', 'adding many weak playbook items raises the count but not the share of first attempts that a reviewer accepts'), [], ['correctness', 'completeness', 'user_value', 'cost']),
+  D('capability.first_pass', 'Tasks passed first time', ['tasks.status', 'task_attempts.times', 'tasks.owner'], via('scorecard.tasks_verified_by_review', 'marking tasks passed without a check raises this but not independently accepted reviews', 'a review is the only stored check on a task marked passed, and it counts the task only while its status is passed: both rows read the task status and attempt times'), ['correctness'], ['independence', 'timeliness', 'durability', 'cost']),
   D('capability.site_grants', 'Site grants active at the end', ['site_grants.window'], { none: 'a count of authorisations an administrator issued; more grants are neither better nor worse, and no second stored number tracks misuse of them' }, [], ['correctness', 'completeness', 'safety', 'cost']),
   D('environmental.site_navigation', 'Website navigation outcomes', [], { none: 'not measured until Stage 7 (browser execution), so there is no number to game yet' }, [], ['correctness', 'completeness', 'safety', 'cost'], 'no source exists yet'),
   D('environmental.model_availability', 'Model availability incidents', [], { none: 'not measured until Stage 7 (browser execution), so there is no number to game yet' }, [], ['correctness', 'completeness', 'timeliness', 'cost'], 'no source exists yet'),
   D('collective.briefed_delegations', 'Delegations with a brief', ['delegation_briefs.brief', 'mission_delegations.delegated_edge'], via('dimension.cognitive.first_attempt_verified', 'empty or boilerplate briefs raise this without raising work that passes its first review'), ['completeness'], ['correctness', 'user_value', 'cost']),
-  D('collective.cross_family_reviews', 'Agent reviews across model families', ['task_reviews.review'], via('scorecard.tasks_verified_by_review', 'choosing a reviewer of another family without a real check raises this but not accepted-with-evidence reviews'), ['independence'], ['correctness', 'timeliness', 'cost']),
+  D('collective.cross_family_reviews', 'Agent reviews across model families', ['task_reviews.review'], via('scorecard.failure_rate', 'a reviewer of another family who does not really check lets weak work through, which shows later as failed missions'), ['independence'], ['correctness', 'timeliness', 'cost']),
   D('collective.approval_decision_h', 'Median approval decision time', ['approval_requests.record', 'approval_decisions.decision'], { none: 'a short decision time can mean quick care or rubber-stamping, and nothing stored tells them apart; only the human audit sample can' }, ['timeliness'], ['correctness', 'safety', 'cost']),
-  D('knowledge.lessons_proposed', 'Lessons proposed', ['lesson_candidates.status'], via('dimension.knowledge.lessons_accepted', 'proposing many weak lessons raises this and lowers the accepted share'), [], ['correctness', 'user_value', 'durability', 'cost']),
-  D('knowledge.lessons_accepted', 'Lessons accepted', ['lesson_candidates.status'], via('dimension.knowledge.lessons_rolled_back', 'lessons accepted without scrutiny are rolled back more often'), ['independence'], ['correctness', 'durability', 'cost']),
+  D('knowledge.lessons_proposed', 'Lessons proposed', ['lesson_candidates.status'], via('dimension.capability.playbook_items', 'proposing many weak lessons raises this but not the playbook items in force, which only accepted lessons add'), [], ['correctness', 'user_value', 'durability', 'cost']),
+  D('knowledge.lessons_accepted', 'Lessons accepted', ['lesson_candidates.status'], via('dimension.cognitive.first_attempt_verified', 'lessons accepted without scrutiny do not raise the share of first attempts that a reviewer accepts'), ['independence'], ['correctness', 'durability', 'cost']),
   D('knowledge.lessons_rolled_back', 'Accepted lessons rolled back', ['lesson_candidates.status', 'playbooks.items'], { none: 'a rollback is itself the counter-signal to the lesson rows; nothing stored would rise if rollbacks were avoided' }, ['durability'], ['correctness', 'completeness', 'cost']),
   D('evolutionary.promotions', 'Version proposals promoted', ['agent_version_proposals.status'], via('dimension.evolutionary.rollbacks', 'promoting weak versions raises this and later the rollbacks'), [], ['correctness', 'durability', 'cost']),
   D('evolutionary.rollbacks', 'Agent versions rolled back', ['audit_events.agent_rollback'], { none: 'a rollback is itself the counter-signal to promotions; nothing stored would rise if rollbacks were avoided' }, ['durability'], ['correctness', 'completeness', 'cost']),
@@ -88,13 +99,16 @@ export const METRICS: readonly MetricMeta[] = [
 
   // ---- process metrics next to the outcomes (c69, R3-5)
   P('rework_rate', 'Returned for rework', ['task_reviews.review', 'failure_tags.mode', 'failure_tags.status', 'tasks.status', 'tasks.owner'], via('scorecard.failure_rate', 'accepting weak work to avoid returns lowers the rework rate and raises failures later'), ['correctness'], ['timeliness', 'safety', 'user_value', 'cost']),
-  P('first_pass_acceptance', 'Accepted first time', ['task_reviews.review', 'tasks.owner'], via('scorecard.tasks_verified_by_review', 'accepting a first review without a real check raises this but not independently accepted reviews with evidence'), ['correctness'], ['independence', 'timeliness', 'durability', 'cost']),
+  P('first_pass_acceptance', 'Accepted first time', ['task_reviews.review', 'tasks.owner'], via('scorecard.failure_rate', 'accepting a first review without a real check raises this and shows later as failed missions'), ['correctness'], ['independence', 'timeliness', 'durability', 'cost']),
   P('duplicate_delegation', 'Duplicate delegations', ['delegation_briefs.brief'], { none: 'rewording a goal hides a repeat, and no stored number tracks repeated work apart from the brief text; only a person reading the briefs can' }, [], ['correctness', 'completeness', 'timeliness', 'cost']),
   P('reassign_churn', 'Reassign churn', ['tasks.owner', 'task_owner_history.owner'], via('scorecard.median_cycle_time_h', 'leaving a task with its first owner instead of handing it over lengthens the cycle'), [], ['correctness', 'completeness', 'timeliness', 'cost']),
-  P('handoff_wait_h', 'Wait on a hand-off', ['mission_delegations.delegated_edge', 'task_attempts.times'], via('scorecard.task_recovery_rate', 'starting an attempt early to end the wait raises the number of retried tasks'), ['timeliness'], ['correctness', 'completeness', 'safety', 'cost']),
+  P('handoff_wait_h', 'Wait on a hand-off', ['mission_delegations.delegated_edge', 'task_attempts.times'], via('scorecard.failure_rate', 'starting an attempt early to end the wait, before the work is ready, shows later as failed missions'), ['timeliness'], ['correctness', 'completeness', 'safety', 'cost']),
   P('approval_decision_h', 'Approval wait', ['approval_requests.record', 'approval_decisions.decision'], { none: 'a short wait can mean quick care or rubber-stamping, and nothing stored tells them apart; only the human audit sample can' }, ['timeliness'], ['correctness', 'safety', 'independence', 'cost']),
   P('cost', 'Cost', [], { none: 'cost is not measured until Stage 9 (the usage ledger), so there is no number to game yet' }, [], ['cost', 'correctness', 'completeness', 'timeliness'], 'no source exists until Stage 9'),
 ];
+
+/** The registry: each row's declaration plus its loaders and columns (metric-reads.ts). A row without an entry there has none, which registryProblems reports. */
+export const METRICS: readonly MetricMeta[] = BASE_METRICS.map((m) => ({ ...m, loaders: METRIC_READS[m.id]?.loaders ?? [], reads: METRIC_READS[m.id]?.reads ?? [] }));
 
 export const METRIC_BY_ID: ReadonlyMap<string, MetricMeta> = new Map(METRICS.map((m) => [m.id, m]));
 
@@ -112,7 +126,25 @@ export interface MetricGuard {
   inputs: { id: string; what: string }[];
 }
 
-export function counterText(c: CounterMetric): string { return 'none' in c ? `No known counter-metric: ${c.none}` : c.why; }
+export function counterText(c: CounterMetric): string { return 'none' in c ? `No known counter-metric: ${c.none}` : c.weak ? weakWhy(c) : c.why; }
+/** What the scorecard shows for a weak counter-metric: the state first, then the reason, then what the counter was meant to show. */
+function weakWhy(c: { why: string; weak?: string }): string { return `weak counter-metric, it shares an input with this row so it may not show gaming (${c.weak}); meant to show: ${c.why}`; }
+
+const isContext = (col: string) => CONTEXT_READS.some((x) => x.column === col || (x.column.startsWith('*.') && col.endsWith(x.column.slice(1))));
+/**
+ * The `table.column` inputs two rows both read, from the declared columns that the c83 column test verifies against the loaders' SQL. Context columns (keys,
+ * tenant, visibility) and scope-only columns (department cut, sample and DEMO flags) are not inputs. `table.*` overlaps every column of its table.
+ */
+export function sharedInputColumns(a: Pick<MetricMeta, 'reads'>, b: Pick<MetricMeta, 'reads'>): string[] {
+  const keep = (c: string) => !isContext(c) && !SCOPE_ONLY_READS.includes(c);
+  const A = a.reads.filter(keep), B = b.reads.filter(keep);
+  const out = new Set<string>();
+  for (const x of A) for (const y of B) {
+    const [tx, cx] = x.split('.'), [ty, cy] = y.split('.');
+    if (tx === ty && (cx === cy || cx === '*' || cy === '*')) out.add(cx === '*' ? y : x);
+  }
+  return [...out].sort();
+}
 
 const PLAIN: Record<string, string> = {
   recordReview: 'task reviews', createTag: 'failure tags', proposeLesson: 'lesson proposals', createBrief: 'delegation briefs',
@@ -130,7 +162,7 @@ export function guardOf(m: MetricMeta, byId: ReadonlyMap<string, MetricMeta> = M
   const w = writabilityOf(m.inputs);
   return {
     id: m.id, kind: m.kind, label: m.label,
-    counter: 'none' in m.counter ? { kind: 'none', reason: m.counter.none } : { kind: 'metric', ref: m.counter.ref, refLabel: byId.get(m.counter.ref)?.label ?? m.counter.ref, why: m.counter.why },
+    counter: 'none' in m.counter ? { kind: 'none', reason: m.counter.none } : { kind: 'metric', ref: m.counter.ref, refLabel: byId.get(m.counter.ref)?.label ?? m.counter.ref, why: counterText(m.counter) },
     uncovered: m.uncovered.map((id) => ({ id, label: QUALITY_DIMENSIONS[id] })),
     gameable: w.agentWritable, gameableText: gameableText(w, m.inputs),
     inputs: m.inputs.map((id) => ({ id, what: INPUT_FIELDS[id].what })),
@@ -151,6 +183,14 @@ export function registryProblems(metrics: readonly MetricMeta[], liveIds: readon
       if (m.counter.ref === m.id) out.push(`${m.id}: a row cannot be its own counter-metric`);
       else if (!ids.has(m.counter.ref)) out.push(`${m.id}: counter-metric ${m.counter.ref} is not a registered row`);
       if (m.counter.why.trim().length < 25) out.push(`${m.id}: the counter-metric needs a sentence saying why it would rise (at least 25 characters)`);
+      const other = metrics.find((x) => x.id === (m.counter as { ref: string }).ref);
+      if (other && other.id !== m.id) {
+        const shared = sharedInputColumns(m, other);
+        const weak = (m.counter as { weak?: string }).weak;
+        if (shared.length && weak === undefined) out.push(`${m.id}: its counter-metric ${other.id} shares input column(s) ${shared.slice(0, 4).join(', ')}${shared.length > 4 ? ` and ${shared.length - 4} more` : ''}: give a counter with independent inputs, or mark it weak with a reason (counter.weak)`);
+        if (!shared.length && weak !== undefined) out.push(`${m.id}: marked weak but shares no input column with ${other.id} (remove the mark)`);
+        if (weak !== undefined && weak.trim().length < 40) out.push(`${m.id}: a weak counter-metric needs a stated reason (at least 40 characters)`);
+      }
     }
     if (m.uncovered.length === 0) out.push(`${m.id}: declares no uncovered quality dimension`);
     for (const q of [...m.uncovered, ...m.covers]) if (!QUALITY_DIMENSION_IDS.includes(q)) out.push(`${m.id}: unknown quality dimension ${q}`);
@@ -184,6 +224,23 @@ export interface MetricAuditState {
   lastAuditedAt: string | null;
 }
 export interface MetricGuardRow extends MetricGuard { audit: MetricAuditState }
+/**
+ * c83 (M2b): a sample reference is typed. It names one stored record by a kind from a closed set and an id (`mission:M-126`), never free text,
+ * so the server can check that the record exists and can remove the label when a demo purge deletes the record. A kind is added here, and
+ * the server maps it to a table (a Record over this union, so TypeScript fails until it does).
+ */
+export const SAMPLE_REF_KINDS = ['mission', 'task', 'review', 'approval', 'failure_tag'] as const;
+export type SampleRefKind = (typeof SAMPLE_REF_KINDS)[number];
+export const SAMPLE_REF_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+export function parseSampleRef(s: unknown): { kind: SampleRefKind; id: string } | null {
+  if (typeof s !== 'string') return null;
+  const i = s.indexOf(':');
+  if (i < 1) return null;
+  const kind = s.slice(0, i), id = s.slice(i + 1);
+  return (SAMPLE_REF_KINDS as readonly string[]).includes(kind) && SAMPLE_REF_ID.test(id) ? { kind: kind as SampleRefKind, id } : null;
+}
+export const sampleRefOf = (kind: SampleRefKind, id: string): string => `${kind}:${id}`;
+/** `sampleRef` is `<kind>:<id>` (see parseSampleRef); anything else is refused. */
 export interface MetricAuditIn { metricId: string; samples: { sampleRef: string; metricLabel: boolean; auditLabel: boolean; note?: string }[] }
 export interface MetricAuditResult { recorded: number; audit: MetricAuditState }
 

@@ -2,6 +2,7 @@ import type { Db } from '../db.ts';
 import { tx } from '../db.ts';
 import { audit } from '../audit.ts';
 import { requestApproval } from '../approvals/service.ts';
+import { purgeDemoAuditLabels } from '../company/metric-audit-store.ts';
 import { backfillMissionControl } from '../instances/backfill.ts';
 import { demoLedgers } from '../../../shared/contracts/src/ledger-demo.ts';
 import { MISSIONS, FIXTURE_OWNERS, getMissionControl } from '../../../web/src/data/missions.ts';
@@ -54,8 +55,9 @@ export async function seedDemo(db: Db, tenantId: string, adminId: string) {
 export async function clearDemo(db: Db, tenantId: string) {
   return tx(db, async (c) => {
     await c.query("set local axion.purge_demo = 'on'"); // the only place allowed to cascade-delete append-only history
+    const labels = await purgeDemoAuditLabels(c, tenantId); // c83: audit labels that point at demo records go first, so none outlives the data it names
     const r = await c.query('delete from missions where tenant_id=$1 and demo=true returning id', [tenantId]);
-    await audit(c, { tenantId, actor: 'system', action: 'demo.clear', subject: tenantId, result: 'ok', correlationId: 'clear-' + Date.now(), detail: { missions: r.rowCount } });
+    await audit(c, { tenantId, actor: 'system', action: 'demo.clear', subject: tenantId, result: 'ok', correlationId: 'clear-' + Date.now(), detail: { missions: r.rowCount, auditLabels: labels } });
     return { missions: r.rowCount ?? 0 };
   });
 }
