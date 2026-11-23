@@ -12,6 +12,7 @@ let A: Awaited<ReturnType<typeof withAdmin>>;
 beforeEach(async () => { second = undefined; t = await makeTestApp({ staffingStepMs: 3_600_000, conversationSimMs: 3_600_000 }); A = await withAdmin(t.app); });
 afterEach(async () => { await t.close(); });
 
+const KIND = 'release-record'; // the dedicated R4 kind (F4)
 let n = 0;
 const key = () => ({ 'idempotency-key': 'r' + Date.now() + n++ });
 const mission = async () => (await A.admin.req('POST', '/missions', { text: 'Ship the thing.', files: [], shared: false }, key())).body.mission.id as string;
@@ -33,7 +34,7 @@ const count = async (tbl: string) => Number((await t.pool.query(`select count(*)
 const guardedBody = (over: Record<string, unknown> = {}) => ({ version: '2.0.0', what: 'Touches the policy.', changePaths: ['server/src/policy/baseline.ts', 'web/src/a.tsx'], ...over });
 const r4 = async (b = guardedBody(), payload?: Record<string, unknown>) => {
   const m = await mission();
-  const a = await ask(m, 'production_deploy', payload ?? { releaseDigest: releaseDigest('t-1', b.version as string, b.changePaths as string[]) });
+  const a = await ask(m, KIND, payload ?? { releaseDigest: releaseDigest('t-1', b.version as string, b.changePaths as string[]) });
   expect((await decide(a.id)).status).toBe(200);
   return a.id as string;
 };
@@ -61,6 +62,58 @@ describe('guardrail path rule (pure)', () => {
     const d = releaseDigest('t-1', '1.0.0', ['b', 'a']);
     expect(releaseDigest('t-1', '1.0.0', ['a', 'b'])).toBe(d);
     expect(new Set([d, releaseDigest('t-2', '1.0.0', ['a', 'b']), releaseDigest('t-1', '1.0.1', ['a', 'b']), releaseDigest('t-1', '1.0.0', ['a'])]).size).toBe(4);
+  });
+});
+
+describe('F4: the database repeats the whole binding, the kind is dedicated, and a locked-recheck denial is audited', () => {
+  const rawInsert = (a: string, over: { paths?: string; version?: string; by?: string } = {}) => t.pool.query(
+    `insert into releases(id, tenant_id, version, what, change_paths, guarded_paths, guardrail_approval_id, released_by) values ('REL-R'||substr(md5(random()::text),1,8),'t-1',$2,'w',$1::text[],$1::text[],$3,$4)`,
+    [over.paths ?? '{server/src/audit.ts}', over.version ?? '9', a, over.by ?? A.adminId]);
+  const bound = async (kind = KIND, payload?: Record<string, unknown>, version = '9') => {
+    const m = await mission();
+    const a = await ask(m, kind, payload ?? { releaseDigest: releaseDigest('t-1', version, ['server/src/audit.ts']) });
+    await decide(a.id);
+    return a.id as string;
+  };
+  it('the dedicated kind is an R4 in the baseline policy; an R4 of another kind (a real deploy) is refused and stays unspent', async () => {
+    const id = await bound('production_deploy', undefined, '2.0.0');
+    const b = guardedBody();
+    const m = await mission();
+    const dep = await ask(m, 'production_deploy', { releaseDigest: releaseDigest('t-1', b.version as string, b.changePaths as string[]) }); await decide(dep.id);
+    const r = await release({ ...b, guardrailApprovalId: dep.id });
+    expect(r.status).toBe(403);
+    expect(r.body.message).toContain('approval_wrong_kind');
+    expect((await t.pool.query('select consumed_at from approval_requests where id=$1', [dep.id])).rows[0].consumed_at).toBeNull();
+    await expect(rawInsert(id)).rejects.toThrow(/kind/);
+  });
+  it('the trigger refuses an unbound digest, an unspent approval, a spent one used before, and an expired one', async () => {
+    await expect(bound(KIND, { releaseDigest: 'f'.repeat(64) }).then((a) => rawInsert(a))).rejects.toThrow(/bound/);
+    const ok = await bound();
+    await expect(rawInsert(ok)).rejects.toThrow(/spent|consumed/); // decided but not consumed by the recorder
+    await t.pool.query(`update approval_requests set consumed_at=now(), consumed_by=$2 where id=$1`, [ok, A.adminId]);
+    await expect(rawInsert(ok, { version: 'other' })).rejects.toThrow(/bound/); // the digest binds the version too
+    await expect(rawInsert(ok)).resolves.toBeTruthy();
+    await expect(rawInsert(ok)).rejects.toThrow(/unique|duplicate/); // one approval, one release
+    const old = await bound(KIND, { releaseDigest: releaseDigest('t-1', '10', ['server/src/audit.ts']) });
+    await t.pool.query('alter table approval_requests disable trigger approval_requests_guard');
+    try { await t.pool.query(`update approval_requests set consumed_at=now(), consumed_by=$2, expires_at=now() - interval '1 hour' where id=$1`, [old, A.adminId]); } finally { await t.pool.query('alter table approval_requests enable trigger approval_requests_guard'); }
+    await expect(rawInsert(old, { version: '10' })).rejects.toThrow(/expired/);
+  });
+  it('the SQL release digest equals the TypeScript one, for mixed case, accents, astral characters and order', async () => {
+    for (const paths of [['b/Z.ts', 'a/z.ts', 'B/a.ts'], ['café/x.ts', 'Zoo/y.ts'], ['\u{20000}/a.ts', 'z\uFF5A/a.ts', 'a"b/c\\d'.replace('\\', '_')]]) {
+      const ps = paths.map((x) => x.normalize('NFKC'));
+      const sql = (await t.pool.query(`select release_digest('t-1', '1.0.0', $1::text[]) as d`, [ps])).rows[0].d;
+      expect(sql, JSON.stringify(ps)).toBe(releaseDigest('t-1', '1.0.0', ps));
+    }
+  });
+  it('a denial found at the locked recheck (a concurrent identical release) is audited and the loser is 403', async () => {
+    const b = guardedBody();
+    const id = await r4(b);
+    const rs = await Promise.all([release({ ...b, guardrailApprovalId: id }), release({ ...b, guardrailApprovalId: id })]);
+    expect(rs.map((r) => r.status).sort()).toEqual([201, 403]);
+    expect(await count('releases')).toBe(1);
+    const d = (await t.pool.query(`select detail from audit_events where action='release.record' and result='denied'`)).rows;
+    expect(d.map((x) => x.detail.reason)).toEqual(['approval_already_used']);
   });
 });
 
@@ -129,10 +182,10 @@ describe('the guardrail-path denial', () => {
     const m = await mission();
     const digest = releaseDigest('t-1', b.version as string, b.changePaths as string[]);
     const r3 = await ask(m, 'release', { releaseDigest: digest }); await decide(r3.id);
-    const pending = await ask(m, 'production_deploy', { releaseDigest: digest });
-    const denied = await ask(m, 'production_deploy', { releaseDigest: digest }); await decide(denied.id, 'denied');
-    const other = await ask(m, 'production_deploy', { releaseDigest: releaseDigest('t-1', b.version as string, ['elsewhere.txt']) }); await decide(other.id);
-    const none = await ask(m, 'production_deploy', { x: 1 }); await decide(none.id);
+    const pending = await ask(m, KIND, { releaseDigest: digest });
+    const denied = await ask(m, KIND, { releaseDigest: digest }); await decide(denied.id, 'denied');
+    const other = await ask(m, KIND, { releaseDigest: releaseDigest('t-1', b.version as string, ['elsewhere.txt']) }); await decide(other.id);
+    const none = await ask(m, KIND, { x: 1 }); await decide(none.id);
     for (const [why, id] of Object.entries({ r3: r3.id, pending: pending.id, denied: denied.id, otherPaths: other.id, noDigest: none.id, unknown: 'APR-nope' }))
       expect((await release({ ...b, guardrailApprovalId: id })).status, why).toBe(403);
     expect(await count('releases')).toBe(0);
@@ -166,7 +219,7 @@ describe('F1: the decider of the R4 approval is not the person who records the r
   it('refuses with SELF_APPROVAL when the recorder decided the approval, audits it, and records nothing', async () => {
     const b = guardedBody();
     const m = await mission();
-    const a = await ask(m, 'production_deploy', { releaseDigest: releaseDigest('t-1', b.version as string, b.changePaths as string[]) });
+    const a = await ask(m, KIND, { releaseDigest: releaseDigest('t-1', b.version as string, b.changePaths as string[]) });
     expect((await decide(a.id, 'approved', A.admin)).status).toBe(200); // the recorder (administrator Luca) decides it himself
     const r = await release({ ...b, guardrailApprovalId: a.id });
     expect(r.status).toBe(403);
@@ -182,7 +235,7 @@ describe('F1: the decider of the R4 approval is not the person who records the r
   });
   it('the database refuses it too, for a raw insert', async () => {
     const m = await mission();
-    const a = await ask(m, 'production_deploy'); await decide(a.id, 'approved', A.admin);
+    const a = await ask(m, KIND, { releaseDigest: releaseDigest('t-1', '7', ['server/src/audit.ts']) }); await decide(a.id, 'approved', A.admin); // otherwise bound, so the decider rule is what refuses
     await expect(t.pool.query(`insert into releases(id, tenant_id, version, what, change_paths, guarded_paths, guardrail_approval_id, released_by) values ('REL-Z','t-1','7','w','{server/src/audit.ts}','{server/src/audit.ts}',$1,$2)`, [a.id, A.adminId])).rejects.toThrow(/decided/);
   });
 });

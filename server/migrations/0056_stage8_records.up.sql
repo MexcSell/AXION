@@ -20,14 +20,23 @@ create table releases (
   created_at timestamptz not null default now(),
   unique (tenant_id, version)
 );
+create unique index releases_one_approval on releases(guardrail_approval_id) where guardrail_approval_id is not null;   -- one approval authorises one release
 create index releases_tenant_time on releases(tenant_id, created_at desc, id);
 
--- The denial, in the database too: a release touching a guarded path needs a bound R4 approval (approved, this tenant); a release not touching one carries none.
+-- The same digest the service computes (releases/guard.ts releaseDigest): sha256 of the canonical JSON {changePaths (UTF-8 byte order), tenantId, v:1, version}.
+-- A test compares the two on mixed-case, accented and astral paths.
+create function release_digest(t text, v text, paths text[]) returns text language sql immutable as $$
+  select encode(sha256(convert_to('{"changePaths":[' || coalesce((select string_agg(to_json(p)::text, ',' order by p collate "C") from unnest(paths) p), '') || '],"tenantId":' || to_json(t)::text || ',"v":1,"version":' || to_json(v)::text || '}', 'UTF8')), 'hex')
+$$;
+
+-- The denial, in the database too, as strict as the service: a release touching a guarded path needs an approval that is a release-record request, approved R4
+-- of this tenant, bound to this release's digest, decided by someone other than the recorder, spent by the recorder, not expired, and used by no other release.
+-- A release not touching one carries none.
 create function releases_check() returns trigger language plpgsql as $$
 declare g text[]; a approval_requests;
 begin
-  select coalesce(array_agg(p order by p), '{}') into g from unnest(new.change_paths) p where lower(normalize(p, NFKC)) ~ '(^|/)(polic(y|ies)|approvals?|audit[a-z_-]*|locks?|migrations?|migrate|guardrails?|metric-audits?)([/._-]|$)';
-  if (select coalesce(array_agg(p order by p), '{}') from unnest(new.guarded_paths) p) is distinct from g then raise exception 'release guarded_paths do not match its change_paths'; end if;
+  select coalesce(array_agg(p order by p collate "C"), '{}') into g from unnest(new.change_paths) p where lower(normalize(p, NFKC)) ~ '(^|/)(polic(y|ies)|approvals?|audit[a-z_-]*|locks?|migrations?|migrate|guardrails?|metric-audits?)([/._-]|$)';
+  if (select coalesce(array_agg(p order by p collate "C"), '{}') from unnest(new.guarded_paths) p) is distinct from g then raise exception 'release guarded_paths do not match its change_paths'; end if;
   if cardinality(g) = 0 then
     if new.guardrail_approval_id is not null then raise exception 'a release that touches no guarded path carries no guardrail approval'; end if;
     return new;
@@ -35,8 +44,12 @@ begin
   if new.guardrail_approval_id is null then raise exception 'release touches guarded paths and needs a bound R4 approval'; end if;
   select * into a from approval_requests where id = new.guardrail_approval_id;
   if a.id is null or a.tenant_id <> new.tenant_id or a.risk <> 'R4' or a.state <> 'approved' then raise exception 'the guardrail approval must be an approved R4 request of this tenant'; end if;
-  -- F1: a release needs a second person: whoever decided the R4 request cannot be the one recording the release
+  if a.kind <> 'release-record' then raise exception 'the guardrail approval must be a release-record request, not another kind of R4 request'; end if;
+  if a.payload->>'releaseDigest' is distinct from release_digest(new.tenant_id, new.version, new.change_paths) then raise exception 'the guardrail approval is not bound to this release'; end if;
+  -- a release needs a second person: whoever decided the R4 request cannot be the one recording the release
   if exists (select 1 from approval_decisions d where d.approval_id = a.id and d.decision = 'approved' and d.decided_by = new.released_by) then raise exception 'the guardrail approval was decided by the person recording the release'; end if;
+  if a.consumed_at is null or a.consumed_by is distinct from new.released_by then raise exception 'the guardrail approval must be spent (consumed) by the recorder with the record'; end if;
+  if a.expires_at <= now() then raise exception 'the guardrail approval expired'; end if;
   return new;
 end $$;
 create trigger releases_check before insert on releases for each row execute function releases_check();

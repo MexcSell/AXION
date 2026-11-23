@@ -36,6 +36,10 @@ export function normalisePath(input: string): PathResult {
   return { ok: true, path: n.replace(/\/$/, '') };
 }
 
+/** Byte order of the UTF-8 text, which is what PostgreSQL's "C" collation sorts by: the one order both languages use for stored and hashed path lists. */
+export const byBytes = (a: string, b: string): number => Buffer.compare(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'));
+
 /** What an R4 approval must carry in its payload as `releaseDigest` to be bound to this release (tenant, version and the path set). */
+/** The SQL twin is release_digest() in migration 0056; a test compares them. */
 export const releaseDigest = (tenantId: string, version: string, paths: readonly string[]): string =>
-  createHash('sha256').update(canonical({ v: 1, tenantId, version, changePaths: [...paths].sort() })).digest('hex');
+  createHash('sha256').update(canonical({ v: 1, tenantId, version, changePaths: [...paths].sort(byBytes) })).digest('hex');

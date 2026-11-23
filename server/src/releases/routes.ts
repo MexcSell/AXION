@@ -9,7 +9,7 @@ import { parse } from '../auth/routes.ts';
 import { idempotent } from '../idempotency.ts';
 import { advisoryXactLock } from '../locks.ts';
 import { boundActionOf, consumeApproval } from '../approvals/service.ts';
-import { isGuardedPath, normalisePath, releaseDigest } from './guard.ts';
+import { byBytes, isGuardedPath, normalisePath, releaseDigest } from './guard.ts';
 import type { LastGoodDto, ReleaseDto, ReleaseMarkDto, ReleasesDto } from '../../../shared/contracts/src/index.ts';
 
 /**
@@ -30,6 +30,8 @@ const MarkIn = z.object({
   targetReleaseId: z.string().max(64).optional(),
   reason: z.string().trim().min(1).max(500).optional(),
 }).strict();
+/** The dedicated critical-tier kind (baseline policy) whose approval a guarded release record spends. */
+export const RELEASE_APPROVAL_KIND = 'release-record';
 const ID = /^REL-[0-9A-F]{32}$/;
 const iso = (d: unknown) => new Date(d as string).toISOString();
 type Q = Db | Tx;
@@ -51,6 +53,7 @@ const MARK = `select m.*, r.version, tr.version as target_version, u.name as by_
 async function approvalProblem(q: Q, tenantId: string, id: string, digest: string, recorderId: string, lock = false): Promise<string | null> {
   const a = (await q.query(`select *, (expires_at <= now()) as db_expired from approval_requests where id=$1 and tenant_id=$2 ${lock ? 'for update' : ''}`, [id, tenantId])).rows[0];
   if (!a) return 'approval_not_found';
+  if (a.kind !== RELEASE_APPROVAL_KIND) return 'approval_wrong_kind'; // F4: only a request made for recording a release, never a deploy's approval
   if (a.risk !== 'R4') return 'approval_not_r4';
   if (a.state !== 'approved') return 'approval_not_approved';
   if (a.consumed_at) return 'approval_already_used';
@@ -87,7 +90,7 @@ export default async function releaseRoutes(app: FastifyInstance) {
       if (!n.ok) throw new ApiError('VALIDATION', 422, 'Some fields are not valid.', { fieldErrors: { changePaths: n.reason } });
       if (!paths.includes(n.path)) paths.push(n.path);
     }
-    const guarded = paths.filter(isGuardedPath).sort();
+    const guarded = paths.filter(isGuardedPath).sort(byBytes);
     const digest = releaseDigest(ctx.tenantId, b.version, paths);
     const deny = async (reason: string) => {
       await audit(app.db, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'release.record', subject: b.version, result: 'denied', correlationId: ctx.correlationId, detail: { reason, guardedPaths: guarded, guardrailApprovalId: b.guardrailApprovalId ?? null } });
@@ -99,6 +102,7 @@ export default async function releaseRoutes(app: FastifyInstance) {
     if (guarded.length) { const why = await approvalProblem(app.db, ctx.tenantId, b.guardrailApprovalId!, digest, ctx.user.id); if (why) await deny(why); }
     if (!guarded.length && b.guardrailApprovalId) throw new ApiError('VALIDATION', 422, 'Some fields are not valid.', { fieldErrors: { guardrailApprovalId: 'This release touches no guarded path, so it carries no guardrail approval.' } });
     const from = [...new Set(b.fromApprovals ?? [])];
+    // F4: a refusal found at the locked recheck rolls the transaction back, so it is audited here, outside it
     const out = await idempotent(app.db, req, ctx, async (c) => {
       if (from.length) {
         const ok = (await c.query(`select id from approval_requests where tenant_id=$1 and id = any($2::text[]) and state='approved'`, [ctx.tenantId, from])).rows.map((r) => r.id);
@@ -106,19 +110,25 @@ export default async function releaseRoutes(app: FastifyInstance) {
         if (missing.length) throw new ApiError('VALIDATION', 422, 'Some fields are not valid.', { fieldErrors: { fromApprovals: `Not an approved request of this company: ${missing.join(', ')}.` } });
       }
       await advisoryXactLock(c, `release:${ctx.tenantId}:${b.version}`);
-      if ((await c.query('select 1 from releases where tenant_id=$1 and version=$2', [ctx.tenantId, b.version])).rowCount) throw new ApiError('CONFLICT', 409, `Version ${b.version} already has a release record.`);
       if (guarded.length) {
         const why = await approvalProblem(c, ctx.tenantId, b.guardrailApprovalId!, digest, ctx.user.id, true);
         if (why) throw refusal(why);
         const row = (await c.query('select * from approval_requests where id=$1', [b.guardrailApprovalId])).rows[0];
         await consumeApproval(c, { approvalId: row.id, action: boundActionOf(row), by: ctx.user.id });
       }
+      if ((await c.query('select 1 from releases where tenant_id=$1 and version=$2', [ctx.tenantId, b.version])).rowCount) throw new ApiError('CONFLICT', 409, `Version ${b.version} already has a release record.`);
       const id = 'REL-' + randomBytes(16).toString('hex').toUpperCase();
       await c.query(`insert into releases(id, tenant_id, version, what, change_paths, guarded_paths, from_approvals, guardrail_approval_id, released_by) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
         [id, ctx.tenantId, b.version, b.what, paths, guarded, from, guarded.length ? b.guardrailApprovalId : null, ctx.user.id]);
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'release.record', subject: id, result: 'ok', correlationId: ctx.correlationId,
         detail: { version: b.version, changePaths: paths.length, guardedPaths: guarded, guardrailApprovalId: guarded.length ? b.guardrailApprovalId : null, fromApprovals: from, recordOnly: true } });
       return { status: 201, body: { release: dto((await c.query(`${REL} where r.id=$1`, [id])).rows[0]) } };
+    }).catch(async (e: unknown) => {
+      if (e instanceof ApiError && (e.code === 'POLICY_DENIED' || e.code === 'SELF_APPROVAL') && guarded.length) {
+        const reason = /\(([a-z_]+)\)/.exec(e.message)?.[1] ?? (e.code === 'SELF_APPROVAL' ? 'approval_decided_by_recorder' : 'denied');
+        await audit(app.db, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'release.record', subject: b.version, result: 'denied', correlationId: ctx.correlationId, detail: { reason, guardedPaths: guarded, guardrailApprovalId: b.guardrailApprovalId ?? null, at: 'locked recheck' } });
+      }
+      throw e;
     });
     return reply.status(out.status).send(out.body);
   });
