@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { decideRequests, decideUrl, decidePath, urlWithinGrantedOrigins } from '../src/exec-profile/decider.ts';
 import { goodProfile } from './fixtures/exec-profile-good.ts';
 
@@ -76,13 +77,19 @@ describe('exec profile decider: whole requests and the single URL function', () 
     expect(urlWithinGrantedOrigins('https://good.com:8443/x', g)).toMatchObject({ ok: false, reason: 'port_mismatch' });
     expect(urlWithinGrantedOrigins('http://good.com/', g)).toMatchObject({ ok: false, reason: 'scheme_not_https' });
   });
-  it('makes no network or DNS call', async () => {
-    const dns = await import('node:dns'); const net = await import('node:net');
+  it('makes no network or DNS call: runtime spies stay silent and the sources import no I/O module', () => {
+    const require = createRequire(import.meta.url);
+    const dns = require('node:dns'); const net = require('node:net'); const tls = require('node:tls');
     const calls: string[] = [];
-    const spies = [['lookup', dns], ['resolve', dns], ['connect', net]] as const;
-    const orig = spies.map(([k, m]) => (m as any)[k]);
-    spies.forEach(([k, m]) => { (m as any)[k] = () => { calls.push(k); throw new Error('network'); }; });
-    try { for (const f of fx) decideFx(f); } finally { spies.forEach(([k, m], i) => { (m as any)[k] = orig[i]; }); }
+    const targets: [any, string][] = [[dns, 'lookup'], [dns, 'resolve'], [dns, 'resolve4'], [net, 'connect'], [net, 'createConnection'], [tls, 'connect']];
+    const orig = targets.map(([m, k]) => m[k]);
+    targets.forEach(([m, k]) => { m[k] = () => { calls.push(k); throw new Error('network'); }; });
+    try { for (const f of fx) decideFx(f); } finally { targets.forEach(([m, k], i) => { m[k] = orig[i]; }); }
     expect(calls).toEqual([]);
+    for (const f of ['paths.ts', 'validator.ts', 'decider.ts']) {
+      const src = readFileSync(new URL(`../src/exec-profile/${f}`, import.meta.url), 'utf8');
+      const imports = [...src.matchAll(/^import .* from '([^']+)'/gm)].map((m) => m[1]);
+      for (const i of imports) expect(i, `${f} imports ${i}`).not.toMatch(/^node:(dns|net|http|https|http2|tls|dgram|child_process|fs|worker_threads)(\/|$)|^(dns|net|http|https|fs)$/);
+    }
   });
 });

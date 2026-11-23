@@ -316,14 +316,14 @@
   "kind": "url",
   "input": "https://169.254.169.254.:80/",
   "expect": "deny",
-  "reason": "ip_literal_denied"
+  "reason": "url_refused"
  },
  {
   "id": "ip-24",
   "kind": "url",
   "input": "https://[fe80::1%25eth0]/",
   "expect": "deny",
-  "reason": "ip_literal_denied"
+  "reason": "url_refused"
  },
  {
   "id": "ip-25",
@@ -792,7 +792,7 @@
   "kind": "url",
   "input": "https://good.com/start",
   "expect": "deny",
-  "reason": "redirect_internal",
+  "reason": "redirect_not_granted",
   "redirects": [
    "http://127.0.0.1/admin"
   ]
@@ -1278,7 +1278,7 @@
   "input": "../etc/passwd",
   "access": "read",
   "expect": "deny",
-  "reason": "path_traversal"
+  "reason": "path_not_absolute"
  },
  {
   "id": "path-5",
