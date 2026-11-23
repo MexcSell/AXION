@@ -23,13 +23,6 @@ export const VISIBILITY_ALLOWED: Allowed[] = [
 ];
 
 export const VISIBILITY_FINDINGS: Finding[] = [
-  {
-    route: 'GET /organization/proposals', relation: 'V1', paths: ['proposals[].result.evidence'],
-    leaks: 'The stored dry-run result of an org proposal (result.evidence, server/src/organization/evidence.ts:48-111, stored at creation by proposals.ts:137-143) holds counts over ALL non-demo missions of the tenant with no VISIBLE_SQL (open tasks of the busiest agent, agents with open tasks, confirmed failure tags and the share on tasks, reassigns). GET /organization/proposals needs only a signed-in user (proposals.ts:158), so a member reads a snapshot that includes private missions. A snapshot, so it needs a design decision (fix at read time is impossible; the counts would have to be computed per viewer or hidden from members).',
-    repro: 'vis.test.ts: an admin creates org proposal P_a before O\'s private mission exists and P_b after it (different edges, same triggers). As M, the state-based evidence blocks (load_imbalance, failure_concentration, repeated_reassigns) of P_b differ from P_a\'s; the differing facts are printed in the violation detail. The administrator sees the same difference.',
-    fix: 'Do not store viewer-independent counts that include private missions where a member can read them: compute evidence over VISIBLE missions at read time, or return result.evidence only to administrators. Design decision needed (snapshot).',
-    backlog: 'TBD',
-  },
 ];
 
 export interface Classified { byDesign: VViolation[]; findings: VViolation[]; unexplained: VViolation[]; usedAllowed: Set<number>; usedFindings: Set<number> }
