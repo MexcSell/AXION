@@ -161,3 +161,5 @@ A1 → B1 → C1 → A3 → B3 → C2 → A2 → B2 → C3 → A5 → B4 → C4 
 | M2d | c83 column guard scope after Wave 8: `server/src/organization/plan-metrics.ts` (c85 observation counts per registry metric) and `server/src/forecasts/` (c86; not a registry metric) are outside the loader scan, which covers `company/*.ts` plus loaders a registry row names. Add plan-metrics.ts to the scan (its reads should match the metric's declared columns) or state why observation counts are exempt. | 2 | 4 | 5 | 11 |
 
 | T2 | Org proposal evidence for members (c87 finding). `GET /organization/proposals` (requireUser) returns each proposal's stored `result.evidence`, counted over all non-demo missions including private ones; a member sees e.g. "Agents with at least one open task" move when another member's private mission gains an open task. c88 redacts it for non-admins at read time. | 4 | 4 | 5 | 13 |
+
+| H23 | Web scripts default BASE to 5190 (the live dev server), so a lane or reviewer that forgets BASE hits the live port (c88 review). Make every script refuse a 5190/5191 default when its cwd is not `/home/luca/AXION`, or derive BASE from the lane's port. | 3 | 5 | 5 | 13 |
