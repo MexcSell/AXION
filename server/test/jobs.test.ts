@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import pg from 'pg';
+import { makePool } from '../src/db.ts';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { makeSchema, makeTestApp, withAdmin, TEST_DB, type TestApp } from './helpers.ts';
@@ -483,7 +484,7 @@ describe('fix round: token validation in Node, fail-closed tenancy, reclaim batc
   });
   it('stress: 6 workers with 0.05 s leases, 2 reclaimers and a canceller never double-hold a job', async () => {
     const m = await makeSchema();
-    const pool = new pg.Pool({ connectionString: TEST_DB(), options: `-c search_path=${m.schema}`, max: 12 });
+    const pool = makePool(TEST_DB(), m.schema, 12); // c93: this stress test really needs 12 concurrent claimers; stays explicit
     const claims = new Map<string, string>(); const dupes: string[] = []; const badWins: string[] = [];
     let stop = false;
     try {
@@ -554,7 +555,7 @@ describe('the database clock decides, not the Node clock', () => {
 describe('concurrency', () => {
   it('20 parallel claimers over 50 jobs: each job is claimed exactly once, and the table agrees', async () => {
     const m = await makeSchema();
-    const pool = new pg.Pool({ connectionString: TEST_DB(), options: `-c search_path=${m.schema}`, max: MAX_TEST_CONNECTIONS }); // c70 (H14): 20 claimers share a bounded pool
+    const pool = makePool(TEST_DB(), m.schema, MAX_TEST_CONNECTIONS); // c70 (H14): 20 claimers share a bounded pool
     const seen = watch(pool);
     try {
       for (let i = 0; i < 50; i++) await enqueueJob(pool, { tenantId: 't-1', kind: 'noop.test', idempotencyKey: `j${i}`, createdBy: 't' });

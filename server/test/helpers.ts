@@ -1,4 +1,5 @@
-import pg from 'pg';
+import type pg from 'pg';
+import { makePool, connectClient } from '../src/db.ts';
 import { randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -16,16 +17,14 @@ export const TEST_DB = () => {
 /** A fresh Postgres schema inside axion_test, migrated to the latest version. */
 export async function makeSchema(opts: { migrate?: boolean } = {}) {
   const schema = 't_' + randomBytes(6).toString('hex');
-  const admin = new pg.Client({ connectionString: TEST_DB() });
-  await admin.connect();
+  const admin = await connectClient({ connectionString: TEST_DB() });
   await admin.query(`create schema ${schema}`);
   await admin.end();
-  const pool = new pg.Pool({ connectionString: TEST_DB(), options: `-c search_path=${schema}`, max: 4 });
+  const pool = makePool(TEST_DB(), schema, 3); // c93: bounded, with the 53300 acquisition retry
   if (opts.migrate !== false) await migrate(pool, 'up');
   const drop = async () => {
     await pool.end();
-    const c = new pg.Client({ connectionString: TEST_DB() });
-    await c.connect();
+    const c = await connectClient({ connectionString: TEST_DB() });
     await c.query(`drop schema ${schema} cascade`);
     await c.end();
   };

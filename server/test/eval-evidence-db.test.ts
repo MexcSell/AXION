@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import pg from 'pg';
+import { connectClient } from '../src/db.ts';
 import { makeSchema, TEST_DB } from './helpers.ts';
 import { migrate, listMigrations } from '../src/migrate.ts';
 import { hashDataset } from '../src/evolution/verdict-v2.ts';
@@ -170,9 +170,8 @@ describe('freezing', () => {
   it('freezing is serialised against a case insert in flight: the hash includes the case', async () => {
     await q(`insert into eval_datasets(id, tenant_id, name, split) values ('F5','t-1','f5','holdout')`);
     await q(`insert into eval_cases(dataset_id, case_id, input, expected) values ('F5','c1','1','1')`);
-    const a = new pg.Client({ connectionString: TEST_DB(), options: `-c search_path=${s.schema}` });
-    const b = new pg.Client({ connectionString: TEST_DB(), options: `-c search_path=${s.schema}` });
-    await a.connect(); await b.connect();
+    const a = await connectClient({ connectionString: TEST_DB(), options: `-c search_path=${s.schema}` });
+    const b = await connectClient({ connectionString: TEST_DB(), options: `-c search_path=${s.schema}` });
     try {
       await a.query('begin');
       await a.query(`insert into eval_cases(dataset_id, case_id, input, expected) values ('F5','c2','2','2')`);
@@ -189,9 +188,8 @@ describe('freezing', () => {
   it('a case insert that waits on a freeze is refused once the dataset is frozen', async () => {
     await q(`insert into eval_datasets(id, tenant_id, name, split) values ('F6','t-1','f6','holdout')`);
     await q(`insert into eval_cases(dataset_id, case_id, input, expected) values ('F6','c1','1','1')`);
-    const a = new pg.Client({ connectionString: TEST_DB(), options: `-c search_path=${s.schema}` });
-    const b = new pg.Client({ connectionString: TEST_DB(), options: `-c search_path=${s.schema}` });
-    await a.connect(); await b.connect();
+    const a = await connectClient({ connectionString: TEST_DB(), options: `-c search_path=${s.schema}` });
+    const b = await connectClient({ connectionString: TEST_DB(), options: `-c search_path=${s.schema}` });
     try {
       await a.query('begin');
       await a.query(`select eval_freeze_dataset('F6')`);

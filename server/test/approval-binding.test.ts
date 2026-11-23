@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { makeTestApp, withAdmin, type TestApp } from './helpers.ts';
 import { requestApproval, consumeApproval, loadBoundAction, digestV2, digestOf, type BoundAction } from '../src/approvals/service.ts';
-import pg from 'pg';
-import { tx } from '../src/db.ts';
+import { tx, makePool } from '../src/db.ts';
 import { lockWaits, MAX_TEST_CONNECTIONS } from './pool-probe.ts';
 import { TEST_DB } from './helpers.ts';
 
@@ -118,7 +117,7 @@ describe('consume', () => {
     await decide(r.id);
     const a = await action(r.id);
     const appName = 'c70-consume-' + t.schema;
-    const pool = new pg.Pool({ connectionString: TEST_DB(), options: `-c search_path=${t.schema}`, application_name: appName, max: MAX_TEST_CONNECTIONS });
+    const pool = makePool(`${TEST_DB()}?application_name=${appName}`, t.schema, MAX_TEST_CONNECTIONS);
     const waits = lockWaits(t.pool, appName);
     let res: PromiseSettledResult<unknown>[];
     try { res = await Promise.allSettled(Array.from({ length: 20 }, (_, i) => tx(pool, (c) => consumeApproval(c, { approvalId: r.id, action: a, by: 'exec-' + i })))); }

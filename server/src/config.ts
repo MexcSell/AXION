@@ -3,6 +3,8 @@ export interface Config {
   /** Postgres schema (tests use one per file); defaults to public */
   schema?: string;
   tenantId?: string;
+  /** c93: connection pool size of the app (default 10; tests default to AXION_TEST_POOL_MAX, see vitest.config.ts) */
+  dbPoolMax?: number;
   logger?: boolean;
   uploadDir?: string;
   /** staffing simulation step in ms (tests shorten it) */
