@@ -30,8 +30,8 @@ const until = async (f: () => Promise<boolean>, ms = 15000) => { const t0 = Date
 const D = (c = 'coding', d = 3) => ({ taskClass: c, difficulty: d });
 const brief = (goal: string, extra: Record<string, unknown> = {}) => ({ goal, inputs: [], acceptance: ['Fits the template'], capabilities: [{ kind: 'read' }], escalation: 'Ask the owner', ...extra });
 
-export async function buildVisWorld(): Promise<VisWorld> {
-  const w = await buildWorld();
+export async function buildVisWorld(configure?: (app: import('fastify').FastifyInstance) => void): Promise<VisWorld> {
+  const w = await buildWorld({ configureA: configure });
   await seedTenant(w, w.A); // M = w.A.member, the c79 baseline (shared missions, M's own mission3)
   const t = w.A;
   // O: a second member, approved BEFORE the first snapshot, so the only change between states is the private mission

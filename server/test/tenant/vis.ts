@@ -64,7 +64,7 @@ export interface Run {
   stats: Record<string, number>;
   cases: GetCase[];
 }
-export type Arm = (stage: 'a' | 'b1' | 'b2') => void;
+export type Arm = (stage: 'a' | 'b1' | 'b2') => void | Promise<void>;
 
 /** The whole sweep for the GET routes and the SSE stream. `arm` switches a seeded fault on at the given state (used by the mutants). */
 export async function sweepGets(v: VisWorld, opt: { arm?: Arm; keepOpen?: boolean } = {}): Promise<Run> {
@@ -78,16 +78,16 @@ export async function sweepGets(v: VisWorld, opt: { arm?: Arm; keepOpen?: boolea
     for (const s of [sM, sA, sO]) await s.waitFor((e) => e.event === 'hello');
     // GET /audit/verify is limited to 6 a minute per session: the administrator signs in again before every snapshot, so a 429 can never look like a difference
     const who = async (): Promise<[string, Browser][]> => { v.t = await freshSessions(v.t); return [['member', v.t.member], ['admin', v.t.admin], ['owner', viewO]]; };
-    opt.arm?.('a');
+    await opt.arm?.('a');
     await snap(await who(), cases); // warm-up: reading a channel or thread marks it read, which changes the unread counts once
     const a0 = await snap(await who(), cases); const a1 = await snap(await who(), cases);
     vio.push(...diffV(a0, a1, 'CONTROL')); // the member's pair; the administrator's own sign-ins move the audit chain, so only the member's responses are compared
     await addPrivate(v); await settle(v);
-    opt.arm?.('b1');
+    await opt.arm?.('b1');
     await snap(await who(), cases); // a second warm-up: the new mission's own reads
     const b1 = await snap(await who(), cases);
     await flipPrivate(v); await settle(v);
-    opt.arm?.('b2');
+    await opt.arm?.('b2');
     const b2 = await snap(await who(), cases); const b2b = await snap(await who(), cases);
     vio.push(...diffV(b2, b2b, 'CONTROL')); // the normalisation list is enough in state b2 too
     vio.push(...diffV(a1, b1, 'V1').map((x) => ({ ...x, detail: 'a->b1 ' + x.detail })), ...diffV(b1, b2, 'V1').map((x) => ({ ...x, detail: 'b1->b2 ' + x.detail })));
