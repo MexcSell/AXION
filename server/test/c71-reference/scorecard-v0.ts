@@ -1,3 +1,4 @@
+// RETIRED AT THE NEXT INTENTIONAL SCORECARD CHANGE (with test/c71-equivalence.test.ts; never edit it to follow a new rule).
 import type { CompanyScorecardDto, ScorecardRow, ScorecardWindow, ScorecardTrend, ThroughputDto } from '../../../shared/contracts/src/index.ts';
 
 /**

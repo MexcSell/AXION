@@ -1,3 +1,5 @@
+// RETIRED AT THE NEXT INTENTIONAL SCORECARD CHANGE (with test/c71-equivalence.test.ts; never edit it to follow a new rule).
+// Not fully frozen: this file imports the LIVE STALE_BEFORE_SQL and VISIBLE_SQL, so a change to either moves the old side too.
 import type { Tx } from '../../src/db.ts';
 import type { requireUser } from '../../src/auth/session.ts';
 import { VISIBLE_SQL } from '../../src/missions/visibility.ts';

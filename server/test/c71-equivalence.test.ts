@@ -11,6 +11,9 @@ import { loadInputV0 } from './c71-reference/load-v0.ts';
 import { STALE_BEFORE_SQL } from '../src/tasks/reviews.ts';
 import { DIM_REVIEWS_SQL } from '../src/company/dimensions-routes.ts';
 
+// RETIRED AT THE NEXT INTENTIONAL SCORECARD CHANGE (c71 fix round F3). This test and test/c71-reference/ prove one thing: the c71 rewrite changed no output.
+// When a later cycle changes a scorecard rule on purpose, delete both (do not edit the reference to follow the new rule: that would defeat it).
+// The reference is NOT fully frozen: test/c71-reference/load-v0.ts imports the LIVE STALE_BEFORE_SQL and VISIBLE_SQL, so a change to either moves the "old" side too.
 // c71 (P6): the scorecard and throughput were rewritten for scale (per-input preparation, lighter loads). Their output must stay BYTE IDENTICAL
 // to the pre-c71 implementation, which is frozen in test/c71-reference/. Two layers: (1) the pure function on random inputs full of ties, restores,
 // simulated rows and rows of missions the caller cannot see; (2) the whole read (loader + function) on a seeded company, as admin and as a member.

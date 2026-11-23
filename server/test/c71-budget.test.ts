@@ -12,7 +12,12 @@ import { seedScale } from './c71-scale-fixtures.ts';
  *
  * Budget: at 25,000 tasks the p95 of every company route stays under C71_BUDGET_MS (default 1000 ms) on this machine, for the admin and for a
  * member, with 10 tasks per mission and with 3 per mission (many small missions was the c69 reviewer's shape). The load average is printed with every
- * line: numbers taken at different loads are not comparable (LESSONS), so a failure at a high load1 is a reason to re-run, not to loosen.
+ * line. HOW TO READ A RESULT (c71 fix round F7):
+ *  - Observed load: the lane's runs were at load1 9 to 10; the independent review's run at load1 12.0 to 21.3 (slowest p95 977 ms). All 32 passed in both.
+ *  - Dimensions at 25k tasks in small missions (3 per mission) has under 5% headroom (p95 916 to 977 ms against 1000). It is the route to watch.
+ *  - A failure at a high load1 means RE-RUN FIRST, at a lower load; do not raise the budget or loosen the test on one run.
+ *  - The p95 of 12 runs is the MAXIMUM sample (ceil(12 x 0.95) = 12th of 12), so one slow run decides it; raise C71_RUNS for a steadier figure.
+ * Numbers taken at different loads are not comparable (LESSONS), so a failure at a high load1 is a reason to re-run, not to loosen.
  */
 const RUN = !!process.env.C71_BUDGET;
 const BUDGET = Number(process.env.C71_BUDGET_MS ?? 1000);
