@@ -105,11 +105,14 @@ export function evidenceState(r: any): 'ok' | 'legacy' | 'mismatch' {
 /**
  * The request-time anchor: the chained `approval.request` audit row. If it names a digest, the stored record must carry exactly that digest and still
  * match it, so a stripped digest or a record rewritten together with its digest is refused. A request with no such row (or none naming a digest) predates c75: legacy.
+ * The NEWEST row for the id is the one that counts: demo clear and re-seed reuse approval ids, leaving older request rows in the chain, and only the server can append rows.
+ * Legacy status is permanent. A post-c75 request can only look legacy if its chained request row was deleted; that is not caught here but by audit:verify
+ * (a seq gap) or, when it was the newest row, by the c49 anchor.
  */
 export async function assertEvidenceAnchored(c: Tx, r: any) {
   const st = evidenceState(r);
   if (st === 'mismatch') throw evidenceMismatch();
-  const a = (await c.query(`select detail from audit_events where tenant_id=$1 and action='approval.request' and subject=$2 and result='ok' order by seq limit 1`, [r.tenant_id, r.id])).rows[0]?.detail;
+  const a = (await c.query(`select detail from audit_events where tenant_id=$1 and action='approval.request' and subject=$2 and result='ok' order by seq desc limit 1`, [r.tenant_id, r.id])).rows[0]?.detail;
   if (a?.evidenceDigest && (st === 'legacy' || r.rule_of_two.evidenceDigest !== a.evidenceDigest)) throw evidenceMismatch();
 }
 export const evidenceMismatch = () => new ApiError('APPROVAL_EVIDENCE_MISMATCH', 409, 'The recorded reasons for this request were changed after it was made. It cannot be used; the agent must ask again.');

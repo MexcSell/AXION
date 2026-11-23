@@ -3,6 +3,7 @@ import { makeTestApp, withAdmin, type TestApp } from './helpers.ts';
 import { requestApproval, consumeApproval, loadBoundAction, evidenceDigestOf } from '../src/approvals/service.ts';
 import { verifyChain } from '../src/audit.ts';
 import { tx } from '../src/db.ts';
+import { seedDemo, clearDemo } from '../src/seed/demo.ts';
 
 let t: TestApp;
 let A: Awaited<ReturnType<typeof withAdmin>>;
@@ -116,5 +117,36 @@ describe('c75 fix round: the request-time anchor in the audit chain', () => {
     const forged = { ...rest, fired: true, rule: 'rule_of_two' };
     await tamperRow('update approval_requests set rule_of_two = $2::jsonb where id=$1', [r.id, JSON.stringify({ ...forged, evidenceDigest: evidenceDigestOf(row.id, row.action_digest, forged as any) })]);
     await expect(consume(r.id)).rejects.toMatchObject({ code: 'APPROVAL_EVIDENCE_MISMATCH' });
+  });
+});
+
+describe('c75 review fixes', () => {
+  it('F1: demo seed, clear, re-seed (same approval ids, new request rows) still decides and consumes', async () => {
+    await seedDemo(t.app.db, 't-1', A.adminId);
+    await clearDemo(t.app.db, 't-1');
+    await seedDemo(t.app.db, 't-1', A.adminId);
+    const pending = (await A.admin.req('GET', '/approvals')).body.approvals.find((x: any) => x.demo && x.state === 'pending' && x.canDecide);
+    expect(pending, 'a decidable demo approval exists').toBeTruthy();
+    const two = (await t.pool.query(`select count(*)::int as n from audit_events where action='approval.request' and subject=$1`, [pending.id])).rows[0].n;
+    expect(two).toBeGreaterThanOrEqual(2); // the old row from the first seed is still in the chain
+    const res = await decide(A.admin, pending.id);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    await expect(consume(pending.id)).resolves.toMatchObject({ approvalId: pending.id });
+  });
+  it('F1: with two request rows for one id, a digest stripped from the current row is still refused', async () => {
+    await seedDemo(t.app.db, 't-1', A.adminId);
+    await clearDemo(t.app.db, 't-1');
+    await seedDemo(t.app.db, 't-1', A.adminId);
+    const p = (await A.admin.req('GET', '/approvals')).body.approvals.find((x: any) => x.demo && x.state === 'pending' && x.canDecide);
+    await tamperRow(`update approval_requests set rule_of_two = rule_of_two - 'evidenceDigest' where id=$1`, [p.id]);
+    expect((await decide(A.admin, p.id)).body.code).toBe('APPROVAL_EVIDENCE_MISMATCH');
+  });
+  it('F3: deleting a non-last approval.request audit row is caught by verifyChain', async () => {
+    const a = await ask(); await ask(); await ask();
+    expect((await verifyChain(t.pool, 't-1')).ok).toBe(true);
+    await dropRequestRow(a.id);
+    const v = await verifyChain(t.pool, 't-1');
+    expect(v.ok).toBe(false);
+    expect(v.reason).toMatch(/is missing/);
   });
 });
