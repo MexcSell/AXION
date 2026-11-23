@@ -36,12 +36,19 @@ function historyShape(h: unknown): TrajectoryStep[] | null {
   return h as TrajectoryStep[];
 }
 
-/** Resolve `.`/`..` and `//` in the path of a URL or an absolute path before a prefix/contains test. null = refuse (encoded, backslash, control characters, relative). */
-function normalisePathish(v: string): string | null {
+/** Normalise a URL or absolute path before a prefix/contains test (`.`, `..`, `//` inside the path). Returns null (refuse, so the value is `wider`) for:
+ *  percent-encoding, backslash, control characters; a leading `//`; a URL scheme other than https unless the plan's own text starts with that scheme;
+ *  and a relative value that has a `.` or `..` segment. A relative value without dot segments is compared as plain text. */
+function normalisePathish(v: string, planText: string): string | null {
   for (let i = 0; i < v.length; i++) { const k = v.charCodeAt(i); if (k < 32 || k === 127 || k === 92 || k === 37) return null; }
+  if (v.startsWith('//')) return null;
+  let scheme = '';
+  const sep = v.indexOf('://');
+  if (sep > 0) { const sc = v.slice(0, sep); let ok = true; for (let i = 0; i < sc.length; i++) { const k = sc.charCodeAt(i); if (!((k >= 97 && k <= 122) || (k >= 65 && k <= 90) || (i > 0 && ((k >= 48 && k <= 57) || k === 43 || k === 45 || k === 46)))) ok = false; } if (ok) scheme = sc; }
+  if (scheme !== '' && scheme !== 'https' && !planText.startsWith(scheme + '://')) return null;
   let head = '', rest = v;
-  if (v.startsWith('https://')) { const i = v.indexOf('/', 8); if (i === -1) return v; head = v.slice(0, i); rest = v.slice(i); }
-  else if (!v.startsWith('/')) return v; // not a path: compared as plain text
+  if (scheme !== '') { const i = v.indexOf('/', scheme.length + 3); if (i === -1) return v; head = v.slice(0, i); rest = v.slice(i); }
+  else if (!v.startsWith('/')) { for (const seg of v.split('/')) if (seg === '.' || seg === '..') return null; return v; }
   let tail = '';
   const q = rest.search(/[?#]/); // fixed class, applied to the value, never built from it
   if (q !== -1) { tail = rest.slice(q); rest = rest.slice(0, q); }
@@ -64,7 +71,7 @@ function checkArg(c: ArgConstraint, present: boolean, v: unknown): ArgVerdict {
     case 'text': {
       if (typeof v !== 'string') return 'wider';
       let w = v;
-      if (c.op !== 'suffix' && c.value.includes('/')) { const n = normalisePathish(v); if (n === null) return 'wider'; w = n; }
+      if (c.op !== 'suffix' && c.value.includes('/')) { const n = normalisePathish(v, c.value); if (n === null) return 'wider'; w = n; }
       const ok = c.op === 'prefix' ? w.startsWith(c.value) : c.op === 'suffix' ? w.endsWith(c.value) : w.includes(c.value);
       return ok ? 'ok' : 'wider';
     }

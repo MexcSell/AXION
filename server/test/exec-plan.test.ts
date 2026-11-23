@@ -173,6 +173,17 @@ describe('review minors', () => {
     const rd = (path: string) => checkCall(PLANS.report, call('files.read', { path })).decision;
     expect([rd('/workspace/reports/a.md'), rd('/workspace/reports/../secrets/key'), rd('/workspace/reports/../../etc/passwd'), rd('/workspace/reports/./x/../a.md'), rd('/workspace/reports/%2e%2e/x'), rd('workspace/reports/a')]).toEqual(['allow', 'needs-approval', 'needs-approval', 'allow', 'needs-approval', 'needs-approval']);
   });
+  it('relative paths, other schemes and a leading // are refused, not passed through', () => {
+    const plan: ExecPlan = { v: 1, grants: [], forbiddenTools: [], calls: [{ id: 'a', tool: 'f.read', origins: [], args: { p: { kind: 'text', op: 'prefix', value: 'reports/' } } }, { id: 'b', tool: 'f.open', origins: [], args: { u: { kind: 'text', op: 'prefix', value: 'https://shop/' }, w: { kind: 'text', op: 'prefix', value: '/w/r/' } } }] };
+    const rd = (path: string) => checkCall(plan, call('f.read', { p: path })).decision;
+    expect([rd('reports/a.md'), rd('reports/../../etc'), rd('reports/%2e%2e/x'), rd('reports/./a')]).toEqual(['allow', 'needs-approval', 'needs-approval', 'needs-approval']);
+    const op = (u: string, w = '/w/r/x') => checkCall(plan, call('f.open', { u, w })).decision;
+    expect([op('https://shop/a'), op('http://shop/../admin'), op('wss://x/../y'), op('https://shop/a', '//w/r/x'), op('http://shop/a')]).toEqual(['allow', 'needs-approval', 'needs-approval', 'needs-approval', 'needs-approval']);
+    // under a plan that names no scheme, http and wss are refused
+    expect(checkCall(shopPlan, call('browser.navigate', { url: 'http://shop.example.com/../admin' }, SHOP)).decision).toBe('needs-approval');
+    expect(checkCall(shopPlan, call('browser.navigate', { url: 'wss://x/../y' }, SHOP)).decision).toBe('needs-approval');
+    expect(checkCall(PLANS.report, call('files.read', { path: '//workspace/reports/x' })).decision).toBe('needs-approval');
+  });
   it('forbiddenTools is case-insensitive, and so is the planned-vs-forbidden conflict', () => {
     expect(checkCall(shopPlan, call('Browser.Download', {}, SHOP)).reasons).toEqual(['forbidden_tool']);
     expect(checkCall(shopPlan, call('SHELL.EXEC', {})).reasons).toEqual(['forbidden_tool']);
