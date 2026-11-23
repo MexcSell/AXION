@@ -18,6 +18,8 @@ import { REPEAT_EXEMPT_MAX_LEN } from '../../src/evolution/proposal-evidence.ts'
  *  3. `alias.column` is a read of that table; `alias.*` or a bare `*` select is `table.*` (all columns);
  *  4. a bare word that is a column of one of the statement's tables is a read of it (SQL refuses an ambiguous bare name, so this is exact except for
  *     output aliases and derived-table columns, which can only add a column that the table really has: it over-reports, it never misses).
+ * c88: organization/plan-metrics.ts is scanned too (planUnitProblems, units declared in PLAN_UNIT_READS). EXCLUDED on purpose: server/src/forecasts/ is not a
+ * registry metric (the forecast ledger; see SCAN_EXCLUSIONS).
  * Limits: the statement must be a string literal that contains `select` and `from`; SQL assembled by concatenation or built at run time is not seen
  * (the unresolved-expression check catches the template forms); a column named like a function or keyword is skipped. See the test header.
  */
@@ -81,7 +83,7 @@ const splitArgs = (a: string): string[] | null => {
 /** The label of the enclosing function or route (`listVisible`, `GET /approvals`) for a statement at `offset`, or '' at the top level. */
 export function enclosing(src: string, offset: number): string {
   let label = '';
-  for (const m of src.slice(0, offset).matchAll(/(?:^|\n)\s*(?:export\s+)?(?:async\s+)?function\s+(\w+)|app\.(get|post|put|patch|delete)\(\s*'([^']+)'/g)) label = m[1] ?? `${m[2].toUpperCase()} ${m[3]}`;
+  for (const m of src.slice(0, offset).matchAll(/(?:^|\n)\s*(?:export\s+)?(?:async\s+)?function\s+(\w+)|app\.(get|post|put|patch|delete)\(\s*'([^']+)'|\bunit\(\s*'(\w+)'/g)) label = m[4] ? `unit:${m[4]}` : (m[1] ?? `${m[2].toUpperCase()} ${m[3]}`);
   return label;
 }
 
@@ -251,5 +253,46 @@ export function columnProblems(setup: ColumnSetup, cols: SchemaCols, src: Record
     const s = scanOf(ref).reads;
     if (!(s.has(c) || (!c.endsWith('.*') && s.has(`${c.split('.')[0]}.*`)))) out.push(`${ref}: declared as fetched but not read: ${c}`);
   }
+  return out;
+}
+
+/**
+ * c88 (M2d): organization/plan-metrics.ts (c85's observation counts, one SQL unit per registry metric) is part of the loader scan. A unit is not a company
+ * loader, so its reads are declared in PLAN_UNIT_READS next to the SQL (reviewed there), not in a registry row. Reported: a statement outside a unit or a
+ * known helper, a column read that is neither declared nor a context column, a declared column that is not read, a declared table the unit does not name,
+ * and a unit or helper with a declaration but no SQL (or SQL with no declaration).
+ */
+export const PLAN_FILE = 'organization/plan-metrics.ts';
+/** Directories under server/src that run SQL for numbers but are NOT registry metrics, so the scan does not cover them, each with the reason. */
+export const SCAN_EXCLUSIONS: Record<string, string> = {
+  'forecasts/': 'the forecast ledger (c86) is not a registry metric: it stores what was predicted and what happened, and no registry row, loader or plan reads it',
+};
+export function planUnitProblems(
+  cols: SchemaCols, declared: Record<string, readonly string[]>, units: Record<string, { tables: readonly string[]; support: readonly string[] }>,
+  context: readonly { column: string }[], src: Record<string, string> = {}): string[] {
+  const out: string[] = [];
+  const stm = statements(PLAN_FILE, src[PLAN_FILE]);
+  const byScope = new Map<string, Set<string>>();
+  for (const st of stm) {
+    const r = reads(st.sql, cols);
+    for (const u of [...st.unresolved.filter((e) => !(st.scope === 'countObservations' && e === 'u.sql')).map((e) => `\${${e}}`), ...r.unresolved]) out.push(`${PLAN_FILE}: unresolved SQL in ${st.scope || 'top level'}: ${u}`);
+    const set = byScope.get(st.scope) ?? new Set<string>();
+    for (const c of r.reads) set.add(c);
+    byScope.set(st.scope, set);
+  }
+  for (const [scope, got] of byScope) {
+    const d = declared[scope];
+    if (!d) { out.push(`${PLAN_FILE}: SQL in "${scope || 'top level'}" has no entry in PLAN_UNIT_READS`); continue; }
+    for (const c of got) if (!context.some((x) => matches(x.column, c)) && !d.includes(c) && !d.includes(`${c.split('.')[0]}.*`)) out.push(`${PLAN_FILE}: ${scope} reads ${c}, but PLAN_UNIT_READS does not declare it`);
+    for (const c of d) if (!got.has(c)) out.push(`${PLAN_FILE}: ${scope} declares ${c}, which its SQL does not read`);
+    const id = scope.startsWith('unit:') ? scope.slice(5) : '';
+    if (id) {
+      const u = units[id];
+      if (!u) out.push(`${PLAN_FILE}: ${scope} is SQL for a unit that UNITS does not list`);
+      else for (const c of d) if (![...u.tables, ...u.support].includes(c.split('.')[0])) out.push(`${PLAN_FILE}: ${scope} declares ${c}, but the table is neither a table nor a support table of the unit`);
+    }
+  }
+  for (const k of Object.keys(declared)) if (!byScope.has(k)) out.push(`${PLAN_FILE}: PLAN_UNIT_READS lists ${k}, which runs no SQL statement (renamed or removed?)`);
+  for (const id of Object.keys(units)) if (!byScope.has(`unit:${id}`)) out.push(`${PLAN_FILE}: unit ${id} has no SQL statement the scan can see`);
   return out;
 }

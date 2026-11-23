@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { makeSchema } from './helpers.ts';
 import { METRICS, INPUT_FIELDS, CONTEXT_READS, LOADER_EXTRA, NON_METRIC_COMPANY_FILES } from '../../shared/contracts/src/index.ts';
-import { columnProblems, companyFiles, fragmentProblems, statements, reads, FRAGMENT_FILES, type ColumnSetup, type SchemaCols } from './contracts/columns.ts';
+import { columnProblems, companyFiles, fragmentProblems, statements, reads, FRAGMENT_FILES, planUnitProblems, PLAN_FILE, SCAN_EXCLUSIONS, type ColumnSetup, type SchemaCols } from './contracts/columns.ts';
+import { PLAN_UNIT_READS, UNITS } from '../src/organization/plan-metrics.ts';
 
 /**
  * c83 item 3: the registry loader test, at column level and for every company loader. It is generated from the source: every file under
@@ -92,3 +93,44 @@ describe('registry loader coverage at column level', () => {
     expect(p.join('\n')).toContain('unresolved SQL: FROM/JOIN entry zz_not_a_table');
   });
 });
+
+/**
+ * c88 (M2d): the scan covers organization/plan-metrics.ts too (c85's observation counts, one SQL unit per registry metric). Its units are declared in
+ * PLAN_UNIT_READS next to the SQL. EXCLUDED on purpose: server/src/forecasts/ (c86), because the forecast ledger is not a registry metric (see SCAN_EXCLUSIONS).
+ */
+describe('c88: plan-metrics.ts is in the scan; forecasts/ is an explicit exclusion', () => {
+  const run = (src: Record<string, string> = {}, declared: Record<string, readonly string[]> = PLAN_UNIT_READS) => planUnitProblems(cols, declared, UNITS, CONTEXT_READS, src);
+  const source = () => require('node:fs').readFileSync(require('node:path').join(__dirname, '../src', PLAN_FILE), 'utf8') as string;
+
+  it('every unit and helper of plan-metrics.ts reads only declared columns, and declares only what it reads', () => {
+    expect(run()).toEqual([]);
+  });
+
+  it('RED proof: an undeclared column read injected into one unit is reported, naming the unit and the column', () => {
+    const text = source();
+    const injected = text.replace("select l.created_at as ts from lesson_candidates l where l.tenant_id = $1`", "select l.created_at as ts from lesson_candidates l where l.tenant_id = $1 and l.agent_id is not null`");
+    expect(injected).not.toBe(text);
+    expect(run({ [PLAN_FILE]: injected })).toEqual([expect.stringContaining('unit:lesson_proposed reads lesson_candidates.agent_id, but PLAN_UNIT_READS does not declare it')]);
+  });
+
+  it('RED proof: a new unit with no declaration, a declared column nothing reads, and SQL outside any unit are reported', () => {
+    const text = source();
+    const added = text.replace("  playbook: unit('playbook'", "  zz: unit('zz', 'x', ['tasks'], [], `select t.created_at as ts from tasks t where t.tenant_id = $1`),\n  playbook: unit('playbook'");
+    expect(added).not.toBe(text);
+    expect(run({ [PLAN_FILE]: added }).join('\n')).toContain('SQL in "unit:zz" has no entry in PLAN_UNIT_READS');
+    expect(run({}, { ...PLAN_UNIT_READS, 'unit:run': [...PLAN_UNIT_READS['unit:run'], 'mission_runs.ended_at'] })).toEqual([expect.stringContaining('unit:run declares mission_runs.ended_at, which its SQL does not read')]);
+    const free = run({ [PLAN_FILE]: text + "\nexport const zzFree = `select count(*) from tasks t where t.title = 'x'`;" });
+    expect(free.join('\n')).toContain('countObservations reads tasks.title, but PLAN_UNIT_READS does not declare it'); // SQL added at the end of the file belongs to the last function, which is checked too
+  });
+
+  it('forecasts/ is excluded on purpose: it exists, it is named with its reason, and no registry row names a loader there', () => {
+    const fs = require('node:fs') as typeof import('node:fs'); const path = require('node:path') as typeof import('node:path');
+    for (const [dir, why] of Object.entries(SCAN_EXCLUSIONS)) {
+      expect(fs.existsSync(path.join(__dirname, '../src', dir)), dir).toBe(true);
+      expect(why.length).toBeGreaterThan(20);
+      expect(METRICS.some((m) => m.loaders.some((l) => l.startsWith(dir))), dir).toBe(false);
+    }
+    expect(Object.keys(SCAN_EXCLUSIONS)).toEqual(['forecasts/']);
+  });
+});
+
