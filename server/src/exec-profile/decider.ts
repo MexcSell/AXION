@@ -73,12 +73,16 @@ function plain(v: unknown, allowed: readonly string[]): Record<string, unknown> 
   }
   return out;
 }
+class TooMany extends Error {}
+/** Copies a list ONCE: `length` is read a single time, then exactly that many data elements are read. A Proxy whose length changes between reads cannot get past the cap. */
 function list(v: unknown, cap = MAX_REQUEST_ITEMS): unknown[] {
   if (v === undefined) return [];
   if (!Array.isArray(v)) throw new Error('not a list');
-  if (v.length > cap) throw new Error('too many');
+  const len = v.length;
+  if (typeof len !== 'number' || !Number.isInteger(len) || len < 0) throw new Error('not a list');
+  if (len > cap) throw new TooMany('too many');
   const out: unknown[] = [];
-  for (let i = 0; i < v.length; i++) { const d = Object.getOwnPropertyDescriptor(v, i); if (!d || !('value' in d)) throw new Error('hole or accessor'); out.push(d.value); }
+  for (let i = 0; i < len; i++) { const d = Object.getOwnPropertyDescriptor(v, i); if (!d || !('value' in d)) throw new Error('hole or accessor'); out.push(d.value); }
   return out;
 }
 
@@ -142,11 +146,13 @@ export function decideRequests(profileInput: unknown, request: unknown): Request
     let urls: unknown[]; let paths: unknown[];
     try {
       const r = plain(request, ['urls', 'paths']);
-      // lengths are checked BEFORE any element is read, so a huge or sparse array costs nothing
-      const lens = [r.urls, r.paths].map((l) => (Array.isArray(l) ? l.length : 0));
-      if (lens[0] + lens[1] > MAX_REQUEST_ITEMS) return { allowed: false, items: [{ kind: 'request', input: undefined, allow: false, reason: 'too_many_items' }] };
+      // each list is copied once (its length is read once); the cap is then checked on the COPIES, so nothing the caller does after this point matters
       urls = list(r.urls); paths = list(r.paths);
-    } catch { return { allowed: false, items: [malformed('request', 'request_malformed')] }; }
+      if (urls.length + paths.length > MAX_REQUEST_ITEMS) throw new TooMany('too many');
+    } catch (e) {
+      if (e instanceof TooMany) return { allowed: false, items: [{ kind: 'request', input: undefined, allow: false, reason: 'too_many_items' }] };
+      return { allowed: false, items: [malformed('request', 'request_malformed')] };
+    }
     const items: ItemDecision[] = [];
     for (const [kind, raws] of [['url', urls], ['path', paths]] as const) {
       for (const raw of raws) {
