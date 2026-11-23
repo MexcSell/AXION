@@ -6,7 +6,7 @@ import { CURRENT_BASELINE } from '../src/policy/index.ts';
 // infra or critical kind. This list is pinned so adding a kind to the baseline forces a decision about flag (b).
 describe('c58 fix F1: flag (b) is exactly the infra and critical kinds', () => {
   it('the kinds that set (b) are pinned', () => {
-    expect([...SENSITIVE_KINDS].sort()).toEqual(['add_integration', 'autonomous_gate_change', 'irreversible_delete', 'merge_source', 'move_agent_permissions', 'origin-grant', 'production_deploy', 'release', 'rotate_credential', 'security_policy_rewrite', 'update_live_site']);
+    expect([...SENSITIVE_KINDS].sort()).toEqual(['add_integration', 'autonomous_gate_change', 'irreversible_delete', 'merge_source', 'move_agent_permissions', 'origin-grant', 'production_deploy', 'release', 'release-record', 'rotate_credential', 'security_policy_rewrite', 'update_live_site']);
   });
   it('no read or prepare kind reads outside the mission: none of them sets (b)', () => {
     for (const [k, r] of Object.entries(CURRENT_BASELINE.kinds)) if (r.effect === 'read' || r.effect === 'prepare') expect(deriveFlags({ capabilities: [{ kind: k }], siteGrants: [], contentOrigins: ['internal'] }).sensitiveAccess, k).toBe(false);
