@@ -22,7 +22,7 @@ import { seedScale } from './c71-scale-fixtures.ts';
 const RUN = !!process.env.C71_BUDGET;
 const BUDGET = Number(process.env.C71_BUDGET_MS ?? 1000);
 const RUNS = Number(process.env.C71_RUNS ?? 12);
-const ROUTES = ['/company/scorecard?window=7d', '/company/scorecard?window=30d', '/company/scorecard?window=90d', '/company/throughput?weeks=8', '/company/dimensions?window=30d', '/company/dimensions?window=90d', '/departments', '/company/failure-modes?window=30d'];
+const ROUTES = ['/company/scorecard?window=7d', '/company/scorecard?window=30d', '/company/scorecard?window=90d', '/company/throughput?weeks=8', '/company/dimensions?window=30d', '/company/dimensions?window=90d', '/departments', '/company/failure-modes?window=30d', '/company/process?window=30d'];
 const p95 = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.ceil(xs.length * 0.95) - 1];
 const p50 = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.ceil(xs.length * 0.5) - 1];
 

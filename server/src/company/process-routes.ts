@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { requireUser } from '../auth/session.ts';
 import { parse } from '../auth/routes.ts';
 import { notFound } from '../errors.ts';
-import { STALE_BEFORE_SQL } from '../tasks/reviews.ts';
+import { STALE_JOINS, STALE_FLAG } from './stale.ts';
 import { VISIBLE_SQL } from '../missions/visibility.ts';
 import { FAILURE_TAXONOMY_VERSION, PROCESS_WINDOWS } from '../../../shared/contracts/src/index.ts';
 import { computeProcess, type ProcInput } from './process.ts';
@@ -37,10 +37,10 @@ export default async function processRoutes(app: FastifyInstance) {
       const agents = (await c.query(`select id, dept, status from agent_definitions where tenant_id=$1`, [T])).rows;
       const tasks = await q(`select t.id, t.mission_id, coalesce(i.agent_id, t.owner_agent) as owner, t.status, t.simulated from tasks t left join agent_instances i on i.id = t.owner_instance_id
           where t.tenant_id=$1 and t.mission_id = any($2::text[])`, [T, ids]);
-      const reviews = await q(`select r.task_id, r.mission_id, r.verdict, r.created_at, r.seq, t.simulated, (${STALE_BEFORE_SQL('r')} is not null) as stale,
+      const reviews = await q(`select r.task_id, r.mission_id, r.verdict, r.created_at, r.seq, t.simulated, ${STALE_FLAG('r')} as stale,
             (select count(*) from jsonb_array_elements(r.rubric) x where x->>'result' = 'fail')::int as failed,
-            (select ra.attempt_no from task_attempts ra where ra.id = r.attempt_id) as attempt_no
-          from task_reviews r join tasks t on t.id = r.task_id where r.tenant_id=$1 and r.mission_id = any($2::text[]) and r.created_at <= now()`, [T, ids]);
+            ra.attempt_no as attempt_no
+          from task_reviews r join tasks t on t.id = r.task_id ${STALE_JOINS('r')} where r.tenant_id=$1 and r.mission_id = any($2::text[]) and r.created_at <= now()`, [T, ids]);
       const tags = await q(`select subject_id, mode_id, coalesce(decided_at, created_at) as at from failure_tags
           where tenant_id=$1 and mission_id = any($2::text[]) and subject_kind='task' and status='confirmed' and taxonomy_version=$3`, [T, ids, FAILURE_TAXONOMY_VERSION]);
       // the staffing simulator writes a brief for every agent it places (created_by 'system', simulated false on a real mission); those are not a delegation decision, and several share a fallback goal
