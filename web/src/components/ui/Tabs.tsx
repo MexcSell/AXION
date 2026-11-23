@@ -32,12 +32,21 @@ export function Tabs<K extends string>({ tabs, value, onChange, variant = 'pill'
     void document.fonts?.ready.then(measure);
     return () => { el.removeEventListener('scroll', measure); ro?.disconnect(); };
   }, [tabs.length]);
-  useEffect(() => {
-    const el = strip.current, b = refs.current[tabs.findIndex((t) => t.key === value)];
+  // c82: the strip scrolls to the selected tab only when the selection or the tab ids change. `tabs` is a new array on every parent
+  // render, so keying on it snapped a scrolled-away strip back; the joined ids are a stable string.
+  const idKey = tabs.map((t) => t.key).join('\u0001');
+  /** Scroll a tab fully out of the 28 px edge fade (a 4 px breath beyond it). scrollLeft clamps at both ends, where no fade is drawn. */
+  const reveal = (b: HTMLElement | null | undefined) => {
+    const el = strip.current;
     if (!el || !b) return;
-    if (b.offsetLeft < el.scrollLeft) el.scrollLeft = b.offsetLeft - 8;
-    else if (b.offsetLeft + b.offsetWidth > el.scrollLeft + el.clientWidth) el.scrollLeft = b.offsetLeft + b.offsetWidth - el.clientWidth + 8;
-  }, [value, tabs]);
+    const m = 32;
+    if (b.offsetLeft < el.scrollLeft + m) el.scrollLeft = b.offsetLeft - m;
+    else if (b.offsetLeft + b.offsetWidth > el.scrollLeft + el.clientWidth - m) el.scrollLeft = b.offsetLeft + b.offsetWidth - el.clientWidth + m;
+  };
+  useEffect(() => {
+    reveal(refs.current[tabs.findIndex((t) => t.key === value)]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, idKey]);
   const onKey = (e: KeyboardEvent, i: number) => {
     let n = -1;
     if (e.key === 'ArrowRight') n = (i + 1) % tabs.length;
@@ -64,6 +73,7 @@ export function Tabs<K extends string>({ tabs, value, onChange, variant = 'pill'
             style={size === 'sm' ? { height: 28, padding: '0 10px', fontSize: 12 } : undefined}
             onClick={() => onChange(t.key)}
             onKeyDown={(e) => onKey(e, i)}
+            onFocus={(e) => reveal(e.currentTarget)}
             data-tab={t.key}
             title={collapse && !sel ? t.label : undefined}
             aria-label={collapse ? (t.count != null ? `${t.label} (${t.count})` : t.label) : undefined}

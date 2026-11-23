@@ -1,7 +1,7 @@
 // Desktop fit-to-screen check: every route × tab must fill exactly one screen (no .main scroll),
 // with a visible .fit-scroll region of reasonable height. Usage: node scripts/fit-check.mjs [w] [h] [shotDir]
 import { chromium } from 'playwright';
-import { signIn, navWait, settle } from './_session.mjs';
+import { signIn, navWait, settle, calm } from './_session.mjs';
 import { mkdirSync, readFileSync } from 'node:fs';
 const [, , w = '1672', h = '941', shots = ''] = process.argv;
 const base = process.env.BASE || 'http://127.0.0.1:5190';
@@ -17,6 +17,10 @@ const ctx = await b.newContext({ viewport: { width: +w, height: +h } });
 await signIn(ctx);
 await ctx.addInitScript(() => { localStorage.setItem('axion.settings.v1', JSON.stringify({ state: { themeMode: 'dark', skin: 'luminous', motion: 'reduced' }, version: 0 })); });
 const p = await ctx.newPage();
+// self-test hook (c82): FIT_SLOW='<url glob>=<ms>' delays matching requests, to prove the wait below is a condition and not a fixed 600 ms
+if (process.env.FIT_SLOW) { const [glob, ms] = process.env.FIT_SLOW.split('='); await ctx.route(glob, async (r) => { await new Promise((x) => setTimeout(x, +ms)); await r.continue(); }); }
+/** c82 (H22): the route has rendered when main holds a visible page-frame body (.fit-scroll / .fit-fill); bounded, never a sleep. */
+const rendered = (page) => page.waitForFunction(() => { const m = document.querySelector('main'); return !!m && [...m.querySelectorAll('.fit-scroll, .fit-fill')].some((e) => e.offsetParent && e.clientHeight > 0); }, null, { timeout: +(process.env.FIT_RENDER_TIMEOUT || 10000) }).then(() => true, () => false);
 let bad = 0;
 for (const [key, path] of routes) {
   if (only && !only.split(',').includes(key)) continue;
@@ -25,8 +29,9 @@ for (const [key, path] of routes) {
   if (key === 'operations') views.push(['Agents', 'Dimensions', 'process']); // c69: the Process view of the Dimensions tab
   for (const [t, sb, vw] of views) {
     const cur = `${path}?tab=${slug(t)}${sb ? `&sub=${slug(sb)}` : ''}${vw ? `&view=${vw}` : ''}`;
-    await p.goto(base + cur, { waitUntil: navWait() }); await settle(p);
-    await p.waitForTimeout(600);
+    await p.goto(base + cur, { waitUntil: process.env.FIT_NAV || navWait() }); await settle(p);
+    if (!(await rendered(p))) { bad++; console.log('FAIL ' + cur.padEnd(44), 'not rendered: main has no visible .fit-scroll/.fit-fill after the wait (not a fit verdict)'); continue; }
+    await calm(p); // every finite animation has finished and two frames have painted (capped at 3 s)
     const r = await p.evaluate(() => {
       const m = document.querySelector('main'); const mr = m.getBoundingClientRect();
       const s = [...document.querySelectorAll('.fit-scroll')].filter((e) => e.offsetParent);
