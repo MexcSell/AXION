@@ -4,7 +4,8 @@
 import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
 import { signIn, settle, navWait, calm } from './_session.mjs';
-const base = process.env.BASE || 'http://127.0.0.1:5190'; const shots = process.argv[2];
+import { resolveBase } from './_base.mjs';
+const base = resolveBase(); const shots = process.argv[2];
 if (shots) mkdirSync(shots, { recursive: true });
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
 const paths = ['/overview', '/overview?tab=needs-you', '/overview?tab=portfolio', '/overview?tab=activity', '/overview?tab=health', '/agents', '/missions/M-126', '/missions/M-126?tab=approvals', '/agents/coder-01', '/agents/coder-01?tab=performance', '/notifications', '/results', '/settings', '/help',
