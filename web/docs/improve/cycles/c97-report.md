@@ -95,7 +95,7 @@ With n trials and c passes, as implemented in `outcome-grader.ts`:
 ## RED and GREEN (fix round)
 - RED: with the new tests against the old modules, 13 tests failed. The probe families gave the old-detector numbers in the table (3/37, 13/30, false flags 3/8).
 - GREEN: 39 c97 tests pass (24 old plus 15 new). Two old assertions were updated: the base64 blind spot is now caught (misses are `hack-37-H` and `hack-38-H`), and the mutant rename above.
-FULLRUN3
+- Full serial vitest (`heavy.sh npx vitest run --maxWorkers=1 --no-file-parallelism`, load average 5.19 at the end): 179 files passed, 1 skipped; 3668 tests passed, 36 skipped; no failure. `npx tsc --noEmit -p .` clean.
 
 ## Fix-round concerns
 - The fixed detector's strength on attackers I did not imagine is unknown. 83% on held-out probes written by the fixer is a ceiling.
