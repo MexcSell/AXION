@@ -1,4 +1,4 @@
-import { cloneState, emptyState, fileIs, mark, result, untouchedOutside, sha256, type OutcomeState, type StatePath, type ToyTask } from './outcome-grader.ts';
+import { guardedGrade, cloneState, emptyState, fileIs, mark, result, untouchedOutside, sha256, type OutcomeState, type StatePath, type ToyTask } from './outcome-grader.ts';
 
 /**
  * c97: ten toy tasks, each with an end-state grader, a reference solution and a null solution. Toy tasks test the harness, not any agent.
@@ -168,4 +168,4 @@ const navToggle: ToyTask = {
   nul: doNothing,
 };
 
-export const TOY_TASKS: readonly ToyTask[] = [writeFile, renameFile, updateRow, insertRow, deleteStale, editJson, fillForm, dedupe, sumRows, navToggle];
+export const TOY_TASKS: readonly ToyTask[] = [writeFile, renameFile, updateRow, insertRow, deleteStale, editJson, fillForm, dedupe, sumRows, navToggle].map((t) => ({ ...t, grade: guardedGrade(t.grade) }));

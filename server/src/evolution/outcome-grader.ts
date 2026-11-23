@@ -40,12 +40,67 @@ export function cloneState(s: OutcomeState): OutcomeState { return JSON.parse(JS
 
 const own = (o: object, k: string) => Object.prototype.hasOwnProperty.call(o, k);
 
-/** the ignored area: graders never look under /scratch/ (agents may leave logs there) */
-export function isScratch(path: string): boolean { return path.startsWith('/scratch/'); }
+/** lexical path normalisation: collapse //, ., and .. (case kept); the result always starts with / */
+export function normPath(p: string): string {
+  const out: string[] = [];
+  for (const seg of p.split('/')) { if (seg === '' || seg === '.') continue; if (seg === '..') { out.pop(); continue; } out.push(seg); }
+  return '/' + out.join('/');
+}
+/** the ignored area: graders never look under /scratch/ (agents may leave logs there). Paths are normalised first, so /scratch/../work/x is NOT scratch. */
+export function isScratch(path: string): boolean { return normPath(path).startsWith('/scratch/'); }
+
+const isScalar = (v: unknown): v is Scalar => v === null || typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v));
+const isPlain = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
+/**
+ * Snapshot (one JSON round trip), shape check and canonicalisation of file path keys. Returns null for any bad shape: a non-object, wrong types,
+ * a relative file path, a __proto__ key, or two file keys that normalise to the same path. Never throws.
+ */
+export function validateState(input: unknown): OutcomeState | null {
+  try {
+    const snap: unknown = JSON.parse(JSON.stringify(input));
+    if (!isPlain(snap) || !isPlain(snap.files) || !isPlain(snap.rows) || !isPlain(snap.page)) return null;
+    const files: Record<string, string> = {};
+    for (const k of Object.keys(snap.files)) {
+      const v = snap.files[k];
+      if (typeof v !== 'string' || !k.startsWith('/') || k === '__proto__') return null;
+      const nk = normPath(k);
+      if (Object.prototype.hasOwnProperty.call(files, nk)) return null;
+      files[nk] = v;
+    }
+    const rows: OutcomeState['rows'] = {};
+    for (const t of Object.keys(snap.rows)) {
+      const table = snap.rows[t];
+      if (t === '__proto__' || !isPlain(table)) return null;
+      const rt: Record<string, Record<string, Scalar>> = {};
+      for (const id of Object.keys(table)) {
+        const row = table[id];
+        if (id === '__proto__' || !isPlain(row)) return null;
+        const rr: Record<string, Scalar> = {};
+        for (const f of Object.keys(row)) { if (f === '__proto__' || !isScalar(row[f])) return null; rr[f] = row[f] as Scalar; }
+        rt[id] = rr;
+      }
+      rows[t] = rt;
+    }
+    const page: Record<string, Scalar> = {};
+    for (const k of Object.keys(snap.page)) { if (k === '__proto__' || !isScalar(snap.page[k])) return null; page[k] = snap.page[k] as Scalar; }
+    return { files, rows, page };
+  } catch { return null; }
+}
+/** wraps a task grader: a bad final or initial shape fails (never throws); file keys are canonical before the grader sees them */
+export function guardedGrade(raw: GradeFn): GradeFn {
+  return (final, initial) => {
+    const f = validateState(final);
+    const i = validateState(initial);
+    if (f === null) return { pass: false, reasons: ['bad_state_shape'] };
+    if (i === null) return { pass: false, reasons: ['bad_initial_shape'] };
+    try { return raw(f, i); } catch { return { pass: false, reasons: ['grader_error'] }; }
+  };
+}
 
 // ---- state paths (for diff, partial solutions and isolation) ----
 export type StatePath =
   | { t: 'file'; path: string }
+  | { t: 'table'; table: string }
   | { t: 'row'; table: string; id: string }
   | { t: 'field'; table: string; id: string; field: string }
   | { t: 'page'; key: string };
@@ -53,6 +108,7 @@ export type StatePath =
 export function describePath(p: StatePath): string {
   switch (p.t) {
     case 'file': return `file ${p.path}`;
+    case 'table': return `table ${p.table}`;
     case 'row': return `row ${p.table}/${p.id}`;
     case 'field': return `field ${p.table}/${p.id}.${p.field}`;
     case 'page': return `page ${p.key}`;
@@ -66,6 +122,7 @@ export function diffStates(a: OutcomeState, b: OutcomeState): StatePath[] {
     if (own(a.files, path) !== own(b.files, path) || a.files[path] !== b.files[path]) out.push({ t: 'file', path });
   }
   for (const table of new Set([...Object.keys(a.rows), ...Object.keys(b.rows)])) {
+    if (own(a.rows, table) !== own(b.rows, table)) { out.push({ t: 'table', table }); continue; } // an empty leftover table still counts
     const ra = own(a.rows, table) ? a.rows[table] : {};
     const rb = own(b.rows, table) ? b.rows[table] : {};
     for (const id of new Set([...Object.keys(ra), ...Object.keys(rb)])) {
@@ -87,6 +144,9 @@ export function revertPath(s: OutcomeState, from: OutcomeState, p: StatePath): O
   switch (p.t) {
     case 'file':
       if (own(from.files, p.path)) r.files[p.path] = from.files[p.path]; else delete r.files[p.path];
+      break;
+    case 'table':
+      if (own(from.rows, p.table)) r.rows[p.table] = JSON.parse(JSON.stringify(from.rows[p.table])); else delete r.rows[p.table];
       break;
     case 'row':
       if (own(from.rows, p.table) && own(from.rows[p.table], p.id)) { (r.rows[p.table] ??= {})[p.id] = JSON.parse(JSON.stringify(from.rows[p.table][p.id])); }
@@ -125,6 +185,12 @@ export function buildVariants(task: ToyTask, minCount: number = 12): Variant[] {
     if (p.t === 'file' && isScratch(p.path)) continue;
     out.push({ name: `partial: ${describePath(p)} reverted`, expect: 'fail', state: revertPath(ref, task.initial, p) });
   }
+  const dmg = cloneState(ref); dmg.files['/work/unrelated-damage.txt'] = 'x';
+  out.push({ name: 'reference plus unrelated file damage', expect: 'fail', state: dmg });
+  const extraRow = cloneState(ref); (extraRow.rows.zz_extra ??= {}).x1 = { v: 1 };
+  out.push({ name: 'reference plus extra row', expect: 'fail', state: extraRow });
+  const extraPage = cloneState(ref); extraPage.page['zz.extra'] = true;
+  out.push({ name: 'reference plus extra page key', expect: 'fail', state: extraPage });
   for (let i = 1; out.length < minCount; i++) {
     const s = cloneState(ref);
     s.files[`/scratch/noise-${i}.log`] = `noise ${i}`;
@@ -133,24 +199,66 @@ export function buildVariants(task: ToyTask, minCount: number = 12): Variant[] {
   return out;
 }
 
-export type ValidityFlag = 'too_few_trials' | 'fails_reference' | 'passes_null' | 'never_passes' | 'always_passes';
-export interface ValidityReport { n: number; passes: number; passRate: number; flags: ValidityFlag[]; flagged: boolean }
+export type ValidityFlag = 'verdict_mismatch' | 'grader_threw' | 'too_few_trials' | 'fails_reference' | 'passes_null' | 'never_passes' | 'always_passes';
+export interface ValidityReport { n: number; passes: number; passRate: number; flags: ValidityFlag[]; flagged: boolean; mismatches: string[] }
 
 export function gradeValidity(task: Pick<ToyTask, 'initial'>, grade: GradeFn, variants: Variant[]): ValidityReport {
   const flags: ValidityFlag[] = [];
+  const mismatches: string[] = [];
   let passes = 0;
   for (const v of variants) {
-    const r = grade(cloneState(v.state), cloneState(task.initial));
-    if (r.pass) passes++;
-    if (v.name === 'reference' && !r.pass) flags.push('fails_reference');
-    if (v.name === 'null' && r.pass) flags.push('passes_null');
+    let pass = false;
+    try { pass = grade(cloneState(v.state), cloneState(task.initial)).pass; } catch { if (!flags.includes('grader_threw')) flags.push('grader_threw'); }
+    if (pass) passes++;
+    if (v.name === 'reference' && !pass) flags.push('fails_reference');
+    if (v.name === 'null' && pass) flags.push('passes_null');
+    // every variant has an expected verdict: a grader that is too lenient (passes a partial or a damaged state) or too strict is caught here
+    if (pass !== (v.expect === 'pass')) mismatches.push(v.name);
   }
+  if (mismatches.length > 0) flags.push('verdict_mismatch');
   const n = variants.length;
   if (n < MIN_VALIDITY_TRIALS) flags.push('too_few_trials');
   else if (passes === 0) flags.push('never_passes');
   else if (passes === n) flags.push('always_passes');
-  return { n, passes, passRate: n === 0 ? 0 : passes / n, flags, flagged: flags.length > 0 };
+  return { n, passes, passRate: n === 0 ? 0 : passes / n, flags, flagged: flags.length > 0, mismatches };
 }
+
+// ---- mutant graders (for testing the validity check): each one is a lenient or broken copy of a real grader ----
+/** a grader that does not look at one path: that path is overwritten with the reference's value before grading */
+export function mutantIgnoringPath(task: ToyTask, p: StatePath): GradeFn {
+  const ref = task.reference(cloneState(task.initial));
+  return (f, i) => { const v = validateState(f); return v === null ? { pass: false, reasons: ['bad_state_shape'] } : task.grade(revertPath(v, ref, p), i); };
+}
+/** a grader with no side-effect check: every deviation from the initial state outside the reference's own changes is put back first */
+export function mutantDroppingSideEffects(task: ToyTask): GradeFn {
+  const ref = task.reference(cloneState(task.initial));
+  const keep = new Set(diffStates(ref, task.initial).map(describePath));
+  return (f, i) => {
+    let v = validateState(f);
+    if (v === null) return { pass: false, reasons: ['bad_state_shape'] };
+    for (const p of diffStates(v, task.initial)) if (!keep.has(describePath(p))) v = revertPath(v, task.initial, p);
+    return task.grade(v, i);
+  };
+}
+/** a grader that accepts extra rows and tables: any row or table absent from both the initial and the reference state is dropped first */
+export function mutantAcceptingExtraRows(task: ToyTask): GradeFn {
+  const ref = task.reference(cloneState(task.initial));
+  return (f, i) => {
+    const v = validateState(f);
+    if (v === null) return { pass: false, reasons: ['bad_state_shape'] };
+    for (const table of Object.keys(v.rows)) {
+      if (!own(task.initial.rows, table) && !own(ref.rows, table)) { delete v.rows[table]; continue; }
+      for (const id of Object.keys(v.rows[table])) {
+        const inInit = own(task.initial.rows, table) && own(task.initial.rows[table], id);
+        const inRef = own(ref.rows, table) && own(ref.rows[table], id);
+        if (!inInit && !inRef) delete v.rows[table][id];
+      }
+    }
+    return task.grade(v, i);
+  };
+}
+/** an inverted grader: passes exactly what the real one fails (fails the reference, passes the null) */
+export function mutantInverted(task: ToyTask): GradeFn { return (f, i) => { const r = task.grade(f, i); return { pass: !r.pass, reasons: r.reasons }; }; }
 
 /** threshold (a) check for one task */
 export function checkReferenceAndNull(task: ToyTask): { referencePasses: boolean; nullFails: boolean; deterministic: boolean } {
@@ -165,7 +273,10 @@ export function checkReferenceAndNull(task: ToyTask): { referencePasses: boolean
 export interface IsolationReport { clean: boolean; leaks: string[] }
 /** before each trial the workspace must equal the task's initial state; anything a prior trial left behind shows up as a difference */
 export function checkTrialStart(task: Pick<ToyTask, 'initial'>, start: OutcomeState): IsolationReport {
-  const leaks = diffStates(start, task.initial).map(describePath);
+  const st = validateState(start);
+  const init = validateState(task.initial);
+  if (st === null || init === null) return { clean: false, leaks: ['malformed_state'] }; // a state we cannot read is never clean evidence
+  const leaks = diffStates(st, init).map(describePath);
   return { clean: leaks.length === 0, leaks };
 }
 

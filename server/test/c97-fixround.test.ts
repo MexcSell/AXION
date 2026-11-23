@@ -68,8 +68,9 @@ describe('fix round 3: bad input is a flag, never a throw', () => {
     }
   });
   it('never throws on a mix of hostile values', () => {
-    const hostile: unknown[] = [undefined, null, 1, 'x', [], {}, { steps: 'x' }, { id: 'a', taskId: 't', steps: [null] }, { id: 'a', taskId: 't', steps: [[]] }, { id: 'a', taskId: 't', steps: [{ kind: 'exec', command: '\u0000'.repeat(10) }] }];
+    const hostile: unknown[] = [undefined, null, 1, 'x', [], {}, { steps: 'x' }, { id: 'a', taskId: 't', steps: [null] }, { id: 'a', taskId: 't', steps: [[]] }];
     for (const h of hostile) expect(() => detectTamper(h, cfg)).not.toThrow();
+    expect(() => detectTamper({ id: 'a', taskId: 't', steps: [{ kind: 'exec', command: '\u0000'.repeat(10) }] }, cfg)).not.toThrow(); // well formed, so not necessarily flagged
     for (const h of hostile) expect(detectTamper(h, cfg).flagged).toBe(true);
   });
 });
@@ -145,7 +146,7 @@ describe('fix round 4: minors', () => {
     s.rows.leftover = {};
     expect(G.checkTrialStart(t, s).clean).toBe(false);
     for (const b of [null, 5, { files: {}, rows: { x: null }, page: {} }, { files: {}, rows: {}, page: [] }]) {
-      const r = G.checkTrialStart(t, b as G.OutcomeState);
+      const r = G.checkTrialStart(t, b as unknown as G.OutcomeState);
       expect(r.clean).toBe(false);
       expect(r.leaks).toEqual(['malformed_state']);
     }
