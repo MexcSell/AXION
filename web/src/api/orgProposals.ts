@@ -22,7 +22,7 @@ export function useOrgProposals(): { data: ProposalList | null; error: string | 
     let live = true;
     api<ProposalList>('GET', '/organization/proposals')
       .then((r) => { if (live) setSt({ data: r, error: null }); })
-      .catch((e) => { if (live) setSt((x) => ({ data: x.data, error: e instanceof ApiFailure ? e.message : 'Something went wrong.' })); });
+      .catch((e) => { if (live) setSt((x) => ({ data: x.data, error: plainError(e) })); });
     return () => { live = false; };
   }, [tick]);
   return { ...st, retry: bumpProposals };
@@ -62,7 +62,7 @@ export function useRead<T>(path: string | null): { data: T | null; error: string
     let live = true;
     api<T>('GET', path)
       .then((r) => { if (live) setSt({ data: r, error: null, path }); })
-      .catch((e) => { if (live) setSt((x) => ({ data: x.path === path ? x.data : null, error: e instanceof ApiFailure ? e.message : 'Something went wrong.', path })); });
+      .catch((e) => { if (live) setSt((x) => ({ data: x.path === path ? x.data : null, error: plainError(e), path })); });
     return () => { live = false; };
   }, [path, tick]);
   return { data: st.path === path ? st.data : null, error: st.path === path ? st.error : null, retry: bumpProposals };

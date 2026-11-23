@@ -14,7 +14,9 @@ import '@/theme/pages/c89-plans-forecasts.css';
 /** "Your forecast" in the task drawer (api mode). Before the task's first review: one control, one forecast, final. After it: the forecast, the outcome and the Brier for this task. Only the viewer's own forecast is ever read. */
 export function TaskForecast({ taskId, rv, canceled }: { taskId: string; rv: ReviewsRead; canceled?: boolean }) {
   const led = useMyForecasts();
-  const [pct, setPct] = useState(70);
+  const [draft, setDraft] = useState('');
+  const n = /^\d{1,3}$/.test(draft) ? Number(draft) : NaN;
+  const pct = Number.isFinite(n) ? Math.min(99, Math.max(1, n)) : null; // the percent that would be recorded; null while empty or not a number
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const key = useRef(newKey());
@@ -58,14 +60,15 @@ export function TaskForecast({ taskId, rv, canceled }: { taskId: string; rv: Rev
   if (!rv.data) return <div data-forecast="wait">{head}<LiveStatus className="dim" style={{ fontSize: 12.5 }}>Reading the reviews…</LiveStatus></div>;
 
   const submit = async () => {
-    if (busy) return;
+    if (busy || pct === null) return;
     setBusy(true); setErr(null);
     const r = await recordForecast(taskId, pct, key.current);
     setBusy(false);
     if (!r.ok) { setErr(r.message); key.current = newKey(); return; }
     toast({ tone: 'success', title: `Forecast recorded: ${pct}%`, body: 'It is final. It is scored when the first review is in.' });
   };
-  const set = (v: number) => { setErr(null); setPct(Math.min(99, Math.max(1, Math.round(Number.isFinite(v) ? v : 70)))); };
+  const set = (v: string) => { setErr(null); setDraft(v.replace(/\D/g, '').slice(0, 3)); };
+  const settle = () => { if (pct !== null) setDraft(String(pct)); };
   return (
     <div data-forecast="form">
       {head}
@@ -73,21 +76,21 @@ export function TaskForecast({ taskId, rv, canceled }: { taskId: string; rv: Rev
         <span style={{ fontSize: 12.5 }}>How likely is it that the first review of this task is <b>accepted</b>?</span>
         <div className="fc-slider">
           <Crosshair size={15} aria-hidden />
-          <input type="range" min={1} max={99} step={1} value={pct} aria-label="Chance of acceptance, percent" data-forecast-range onChange={(e) => set(Number(e.target.value))} />
-          <input className="input fc-num tnum" type="number" min={1} max={99} step={1} value={pct} aria-label="Chance of acceptance, whole percent" data-forecast-input onChange={(e) => set(Number(e.target.value))} />
+          <input type="range" min={1} max={99} step={1} value={pct ?? 50} aria-label="Chance of acceptance, percent (not set until you move it)" data-forecast-range data-set={pct === null ? '0' : '1'} onChange={(e) => set(e.target.value)} />
+          <input className="input fc-num tnum" type="text" inputMode="numeric" placeholder="1-99" value={draft} aria-label="Chance of acceptance, whole percent" data-forecast-input onBlur={settle} onChange={(e) => set(e.target.value)} />
           <span className="dim">%</span>
           <HelpTrigger k="forecast.percent" />
         </div>
         <div className="row wrap" style={{ gap: 8 }}>
           <span className="dim row" style={{ gap: 5, fontSize: 12 }} data-forecast-final-note><Lock size={12} aria-hidden />One forecast per task. Once recorded it cannot be edited or repeated.</span>
           <span className="spacer" />
-          <button className="btn sm primary" disabled={busy} onClick={submit} data-forecast-submit>
+          <button className="btn sm primary" disabled={busy || pct === null} title={pct === null ? 'Pick a percent from 1 to 99 first' : undefined} onClick={submit} data-forecast-submit>
             <AnimatePresence mode="wait" initial={false}>
               <motion.span key={busy ? 'b' : 'i'} initial={{ scale: .6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: .6, opacity: 0 }} transition={{ duration: .12 }} style={{ display: 'inline-flex' }}>
                 {busy ? <Loader2 size={13} className="spin" /> : <Crosshair size={13} />}
               </motion.span>
             </AnimatePresence>
-            Record forecast, {pct}%
+            {pct === null ? 'Pick a percent first' : `Record forecast, ${pct}%`}
           </button>
         </div>
         {err && <div className="oa-banner" role="alert" data-forecast-error><ShieldAlert size={15} /><span>{err}</span></div>}

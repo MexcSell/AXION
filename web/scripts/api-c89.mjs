@@ -177,6 +177,14 @@ try {
   check('c89 before the first review the task drawer shows "Your forecast" with a 1..99 control', await until(async () => (await dm.locator('[data-forecast="form"]').count()) === 1, 8000) && (await dm.locator('[data-forecast-range]').getAttribute('min')) === '1' && (await dm.locator('[data-forecast-range]').getAttribute('max')) === '99');
   check('c89 it says, before submitting, that a forecast is final', /cannot be edited or repeated/i.test(await dm.locator('[data-forecast-final-note]').innerText()));
   check('c89 the control has ? helps (forecast, percent, final)', (await dm.locator('[data-help-key="forecast.control"]').count()) >= 1 && (await dm.locator('[data-help-key="forecast.percent"]').count()) >= 1);
+  check('c89 the form starts unset: submit is disabled and no percent is preselected', (await dm.locator('[data-forecast-range]').getAttribute('data-set')) === '0' && (await dm.locator('[data-forecast-input]').inputValue()) === '' && await dm.locator('[data-forecast-submit]').isDisabled());
+  await dm.locator('[data-forecast-input]').fill('');
+  await dm.locator('[data-forecast-input]').pressSequentially('8');
+  check('c89 typing keeps the draft (no clamping while typing), submit is on', (await dm.locator('[data-forecast-input]').inputValue()) === '8' && !(await dm.locator('[data-forecast-submit]').isDisabled()));
+  await dm.locator('[data-forecast-input]').fill('150'); await dm.locator('[data-forecast-input]').blur();
+  check('c89 on blur an out-of-range value is clamped to 99', (await dm.locator('[data-forecast-input]').inputValue()) === '99');
+  await dm.locator('[data-forecast-input]').fill('');
+  check('c89 clearing the field disables submit (no 0 or 1 appears)', (await dm.locator('[data-forecast-input]').inputValue()) === '' && await dm.locator('[data-forecast-submit]').isDisabled());
   await dm.locator('[data-forecast-input]').fill('80');
   check('c89 the button names the percent', /80%/.test(await dm.locator('[data-forecast-submit]').innerText()));
   await M.p.screenshot({ path: `${SHOTS}/forecast-form-dark-1366.png` });

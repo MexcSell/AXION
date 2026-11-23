@@ -1,6 +1,6 @@
 import { motion } from 'motion/react';
 import { Crosshair, Sigma, Activity, Scale, ShieldAlert, ListChecks, BarChart3, BookOpen, Layers, CircleCheck, CircleX, Hourglass, Ban, Clock, CloudOff } from 'lucide-react';
-import type { ForecastDto, ForecastLedgerDto, ForecastState } from '@contracts';
+import { CALIBRATION_MIN_N, FORECAST_CLASS_MIN_N, type ForecastDto, type ForecastLedgerDto, type ForecastState } from '@contracts';
 import { KpiBoard, type KpiItem } from '@/components/layout/PageFrame';
 import { Panel } from '@/components/ui/Panel';
 import { Chip } from '@/components/ui/Chips';
@@ -47,13 +47,13 @@ function Calibration({ l }: { l: ForecastLedgerDto }) {
                     <motion.i initial={{ width: 0 }} animate={{ width: `${Math.round(b.rate! * 100)}%` }} transition={{ duration: .8, delay: .15 + i * .05 }} />
                     <span className="fc-mark" style={{ left: `${Math.round(b.meanForecast! * 100)}%` }} />
                   </div>
-                : <span className="dim" style={{ fontSize: 12 }}>{b.n === 0 ? 'no forecasts here' : `not enough forecasts to show a rate (${b.n} of 5)`}</span>}
+                : <span className="dim" style={{ fontSize: 12 }}>{b.n === 0 ? 'no forecasts here' : `not enough forecasts to show a rate (${b.n} of ${CALIBRATION_MIN_N})`}</span>}
               <span className="tnum dim" style={{ fontSize: 12 }}>{shown ? `accepted ${percent(b.rate)} · said ${percent(b.meanForecast)} · n=${b.n}` : `n=${b.n}`}</span>
             </motion.div>
           );
         })}
       </div>
-      <div className="dim" style={{ fontSize: 11.5, marginTop: 8 }}>The bar is the share accepted; the line is the average you said. A range shows its share from 5 forecasts.</div>
+      <div className="dim" style={{ fontSize: 11.5, marginTop: 8 }}>The bar is the share accepted; the line is the average you said. A range shows its share from {CALIBRATION_MIN_N} forecasts.</div>
     </Panel>
   );
 }
@@ -67,7 +67,7 @@ function ByClass({ l }: { l: ForecastLedgerDto }) {
           <div key={c.classId} className="row" style={{ gap: 8, fontSize: 12.5 }} data-fc-class={c.classId}>
             <b>{c.label}</b><span className="spacer" />
             <span className="dim tnum">n={c.n}</span>
-            <span className="tnum">{c.meanBrier === null ? <span className="dim">Brier needs 5 (n={c.n})</span> : <>Brier {fixed(c.meanBrier)} · log {fixed(c.meanLogLoss)}</>}</span>
+            <span className="tnum">{c.meanBrier === null ? <span className="dim">Brier needs {FORECAST_CLASS_MIN_N} (n={c.n})</span> : <>Brier {fixed(c.meanBrier)} · log {fixed(c.meanLogLoss)}</>}</span>
           </div>
         ))}
       </div>
