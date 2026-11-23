@@ -1,0 +1,46 @@
+[heavy] slot 2 acquired at 06:00:01
+tab strips probed: 134 strips, 1058 tabs over 80 views
+FAIL 390 /operations?tab=agents: Agents views: label of "Directory" overlaps tab "Development(13)"
+FAIL 390 /operations?tab=agents: Agents views: label of "Directory" spills outside its own tab (-18/18px)
+FAIL 390 /operations?tab=agents: Agents views: tab "Directory" content is clipped by its button (scrollWidth 57 > 38)
+FAIL 390 /operations?tab=agents: Agents views: label of "Development(13)" overlaps tab "Directory"
+FAIL 390 /operations?tab=agents: Agents views: label of "Development(13)" overlaps tab "Lineage"
+FAIL 390 /operations?tab=agents: Agents views: label of "Development(13)" spills outside its own tab (-44/44px)
+FAIL 390 /operations?tab=agents: Agents views: tab "Development(13)" content is clipped by its button (scrollWidth 83 > 38)
+FAIL 390 /operations?tab=agents: Agents views: label of "Lineage" overlaps tab "Development(13)"
+FAIL 390 /operations?tab=agents: Agents views: label of "Lineage" overlaps tab "Live Instances"
+FAIL 390 /operations?tab=agents: Agents views: label of "Lineage" spills outside its own tab (-14/14px)
+FAIL 390 /operations?tab=agents: Agents views: tab "Lineage" content is clipped by its button (scrollWidth 53 > 38)
+FAIL 390 /operations?tab=agents: Agents views: label of "Live Instances" overlaps tab "Lineage"
+FAIL 390 /operations?tab=agents: Agents views: label of "Live Instances" overlaps tab "Departments"
+FAIL 390 /operations?tab=agents: Agents views: label of "Live Instances" spills outside its own tab (-33/33px)
+FAIL 390 /operations?tab=agents: Agents views: tab "Live Instances" content is clipped by its button (scrollWidth 72 > 38)
+FAIL 390 /operations?tab=agents: Agents views: label of "Departments" overlaps tab "Live Instances"
+FAIL 390 /operations?tab=agents: Agents views: label of "Departments" overlaps tab "Assignments"
+FAIL 390 /operations?tab=agents: Agents views: label of "Departments" spills outside its own tab (-29/29px)
+FAIL 390 /operations?tab=agents: Agents views: tab "Departments" content is clipped by its button (scrollWidth 68 > 38)
+FAIL 390 /operations?tab=agents: Agents views: label of "Assignments" overlaps tab "Departments"
+FAIL 390 /operations?tab=agents: Agents views: label of "Assignments" overlaps tab "Policies"
+FAIL 390 /operations?tab=agents: Agents views: label of "Assignments" spills outside its own tab (-29/29px)
+FAIL 390 /operations?tab=agents: Agents views: tab "Assignments" content is clipped by its button (scrollWidth 68 > 38)
+FAIL 390 /operations?tab=agents: Agents views: label of "Policies" overlaps tab "Assignments"
+FAIL 390 /operations?tab=agents: Agents views: label of "Policies" overlaps tab "Proposals"
+FAIL 390 /operations?tab=agents: Agents views: label of "Policies" spills outside its own tab (-14/14px)
+FAIL 390 /operations?tab=agents: Agents views: tab "Policies" content is clipped by its button (scrollWidth 53 > 38)
+FAIL 390 /operations?tab=agents: Agents views: label of "Proposals" overlaps tab "Policies"
+FAIL 390 /operations?tab=agents: Agents views: label of "Proposals" overlaps tab "Dimensions"
+FAIL 390 /operations?tab=agents: Agents views: label of "Proposals" spills outside its own tab (-20/20px)
+FAIL 390 /operations?tab=agents: Agents views: tab "Proposals" content is clipped by its button (scrollWidth 59 > 38)
+FAIL 390 /operations?tab=agents: Agents views: label of "Dimensions" overlaps tab "Proposals"
+FAIL 390 /operations?tab=agents: Agents views: label of "Dimensions" spills outside its own tab (-25/25px)
+FAIL 390 /operations?tab=agents: Agents views: tab "Dimensions" content is clipped by its button (scrollWidth 64 > 38)
+FAIL 390 /operations?tab=agents: Filter agents by status or development: label of "All(23)" overlaps tab "Working(23)"
+FAIL 390 /operations?tab=agents: Filter agents by status or development: label of "All(23)" spills outside its own tab (-12/12px)
+FAIL 390 /operations?tab=agents: Filter agents by status or development: tab "All(23)" content is clipped by its button (scrollWidth 58 > 45)
+FAIL 390 /operations?tab=agents: Filter agents by status or development: label of "Working(23)" overlaps tab "All(23)"
+...
+      7 390 | Agent profile sections
+    374 390 | Agents views
+     66 390 | Filter agents by status or development
+     10 390 | Mission workspace tabs
+    133 390 | Models views

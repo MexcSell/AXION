@@ -1,0 +1,15 @@
+[heavy] slot 2 acquired at 06:02:32
+tab strips probed: 16 strips, 80 tabs over 14 views
+FAIL 390 /overview: Overview views: label of "Pulse" overlaps tab "Needs you"
+FAIL 390 /overview: Overview views: label of "Needs you" overlaps tab "Pulse"
+FAIL 390 /overview: Overview views: label of "Needs you" overlaps tab "Portfolio"
+FAIL 390 /overview: Overview views: label of "Portfolio" overlaps tab "Needs you"
+FAIL 390 /overview: Overview views: label of "Portfolio" overlaps tab "Activity"
+FAIL 390 /overview: Overview views: label of "Activity" overlaps tab "Portfolio"
+FAIL 390 /overview: Overview views: label of "Activity" overlaps tab "Health"
+FAIL 390 /overview: Overview views: label of "Health" overlaps tab "Activity"
+FAIL 390 /overview?tab=needs-you: Overview views: label of "Pulse" overlaps tab "Needs you"
+FAIL 390 /overview?tab=needs-you: Overview views: label of "Needs you" overlaps tab "Pulse"
+FAIL 390 /overview?tab=needs-you: Overview views: label of "Needs you" overlaps tab "Portfolio"
+FAIL 390 /overview?tab=needs-you: Overview views: label of "Portfolio" overlaps tab "Needs you"
+FAIL lines total: 128
