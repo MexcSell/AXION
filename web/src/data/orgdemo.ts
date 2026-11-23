@@ -30,7 +30,7 @@ function buildDepts(): Dept[] {
   return names.map((name) => {
   const m = metaOf(name);
   const members = AGENTS.filter((a) => a.dept === name);
-  const mgr = [...members].sort((a, b) => b.success - a.success || b.sample - a.sample)[0];
+  const mgr = [...members].sort((a, b) => a.name.localeCompare(b.name))[0]; // c72: first by name, never the best performer (no leaderboard)
   const r = seeded('dept' + name);
   const used = members.length ? Math.round(members.reduce((s, a) => s + a.load, 0) / members.length) : 0;
   const skills = Array.from(new Set(members.flatMap((a) => a.skills))).slice(0, 5);

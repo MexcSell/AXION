@@ -134,7 +134,7 @@ export function AgentHierarchy({ agents = AGENTS, highlight }: { agents?: Agent[
   const edges = isApi() ? org.data?.edges : undefined;
   const managerOf = (id: string) => edges?.find((e) => e.subordinateId === id)?.supervisorId;
   const depts = useMemo(() => DEPTS.filter((d) => d.name !== 'Executive').map((d) => ({
-    d, members: AGENTS.filter((a) => a.id !== 'gm' && a.dept === d.name).sort((a, b) => (a.id === d.managerId ? -1 : b.id === d.managerId ? 1 : b.success - a.success)),
+    d, members: AGENTS.filter((a) => a.id !== 'gm' && a.dept === d.name).sort((a, b) => (a.id === d.managerId ? -1 : b.id === d.managerId ? 1 : a.name.localeCompare(b.name))), // c72: the manager first, siblings by name (not by success)
   })).filter((x) => x.members.length > 0).map((x) => {
     // api mode: the department head is who reports from outside the department (the active revision's reporting lines)
     if (!edges) return x;

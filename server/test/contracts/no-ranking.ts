@@ -87,12 +87,9 @@ const walkDir = (d: string): string[] => readdirSync(d).flatMap((f) => (statSync
 /** Files that import a skill module (the rating's source): any sort in them must be reviewed, whatever the comparator calls its fields. */
 const SKILL_IMPORT = /(agents\/skills|\/skills\.ts|skillDemo|agentSkills|SkillVector|contracts\/src\/index|@contracts)/;
 /** Sorts that are not about a rating although the comparator mentions one of the words, each with the reason. `file::first 60 characters of the call`. */
-const OLD_SUCCESS = 'older demo ordering by raw verified success (not the c72 skill rating; outside this cycle, listed in the c72 report as a concern)';
 export const SORT_ALLOWLIST: Record<string, string> = {
   '/server/src/conversations/service.ts::.sort((x, y) => rank(x, ctx.user.id) - rank(y, ctx.user.id))': 'orders conversations for a viewer; has nothing to do with agents or ratings',
   '/web/src/components/layout/CommandPalette.tsx::.sort((x, y) => x.score - y.score)': 'orders command-palette search matches by match score',
-  '/web/src/data/orgdemo.ts::.sort((a, b) => b.success - a.success || b.sample - a.sample': OLD_SUCCESS,
-  '/web/src/features/agents/AgentHierarchy.tsx::.sort((a, b) => (a.id === d.managerId ? -1 : b.id === d.mana': OLD_SUCCESS + ' (puts the manager first, then raw success)',
   '/server/src/delegation/brief.ts::.sort()': 'default sort of capability strings inside a brief (canonical order); no rating',
   '/web/src/pages/AgentProfile.tsx::.sort((a, b) => agent.metrics[b] - agent.metrics[a])': 'orders the metric NAMES of one agent for its own profile card, not agents',
   '/web/src/pages/AgentProfile.tsx::.sort((x, y) => x.last.agoMin - y.last.agoMin)': 'orders conversation threads by recency',
