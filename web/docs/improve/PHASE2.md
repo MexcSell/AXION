@@ -234,3 +234,10 @@ The other round-6 candidates (R6-3 trajectory record, R6-4 stage ledger, R6-7 gr
 |---|---|---|---|
 | c96 plan conformance and privilege checker (R6-8 part 1) | w94, e2e3 | server pure module and contracts | 18:30Z |
 | c97 outcome graders and tamper detector on toy tasks (R6-7) | w95, e2e5 | server pure module | 18:30Z |
+
+### Wave 9 (planned ~12:55Z; the last wave, server only)
+| Cycle | Lane | Scope | Merge by |
+|---|---|---|---|
+| c98 test-infra follow-ups (H14c, M2c) | w96, e2e17 | server | 18:30Z |
+| c99 execution-module hardening (X1, c97 detector gaps) | w97, e2e14 | server pure modules | 18:30Z |
+No migration, so the 19:30Z live update is non-migrating (anchor line 6).
