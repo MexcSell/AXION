@@ -108,4 +108,4 @@ export async function foreignWrites(w: World, view0: Tenant, other0: Tenant, arm
   return { violations, results };
 }
 /** Tables whose rows change when anyone reads (a session's last-used time), so a byte comparison there proves nothing. */
-export const AT_REST_VOLATILE = new Set<string>(['sessions']);
+export const AT_REST_VOLATILE = new Set<string>(); // c81: empty; `sessions` is compared by user_id (see atRestText)

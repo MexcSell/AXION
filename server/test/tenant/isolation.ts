@@ -144,11 +144,42 @@ export const markerHits = (text: string, other: Tenant, where: string): Violatio
   return out;
 };
 
-/** Tables with a tenant_id column in the schema, read at rest: every row of the viewer's tenant, as text. */
+/** Tables that hold no tenant data at all, each with the reason. Any other table without a tenant_id column must reach one through a foreign key. */
+export const AT_REST_GLOBAL: Record<string, string> = { schema_migrations: 'the migration ledger: names and hashes of migrations', tenants: 'the tenant list itself (id and name); not data of a tenant' };
+type Cond = (alias: string, depth: number) => string;
+/** c81: every table of the schema as a "where" condition on one tenant ($1). A table without tenant_id is joined, through the catalog's foreign keys, to a parent that has one. A table that resolves to neither fails. */
+export async function atRestPlan(w: World): Promise<Map<string, Cond>> {
+  const sch = `current_schema()`;
+  const all = (await w.pool.query(`select table_name from information_schema.tables where table_schema = ${sch} and table_type = 'BASE TABLE' order by 1`)).rows.map((r) => r.table_name as string);
+  const withT = new Set((await w.pool.query(`select table_name from information_schema.columns where table_schema = ${sch} and column_name = 'tenant_id'`)).rows.map((r) => r.table_name as string));
+  const fks = (await w.pool.query(`select c.relname as child, p.relname as parent, a.attname as col, pa.attname as pcol
+      from pg_constraint f join pg_class c on c.oid = f.conrelid join pg_class p on p.oid = f.confrelid
+      join pg_attribute a on a.attrelid = f.conrelid and a.attnum = f.conkey[1] join pg_attribute pa on pa.attrelid = f.confrelid and pa.attnum = f.confkey[1]
+      where f.contype = 'f' and array_length(f.conkey, 1) = 1 and c.relnamespace = ${sch}::regnamespace and c.oid <> p.oid order by 1, 2, 3`)).rows as { child: string; parent: string; col: string; pcol: string }[];
+  const plan = new Map<string, Cond>();
+  for (const t of all) if (withT.has(t)) plan.set(t, (a) => `${a}.tenant_id = $1`);
+  for (let progress = true; progress;) {
+    progress = false;
+    for (const t of all) {
+      if (plan.has(t) || t in AT_REST_GLOBAL) continue;
+      const fk = fks.find((f) => f.child === t && plan.has(f.parent));
+      if (!fk) continue;
+      const up = plan.get(fk.parent)!;
+      plan.set(t, (a, d) => `exists (select 1 from "${fk.parent}" q${d} where q${d}."${fk.pcol}" = ${a}."${fk.col}" and ${up(`q${d}`, d + 1)})`);
+      progress = true;
+    }
+  }
+  const lost = all.filter((t) => !plan.has(t) && !(t in AT_REST_GLOBAL));
+  if (lost.length) throw new Error(`tables that reach no tenant_id, directly or through a foreign key, and are not listed as global: ${lost.join(', ')}`);
+  return plan;
+}
+/** Every row of the tenant, as text, per table: tables with tenant_id, and (c81) their child tables joined to the parent's tenant. `sessions` is reduced to user_id (its other columns change on every read), so a session added or dropped still shows. */
 export async function atRestText(w: World, tenantId: string): Promise<{ table: string; text: string }[]> {
-  const tabs = (await w.pool.query(`select table_name from information_schema.columns where table_schema = current_schema() and column_name = 'tenant_id' order by 1`)).rows.map((r) => r.table_name as string);
   const out: { table: string; text: string }[] = [];
-  for (const t of tabs) out.push({ table: t, text: (await w.pool.query(`select coalesce(string_agg(row_to_json(x)::text, E'\\n'), '') as s from "${t}" x where tenant_id = $1`, [tenantId])).rows[0].s });
+  for (const [t, cond] of [...(await atRestPlan(w))].sort(([a], [b]) => a.localeCompare(b))) {
+    const row = t === 'sessions' ? 'x.user_id::text' : 'row_to_json(x)::text';
+    out.push({ table: t, text: (await w.pool.query(`select coalesce(string_agg(${row}, E'\\n' order by ${row}), '') as s from "${t}" x where ${cond('x', 0)}`, [tenantId])).rows[0].s });
+  }
   return out;
 }
 export const AT_REST_COVERAGE = async (w: World) => {

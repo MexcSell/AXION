@@ -21,11 +21,11 @@ describe('seeded-leak mutants', () => {
       const faulty = (m.on === 'A' ? w.A : w.B), view = m.viewer === 'A' ? w.A : w.B, other = view === w.A ? w.B : w.A;
       const seam = SEAMS.get(faulty.app)!;
       seam.applied = 0; sharedCache.clear();
-      const arm = () => { if (m.sql) seam.fn = m.sql; if (m.header) seam.fromHeader = true; if (m.cache) { SEAMS.get(w.A.app)!.cacheOn = true; SEAMS.get(w.B.app)!.cacheOn = true; } };
+      const arm = () => { if (m.sql) seam.fn = m.sql; if (m.make) seam.fn = m.make(w); if (m.header) seam.fromHeader = true; if (m.cache) { SEAMS.get(w.A.app)!.cacheOn = true; SEAMS.get(w.B.app)!.cacheOn = true; } };
       let violations: Violation[] = []; let thrown = '';
       try {
-        const d = await detect(w, view, other, ++round, { arm });
-        violations = d.violations;
+        // a fault that writes one row is only visible if the row did not exist before the check starts, so a `make` mutant is run by the targeted relations alone
+        if (!m.make) violations = (await detect(w, view, other, ++round, { arm })).violations;
         if (m.expect.test('WRITE')) violations.push(...(await foreignWrites(w, view, other, arm)).violations);
         if (m.expect.test('MR4')) violations.push(...(await forgedScope(w, view, other, arm)).violations);
         if (m.expect.test('MR2')) violations.push(...(await swapTenant(w, view, other, arm)).violations);
