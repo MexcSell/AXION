@@ -4,7 +4,8 @@
 // Enforcement needs a sandbox and a proxy (next phase, owner point O1). Binding the profile hash into an approval digest is a later item.
 import { types } from 'node:util';
 import { normaliseOrigin } from '../grants/origin.ts';
-import { EXEC_PROFILE_VERSION, ISOLATION_TIERS, execProfileSha256, tierRank, type ExecProfile } from '../../../shared/contracts/src/exec-profile.ts';
+import { EXEC_PROFILE_VERSION, ISOLATION_TIERS, tierRank, type ExecProfile } from '../../../shared/contracts/src/exec-profile.ts';
+import { execProfileSha256 } from './hash.ts';
 import { BUILTIN_CREDENTIAL_PATTERNS, MAX_PATTERNS, isSensitiveScope, matchesAnyPattern, normaliseAbsolutePath, patternProblem } from './paths.ts';
 
 export const REFUSAL_CODES = [

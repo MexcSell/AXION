@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { EXEC_PROFILE_VERSION, ISOLATION_TIERS, tierRank, canonicalJson, execProfileSha256 } from '../../shared/contracts/src/exec-profile.ts';
+import { EXEC_PROFILE_VERSION, ISOLATION_TIERS, tierRank, canonicalJson } from '../../shared/contracts/src/exec-profile.ts';
+import { execProfileSha256 } from '../src/exec-profile/hash.ts';
 import { goodProfile } from './fixtures/exec-profile-good.ts';
 
 // c94 item 1: the versioned execution profile and its canonical sha256. This is a record shape only; nothing here enforces anything.

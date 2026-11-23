@@ -5,8 +5,7 @@
  *  but ENFORCE NOTHING: nothing here starts a sandbox, filters traffic or resolves DNS. Enforcement needs a sandbox and a proxy
  *  (next phase, owner point O1).
  *
- *  Not re-exported from index.ts on purpose: the hash uses node:crypto, and index.ts is imported by the web bundle. */
-import { createHash } from 'node:crypto';
+ *  Not re-exported from index.ts on purpose (c94). The sha256 of a profile (node:crypto) lives in server/src/exec-profile/hash.ts, so this folder, which the web project typechecks, has no Node import. */
 
 export const EXEC_PROFILE_VERSION = 1 as const;
 
@@ -50,9 +49,4 @@ export function canonicalJson(v: unknown): string {
   if (Array.isArray(v)) return '[' + v.map(canonicalJson).join(',') + ']';
   if (v && typeof v === 'object') return '{' + Object.keys(v as object).sort().map((k) => JSON.stringify(k) + ':' + canonicalJson((v as Record<string, unknown>)[k])).join(',') + '}';
   return JSON.stringify(v);
-}
-
-/** sha256 (hex) of the canonical JSON of a profile. Array order is part of the hash. Binding this hash into an approval digest is a later item. */
-export function execProfileSha256(profile: ExecProfile): string {
-  return createHash('sha256').update(canonicalJson(profile)).digest('hex');
 }

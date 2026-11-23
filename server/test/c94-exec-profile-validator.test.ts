@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { validateExecProfile, REFUSAL_CODES } from '../src/exec-profile/validator.ts';
-import { execProfileSha256 } from '../../shared/contracts/src/exec-profile.ts';
+import { execProfileSha256 } from '../src/exec-profile/hash.ts';
 import { goodProfile } from './fixtures/exec-profile-good.ts';
 
 // c94 item 2, threshold (b): every unsafe profile is refused, each with its reason code. The validator decides; it enforces nothing.
