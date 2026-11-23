@@ -23,6 +23,12 @@ const entries: Record<string, HelpEntry> = {
     why: 'Execution stays disabled in Stage 5: missions are planned and staffed (simulated), but no agent, model or browser runs yet.',
     permission: 'Administrators only.',
   },
+  'ops.publicSuffix': {
+    title: 'Public suffix list',
+    what: 'The public suffix list decides what counts as one site when you grant access (for example that co.uk is a suffix, so a grant cannot cover all of it). The server uses a pinned snapshot; this tile shows its date and age.',
+    how: 'It turns to a warning after 90 days. Refreshing it is a reviewed code change with a new manifest, never a button here. If the age cannot be read, the tile says so: do not assume the list is fresh.',
+    permission: 'Administrators only.',
+  },
   'ops.jobRecords': {
     title: 'Job records',
     what: 'Durable job records from the server: how many jobs sit in each state (queued, leased, succeeded, failed, canceled, dead), how long the oldest queued job has waited, and how many leases have expired.',

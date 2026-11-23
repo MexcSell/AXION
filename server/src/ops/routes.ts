@@ -47,7 +47,7 @@ export default async function opsRoutes(app: FastifyInstance) {
       if (files.length) backup = { last: files[0].at.toISOString(), file: files[0].f, count: files.length };
     } catch { /* no backups yet */ }
     let publicSuffix: Awaited<ReturnType<typeof readPslHealth>> | null = null;
-    try { publicSuffix = await readPslHealth(app.db); } catch { /* reported as null: the health read itself never fails for this */ }
+    try { publicSuffix = await readPslHealth(app.db); } catch (e) { app.log.warn({ err: e }, 'public suffix snapshot age unavailable'); /* reported as null: the health read itself never fails for this */ }
     return {
       version: VERSION,
       api: { status: 'up', uptimeSec: Math.round((Date.now() - started) / 1000) },

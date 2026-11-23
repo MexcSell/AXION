@@ -16,7 +16,7 @@ interface Health {
   events: { count: number; lastAt: string | null };
   sse: { clients: number };
   backup: { last: string | null; file: string | null; count: number };
-  publicSuffix?: { listVersion: string; date: string; ageDays: number; warnAfterDays: number; stale: boolean; rules: number };
+  publicSuffix?: null | { listVersion: string; date: string; ageDays: number; warnAfterDays: number; stale: boolean; rules: number };
   execution: 'disabled';
   checkedAt: string;
 }
@@ -82,7 +82,7 @@ export function ServerHealth() {
             const restarted = an.restartedAt ? ` · restarted on ${new Date(an.restartedAt).toLocaleDateString()} (previous file archived)` : '';
             const sub = (an.lastAnchorAt ? `last checkpoint ${ago(an.lastAnchorAt)} · ${an.tenants.map((t) => `${t.status === 'ok' ? 'ok' : t.status.replace('_', ' ')}${t.anchoredSeq ? ` through #${t.anchoredSeq}` : ''}`).join(', ')}` : (an.reason ?? 'run npm run audit:anchor')) + restarted;
             return (
-              <motion.div className="subpanel glass-card svc-card" data-testid="audit-anchor" data-status={an.ok ? 'ok' : bad?.status ?? 'anchor_missing'} style={{ gridColumn: ps ? 'span 2' : '1 / -1' }} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .26 }}>
+              <motion.div className="subpanel glass-card svc-card" data-testid="audit-anchor" data-status={an.ok ? 'ok' : bad?.status ?? 'anchor_missing'} style={{ gridColumn: 'span 2' }} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .26 }}>
                 <div className="row" style={{ gap: 8 }}>
                   <Dot tone={tone} pulse={tone !== 'good'} />
                   <Anchor size={15} />
@@ -95,17 +95,18 @@ export function ServerHealth() {
               </motion.div>
             );
           })()}
-          {ps && (
-            <motion.div className="subpanel glass-card svc-card" data-testid="psl-age" data-stale={ps.stale ? 'true' : 'false'} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .3 }}>
+          {h && (
+            <motion.div className="subpanel glass-card svc-card" data-testid="psl-age" data-stale={!ps || ps.stale ? 'true' : 'false'} data-unavailable={ps ? 'false' : 'true'} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .3 }}>
               <div className="row" style={{ gap: 8 }}>
-                <Dot tone={ps.stale ? 'warn' : 'good'} pulse={ps.stale} />
+                <Dot tone={!ps || ps.stale ? 'warn' : 'good'} pulse={!ps || ps.stale} />
                 <Globe2 size={15} />
                 <b style={{ fontSize: 13 }}>Public suffix list</b>
+                <HelpTrigger k="ops.publicSuffix" />
                 <span className="spacer" />
-                <Tip label={`Snapshot of ${ps.date}, ${ps.ageDays} days old. Refreshing is a reviewed code change with a new manifest.`}><b className={ps.stale ? 'warn' : 'good'} style={{ fontSize: 14 }}>{ps.ageDays} d old</b></Tip>
+                <Tip label={ps ? `Snapshot of ${ps.date}, ${ps.ageDays} days old. Refreshing is a reviewed code change with a new manifest.` : 'The server could not work out how old the public suffix list snapshot is.'}><b className={!ps || ps.stale ? 'warn' : 'good'} style={{ fontSize: 14 }}>{ps ? `${ps.ageDays} d old` : 'Age unavailable'}</b></Tip>
               </div>
-              <div className="dim ellipsis" style={{ fontSize: 11.5, marginTop: 4 }} title={ps.stale ? `Older than ${ps.warnAfterDays} days: refresh it` : `${ps.rules.toLocaleString()} rules`}>
-                {ps.stale ? `snapshot ${ps.date} · older than ${ps.warnAfterDays} days: refresh it` : `snapshot ${ps.date} · ${ps.rules.toLocaleString()} rules`}
+              <div className="dim ellipsis" style={{ fontSize: 11.5, marginTop: 4 }} title={ps ? (ps.stale ? `Older than ${ps.warnAfterDays} days: refresh it` : `${ps.rules.toLocaleString()} rules`) : 'The age could not be read: check the server log'}>
+                {ps ? (ps.stale ? `snapshot ${ps.date} · older than ${ps.warnAfterDays} days: refresh it` : `snapshot ${ps.date} · ${ps.rules.toLocaleString()} rules`) : 'could not be read: do not assume it is fresh'}
               </div>
             </motion.div>
           )}
