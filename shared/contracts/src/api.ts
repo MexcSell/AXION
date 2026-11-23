@@ -18,8 +18,8 @@ export interface OpsHealthDto {
   events: { count: number; lastAt: string | null };
   sse: { clients: number };
   backup: { last: string | null; file: string | null; count: number };
-  /** c73: the pinned public suffix snapshot: list date, age in days against the database date, warning past `warnAfterDays` */
-  publicSuffix: { listVersion: string; date: string; ageDays: number; warnAfterDays: number; stale: boolean; rules: number };
+  /** c73: the pinned public suffix snapshot: list date, age in days against the database date, warning past `warnAfterDays`; null when it could not be read */
+  publicSuffix: null | { listVersion: string; date: string; ageDays: number; warnAfterDays: number; stale: boolean; rules: number };
   execution: 'disabled';
   checkedAt: string;
 }

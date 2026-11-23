@@ -46,13 +46,15 @@ export default async function opsRoutes(app: FastifyInstance) {
       files.sort((a, b) => b.at.getTime() - a.at.getTime());
       if (files.length) backup = { last: files[0].at.toISOString(), file: files[0].f, count: files.length };
     } catch { /* no backups yet */ }
+    let publicSuffix: Awaited<ReturnType<typeof readPslHealth>> | null = null;
+    try { publicSuffix = await readPslHealth(app.db); } catch { /* reported as null: the health read itself never fails for this */ }
     return {
       version: VERSION,
       api: { status: 'up', uptimeSec: Math.round((Date.now() - started) / 1000) },
       db, events,
       sse: { clients: app.sse.clients },
       backup,
-      publicSuffix: await readPslHealth(app.db), // c73: snapshot date, age (database date) and the 90-day warning
+      publicSuffix, // c73: snapshot date, age (database date) and the 90-day warning; null when it could not be read
       execution: 'disabled',
       checkedAt: new Date().toISOString(),
     };

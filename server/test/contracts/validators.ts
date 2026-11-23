@@ -29,7 +29,7 @@ export const opsHealth: V<OpsHealthDto> = obj<OpsHealthDto>({
   db: obj({ status: oneOf(['up', 'down'] as const), sizeBytes: opt(num), missions: opt(int) }),
   events: obj({ count: int, lastAt: nullable(iso) }), sse: obj({ clients: int }),
   backup: obj({ last: nullable(iso), file: nullable(str), count: int }), execution: lit('disabled' as const), checkedAt: iso,
-  publicSuffix: obj({ listVersion: str, date: str, ageDays: int, warnAfterDays: int, stale: bool, rules: int }),
+  publicSuffix: nullable(obj({ listVersion: str, date: str, ageDays: int, warnAfterDays: int, stale: bool, rules: int })),
 });
 export const queues: V<QueueSummaryDto> = obj<QueueSummaryDto>({
   kinds: arr(obj<QueueSummaryDto['kinds'][number]>({ kind: str, counts: obj<Record<string, number>>(Object.fromEntries(JOB_STATUS_NAMES.map((k) => [k, int])) as never), total: int })),
