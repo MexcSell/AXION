@@ -102,11 +102,11 @@ export const SEQUENTIAL_FIXTURES: FixtureSpec[] = [
   // spend spike: 7
   money('spend-even-100-of-1000', 1000, () => ({ estMoneyMicros: 100, actualMoneyMicros: 100 }), 10, 10, 'est=actual=100, reserve 1000: after 10 steps used 1000; step 11 needs 1100 > 1000'),
   money('spend-announced-spike', 1000, (i) => (i === 4 ? { estMoneyMicros: 5000, actualMoneyMicros: 5000 } : { estMoneyMicros: 100, actualMoneyMicros: 100 }), 3, 3, 'steps 1-3 use 300; step 4 estimates 5000, 300+5000 > 1000, refused before it runs'),
-  money('spend-hidden-spike', 1000, (i) => (i === 3 ? { estMoneyMicros: 100, actualMoneyMicros: 5000 } : { estMoneyMicros: 100, actualMoneyMicros: 100 }), 3, 3, 'step 3 estimates 100 but costs 5000 (the +1 case): accepted, used 5200; step 4 stopped. capSteps 3 = the step that crosses the reserve, bound 4'),
+  money('spend-hidden-spike', 1000, (i) => (i === 3 ? { estMoneyMicros: 100, actualMoneyMicros: 5000 } : { estMoneyMicros: 100, actualMoneyMicros: 100 }), 2, 3, 'step 3 estimates 100 but costs 5000 (the +1 case): accepted, used 5200; step 4 stopped. In actual terms the reserve allows 2 steps (200 used, step 3 truly costs 5000), so capSteps 2 and accepted 3 = capSteps + 1'),
   money('spend-doubling', 1000, (i) => ({ estMoneyMicros: 10 * 2 ** (i - 1), actualMoneyMicros: 10 * 2 ** (i - 1) }), 6, 6, 'costs 10,20,40,80,160,320 sum 630; step 7 costs 640, 630+640 > 1000'),
   money('spend-exactly-at-reserve', 1000, () => ({ estMoneyMicros: 250, actualMoneyMicros: 250 }), 4, 4, '4 steps of 250 reach exactly 1000, which is allowed (used+est <= reserve); step 5 would be 1250'),
   tokens('tokens-even-500-of-2000', 2000, () => ({ estTokens: 500, actualTokens: 500 }), 4, 4, '4 x 500 = 2000 exactly; step 5 would be 2500'),
-  tokens('tokens-hidden-spike', 1000, (i) => (i === 2 ? { estTokens: 100, actualTokens: 4000 } : { estTokens: 100, actualTokens: 100 }), 2, 2, 'step 2 estimates 100 but uses 4000: accepted, used 4100; step 3 stopped'),
+  tokens('tokens-hidden-spike', 1000, (i) => (i === 2 ? { estTokens: 100, actualTokens: 4000 } : { estTokens: 100, actualTokens: 100 }), 1, 2, 'step 2 estimates 100 but uses 4000 (the +1 case): accepted, used 4100; step 3 stopped. In actual terms the reserve allows 1 step, so capSteps 1 and accepted 2 = capSteps + 1'),
   // new origin per step: 5
   origins(1), origins(2), origins(3), origins(5), origins(8),
   // call burst: 3
