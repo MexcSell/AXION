@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { tx, type Db, type Tx } from '../db.ts';
 import { audit } from '../audit.ts';
 import { ApiError, notFound, badRequest } from '../errors.ts';
-import { requireUser, requireAdmin } from '../auth/session.ts';
+import { requireAdmin } from '../auth/session.ts';
 import { parse } from '../auth/routes.ts';
 import { expireDue } from './proposals.ts';
 import { snapshotTx } from '../company/clock.ts';
@@ -23,6 +23,8 @@ import {
  *    not even by a direct write (migration 0058 trigger);
  *  - after approval a change is an amendment row (POST .../plan/amendments): new values, a reason, the actor and the database clock; append-only.
  */
+const NoNul = (s: string) => !s.includes('\u0000');
+const NUL_MSG = 'This text contains a NUL character (U+0000), which cannot be stored.';
 const Metric = z.string().trim().max(120).superRefine((id, ctx) => { const why = whyNotPlannable(id); if (why) ctx.addIssue({ code: 'custom', message: why }); });
 const Margin = z.number().finite().positive().max(1_000_000_000);
 export const PlanIn = z.object({
@@ -30,7 +32,7 @@ export const PlanIn = z.object({
   minN: z.number().int().min(1).max(PLAN_MIN_N_MAX),
   windowDays: z.number().int().min(PLAN_WINDOW_MIN_DAYS).max(PLAN_WINDOW_MAX_DAYS),
   guardrails: z.array(z.object({ metric: Metric, margin: Margin }).strict()).max(PLAN_MAX_GUARDRAILS),
-  why: z.string().trim().min(PLAN_WHY_MIN, `Write at least ${PLAN_WHY_MIN} characters.`).max(PLAN_WHY_MAX),
+  why: z.string().trim().min(PLAN_WHY_MIN, `Write at least ${PLAN_WHY_MIN} characters.`).max(PLAN_WHY_MAX).refine(NoNul, NUL_MSG),
 }).strict().superRefine((p, ctx) => {
   const seen = new Set<string>([p.primary.metric]);
   p.guardrails.forEach((g, i) => {
@@ -38,7 +40,7 @@ export const PlanIn = z.object({
     seen.add(g.metric);
   });
 });
-const AmendIn = z.object({ plan: PlanIn, reason: z.string().trim().min(AMENDMENT_REASON_MIN, `Write at least ${AMENDMENT_REASON_MIN} characters.`).max(AMENDMENT_REASON_MAX), baseAmendments: z.number().int().min(0) }).strict();
+const AmendIn = z.object({ plan: PlanIn, reason: z.string().trim().min(AMENDMENT_REASON_MIN, `Write at least ${AMENDMENT_REASON_MIN} characters.`).max(AMENDMENT_REASON_MAX).refine(NoNul, NUL_MSG), baseAmendments: z.number().int().min(0) }).strict();
 
 const cmp = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
 /** The stored shape: guardrails in locale-independent metric order (the order is not a change). */
@@ -96,8 +98,10 @@ export async function planReadout(c: Q, tenantId: string, id: string): Promise<O
     before = next;
     return dto;
   });
+  const recomputed = plan ? planSha(plan) : null;
+  const storedSha: string | null = p.plan_sha ?? null;
   const effective = amendments.length ? amendments[amendments.length - 1].plan : plan;
-  const base = { proposalId: id, proposalStatus: p.status, plan, sha: plan ? planSha(plan) : null, locked: p.status !== 'pending' && plan !== null, amendments, effectivePlan: effective, amendedAfterChange: amendments.length > 0, checkedAt: iso(checkedAt) };
+  const base = { proposalId: id, proposalStatus: p.status, plan, sha: plan ? (storedSha ?? recomputed) : null, shaMatches: !plan || storedSha === null || storedSha === recomputed, locked: p.status !== 'pending' && plan !== null, amendments, effectivePlan: effective, amendedAfterChange: amendments.length > 0, otherChanges: 0, checkedAt: iso(checkedAt) };
   if (!plan) return { ...base, change: null, windows: null, observations: [], verdict: 'no_plan', verdictText: 'This proposal has no plan.' };
   const bounds = p.applied_revision === null ? null : await changeBounds(c, tenantId, p.applied_revision, plan.windowDays);
   if (!bounds) return { ...base, change: null, windows: null, observations: [], verdict: 'not_applied', verdictText: p.status === 'pending' ? 'The change has not been approved, so there is nothing to count yet. The plan can still be replaced.' : `The change was never applied (the proposal is ${p.status}), so there is nothing to count.` };
@@ -107,11 +111,13 @@ export async function planReadout(c: Q, tenantId: string, id: string): Promise<O
   const verdict: PlanVerdict = ready ? 'ready_for_analysis' : 'not_enough_evidence';
   const why = [...(bounds.postComplete ? [] : ['the observation window after the change is not complete']), ...short];
   const amended = amendments.length ? ` This plan was amended after the change (${amendments.length} amendment${amendments.length === 1 ? '' : 's'}); the counts above are for the plan as it was locked at approval.` : '';
-  const verdictText = (ready ? 'Ready for analysis (not computed in this version). These are counts of observations only; they say nothing about the result of the change.' : `There is not enough evidence yet: ${why.join('; ')}. These are counts of observations only.`) + amended;
+  const mixed = bounds.otherChanges > 0 ? ` Another change took effect during the window: counts mix both (${bounds.otherChanges} other organisation revision${bounds.otherChanges === 1 ? '' : 's'}).` : '';
+  const shaWarn = base.shaMatches ? '' : 'Warning: the sha stored at approval does not match the plan as stored now. ';
+  const verdictText = shaWarn + (ready ? 'Ready for analysis (not computed in this version). These are counts of observations only; they say nothing about the result of the change.' : `There is not enough evidence yet: ${why.join('; ')}. These are counts of observations only.`) + mixed + amended;
   return {
     ...base, change: { revision: bounds.revision, activeFrom: iso(bounds.activeFrom) },
     windows: { pre: { from: iso(bounds.preFrom), to: iso(bounds.activeFrom) }, post: { from: iso(bounds.activeFrom), to: iso(bounds.postTo) }, postComplete: bounds.postComplete },
-    observations, verdict, verdictText,
+    observations, verdict, verdictText, otherChanges: bounds.otherChanges,
   };
 }
 
@@ -120,7 +126,7 @@ export function lockedPlanSha(row: { plan: unknown }): string | null { return ro
 
 export default async function planRoutes(app: FastifyInstance) {
   app.get('/organization/proposals/:id/plan', async (req) => {
-    const ctx = await requireUser(req);
+    const ctx = await requireAdmin(req); // the counts include every mission, private ones too: administrators see all of them
     const { id } = req.params as { id: string };
     return snapshotTx(app.db, (c) => planReadout(c, ctx.tenantId, id));
   });

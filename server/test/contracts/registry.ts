@@ -64,7 +64,7 @@ export const ROUTES: Record<string, RouteEntry> = {
   'GET /organization/coverage': { v: C.orgCoverageBody },
   'GET /organization/graph': { v: C.orgGraph },
   'GET /organization/proposals': { v: C.proposalsBody },
-  'GET /organization/proposals/:id/plan': { v: C.orgPlanBody },
+  'GET /organization/proposals/:id/plan': { v: C.orgPlanBody, admin: true },
   'GET /organization/revisions': { v: C.orgRevisions },
   'GET /organization/revisions/:seq': { v: C.orgRevisionBody },
   'GET /organization/revisions/:seq/diff': { v: C.orgDiff },

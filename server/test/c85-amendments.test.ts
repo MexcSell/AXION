@@ -96,7 +96,7 @@ describe('item 2: amendments', () => {
       amend(B, id, { plan: { ...PLAN, minN: 60, windowDays: 21 }, reason: REASON + ' (two)', baseAmendments: 1 }),
     ]);
     expect([x.status, y.status].sort()).toEqual([201, 409]);
-    const list = (await M.req('GET', `/organization/proposals/${id}/plan`)).body;
+    const list = (await A.req('GET', `/organization/proposals/${id}/plan`)).body;
     expect(list.amendments.map((a: any) => a.seq)).toEqual([1, 2]);
     expect(list.amendments[1].changed).toEqual(['minN']);
     expect(list.amendedAfterChange).toBe(true);

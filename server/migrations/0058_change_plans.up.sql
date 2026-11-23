@@ -16,6 +16,13 @@ begin
   if old.status <> 'pending' and (new.plan is distinct from old.plan or new.plan_sha is distinct from old.plan_sha) then
     raise exception 'the plan of a proposal that is no longer pending is locked (proposal %)', old.id;
   end if;
+  -- while pending, the plan may be replaced but the sha is set only by the move to applied; in that same update the plan itself must not change
+  if old.status = 'pending' and new.status = 'pending' and new.plan_sha is distinct from old.plan_sha then
+    raise exception 'the plan sha is set only when the proposal is approved, so the plan is locked here (proposal %)', old.id;
+  end if;
+  if old.status = 'pending' and new.status <> 'pending' and new.plan is distinct from old.plan then
+    raise exception 'the plan is locked: it cannot change in the update that decides the proposal (proposal %)', old.id;
+  end if;
   return new;
 end $$;
 create trigger org_proposals_plan_lock before update on org_proposals for each row execute function org_proposals_plan_lock();

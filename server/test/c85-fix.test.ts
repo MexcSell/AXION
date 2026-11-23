@@ -8,7 +8,8 @@ const ST = { baseline: 'No change: keep the current chart as it is.', expectedCo
 /** c85 fix round: admin-only readout, a distinct code for a missing plan sha, honest units, lock hardening, U+0000. */
 let t: TestApp;
 let A: Browser, B: Browser, M: Browser, aId = '', mId = '';
-let n = 0;
+let pTwo: { id: string; sha: string }, pFour: { id: string; sha: string }; // made before any fixture revision (a fixture revision has no lines)
+let n = 0, fourSha = '';
 const key = () => ({ 'idempotency-key': 'fx' + n++ });
 const q = async (sql: string, p: unknown[] = []) => (await t.pool.query(sql, p)).rows;
 type Edge = { supervisorId: string; subordinateId: string; edgeType?: string };
@@ -30,8 +31,30 @@ beforeAll(async () => {
   expect((await A.req('PATCH', `/users/${b.id}`, { role: 'admin' })).status).toBe(200);
   const m = await w.member('Mia'); M = m.b; mId = m.id;
   await seedDemo(t.app.db, 't-1', aId);
+  pTwo = await propose('writer-01', 'ops-01');
+  pFour = await propose('tester-01', 'ops-01');
+  const setFour = await A.req('PUT', `/organization/proposals/${pFour.id}/plan`, PLAN);
+  expect((await B.req('POST', `/organization/proposals/${pFour.id}/decision`, { decision: 'approve', sha: pFour.sha, planSha: setFour.body.sha })).status).toBe(200);
+  fourSha = setFour.body.sha;
 });
 afterAll(async () => { await t.close(); });
+
+describe('2: a missing plan sha has its own code; a wrong one stays PROPOSAL_CHANGED', () => {
+  it('names the cause when no planSha is sent, and keeps PROPOSAL_CHANGED for a wrong sha', async () => {
+    const p = pTwo;
+    const set = await A.req('PUT', `/organization/proposals/${p.id}/plan`, PLAN);
+    const none = await B.req('POST', `/organization/proposals/${p.id}/decision`, { decision: 'approve', sha: p.sha });
+    expect(none.status).toBe(409);
+    expect(none.body.code).toBe('PLAN_SHA_REQUIRED');
+    expect(none.body.message).toMatch(/change plan/i);
+    expect(none.body.message).toMatch(/API/);
+    const wrong = await B.req('POST', `/organization/proposals/${p.id}/decision`, { decision: 'approve', sha: p.sha, planSha: 'f'.repeat(64) });
+    expect(wrong.status).toBe(409);
+    expect(wrong.body.code).toBe('PROPOSAL_CHANGED');
+    const right = await B.req('POST', `/organization/proposals/${p.id}/decision`, { decision: 'approve', sha: p.sha, planSha: set.body.sha });
+    expect(['PLAN_SHA_REQUIRED', 'PROPOSAL_CHANGED']).not.toContain(right.body?.code); // the plan check passes (the chart moved on after beforeAll, so ORG_CHANGED is what stops it)
+  });
+});
 
 describe('1: the readout is administrator-only (counts include private missions)', () => {
   it('a member is refused like the other administrator-only organisation routes; an administrator reads it; anonymous is 401', async () => {
@@ -44,7 +67,7 @@ describe('1: the readout is administrator-only (counts include private missions)
   });
 
   it('a private mission of a member is counted for an administrator and never shown to the member', async () => {
-    await fixture('OP-P', 80, 20, { ...PLAN, primary: { metric: 'scorecard.started', direction: 'up', margin: 1 }, guardrails: [], minN: 1 });
+    await fixture('OP-P', 80, 2, { ...PLAN, primary: { metric: 'scorecard.started', direction: 'up', margin: 1 }, guardrails: [], minN: 1 });
     const mission = (await M.req('POST', '/missions', { text: 'My private mission', files: [], shared: false }, key())).body.mission.id as string;
     const before = (await A.req('GET', '/organization/proposals/OP-P/plan')).body.observations[0].post as number;
     await q(`insert into mission_runs(mission_id, revision, status, started_at) values ($1, 1, 'running', (select active_from + interval '1 hour' from org_revisions where seq = 80))`, [mission]);
@@ -53,22 +76,6 @@ describe('1: the readout is administrator-only (counts include private missions)
     const asMember = await M.req('GET', '/organization/proposals/OP-P/plan');
     expect(asMember.status).toBe(403);
     expect(JSON.stringify(asMember.body)).not.toMatch(/"post"|observations/);
-  });
-});
-
-describe('2: a missing plan sha has its own code; a wrong one stays PROPOSAL_CHANGED', () => {
-  it('names the cause when no planSha is sent, and keeps PROPOSAL_CHANGED for a wrong sha', async () => {
-    const p = await propose('writer-01', 'coder-01');
-    const set = await A.req('PUT', `/organization/proposals/${p.id}/plan`, PLAN);
-    const none = await B.req('POST', `/organization/proposals/${p.id}/decision`, { decision: 'approve', sha: p.sha });
-    expect(none.status).toBe(409);
-    expect(none.body.code).toBe('PLAN_SHA_REQUIRED');
-    expect(none.body.message).toMatch(/change plan/i);
-    expect(none.body.message).toMatch(/API/);
-    const wrong = await B.req('POST', `/organization/proposals/${p.id}/decision`, { decision: 'approve', sha: p.sha, planSha: 'f'.repeat(64) });
-    expect(wrong.status).toBe(409);
-    expect(wrong.body.code).toBe('PROPOSAL_CHANGED');
-    expect((await B.req('POST', `/organization/proposals/${p.id}/decision`, { decision: 'approve', sha: p.sha, planSha: set.body.sha })).status).toBe(200);
   });
 });
 
@@ -88,7 +95,7 @@ describe('3: honest units', () => {
     const r = (await A.req('GET', '/organization/proposals/OP-Q/plan')).body;
     expect(r.otherChanges).toBe(1);
     expect(r.verdictText).toMatch(/another change took effect during the window: counts mix both/i);
-    await fixture('OP-R', 83, 5, { ...PLAN, minN: 1, guardrails: [], primary: { metric: 'dimension.evolutionary.org_revisions', direction: 'up', margin: 1 } });
+    await fixture('OP-R', 83, 60, { ...PLAN, minN: 1, guardrails: [], primary: { metric: 'dimension.evolutionary.org_revisions', direction: 'up', margin: 1 } });
     expect((await A.req('GET', '/organization/proposals/OP-R/plan')).body.otherChanges).toBe(0);
   });
 });
@@ -99,11 +106,10 @@ describe('4: the lock', () => {
     expect(ok.sha).toBe('b'.repeat(64)); // the stored column, not a recomputation
     expect(ok.shaMatches).toBe(false);   // the fixture stored a sha that is not the plan's
     expect(ok.verdictText).toMatch(/does not match/i);
-    const p = await propose('tester-01', 'ops-01');
-    const set = await A.req('PUT', `/organization/proposals/${p.id}/plan`, PLAN);
-    await B.req('POST', `/organization/proposals/${p.id}/decision`, { decision: 'approve', sha: p.sha, planSha: set.body.sha });
-    const good = (await A.req('GET', `/organization/proposals/${p.id}/plan`)).body;
-    expect(good.sha).toBe(set.body.sha);
+    const good = (await A.req('GET', `/organization/proposals/${pFour.id}/plan`)).body;
+    expect(good.proposalStatus).toBe('applied');
+    expect((await q('select plan_sha from org_proposals where id=$1', [pFour.id]))[0].plan_sha).toBe(fourSha);
+    expect(good.sha).toBe(fourSha);
     expect(good.shaMatches).toBe(true);
   });
 
@@ -119,7 +125,7 @@ describe('4: the lock', () => {
 
 describe('5: U+0000 is a 400, not a 500', () => {
   it('is refused in the plan why and in an amendment reason', async () => {
-    const p = await propose('writer-01', 'ops-01');
+    const p = await propose('coder-01', 'ops-01');
     const r = await A.req('PUT', `/organization/proposals/${p.id}/plan`, { ...PLAN, why: 'A reason with a NUL byte \u0000 in the middle of it' });
     expect(r.status).toBe(400);
     expect(r.body.fieldErrors.why).toBeTruthy();

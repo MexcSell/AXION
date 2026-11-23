@@ -47,10 +47,10 @@ export const UNITS: Record<string, ObservationUnit> = {
     `select b.created_at as ts from delegation_briefs b join missions m on m.id = b.mission_id where b.tenant_id = $1 and not b.simulated and ${REAL_M}`),
   progress_ledger: unit('progress_ledger', 'a progress ledger version (not demo)', ['mission_ledgers'], ['missions'],
     `select l.created_at as ts from mission_ledgers l join missions m on m.id = l.mission_id where l.tenant_id = $1 and l.kind = 'progress' and not l.demo and m.deleted_at is null`),
-  confirmed_tag: unit('confirmed_tag', 'a failure tag that a person confirmed', ['failure_tags'], [],
-    `select f.decided_at as ts from failure_tags f where f.tenant_id = $1 and f.status = 'confirmed' and f.decided_at is not null`),
-  grant: unit('grant', 'a website grant that was issued', ['site_grants'], [],
-    `select g.issued_at as ts from site_grants g where g.tenant_id = $1`),
+  confirmed_tag: unit('confirmed_tag', 'a failure tag that a person confirmed (a tag on a demo or deleted mission is not counted)', ['failure_tags'], ['missions'],
+    `select f.decided_at as ts from failure_tags f left join missions m on m.id = f.mission_id where f.tenant_id = $1 and f.status = 'confirmed' and f.decided_at is not null and (f.mission_id is null or (not m.demo and m.deleted_at is null))`),
+  grant: unit('grant', 'a website grant that was issued', ['site_grants'], ['missions'],
+    `select g.issued_at as ts from site_grants g join missions m on m.id = g.mission_id where g.tenant_id = $1 and ${REAL_M}`),
   lesson_proposed: unit('lesson_proposed', 'a lesson that was proposed', ['lesson_candidates'], [],
     `select l.created_at as ts from lesson_candidates l where l.tenant_id = $1`),
   lesson_accepted: unit('lesson_accepted', 'a lesson that was accepted', ['lesson_candidates'], [],
@@ -65,8 +65,8 @@ export const UNITS: Record<string, ObservationUnit> = {
     `select r.started_at as ts from eval_runs r where r.tenant_id = $1`),
   org_revision: unit('org_revision', 'an organisation revision that became active', ['org_revisions'], [],
     `select o.active_from as ts from org_revisions o where o.tenant_id = $1`),
-  owner_change: unit('owner_change', 'a change of the owner of a task (not simulated)', ['task_owner_history'], ['tasks'],
-    `select h.at as ts from task_owner_history h join tasks t on t.id = h.task_id where h.tenant_id = $1 and h.source = 'change' and not t.simulated`),
+  owner_change: unit('owner_change', 'a change of the owner of a task (not simulated, not on a demo or deleted mission)', ['task_owner_history'], ['tasks', 'missions'],
+    `select h.at as ts from task_owner_history h join tasks t on t.id = h.task_id join missions m on m.id = t.mission_id where h.tenant_id = $1 and h.source = 'change' and not t.simulated and ${REAL_M}`),
 };
 
 /** registry id -> unit id */
@@ -78,8 +78,8 @@ export const METRIC_UNIT: Record<string, string> = {
   'dimension.cognitive.first_attempt_verified': 'review', 'dimension.cognitive.stalled_missions': 'progress_ledger', 'dimension.cognitive.context_loss': 'confirmed_tag',
   'dimension.capability.playbook_items': 'playbook', 'dimension.capability.first_pass': 'task', 'dimension.capability.site_grants': 'grant',
   'dimension.collective.briefed_delegations': 'delegated', 'dimension.collective.cross_family_reviews': 'review', 'dimension.collective.approval_decision_h': 'approval_decision',
-  'dimension.knowledge.lessons_proposed': 'lesson_proposed', 'dimension.knowledge.lessons_accepted': 'lesson_accepted', 'dimension.knowledge.lessons_rolled_back': 'lesson_accepted',
-  'dimension.evolutionary.promotions': 'promotion', 'dimension.evolutionary.rollbacks': 'rollback', 'dimension.evolutionary.verdict_outcomes': 'eval_run', 'dimension.evolutionary.org_revisions': 'org_revision',
+  'dimension.knowledge.lessons_proposed': 'lesson_proposed', 'dimension.knowledge.lessons_accepted': 'lesson_accepted',
+  'dimension.evolutionary.promotions': 'promotion', 'dimension.evolutionary.rollbacks': 'rollback', 'dimension.evolutionary.org_revisions': 'org_revision',
   'process.rework_rate': 'review', 'process.first_pass_acceptance': 'review', 'process.duplicate_delegation': 'brief', 'process.reassign_churn': 'owner_change',
   'process.handoff_wait_h': 'delegated', 'process.approval_decision_h': 'approval_decision',
 };
@@ -90,6 +90,8 @@ export const NOT_COUNTABLE: Record<string, string> = {
   'kpi.approvals': 'it is a count of the present moment, with no recorded observations to count in a window',
   'dimension.environmental.site_navigation': 'nothing records it yet (browser execution comes with Stage 7)',
   'dimension.environmental.model_availability': 'nothing records it yet (browser execution comes with Stage 7)',
+  'dimension.knowledge.lessons_rolled_back': 'the only rows it could count are accepted lessons, which is a different thing, so a count would mislead',
+  'dimension.evolutionary.verdict_outcomes': 'the only rows it could count are all evaluation runs, not their verdicts, so a count would mislead',
   'process.cost': 'nothing records it until Stage 9 (the usage ledger)',
 };
 export const PLANNABLE: readonly string[] = METRICS.map((m) => m.id).filter((id) => id in METRIC_UNIT);
@@ -105,14 +107,15 @@ export function whyNotPlannable(id: string): string | null {
 }
 
 type Q = Tx | Db;
-export interface ChangeBounds { revision: number; activeFrom: Date; preFrom: Date; postTo: Date; postComplete: boolean; checkedAt: Date }
+export interface ChangeBounds { otherChanges: number; revision: number; activeFrom: Date; preFrom: Date; postTo: Date; postComplete: boolean; checkedAt: Date }
 /** The change time and both window bounds, from the database clock: `now()` and `active_from` never leave SQL. */
 export async function changeBounds(c: Q, tenantId: string, revision: number, days: number): Promise<ChangeBounds | null> {
   const r = (await c.query(
     `select seq, active_from, active_from - make_interval(days => $3::int) as pre_from, active_from + make_interval(days => $3::int) as post_to,
-            now() >= active_from + make_interval(days => $3::int) as complete, now() as checked_at
-       from org_revisions where tenant_id = $1 and seq = $2`, [tenantId, revision, days])).rows[0];
-  return r ? { revision: r.seq, activeFrom: new Date(r.active_from), preFrom: new Date(r.pre_from), postTo: new Date(r.post_to), postComplete: r.complete, checkedAt: new Date(r.checked_at) } : null;
+            now() >= active_from + make_interval(days => $3::int) as complete, now() as checked_at,
+            (select count(*)::int from org_revisions o where o.tenant_id = $1 and o.seq <> $2 and o.active_from >= r.active_from and o.active_from < r.active_from + make_interval(days => $3::int) and o.active_from <= now()) as other
+       from org_revisions r where tenant_id = $1 and seq = $2`, [tenantId, revision, days])).rows[0];
+  return r ? { otherChanges: r.other, revision: r.seq, activeFrom: new Date(r.active_from), preFrom: new Date(r.pre_from), postTo: new Date(r.post_to), postComplete: r.complete, checkedAt: new Date(r.checked_at) } : null;
 }
 /** Observations of one metric before and after the change: pre = [change - N days, change), post = [change, change + N days) up to now. Counts only. */
 export async function countObservations(c: Q, tenantId: string, metric: string, revision: number, days: number): Promise<{ pre: number; post: number }> {

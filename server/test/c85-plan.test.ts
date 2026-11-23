@@ -48,7 +48,7 @@ describe('item 1: the plan record', () => {
   let p: { id: string; sha: string };
   it('a proposal without a plan works exactly as before, and its plan reads as none', async () => {
     p = await propose('coder-01', 'ops-01');
-    const g = await getPlan(M, p.id);
+    const g = await getPlan(A, p.id);
     expect(g.status).toBe(200);
     expect(g.body.plan).toBeNull();
     expect(g.body.verdict).toBe('no_plan');
@@ -95,7 +95,7 @@ describe('item 1: the plan record', () => {
     expect(r.body.sha).toBe(canonSha(PLAN));
     const plan2 = { ...PLAN, minN: 30, guardrails: [] };
     expect((await putPlan(A, p.id, plan2)).status).toBe(200);
-    const g = await getPlan(M, p.id);
+    const g = await getPlan(A, p.id);
     expect(g.body.plan.minN).toBe(30);
     expect(g.body.plan.guardrails).toEqual([]);
     expect(g.body.sha).toBe(canonSha(plan2));
@@ -116,7 +116,7 @@ describe('item 1: the plan record', () => {
   it('approving a proposal that has a plan needs the plan sha the approver reviewed (a replaced plan is not approved by accident)', async () => {
     const noSha = await B.req('POST', `/organization/proposals/${p.id}/decision`, { decision: 'approve', sha: p.sha });
     expect(noSha.status).toBe(409);
-    expect(noSha.body.code).toBe('PROPOSAL_CHANGED');
+    expect(noSha.body.code).toBe('PLAN_SHA_REQUIRED');
     const wrong = await B.req('POST', `/organization/proposals/${p.id}/decision`, { decision: 'approve', sha: p.sha, planSha: canonSha(PLAN) });
     expect(wrong.status).toBe(409);
     expect((await rows('select status from org_proposals where id=$1', [p.id]))[0].status).toBe('pending');
@@ -133,7 +133,7 @@ describe('item 1: the plan record', () => {
     const audit = (await rows(`select detail from audit_events where action='org.proposal.plan.lock' and subject=$1 and result='ok'`, [p.id]));
     expect(audit.length).toBe(1);
     expect(audit[0].detail.planSha).toBe(plan.sha);
-    expect((await getPlan(M, p.id)).body).toMatchObject({ locked: true, sha: plan.sha });
+    expect((await getPlan(A, p.id)).body).toMatchObject({ locked: true, sha: plan.sha });
     // no route changes it
     const again = await putPlan(A, p.id, PLAN);
     expect(again.status).toBe(409);

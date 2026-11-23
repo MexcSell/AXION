@@ -307,8 +307,8 @@ const planAmendment: V<PlanAmendmentDto> = obj<PlanAmendmentDto>({ seq: int, pla
 const planWindow: V<PlanWindow> = obj<PlanWindow>({ from: iso, to: iso });
 const planObservation: V<PlanObservation> = obj<PlanObservation>({ role: oneOf(['primary', 'guardrail'] as const), metric: str, label: str, unit: str, pre: int, post: int, minN: int, preMet: bool, postMet: bool });
 export const orgPlanBody: V<OrgPlanDto> = obj<OrgPlanDto>({
-  proposalId: str, proposalStatus: oneOf(['pending', 'approved', 'rejected', 'applied', 'failed', 'expired', 'withdrawn'] as const), plan: nullable(changePlan), sha: nullable(str), locked: bool,
-  amendments: arr(planAmendment), effectivePlan: nullable(changePlan), amendedAfterChange: bool,
+  proposalId: str, proposalStatus: oneOf(['pending', 'approved', 'rejected', 'applied', 'failed', 'expired', 'withdrawn'] as const), plan: nullable(changePlan), sha: nullable(str), shaMatches: bool, locked: bool,
+  amendments: arr(planAmendment), effectivePlan: nullable(changePlan), amendedAfterChange: bool, otherChanges: int,
   change: nullable(obj<{ revision: number; activeFrom: string }>({ revision: int, activeFrom: iso })),
   windows: nullable(obj<PlanWindows>({ pre: planWindow, post: planWindow, postComplete: bool })),
   observations: arr(planObservation), verdict: oneOf(['no_plan', 'not_applied', 'not_enough_evidence', 'ready_for_analysis'] as const), verdictText: str, checkedAt: iso,

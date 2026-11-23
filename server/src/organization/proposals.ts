@@ -204,6 +204,8 @@ export default async function proposalRoutes(app: FastifyInstance) {
       const note = b.note || null;
       // c85: a proposal with a plan is approved only together with the sha of the plan the approver reviewed (the plan can be replaced while pending)
       const lockSha = b.decision === 'approve' ? lockedPlanSha(p) : null;
+      if (b.decision === 'approve' && lockSha !== null && b.planSha === undefined)
+        return refuse(c, ctx, A, id, new ApiError('PLAN_SHA_REQUIRED', 409, 'This proposal has a change plan. Approve it through the API with the plan\'s sha (planSha). The app does not show plans yet.'));
       if (b.decision === 'approve' && lockSha !== null && b.planSha !== lockSha)
         return refuse(c, ctx, A, id, new ApiError('PROPOSAL_CHANGED', 409, 'This proposal has a plan, and it is not the plan you reviewed. Reload it and review the plan again.'));
       if (b.decision === 'reject') {

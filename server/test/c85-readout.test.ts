@@ -31,7 +31,7 @@ const planOf = (over: Record<string, unknown> = {}) => ({
   primary: { metric: 'dimension.knowledge.lessons_proposed', direction: 'up', margin: 1 }, minN: 2, windowDays: 14, guardrails: [],
   why: 'Fixture plan for the readout tests.', ...over,
 });
-const get = (id: string, by = M) => by.req('GET', `/organization/proposals/${id}/plan`);
+const get = (id: string, by = A) => by.req('GET', `/organization/proposals/${id}/plan`);
 
 beforeAll(async () => {
   t = await makeTestApp({ staffingStepMs: 3_600_000, conversationSimMs: 3_600_000, writeLimits: { proposals: { max: 1000, windowMs: 60_000 } } });
@@ -119,8 +119,8 @@ describe('item 3: the readout counts observations and gives no verdict', () => {
     expect(r.body.verdictText).toMatch(/amended after the change/i);
   });
 
-  it('is visible to every signed-in user of the tenant, not to anonymous callers, and a foreign or unknown id is 404', async () => {
-    expect((await get('OP-A', M)).status).toBe(200);
+  it('is for administrators only (counts include every mission); anonymous is 401, a member 403, and a foreign or unknown id is 404', async () => {
+    expect((await get('OP-A', M)).status).toBe(403);
     expect((await t.app.inject({ method: 'GET', url: '/api/v1/organization/proposals/OP-A/plan' })).statusCode).toBe(401);
     await q(`insert into org_proposals(id, tenant_id, title, why, base_revision, edges, payload_sha, created_by) values ('OP-X','t-2','Other','x',1,'[]'::jsonb,$1,'fx')`, ['d'.repeat(64)]);
     expect((await get('OP-X')).status).toBe(404);

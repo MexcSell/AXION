@@ -69,11 +69,15 @@ export interface OrgPlanDto {
   plan: ChangePlan | null;
   /** canonical sha256 of `plan` (null without a plan). After approval it equals the sha fixed into the record. */
   sha: string | null;
+  /** false when the stored sha disagrees with the plan as stored now (it should never happen) */
+  shaMatches: boolean;
   locked: boolean;
   amendments: PlanAmendmentDto[];
   /** the plan after the last amendment (equals `plan` without amendments) */
   effectivePlan: ChangePlan | null;
   amendedAfterChange: boolean;
+  /** other org revisions (a further change or a rollback) that took effect inside the post window: the counts mix both */
+  otherChanges: number;
   change: { revision: number; activeFrom: string } | null;
   windows: PlanWindows | null;
   /** counts for the LOCKED plan's metrics (never for an amended choice) */
