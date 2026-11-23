@@ -63,3 +63,26 @@ Records only. No route releases, deploys, restarts, rolls back, stores a file or
 8. Two tests hit "too many connections for role axion" on the first runs, from other lanes, not from this code; rerun serial (see above).
 9. 0056 is one file written across two commits; if the owner takes only one item, the other half of the migration must be cut by hand.
 10. Nothing was run against the live DB; the migration has not been applied anywhere but axion_e2e18 and the test schemas.
+
+## Fix round (review c76-review.md: CLEAR AFTER FIXES; branch stays PARKED)
+Migration 0056 was extended in place. One commit per item.
+
+| Item | Commit | What changed | RED then GREEN |
+|---|---|---|---|
+| F1 decider is not the recorder | 70c3928 | `approval_decided_by_recorder` refused with the existing named code `SELF_APPROVAL` (403, audited) in the pre-check and the locked recheck; the `releases_check` trigger refuses it too. | RED: `expected 201 to be 403` and the raw insert resolved (2 failed of 22). GREEN 22/22. |
+| F3 wider guard | 72f7edb | Pattern now also matches `migrate` (so `migrate.ts`, `migrate-cli.ts`), `guardrail(s)`, `metric-audit(s)` and `policies`. Same expression in TypeScript and the trigger. One test per path, each checked in TypeScript, in SQL and through the route (403). Near misses (`migrated-users.ts`, `Policing.tsx`, `metric-auditing.md`) stay unguarded. | RED: 6 failed, first `server/src/migrate.ts: expected false to be true`. GREEN 29/29. |
+| F4 dedicated kind, DB parity, audit | 53db091 | New baseline-policy kind `release-record` (R4, critical); only its approval is accepted (`approval_wrong_kind`), so recording a release can no longer burn a `production_deploy` approval. The trigger now repeats everything: kind, digest binding (SQL `release_digest()` twin of the TypeScript digest, compared on mixed-case, accented and astral paths), decider not the recorder, spent by the recorder, not expired, and a unique index (one approval, one release). The recheck now runs before the duplicate-version check and its denials are audited (a concurrent identical release: one 201, one 403 `approval_already_used`, one denied audit row). Path lists are sorted by UTF-8 byte order in TypeScript and `collate "C"` in SQL (a latent mismatch for mixed-case paths, found while writing the digest twin). | RED: 9 failed, first `Policy denies this action (unknown_action)`. GREEN 33/33. |
+| F5 mark tenant | c5dac89 | `release_marks_check` trigger: the mark's tenant must equal its release's and its target release's tenant. | RED: raw cross-tenant insert resolved. GREEN 34/34. |
+| Pin | 727c01d | `c58-sensitive` pins the kinds that set flag (b); the new critical kind `release-record` is added to the pinned list (that test exists to force this decision; it sets sensitive access, which is right for a critical kind). | The full run at c5dac89 failed only this test: `expected [ 'add_integration', …(11) ] to deeply equal [ 'add_integration', …(10) ]`. GREEN 3/3. |
+
+F2 (declared paths are claims) and F6 (migration numbering gap) stay as documented in Concerns.
+
+**Operational consequence of F1 (by design, fail closed):** with a single administrator, no guarded release can be recorded, because the R4 approval must be decided by a different administrator than the one recording it. A company needs two administrators to record a release that touches policy, approvals, audit, locks, migrations, the migration runner, guardrails, metric audits or policies. (There is no UI, so there is no `?` help to write; the 403 message says "A guarded release needs a second administrator", and this paragraph is the record. If a Results panel is ever built it must show the same sentence behind its `?`.) The coverage run and the tests now promote a second user to administrator to decide the R4.
+
+Test edits to existing c76 tests were additions or tightenings (guarded fixtures use the `release-record` kind and a second-administrator decider); none was loosened. The DB-bypass test for F1 now builds an otherwise bound approval, so the decider rule is the one that refuses.
+
+### Fix-round results
+- tsc server and web: clean.
+- Migrate down/up 0056 once on axion_e2e18: up to 56, `down 55` to 53, up to 56.
+- api-stage6 (12492/12493, via heavy.sh): 94/94 passed, no page errors.
+- Full vitest serial (heavy.sh): see the final line below.
