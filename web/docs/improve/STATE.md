@@ -68,7 +68,7 @@ Rewritten 2026-11-22T07:35Z by the controller and again at 17:50Z after the live
 | w67 | c69 process metrics (R3-5), from c66 tip 35bb4a9, e2e6, no migration | CLEARED at 0226053, batch 29 |
 | w68 | c70 hardening bundle (H11b, H14, E1d), from 812c185, e2e5, mig 0052 | MERGED (b3c3fe3) |
 | w69 | c71 scorecard at scale (P6), from c83f33e, e2e14, mig 0053 | CLEARED at 75dd86d, batch 30 |
-| w70 | c72 difficulty-adjusted skill ratings (R3-7 + R3-1), from c852be8, e2e13, no migration | in review (tip 238a791) |
+| w70 | c72 difficulty-adjusted skill ratings (R3-7 + R3-1), from c852be8, e2e13, no migration | fix round (review CLEAR AFTER FIXES) |
 | w71 | c73 polish bundle (P2c, H18, P4c, H15), from c852be8, e2e16 | implementing |
 | w58 | c59 origin-bound memory and skill records (R2-5), e2e17, mig 0044 | CLEARED at 67b40ed, batch 18 |
 | w60 | c61 eval instruments (R2-2, R2-3, R2-1), from c53 tip 2d23cca, e2e13, mig 0046 | CLEARED at 43c1b7c, batch 19 |
