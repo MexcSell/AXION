@@ -20,6 +20,7 @@ import { useMissionControl, sendMissionMessage, taskAction } from '@/api/mission
 import { useFailureTags } from '@/api/failures';
 import { useTaskReviews } from '@/api/taskReviews';
 import { ReviewAction, ReviewList } from '@/features/review/TaskReviews';
+import { TaskForecast } from '@/features/review/TaskForecast';
 import { ROLES } from '@/data/roles';
 import type { Mission, Attachment } from '@/data/types';
 import { KIND_META } from '@/features/mission/MissionBits';
@@ -433,6 +434,7 @@ function TaskCriteria({ close, props }: DialogComponentProps<{ missionId: string
       <div className="row wrap" style={{ gap: 6 }}>{t.deps.length ? t.deps.map((d) => <Chip key={d} hue={220} size="sm">{d}</Chip>) : <span className="dim">none</span>}</div>
       <div className="section-label">Evidence ({t.evidence})</div>
       {t.evidence ? Array.from({ length: t.evidence }, (_, i) => <div key={i} className="row" style={{ gap: 6, fontSize: 12.5 }}><ImageIcon size={14} className="info" />evidence-{i + 1}.png <span className="dim">· sha256:{(t.id + i).split('').map((c) => c.charCodeAt(0).toString(16)).join('').slice(0, 10)}</span></div>) : <span className="dim">No evidence yet — this task does not count toward verified progress.</span>}
+      {api_ && <TaskForecast taskId={t.id} rv={rv} canceled={t.state === 'canceled'} />}
       {api_ ? <ReviewList rv={rv} /> : <><div className="section-label">Verifier</div>
       <div className="row" style={{ gap: 6 }}><RobotAvatar role="qa" size={26} /><span>Tester-01 (independent)</span></div></>}
     </Modal>

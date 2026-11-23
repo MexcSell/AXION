@@ -126,5 +126,7 @@ PASS  tools-permission           no-props DL-36
 PASS  tools-permission           props    DL-36   
 PASS  unsaved-changes            no-props DL-64   
 PASS  unsaved-changes            props    DL-64   
+PASS  user-forecasts             no-props DL-101  
+PASS  user-forecasts             props    DL-101  
 PASS  voice-settings             no-props DL-44   
 PASS  voice-settings             props    DL-44   

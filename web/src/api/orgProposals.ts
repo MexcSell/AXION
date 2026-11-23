@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
-import type { RestructureTrigger, OrgCoverage, OrgDiffDto, OrgDryRun, OrgEdgeDto, OrgProposalDto, OrgRevisionSummaryDto } from '@contracts';
+import type { RestructureTrigger, OrgCoverage, OrgDiffDto, OrgDryRun, OrgEdgeDto, OrgPlanDto, OrgProposalDto, OrgRevisionSummaryDto } from '@contracts';
 import { api, ApiFailure, newKey } from './client';
 import { isApi } from './mode';
+import { plainError } from '@/lib/plainError';
 
 /**
  * Organisation change proposals (improvement cycle 1, api mode only). The list re-reads on every org.* event and on a
@@ -21,7 +22,7 @@ export function useOrgProposals(): { data: ProposalList | null; error: string | 
     let live = true;
     api<ProposalList>('GET', '/organization/proposals')
       .then((r) => { if (live) setSt({ data: r, error: null }); })
-      .catch((e) => { if (live) setSt((x) => ({ data: x.data, error: e instanceof ApiFailure ? e.message : 'Something went wrong.' })); });
+      .catch((e) => { if (live) setSt((x) => ({ data: x.data, error: plainError(e) })); });
     return () => { live = false; };
   }, [tick]);
   return { ...st, retry: bumpProposals };
@@ -41,9 +42,10 @@ export async function createProposal(body: ProposalBody, idempotencyKey: string)
   try { const r = await api<{ proposal: OrgProposalDto }>('POST', '/organization/proposals', body, { idempotencyKey }); bumpProposals(); return { ok: true, value: r.proposal }; }
   catch (e) { return fail(e); }
 }
-export async function decideProposal(p: OrgProposalDto, decision: 'approve' | 'reject', note: string): Promise<Write<OrgProposalDto>> {
-  try { const r = await api<{ proposal: OrgProposalDto }>('POST', `/organization/proposals/${p.id}/decision`, { decision, sha: p.sha, ...(note.trim() ? { note: note.trim() } : {}) }); bumpProposals(); return { ok: true, value: r.proposal }; }
-  catch (e) { bumpProposals(); return fail(e); } // e.g. expired or stale: show the current state too
+/** c89: approving a proposal that has a change plan sends the plan's sha (planSha) that the approver read on the card. */
+export async function decideProposal(p: OrgProposalDto, decision: 'approve' | 'reject', note: string, planSha?: string | null): Promise<Write<OrgProposalDto>> {
+  try { const r = await api<{ proposal: OrgProposalDto }>('POST', `/organization/proposals/${p.id}/decision`, { decision, sha: p.sha, ...(decision === 'approve' && planSha ? { planSha } : {}), ...(note.trim() ? { note: note.trim() } : {}) }); bumpProposals(); return { ok: true, value: r.proposal }; }
+  catch (e) { bumpProposals(); return { ok: false, code: e instanceof ApiFailure ? e.code : 'UNKNOWN', message: plainError(e) }; } // e.g. expired or stale: show the current state too
 }
 export async function withdrawProposal(p: OrgProposalDto): Promise<Write<OrgProposalDto>> {
   try { const r = await api<{ proposal: OrgProposalDto }>('POST', `/organization/proposals/${p.id}/withdraw`); bumpProposals(); return { ok: true, value: r.proposal }; }
@@ -52,7 +54,7 @@ export async function withdrawProposal(p: OrgProposalDto): Promise<Write<OrgProp
 
 /* Improvement cycle 4: organisation history. Re-read on the same tick as the proposals (every org.* event, agent.created and a
    stream reconnect), so the timeline and the open diff follow a revision applied anywhere. */
-function useRead<T>(path: string | null): { data: T | null; error: string | null; retry: () => void } {
+export function useRead<T>(path: string | null): { data: T | null; error: string | null; retry: () => void } {
   const tick = useTick((s) => s.n);
   const [st, setSt] = useState<{ data: T | null; error: string | null; path: string | null }>({ data: null, error: null, path: null });
   useEffect(() => {
@@ -60,7 +62,7 @@ function useRead<T>(path: string | null): { data: T | null; error: string | null
     let live = true;
     api<T>('GET', path)
       .then((r) => { if (live) setSt({ data: r, error: null, path }); })
-      .catch((e) => { if (live) setSt((x) => ({ data: x.path === path ? x.data : null, error: e instanceof ApiFailure ? e.message : 'Something went wrong.', path })); });
+      .catch((e) => { if (live) setSt((x) => ({ data: x.path === path ? x.data : null, error: plainError(e), path })); });
     return () => { live = false; };
   }, [path, tick]);
   return { data: st.path === path ? st.data : null, error: st.path === path ? st.error : null, retry: bumpProposals };
@@ -79,3 +81,5 @@ export async function proposeRollback(seq: number, why: string, idempotencyKey: 
 export { newKey };
 /** Improvement cycle 20: coverage facts of the active organisation revision. */
 export const useOrgCoverage = () => useRead<{ revision: number; coverage: OrgCoverage }>('/organization/coverage');
+/** c89 (administrators): the change plan and, for an applied proposal, the counts per window. Any other caller gets 403, which is why callers pass `null` unless they are an administrator. */
+export const useOrgPlan = (proposalId: string | null) => useRead<OrgPlanDto>(proposalId ? `/organization/proposals/${encodeURIComponent(proposalId)}/plan` : null);

@@ -2,7 +2,7 @@ import { motion } from 'motion/react';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Settings as SettingsIcon, SlidersHorizontal, PanelLeft, UsersRound, Palette, ScanFace, Accessibility, Globe, Plug, HardDrive, ShieldCheck, DatabaseBackup,
+  Settings as SettingsIcon, Crosshair, SlidersHorizontal, PanelLeft, UsersRound, Palette, ScanFace, Accessibility, Globe, Plug, HardDrive, ShieldCheck, DatabaseBackup,
   Building2, Languages, Check, Keyboard, GitBranch, AppWindow, Mic, Cpu, KeyRound, Lock, Download, Play, Eye, RotateCcw, CircleCheck, Scale, Clock3, History,
 } from 'lucide-react';
 import { TopBoard, FrameBody } from '@/components/layout/PageFrame';
@@ -25,12 +25,13 @@ import '@/theme/pages/settings-ops-help.css';
 import '@/theme/pages/settings-nav.css';
 import { NavigationSettings } from '@/features/settings/NavigationSettings';
 import { UsersSettings } from '@/features/settings/UsersSettings';
+import { MyForecasts } from '@/features/settings/MyForecasts';
 import { SiteGrants } from '@/features/settings/SiteGrants';
 import { isApi } from '@/api/mode';
 import { isAdmin, useMe } from '@/store/auth';
 import '@/theme/pages/users-settings.css';
 
-const ICONS = [SlidersHorizontal, UsersRound, PanelLeft, Palette, ScanFace, Accessibility, Globe, Plug, HardDrive, ShieldCheck, DatabaseBackup];
+const ICONS = [SlidersHorizontal, UsersRound, Crosshair, PanelLeft, Palette, ScanFace, Accessibility, Globe, Plug, HardDrive, ShieldCheck, DatabaseBackup];
 
 export default function SettingsPage() {
   const [tab, setTab, tabs] = useTab('settings');
@@ -50,6 +51,7 @@ export default function SettingsPage() {
       <FrameBody tab={tab} panel={false}>
         {tab === 'General' && <General setDirty={setDirty} />}
         {tab === 'Users' && <UsersSettings />}
+        {tab === 'Forecasts' && <MyForecasts />}
         {tab === 'Navigation' && <NavigationSettings />}
         {tab === 'Appearance' && <Appearance />}
         {tab === 'Avatars & Faces' && <Avatars />}

@@ -11,7 +11,8 @@ import { Chip } from '@/components/ui/Chips';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useAgentsCatalog } from '@/api/agents';
-import { useOrgProposals, decideProposal, withdrawProposal } from '@/api/orgProposals';
+import { useOrgProposals, useOrgPlan, decideProposal, withdrawProposal } from '@/api/orgProposals';
+import { PlanSection } from './PlanSection';
 import { isAdmin, useMe } from '@/store/auth';
 import { openDialog, toast } from '@/store/ui';
 import { ago, cx } from '@/lib/format';
@@ -70,6 +71,9 @@ function ProposalCard({ p, active, meId, admin, index, err, setErr, highlight }:
   const [busy, setBusy] = useState(false);
   const S = STATUS[p.status];
   const pending = p.status === 'pending';
+  // c89: the change plan (administrators only: the server refuses everyone else). Approving a planned proposal names the plan's sha that was read here.
+  const planRead = useOrgPlan(admin && (pending || p.status === 'applied') ? p.id : null);
+  const planWait = admin && pending && !planRead.data;
   const mine = p.createdBy === meId;
   const stale = pending && p.baseRevision !== active;
   const run = async (f: () => ReturnType<typeof withdrawProposal>, done: string) => {
@@ -102,6 +106,7 @@ function ProposalCard({ p, active, meId, admin, index, err, setErr, highlight }:
       </div>
       <Statements baseline={p.baseline} cost={p.expectedCost} />
       <DryRunView r={p.result} asOf={p.createdAt} />
+      {admin && (pending || p.status === 'applied') && <PlanSection plan={planRead.data} error={planRead.error} retry={planRead.retry} />}
       {p.decidedByName && p.status !== 'pending' && (
         <div className="dim" style={{ fontSize: 12, marginTop: 8 }}>{S.label} by {p.decidedByName}{p.decidedAt ? ` · ${ago((Date.now() - new Date(p.decidedAt).getTime()) / 60_000)}` : ''}{p.decisionNote ? <> · “{p.decisionNote}”</> : null}</div>
       )}
@@ -115,8 +120,8 @@ function ProposalCard({ p, active, meId, admin, index, err, setErr, highlight }:
       ) : (
         <div className="row" style={{ gap: 8, marginTop: 10 }}>
           <input className="input" style={{ flex: 1, minWidth: 0, height: 32 }} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" aria-label={`Decision note for ${p.title}`} maxLength={1000} />
-          <button className="btn sm primary" disabled={busy || !p.result.ok || stale} onClick={() => run(() => decideProposal(p, 'approve', note), `Proposal ${p.id} applied`)}
-            title={!p.result.ok ? 'The dry run found errors: it cannot be approved' : stale ? 'The organisation changed since: reject it or ask for a new one' : undefined}><Check size={13} />Approve</button>
+          <button className="btn sm primary" disabled={busy || !p.result.ok || stale || planWait} onClick={() => run(() => decideProposal(p, 'approve', note, planRead.data?.sha), `Proposal ${p.id} applied`)}
+            title={!p.result.ok ? 'The dry run found errors: it cannot be approved' : planWait ? (planRead.error ? 'The change plan could not be read, so this cannot be approved yet' : 'Reading the change plan') : stale ? 'The organisation changed since: reject it or ask for a new one' : undefined}><Check size={13} />Approve</button>
           <button className="btn sm ghost" disabled={busy} onClick={() => run(() => decideProposal(p, 'reject', note), `Proposal ${p.id} rejected`)}><X size={13} />Reject</button>
           <HelpTrigger k="org.proposal.decide" />
         </div>
