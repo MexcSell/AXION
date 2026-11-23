@@ -43,7 +43,7 @@ Rewritten 2026-11-22T07:35Z, 17:50Z, and 2026-11-23T03:40Z by the controller. Ol
 | w70 | c72 difficulty-adjusted skill ratings (R3-7 + R3-1) | CLEARED at 6511c04, batch 31 |
 | w71 | c73 polish bundle (P2c, H18, P4c, H15) | CLEARED at 59b78cf, batch 32 |
 | w72 | c74 dev server watches shared (H19), e2e15 | CLEARED at 8d9a9c3, batch 33 |
-| w73 | c75 approval evidence tamper-evident (P3c), e2e17, no migration | in review (tip 30b7233) |
+| w73 | c75 approval evidence tamper-evident (P3c), e2e17, no migration | CLEARED at af54328, batch 34 |
 | w74 | c76 Stage 8 records (R1, A1), e2e18, mig 0056 | in review (tip a1f6fbb), **PARKED (Q11): never queue** |
 | w75 | c77 Stage 9 records (M2, G1), e2e2, mig 0057 | CLEARED at da75e62, **PARKED (Q11): never queue** |
 | — | Final report draft (FINAL-REPORT-PHASE2.md) | draft committed; finalise at the end |
