@@ -98,6 +98,9 @@ export async function seedScale(pool: pg.Pool, o: { tasks: number; tenant?: stri
   await q(`insert into failure_tags (id, tenant_id, mission_id, subject_kind, subject_id, taxonomy_version, mode_id, tagged_by, tagged_by_kind, status, created_at, decided_by, decided_at)
            select t.id || '-F', $1, t.mission_id, 'task', t.id, 'mast-arxiv-2503.13657v3', 'FM-1.' || (1 + abs(hashtext(t.id)) % 3), m.owner_id, 'user', 'confirmed', t.created_at + interval '40 minutes', m.owner_id, t.created_at + interval '41 minutes'
              from tasks t join missions m on m.id = t.mission_id where t.id like '${P}-M-%' and t.status = 'failed'`, [T]);
-  await q('analyze');
+  // c78 (H21): never a bare `analyze`. It is database-wide, so in the shared axion_test DB it walks other test files' schemas and fails with
+  // `relation with OID n does not exist` when one of them is dropped meanwhile. Analyze only the tables of this connection's own schema.
+  const own = await q(`select quote_ident(c.relname) as t from pg_class c where c.relnamespace = current_schema()::regnamespace and c.relkind in ('r', 'p') order by 1`);
+  for (const r of own.rows) await q(`analyze ${r.t}`);
   return M;
 }

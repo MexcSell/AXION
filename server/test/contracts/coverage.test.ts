@@ -27,6 +27,7 @@ import { decided as decidedFx } from '../c65-fixtures.ts';
 import { SWEEP_SKIP, MEMBER_403_ALLOWED } from './allowlists.ts';
 import { UNEXERCISED_ALLOWED } from './exercised.ts';
 import { lenientMutations, unexercised } from './walk.ts';
+import { valueOrderProblems } from './value-order.ts';
 const ST = { baseline: 'No change: keep the current chart as it is.', expectedCost: 'No added cost is expected in this test.' }; // c64: every proposal states a baseline and its expected cost
 
 /**
@@ -627,6 +628,17 @@ describe('API coverage run', () => {
     expect([...hits].filter((h) => !(h in ROUTES)), 'hits that are not registry entries (typo in a pattern)').toEqual([]);
     
     writeDump();
+  });
+
+  it('c78 (H20): no response of any route is ordered by a numeric value of its entries, unless reviewed (value-based, whatever the field is called)', () => {
+    const found: string[] = [];
+    // the agents the run has seen, from the two agent lists (definitions and instances): an entry that names one of them is an agent entry
+    const agentIds = new Set<string>();
+    for (const b of bodies['GET /agents'] ?? []) for (const a of (b as any).agents ?? []) agentIds.add(a.id);
+    for (const b of bodies['GET /agent-instances'] ?? []) for (const i of (b as any).instances ?? []) { agentIds.add(i.id); agentIds.add(i.agentId); }
+    expect(agentIds.size, 'the run saw agents').toBeGreaterThan(3);
+    for (const [k, list] of Object.entries(bodies)) for (const b of list) found.push(...valueOrderProblems(k, b, agentIds));
+    expect([...new Set(found)].sort(), 'an ordered list in a response: give the reason in ORDER_ALLOWED, or it is a ranking').toEqual([]);
   });
 
   it('non-vacuous, node by node: every validator rejects an extra key, a missing key and a null on every object node of its richest real body (routes and events)', () => {
