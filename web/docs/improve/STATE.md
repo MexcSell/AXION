@@ -56,7 +56,7 @@ Rewritten 2026-11-22T07:35Z, 17:50Z, and 2026-11-23T03:40Z by the controller; up
 | w82 | c84 judge gate without selection bias (E1e), e2e17 | MERGED at 69c799c (batch 38) |
 | — | Research round 5 (docs only) | verified: 23 CONFIRMED, 3 CORRECTED |
 | w83 | c85 change plans (R5-1), e2e14, mig 0058 if needed | dispatched ~06:15Z |
-| w84 | c86 forecast ledger (R5-7), e2e3, mig 0059 if needed | dispatched ~06:15Z |
+| w84 | c86 forecast ledger (R5-7), e2e3, mig 0059 | CLEARED at d84882d, batch 41 |
 | w85 | c87 private-mission visibility sweep (tests only), e2e4 | dispatched ~07:20Z |
 | — | Final report draft (FINAL-REPORT-PHASE2.md) | draft committed; finalise at the end |
 
