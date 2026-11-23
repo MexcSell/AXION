@@ -16,7 +16,8 @@ for (const [W, H] of [[1366, 768], [1280, 760]]) {
   const p = await ctx.newPage();
   for (const path of paths) {
     await p.goto(base + path, { waitUntil: navWait() }); await settle(p); await p.waitForSelector('.tabs[role=tablist] [role=tab]'); await calm(p);
-    const grab = async () => { const out = []; const l = p.locator('.tabs[role=tablist]'); // the Tabs component only: Models' own .mm-cats strip is motion-animated and not touched by the c82 rule for (let i = 0; i < await l.count(); i++) if (await l.nth(i).isVisible()) out.push(await l.nth(i).screenshot({ animations: 'disabled' })); return out; };
+    // the Tabs component only: Models' own .mm-cats strip is a separate, motion-animated component the c82 rule does not touch
+    const grab = async () => { const out = []; const l = p.locator('.tabs[role=tablist]'); for (let i = 0; i < await l.count(); i++) if (await l.nth(i).isVisible()) out.push(await l.nth(i).screenshot({ animations: 'disabled' })); return out; };
     const after = await grab();
     const st = await p.addStyleTag({ content: '.tabs > .tab { flex: 0 1 auto !important; }' }); await calm(p);
     const before = await grab(); await st.evaluate((e) => e.remove());
