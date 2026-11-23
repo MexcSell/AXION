@@ -52,4 +52,36 @@ describe('c90 sequential confidence sequence', () => {
     expect(readout(s0).status).toBe('not_enough_evidence');
     expect(MIN_PER_ARM).toBe(10);
   });
+
+  it('same bounds for any arrival order at equal counts (unequal and bursty)', () => {
+    const bef = [...mk('before', 1, 12), ...mk('before', 0, 18)], aft = [...mk('after', 1, 20), ...mk('after', 0, 10)];
+    const orders: Observation[][] = [
+      interleave(bef, aft),
+      [...bef, ...aft],
+      [...aft, ...bef],
+      [...bef.slice(0, 5), ...aft.slice(0, 25), ...bef.slice(5), ...aft.slice(25)],
+    ];
+    const finals = orders.map((o) => sequence(o)[o.length - 1]);
+    for (const f of finals) { expect(f.lower).toBeCloseTo(finals[0].lower!, 12); expect(f.upper).toBeCloseTo(finals[0].upper!, 12); }
+    // bursty: 30 after before any before-arm observation, then before: not enough evidence until both arms reach 10
+    const early = sequence([...aft, ...bef]);
+    expect(early[29].status).toBe('not_enough_evidence');
+  });
+  it('bounds stay inside [-1, 1] in the extremes', () => {
+    for (const [b, a] of [[1, 0], [0, 1], [1, 1], [0, 0]] as const) {
+      for (const st of sequence(interleave(mk('before', b, 60), mk('after', a, 60))).filter((x) => x.status === 'ok')) {
+        expect(st.lower!).toBeGreaterThanOrEqual(-1); expect(st.upper!).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+  it('covers the true difference at every look under a real effect (small fixed-seed sim)', () => {
+    let seed = 20260123; const rnd = () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    let misses = 0; const streams = 300;
+    for (let k = 0; k < streams; k++) {
+      const obs: Observation[] = [];
+      for (let i = 0; i < 150; i++) { obs.push({ arm: 'before', outcome: rnd() < 0.3 ? 1 : 0 }); obs.push({ arm: 'after', outcome: rnd() < 0.5 ? 1 : 0 }); }
+      if (sequence(obs).some((x) => x.status === 'ok' && !(x.lower! <= 0.2 && 0.2 <= x.upper!))) misses++;
+    }
+    expect(misses / streams).toBeLessThanOrEqual(0.05 + 2 * Math.sqrt(0.05 * 0.95 / streams));
+  });
 });
