@@ -3,7 +3,7 @@ import { isApi } from '@/api/mode';
 import { useMemo, useRef, useState } from 'react';
 import {
   UserRound, KeyRound, MonitorSmartphone, ShieldCheck, Users as UsersIcon, Check, X, Trash2, Ban, Monitor, Laptop, Smartphone, Tablet,
-  ImagePlus, Bot, Type, Crown, Plus, CheckCircle2, Eye, EyeOff, Save, UserCheck, Power,
+  ImagePlus, Bot, Type, Crown, Plus, CheckCircle2, Eye, EyeOff, Save, UserCheck, Power, Crosshair,
 } from 'lucide-react';
 import { Panel } from '@/components/ui/Panel';
 import { Field, Segmented } from '@/components/ui/Form';
@@ -17,7 +17,7 @@ import { ROLES } from '@/data/roles';
 import type { RoleKey } from '@/data/types';
 import { useAuth, useMe, useSession, isAdmin, usePendingApprovals, type Account, type AvatarSpec, type Device, type DeviceKind } from '@/store/auth';
 import { useData } from '@/store/data';
-import { toast } from '@/store/ui';
+import { toast, openDialog } from '@/store/ui';
 import { agoFromTs, cx } from '@/lib/format';
 
 export const DEVICE_ICON: Record<DeviceKind, typeof Monitor> = { desktop: Monitor, laptop: Laptop, phone: Smartphone, tablet: Tablet };
@@ -255,6 +255,7 @@ function AllUsersPanel({ me }: { me: Account }) {
                   {a.role === 'admin' ? <Crown size={13} /> : <UserRound size={13} />}{a.role === 'admin' ? 'Admin' : 'Member'}
                 </button>
               </Tip>
+              {isApi() && a.status === 'approved' && <IconButton size="xs" icon={Crosshair} label={`Forecasts of ${a.name}`} data-user-forecasts={a.id} onClick={() => openDialog('user-forecasts', { userId: a.id, name: a.name })} />}
               {a.id !== me.id && (a.status === 'approved' || a.status === 'disabled') && (
                 <IconButton size="xs" icon={a.status === 'disabled' ? UserCheck : Power} label={a.status === 'disabled' ? `Enable ${a.name}` : `Disable ${a.name}`}
                   onClick={() => { setStatus(a.id, a.status === 'disabled' ? 'approved' : 'disabled'); toast({ tone: 'info', title: `${a.name} ${a.status === 'disabled' ? 'enabled' : 'disabled'}` }); }} />

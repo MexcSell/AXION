@@ -2,11 +2,11 @@ import type { HelpEntry } from '../registry';
 
 const h = (title: string, what: string, why?: string, how?: string, example?: string, permission?: string): HelpEntry => ({ title, what, why, how, example, permission });
 
-/** Improvement cycle 89: change plans on organisation proposals (administrators) and task forecasts (everyone who can see the task). Counts only: no entry here claims a change worked. */
+/** Improvement cycle 89: change plans on organisation proposals (administrators) and task forecasts (everyone who can see the task). Counts only. */
 const entries: Record<string, HelpEntry> = {
   // ---- change plans
   'plan.section': h('Change plan', 'What was planned before this organisation change: the one metric it should move, which way, by how much, how many observations are needed on each side, how long the windows are, which guardrail metrics must not get worse, and why.',
-    'A metric chosen after the data is seen can always be made to look good. Writing it down first removes that choice. This is a record kept by AXION, not statistical pre-registration, and it gives no verdict.',
+    'A metric chosen after the data is seen can always be made to look good. Writing it down first removes that choice. This is a record kept by AXION of what was planned. It gives no statistical verdict.',
     'A plan is set while the proposal is pending. Approving the proposal fixes its sha (a fingerprint of the plan) into the record and locks the plan. After that a change is an amendment with a reason, shown here as made after the change.',
     'Primary metric: tasks verified by review, up, margin 5, 30 observations in each 14-day window.', 'Only administrators see plans. A member never sees this section.'),
   'plan.primary': h('Primary metric and margin', 'The registry metric the change is meant to move, the direction (up or down) and the margin: how far it should move, in that metric\'s own unit.',
@@ -20,7 +20,7 @@ const entries: Record<string, HelpEntry> = {
   'plan.amendments': h('Amendments', 'Changes to the plan made after the proposal was approved. Each is a new row with the new plan, the reason, who made it and when. Nothing is edited in place.',
     'A change made after the change took effect is not the same as a plan made before it. It is shown plainly as "amended after the change".', 'The counts below always use the plan as it was locked at approval, not an amended choice.'),
   'plan.readout': h('Readout', 'For an applied proposal: how many observations of each planned metric fall in the pre and the post window, and whether each reaches the minimum n.',
-    'It only counts. "Not enough evidence yet" means the post window is not complete or a window is below the minimum. "Ready for analysis" means only that the counts are in place: no analysis is computed in this version, so nothing here says the change worked or did not.',
+    'It only counts. "Not enough evidence yet" means the post window is not complete or a window is below the minimum. "Ready for analysis" means only that the counts are in place: no analysis is computed in this version, so nothing here says whether the change helped.',
     'Counts come from stored records, computed by the server with its own clock.'),
   'plan.counts': h('Counts per window', 'The number of observations of this metric before (pre) and after (post) the change, with the minimum n required. A tick means the minimum is reached.', 'A count below the minimum means that side is too thin to read.'),
   'plan.other': h('Another change in the window', 'Another organisation revision (a further change or a rollback) took effect during the post window.', 'The post counts then mix the effects of both changes, so they cannot be attributed to this one alone.'),

@@ -117,7 +117,7 @@ export function PlanSection({ plan, error, retry }: { plan: OrgPlanDto | null; e
             {plan.observations.map((o) => <Counts key={o.role + o.metric} o={o} />)}
           </div>
           {plan.otherChanges > 0 && <div className="oa-issue warn" data-plan-other><AlertTriangle size={13} aria-hidden /><span>Another change took effect during the window ({plan.otherChanges}): the counts mix both.</span><HelpTrigger k="plan.other" /></div>}
-          <div className="dim" style={{ fontSize: 11 }}>Counts only. Nothing here says whether the change worked.</div>
+          <div className="dim" style={{ fontSize: 11 }}>Counts only. They say nothing about whether the change helped.</div>
         </div>
       )}
     </motion.section>

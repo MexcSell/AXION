@@ -37,7 +37,7 @@ views.push('/operations?tab=agents&sub=dimensions', '/operations?tab=agents&sub=
 views.push('/operations?tab=agents&sub=directory&view=cards', '/operations?tab=agents&sub=directory&view=hierarchy');
 if (!API) add('/agents/coder-01', ['Profile', 'Capabilities', 'Tools', 'Instances', 'Conversations', 'Memory', 'Performance', 'Mentoring', 'Evolution', 'Audit']);
 add('/notifications', ['Inbox', 'News', 'Pending', 'Resolved', 'Rules']);
-add('/settings', ['General', 'Users', 'Navigation', 'Appearance', 'Avatars & Faces', 'Accessibility', 'Browser', 'Integrations', 'Storage', 'Security', 'Backups']);
+add('/settings', ['General', 'Users', 'Forecasts', 'Navigation', 'Appearance', 'Avatars & Faces', 'Accessibility', 'Browser', 'Integrations', 'Storage', 'Security', 'Backups']);
 
 // runs inside the page: returns a list of violation strings for the current view
 const audit = () => {
