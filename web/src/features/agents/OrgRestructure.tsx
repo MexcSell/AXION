@@ -1,4 +1,4 @@
-import { Undo2, Scale, Layers, Repeat, Target, CheckCircle2, AlertOctagon, Gauge, Timer, CircleSlash, ClipboardCheck, Coins, SearchX, SearchCheck } from 'lucide-react';
+import { Undo2, Scale, Layers, Repeat, Target, CheckCircle2, AlertOctagon, Gauge, Timer, CircleSlash, ClipboardCheck, Coins, SearchX, SearchCheck, Lock } from 'lucide-react';
 import type { OrgChurn, OrgContractCheck, OrgEvidence, RestructureTrigger, TriggerEvidence } from '@contracts';
 import { Chip } from '@/components/ui/Chips';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
@@ -22,6 +22,16 @@ const stamp = (iso?: string | null) => (iso ? new Date(iso).toLocaleString(undef
 export function EvidenceBlock({ ev, compact, asOf }: { ev: OrgEvidence; compact?: boolean; asOf?: string | null }) {
   const row = (t: TriggerEvidence, picked: boolean) => {
     const L = LABEL[t.kind];
+    // c88 (T2): a member does not get counts taken over missions they may not see; the server sends `hidden` (no verdict, no facts)
+    if (t.hidden) return (
+      <div key={t.kind} className={'oa-rs-row' + (picked ? '' : ' unpicked') + (compact ? ' compact' : '')} {...(picked ? { 'data-trigger': t.kind } : { 'data-trigger-other': t.kind })} data-hidden="1">
+        <L.icon size={13} aria-hidden />
+        <b>{L.label}</b>
+        {picked ? <Chip hue={225} size="sm" title="The proposer picked this trigger as a reason for the change">picked</Chip> : <span className="dim" style={{ fontSize: 11 }}>not picked</span>}
+        <span className="dim row" style={{ gap: 4, fontSize: 11.5 }} data-evidence-hidden><Lock size={11} aria-hidden />Counts visible to administrators<HelpTrigger k="org.proposal.evidenceHidden" /></span>
+        <span className="dim" style={{ fontSize: 11 }} data-scope={t.scope}>{SCOPE(t, ev.windowDays)}</span>
+      </div>
+    );
     return (
       <div key={t.kind} className={'oa-rs-row' + (picked ? '' : ' unpicked') + (compact ? ' compact' : '')} title={picked ? undefined : t.facts.map((f) => `${f.label}: ${f.value}`).join('\n')} {...(picked ? { 'data-trigger': t.kind } : { 'data-trigger-other': t.kind })} data-supported={t.supported ? '1' : '0'}>
         <L.icon size={13} aria-hidden />
