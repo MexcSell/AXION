@@ -131,7 +131,7 @@ describe('source: no sort of skill code mentions a rating, and the compare paylo
     ...walk(join(root, 'web/src')).filter((f) => /[Ss]kill/.test(f)),
   ];
   it('the skill files exist and none sorts by a rating', () => {
-    expect(skillFiles.length).toBeGreaterThanOrEqual(2);
+    expect(skillFiles.map((f) => f.replace(root, "")).sort()).toEqual(["/server/src/agents/skills.ts", "/shared/contracts/src/skills.ts", "/web/src/api/agentSkills.ts", "/web/src/data/skillDemo.ts", "/web/src/features/agents/SkillVector.tsx", "/web/src/help/pages/c72-skills.ts"]);
     const bad: string[] = [];
     for (const f of skillFiles) { const src = readFileSync(f, 'utf8'); for (const l of sortedByRatingLines(src)) bad.push(`${f.replace(root, '')}: ${l.trim()}`); }
     expect(bad).toEqual([]);

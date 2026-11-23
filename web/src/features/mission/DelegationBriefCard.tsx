@@ -1,5 +1,5 @@
-import { CalendarClock, ChevronRight, Dot, Globe, HandHelping, ListChecks, ShieldCheck, Wallet } from 'lucide-react';
-import type { DelegationBriefDto, BriefTier } from '@contracts';
+import { CalendarClock, ChevronRight, Dot, Globe, HandHelping, Layers, ListChecks, ShieldCheck, Wallet } from 'lucide-react';
+import { TASK_CLASSES, DIFFICULTY_LABELS, type DelegationBriefDto, type BriefTier, type TaskClassId } from '@contracts';
 import { Chip, DemoTag } from '@/components/ui/Chips';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { AGENT_BY_ID } from '@/data/agents';
@@ -48,6 +48,7 @@ export function DelegationBriefCard({ brief, all }: { brief: DelegationBriefDto;
         </div>
       )}
       <div className="dbrief-meta">
+        {(b.taskClass || b.difficulty) && <span title="Task class and difficulty, stated by the delegator. They feed skill ratings, so they are not a measurement." data-testid="brief-class-chip"><Layers size={13} aria-hidden />{b.taskClass ? (TASK_CLASSES[b.taskClass as TaskClassId] ?? b.taskClass) : 'no class'}{b.difficulty ? ` · difficulty ${b.difficulty} (${DIFFICULTY_LABELS[b.difficulty] ?? ''})` : ''}</span>}
         <span title="Deadline"><CalendarClock size={13} aria-hidden />{b.deadline ? when(b.deadline) : 'no deadline'}</span>
         {b.budget !== undefined && <span title="Budget"><Wallet size={13} aria-hidden />{b.budget} units</span>}
         <span className="dim" title="Escalation: when to ask a human">Ask a human: {b.escalation}</span>

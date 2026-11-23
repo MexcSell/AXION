@@ -127,3 +127,23 @@ export interface SkillCompareDto {
   /** one row per class both agents have a cell for, in the fixed class order */
   classes: { classId: TaskClassId; label: string; verdict: SkillVerdict; reason: string; sharedLevels: number[] }[];
 }
+
+/** One cell per task class, always in the fixed class order. Pure. */
+export function skillCells(byClass: ReadonlyMap<TaskClassId, readonly LevelCount[]>): SkillCellDto[] {
+  return TASK_CLASS_IDS.map((classId): SkillCellDto => {
+    const lv = byClass.get(classId) ?? [];
+    const raw = rawRate(lv);
+    const n = raw?.n ?? 0, x = raw?.x ?? 0;
+    const enough = n >= SKILL_MIN_N;
+    const adj = enough ? standardise(lv) : null;
+    return {
+      classId, label: TASK_CLASSES[classId], n, successes: x,
+      state: enough ? 'ok' : 'not_enough_evidence',
+      raw: enough ? toInterval(raw) : null,
+      adjusted: toInterval(adj),
+      levels: DIFFICULTY_LEVELS.map((d) => lv.find((l) => l.d === d)).filter((l): l is LevelCount => !!l).map((l) => ({ difficulty: l.d, label: DIFFICULTY_LABELS[l.d], n: l.n, successes: l.x })),
+      evidence: (enough ? '' : `not enough evidence (${n} of ${SKILL_MIN_N}) · `) + (n ? `${x} of ${n} finished task${n === 1 ? '' : 's'} passed` : 'no finished tasks with a stated class and difficulty') + ' · all recorded time',
+    };
+  });
+}
+

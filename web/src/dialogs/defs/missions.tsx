@@ -5,7 +5,7 @@ import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Pencil, Trash2, Play, Pause, Square, RotateCcw, LayoutTemplate, Paperclip, Sparkles, Bot, GitBranch, ListChecks, Info,
-  Image as ImageIcon, FileText, X, Check, ChevronRight, ShieldCheck, Users, AlertTriangle, Archive, Upload, MessageSquare, Send, Copy, Tags } from 'lucide-react';
+  Image as ImageIcon, FileText, X, Check, ChevronRight, ShieldCheck, Users, AlertTriangle, Archive, Upload, MessageSquare, Send, Copy, Tags, Layers } from 'lucide-react';
 import type { DialogComponentProps } from '@/dialogs/DialogHost';
 import { Modal } from '@/components/ui/Modal';
 import { Field, Segmented, SwitchRow } from '@/components/ui/Form';
@@ -27,9 +27,10 @@ import { ago, clock, cx } from '@/lib/format';
 import '@/theme/pages/missions.css';
 import { EvidenceThumb } from '@/features/mission/EvidenceThumb';
 import { Messenger } from '@/features/mission/Messenger';
+import '@/theme/pages/c72-skills.css';
 import { DelegationBriefCard, NoBrief, TIER_HUE } from '@/features/mission/DelegationBriefCard';
 import { useDelegationBriefs } from '@/api/delegationBriefs';
-import type { DelegationBriefDto } from '@contracts';
+import { TASK_CLASS_IDS, TASK_CLASSES, DIFFICULTY_LEVELS, DIFFICULTY_LABELS, type DelegationBriefDto } from '@contracts';
 
 /* ------------------------------------------------------------------ */
 /* Shared: attachment drop zone (image/text/file) — DL-09               */
@@ -321,6 +322,8 @@ function TaskReassign({ close, props }: DialogComponentProps<{ missionId: string
   const [deadline, setDeadline] = useState('');
   const [esc, setEsc] = useState('Ask the mission owner when scope is unclear');
   const [fe, setFe] = useState<Record<string, string>>({});
+  const [taskClass, setTaskClass] = useState('');
+  const [difficulty, setDifficulty] = useState('');
   const kinds = useDelegationBriefs(props.missionId).data?.kinds;
   if (!m) return <Missing close={close} />;
   const tasks = getMissionControl(m).tasks;
@@ -336,7 +339,7 @@ function TaskReassign({ close, props }: DialogComponentProps<{ missionId: string
     if (!task || busy) return;
     setBusy(true);
     const node = getMissionControl(m).nodes.find((n) => n.agentId === to);
-    const brief = { goal: goal.trim() || task.title, acceptance: criteria, capabilities: (kinds ?? []).filter((k) => k.allowed && caps.includes(k.kind)).map((k) => ({ kind: k.kind })), escalation: esc.trim() || 'Ask the mission owner when scope is unclear', ...(deadline ? { deadline: new Date(deadline).toISOString() } : {}) };
+    const brief = { goal: goal.trim() || task.title, acceptance: criteria, capabilities: (kinds ?? []).filter((k) => k.allowed && caps.includes(k.kind)).map((k) => ({ kind: k.kind })), escalation: esc.trim() || 'Ask the mission owner when scope is unclear', ...(deadline ? { deadline: new Date(deadline).toISOString() } : {}), ...(taskClass ? { taskClass } : {}), ...(difficulty ? { difficulty: Number(difficulty) } : {}) };
     const r = node ? await taskAction(m.id, task.id, 'reassign', { toInstanceId: node.instanceId, reason: why.trim(), brief }) : { ok: false as const, message: 'This agent has not joined the mission.' };
     setBusy(false);
     setFe(!r.ok && r.fieldErrors ? r.fieldErrors : {});
@@ -362,7 +365,7 @@ function TaskReassign({ close, props }: DialogComponentProps<{ missionId: string
           <input className="input" aria-label="Goal" aria-invalid={!!fe.goal} maxLength={500} value={goal} onChange={(e) => setGoal(e.target.value)} placeholder={task ? `Goal (default: ${task.title})` : 'Goal'} />
           <textarea className="input" aria-label="Acceptance criteria" aria-invalid={!!(fe.acceptance || Object.keys(fe).some((k) => k.startsWith('acceptance.')))} maxLength={3000} value={accept} onChange={(e) => setAccept(e.target.value)} placeholder="Acceptance criteria, one per line (required)." />
           <div className="dbrief-hint">Required: at least one line. Each line 3 to 300 characters, at most 20 lines.</div>
-          {Object.entries(fe).filter(([k]) => k === 'goal' || k.startsWith('acceptance') || k === 'escalation' || k === 'deadline' || k === 'capabilities' || k === 'budget' || k === 'depth').map(([k, v]) => <div key={k} className="dbrief-err" role="alert">{k.replace(/\.\d+$/, '')}: {v}</div>)}
+          {Object.entries(fe).filter(([k]) => k === 'goal' || k.startsWith('acceptance') || k === 'escalation' || k === 'deadline' || k === 'capabilities' || k === 'budget' || k === 'depth' || k === 'taskClass' || k === 'difficulty').map(([k, v]) => <div key={k} className="dbrief-err" role="alert">{k.replace(/\.\d+$/, '')}: {v}</div>)}
           <div className="dbrief-pick" role="group" aria-label="Allowed capabilities">
             {(kinds ?? []).filter((k) => k.tier === 'R0' || k.tier === 'R1' || k.tier === 'R2').map((k) => (
               <button key={k.kind} type="button" disabled={!k.allowed} aria-pressed={caps.includes(k.kind)} title={`${k.why} (${k.tier})`} onClick={() => setCaps((c) => (c.includes(k.kind) ? c.filter((x) => x !== k.kind) : [...c, k.kind]))}>
@@ -373,6 +376,18 @@ function TaskReassign({ close, props }: DialogComponentProps<{ missionId: string
           <div className="row" style={{ gap: 8 }}>
             <input className="input" type="datetime-local" aria-label="Deadline" value={deadline} onChange={(e) => setDeadline(e.target.value)} style={{ maxWidth: 210 }} />
             <input className="input" aria-label="Escalation" maxLength={300} aria-invalid={!!fe.escalation} value={esc} onChange={(e) => setEsc(e.target.value)} />
+          </div>
+          <div className="row dbrief-class" style={{ gap: 8 }} data-testid="brief-class">
+            <Layers size={14} aria-hidden className="dim" />
+            <select className="select" aria-label="Task class" aria-invalid={!!fe.taskClass} value={taskClass} onChange={(e) => setTaskClass(e.target.value)}>
+              <option value="">Task class (optional)</option>
+              {TASK_CLASS_IDS.map((c) => <option key={c} value={c}>{TASK_CLASSES[c]}</option>)}
+            </select>
+            <select className="select" aria-label="Difficulty" aria-invalid={!!fe.difficulty} value={difficulty} onChange={(e) => setDifficulty(e.target.value)}>
+              <option value="">Difficulty (optional)</option>
+              {DIFFICULTY_LEVELS.map((d) => <option key={d} value={d}>{d} · {DIFFICULTY_LABELS[d]}</option>)}
+            </select>
+            <HelpTrigger k="delegation.taskClass" />
           </div>
         </div>
       )}
