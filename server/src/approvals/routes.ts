@@ -8,7 +8,7 @@ import { DEFAULT_WINDOW_DAYS, WINDOWS, MIN_EVIDENCE, aggregateQuality, approverQ
 import { parse } from '../auth/routes.ts';
 import { emit } from '../events/hooks.ts';
 import { VISIBLE_SQL } from '../missions/visibility.ts';
-import { approvalDto, decideRefusal, evidenceMismatch, evidenceState, rowDigest, settleMission, sweepExpired } from './service.ts';
+import { approvalDto, decideEvidence, decideRefusal, evidenceMismatch, evidenceState, rowDigest, settleMission, sweepExpired } from './service.ts';
 import { tx as txRun } from '../db.ts';
 
 export default async function approvalRoutes(app: FastifyInstance) {
@@ -65,8 +65,8 @@ export default async function approvalRoutes(app: FastifyInstance) {
       const queueSize = await pendingQueueSize(c, ctx.tenantId); // read before the write, so it counts this request
       const u = await c.query(`update approval_requests set state=$2 where id=$1 and state='pending' returning id`, [id, b.decision]);
       if (!u.rowCount) throw new ApiError('APPROVAL_ALREADY_DECIDED', 409, 'Someone already decided this request.');
-      await recordDecision(c, { approvalId: id, decision: b.decision, reason: b.reason, digest: b.digest, userId: ctx.user.id, queueSize }); // latency, queue size and the advisory flag are recorded; none of them changes the decision just made
-      await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'approval.decide', subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { decision: b.decision, mission: a.mission_id } });
+      const rec = await recordDecision(c, { approvalId: id, decision: b.decision, reason: b.reason, digest: b.digest, userId: ctx.user.id, queueSize }); // latency, queue size and the advisory flag are recorded; none of them changes the decision just made
+      await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'approval.decide', subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { decision: b.decision, mission: a.mission_id, ...decideEvidence(a, rec) } }); // c75: the decision's evidence enters the per-tenant hash chain
       await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'approval.decided', subject: a.mission_id, missionId: a.mission_id, payload: { approvalId: id, decision: b.decision, by: ctx.user.name } });
       const released = await settleMission(c, ctx.tenantId, a.mission_id, ctx.correlationId);
       const fresh = (await c.query(`select a.*, (a.expires_at < now()) as db_expired, (extract(epoch from now()) * 1000)::float8 as db_now_ms, du.name as decided_by_name, dd.dec_latency_ms, dd.dec_queue_size, dd.dec_fast_bulk from approval_requests a

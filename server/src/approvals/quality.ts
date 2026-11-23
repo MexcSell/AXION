@@ -26,15 +26,17 @@ export async function pendingQueueSize(c: Tx, tenantId: string): Promise<number>
  * clock (no app clock, no value from the client). The flag only describes; the caller has already decided.
  */
 export async function recordDecision(c: Tx, a: { approvalId: string; decision: 'approved' | 'denied'; reason: string; digest: string; userId: string; queueSize: number }) {
-  await c.query(
+  const r = await c.query(
     `insert into approval_decisions(approval_id, decision, reason, digest, decided_by, latency_ms, queue_size, fast_bulk)
      select $1, $2, $3, $4, $5,
             greatest(0, (extract(epoch from (now() - r.created_at)) * 1000)::bigint),
             $6,
             (r.risk = any($7::text[])) and (select count(*) from approval_decisions d join approval_requests q on q.id = d.approval_id
                where d.decided_by = $5 and d.decided_at > now() - make_interval(secs => $8::double precision) and q.risk = any($7::text[])) >= $9
-       from approval_requests r where r.id = $1`,
+       from approval_requests r where r.id = $1
+    returning latency_ms, queue_size, fast_bulk`,
     [a.approvalId, a.decision, a.reason, a.digest, a.userId, a.queueSize, BULK_TIERS, BULK_WINDOW_S, BULK_COUNT - 1]);
+  return r.rows[0] as { latency_ms: string; queue_size: number; fast_bulk: boolean };
 }
 
 export interface QualityCell { n: number; enough: boolean; approvalRate: number | null; medianLatencyMs: number | null; fastBulk: number | null }

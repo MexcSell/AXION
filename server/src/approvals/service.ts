@@ -100,6 +100,13 @@ export function evidenceState(r: any): 'ok' | 'legacy' | 'mismatch' {
 }
 export const evidenceMismatch = () => new ApiError('APPROVAL_EVIDENCE_MISMATCH', 409, 'The recorded reasons for this request were changed after it was made. It cannot be used; the agent must ask again.');
 
+/** The evidence a decision puts in its audit row (and so in the chain), from the stored request and the decision record just written. */
+export interface DecideEvidence { latencyMs: number; queueSize: number; fastBulk: boolean; fired: boolean; rule: 'rule_of_two' | null; evidenceDigest: string | null }
+export const decideEvidence = (r: any, d: { latency_ms: unknown; queue_size: unknown; fast_bulk: unknown }): DecideEvidence => ({
+  latencyMs: Number(d.latency_ms), queueSize: Number(d.queue_size), fastBulk: !!d.fast_bulk,
+  fired: !!r.rule_of_two?.fired, rule: r.rule_of_two?.rule ?? null, evidenceDigest: r.rule_of_two?.evidenceDigest ?? null,
+});
+
 const kindRule = (k: string) => (CURRENT_BASELINE.kinds as Record<string, { effect: string; why: string }>)[k];
 
 export type DecideBlockedReason = 'tier_requires_admin' | 'requester_cannot_decide' | 'already_decided' | 'expired';
@@ -178,10 +185,16 @@ export async function sweepExpired(c: Tx, tenantId?: string): Promise<string[]> 
 
 
 /**
- * At consume: the stored record must still match what was bound when the request was made.
+ * At consume: the stored record must still match what was bound, and, for a request decided after c75, what the decision's audit row says
+ * (the evidence digest, and the latency, queue size and fast-bulk flag next to the decision record). Older decisions have no such audit detail and are skipped.
  */
 async function assertEvidence(c: Tx, r: any) {
   if (evidenceState(r) === 'mismatch') throw evidenceMismatch();
+  const a = (await c.query(`select detail from audit_events where tenant_id=$1 and action='approval.decide' and subject=$2 and result='ok' order by seq desc limit 1`, [r.tenant_id, r.id])).rows[0]?.detail;
+  if (!a || a.evidenceDigest === undefined) return;
+  const d = (await c.query('select latency_ms, queue_size, fast_bulk from approval_decisions where approval_id=$1 order by decided_at desc limit 1', [r.id])).rows[0];
+  const now = decideEvidence(r, d ?? {});
+  if (now.evidenceDigest !== a.evidenceDigest || !d || now.latencyMs !== a.latencyMs || now.queueSize !== a.queueSize || now.fastBulk !== a.fastBulk || now.fired !== a.fired || now.rule !== a.rule) throw evidenceMismatch();
 }
 
 export interface ConsumeInput { approvalId: string; action: BoundAction; /** who is executing (an agent or service id) */ by: string; /** test clock; without it expiry is judged by the database clock, the same as the sweep */ now?: number }
