@@ -11,6 +11,12 @@ export const visibleAnyone = (read: RegExp): Rewrite => (sql, params) => {
   const out = sql.replace(/(\(\$\d+::boolean or m\.owner_id = \$\d+ or m\.shared)\)/g, '$1 or true)');
   return out === sql ? null : { sql: out, params };
 };
+/** c86 shape: only the `hist` CTE of the forecast ledger (the reference-class baseline) drops VISIBLE_SQL; the forecasts themselves keep it. */
+export const histAnyone: Rewrite = (sql, params) => {
+  if (!/^\s*with hist as materialized/i.test(sql)) return null;
+  const out = sql.replace(/(\(\$\d+::boolean or m\.owner_id = \$\d+ or m\.shared)\)/, '$1 or true)'); // first occurrence = the CTE's
+  return out === sql ? null : { sql: out, params };
+};
 /** The event stream's visibility is decided in memory from this SELECT of the mission rows: lie about `shared`. */
 export const streamSeesAllShared: Rewrite = (sql, params) => (/^\s*select id, owner_id, shared, deleted_at, tenant_id from missions where id = any/i.test(sql) ? { sql: sql.replace('owner_id, shared,', 'owner_id, true as shared,'), params } : null);
 
@@ -34,6 +40,7 @@ export const VIS_MUTANTS: VisMutant[] = [
   { id: 'V06', kind: 'list route', what: 'the approval list drops VISIBLE_SQL', sql: visibleAnyone(/from approval_requests a join missions m/), expect: /^(V1|V2) GET \/approvals$/ },
   { id: 'V09', kind: 'join (c86 shape)', what: 'every department count that joins `missions m` drops VISIBLE_SQL in its join clause (GET /departments)', sql: visibleAnyone(/join missions m/i), expect: /^V1 GET \/departments$/ },
   { id: 'V10', kind: 'gate query feeding later aggregates', what: 'the mission gate of the company process and dimensions loaders drops VISIBLE_SQL, so their task, review, attempt and approval aggregates read private missions', sql: visibleAnyone(/select m\.id, m\.demo from missions m/), expect: /^V1 GET \/company\/(process|dimensions)$/ },
+  { id: 'V11', kind: 'baseline CTE (c86 shape)', what: 'the reference-class baseline of the forecast ledger (`hist` in forecasts/ledger.ts) reads every mission\'s first reviews, not the visible ones', sql: histAnyone, expect: /^V1 GET \/(me|users\/:id)\/forecasts$/ },
   { id: 'V07', kind: 'nested field', what: 'GET /agents/:id carries a private mission\'s text in a nested field (agent.recent[].events[].detail.items[].text)', leak: true, expect: /^V2 GET \/agents\/:id$/ },
   { id: 'V08', kind: 'SSE', what: 'the event stream treats every mission as shared, so a private mission\'s events reach every member', sql: streamSeesAllShared, expect: /^SSE GET \/events\/stream$/ },
 ];

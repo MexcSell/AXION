@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { tx } from '../../src/db.ts';
 import { insertInstance } from '../../src/instances/service.ts';
 import { requestApproval } from '../../src/approvals/service.ts';
@@ -91,7 +92,43 @@ async function seedMemberOutcomes(v: VisWorld) {
   await finishedTask(v, `T-${tag}-3`, inst, m3, 'Member task three', 'failed', 'coding', 3, 'rejected');
   await finishedTask(v, `T-${tag}-4`, inst, m3, 'Member task four', 'failed', 'coding', 3, 'rejected');
   v.priv.memberTaskCount = '4';
+  await seedForecasts(v, m3, inst);
   v.priv.orgA = await createOrgProposal(v, 'a'); // stored evidence made while the private mission does not exist
+}
+
+/**
+ * c86 reachability (GET /me/forecasts, GET /users/:id/forecasts): M and the administrator each forecast a task of M's own visible mission BEFORE its first review
+ * (through the real route), class 'research', difficulty 2. The reference-class baseline of a forecast counts the first reviews of tasks of the same class
+ * and difficulty that fell BEFORE the forecast's made_at, over the tasks the viewer can see. M sees 2 such tasks (under the floor of 5, so no baseline);
+ * the private mission's hidden tasks are inserted later with first reviews BACKDATED to before made_at (see addHiddenBaseline), so they are in the
+ * administrator's baseline (n and rate move between the states) and would be in M's if visibility were ignored.
+ */
+async function seedForecasts(v: VisWorld, m3: string, inst: string) {
+  const open = async (id: string, title: string) => {
+    await mkTask(v, id, 'ready', inst, m3, title);
+    must(await v.t.admin.req('POST', `/missions/${m3}/delegation-briefs`, { toInstanceId: inst, taskId: id, brief: brief('Goal for ' + id, D('research', 2)) }, idem()), 201, 'brief ' + id);
+  };
+  const review = async (id: string) => must(await v.t.admin.req('POST', `/tasks/${id}/reviews`, { verdict: 'accepted', rubric: [{ criterion: 'Output attached', result: 'pass', note: 'Seen' }], evidence: [{ kind: 'url', ref: 'https://example.com/' + id.toLowerCase() }] }, idem()), 201, 'review ' + id);
+  // two earlier visible research/2 outcomes, reviewed before any forecast
+  for (const id of ['T-fc-h1', 'T-fc-h2']) { await open(id, 'Earlier research ' + id); await v.w.pool.query(`update tasks set status='passed' where id=$1`, [id]); await review(id); }
+  await open('T-fc-m', 'Member forecast task'); await open('T-fc-a', 'Admin forecast task');
+  must(await v.M.req('POST', '/tasks/T-fc-m/forecasts', { probability: 0.7 }, idem()), 201, 'M forecast');
+  must(await v.t.admin.req('POST', '/tasks/T-fc-a/forecasts', { probability: 0.6 }, idem()), 201, 'admin forecast');
+  v.priv.fcBefore = (await v.w.pool.query(`select (min(made_at) - interval '1 minute')::text as t from forecasts where task_id = any($1)`, [['T-fc-m', 'T-fc-a']])).rows[0].t;
+  for (const id of ['T-fc-m', 'T-fc-a']) { await v.w.pool.query(`update tasks set status='passed' where id=$1`, [id]); await review(id); } // resolved: first review after made_at
+}
+/** Hidden tasks of the private mission whose first reviews fall BEFORE the forecasts' made_at (inserted directly with a past created_at: the tables are append-only but accept inserts), so they belong to the baseline of the administrator's forecasts. */
+export async function addHiddenBaseline(v: VisWorld, ids: string[], verdict: 'accepted' | 'rejected'): Promise<void> {
+  const { t, priv } = v; const pool = v.w.pool;
+  for (const id of ids) {
+    await pool.query(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent, owner_instance_id) values ($1,$2,$3,$4,$5,'coder-01',$6)`, [id, t.tenantId, priv.mission, 'Hidden baseline ' + v.mk('task.baseline'), verdict === 'accepted' ? 'passed' : 'failed', priv.instance]);
+    const b = brief('Hidden baseline brief ' + v.mk('brief.baseline'), D('research', 2));
+    await pool.query(`insert into delegation_briefs(tenant_id, mission_id, task_id, from_id, from_kind, to_instance, to_agent, brief, sha256, depth, created_by, created_at) values ($1,$2,$3,'c87-harness','user',$4,'coder-01',$5,$6,1,'c87-harness', $7::timestamptz - interval '5 minutes')`,
+      [t.tenantId, priv.mission, id, priv.instance, JSON.stringify(b), createHash('sha256').update(JSON.stringify(b)).digest('hex'), priv.fcBefore]);
+    await pool.query(`insert into task_reviews(id, tenant_id, mission_id, task_id, reviewer_id, reviewer_kind, producer_id, producer_kind, principal_id, rubric, verdict, evidence, created_at)
+      values ($1,$2,$3,$4,$5,'user','coder-01','agent',$6,$7,$8,$9,$10::timestamptz)`,
+      ['TR-c87' + id, t.tenantId, priv.mission, id, t.ids.adminId, v.oId, JSON.stringify([{ criterion: 'Output attached', result: verdict === 'accepted' ? 'pass' : 'fail', note: 'Seen' }]), verdict, JSON.stringify(verdict === 'accepted' ? [{ kind: 'url', ref: 'https://example.com/' + id.toLowerCase() }] : []), priv.fcBefore]);
+  }
 }
 
 /** State b1: the private mission with GOOD outcomes. Everything here belongs to the private mission (no lesson, skill or channel message of O's own). */
@@ -124,6 +161,7 @@ export async function addPrivate(v: VisWorld): Promise<void> {
   priv.grant = must(await admin.req('POST', '/site-grants', { origin: 'https://private-' + mk('grant.origin').toLowerCase() + '.example.com', missionId: priv.mission, capabilities: ['read'], expiresAt: new Date(Date.now() + 2 * 86_400_000).toISOString() }, idem()), 201, 'grant').body.grant.id;
   priv.notification = await tx(t.app.db, (c) => createNotification(c, { tenantId: t.tenantId, severity: 'warning', category: 'system', title: 'Hidden notice ' + mk('notice.title'), body: 'Body ' + mk('notice.body'), missionId: priv.mission }));
   priv.notification2 = await tx(t.app.db, (c) => createNotification(c, { tenantId: t.tenantId, severity: 'info', category: 'system', title: 'Owner notice ' + mk('notice.owner'), body: 'Only O ' + mk('notice.owner.body'), userId: v.oId, missionId: priv.mission, ownerOnly: true }));
+  await addHiddenBaseline(v, ['T-pv-b1', 'T-pv-b2', 'T-pv-b3'], 'accepted'); // 3 hidden research/2 outcomes before the forecasts: the administrator's baseline reaches n = 5
   // a failure tag on a failed task needs a failed task: the mission has none yet; b2 adds them. The open task cannot be tagged either, so priv.tag is set in b2.
 }
 
@@ -140,4 +178,5 @@ export async function flipPrivate(v: VisWorld): Promise<void> {
   must(await admin.req('POST', `/approvals/${priv.approval}/decision`, { decision: 'denied', digest: priv.approvalDigest, reason: 'no ' + mk('approval.reason2') }), 200, 'reject');
   priv.tag = must(await admin.req('POST', '/failure-tags', { subjectKind: 'task', subjectId: 'T-pv-4', modeId: 'FM-1.1', note: 'Ignored the hidden spec ' + mk('tag.note'), attribution: { agentId: 'agent-' + mk('tag.agent').toLowerCase(), stepRef: 'step ' + mk('tag.step') } }, idem()), 201, 'tag').body.tag.id;
   priv.notification3 = String(await tx(t.app.db, (c) => createNotification(c, { tenantId: t.tenantId, severity: 'critical', category: 'system', title: 'Hidden failure ' + mk('notice.title3'), body: mk('notice.body3'), missionId: priv.mission })));
+  await addHiddenBaseline(v, ['T-pv-b4', 'T-pv-b5'], 'rejected'); // the flip: two more hidden outcomes, rejected, so the administrator's baseline rate falls
 }
