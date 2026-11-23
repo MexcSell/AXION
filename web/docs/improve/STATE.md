@@ -57,8 +57,8 @@ Rewritten 2026-11-22T07:35Z, 17:50Z, and 2026-11-23T03:40Z by the controller; up
 | — | Research round 5 (docs only) | verified: 23 CONFIRMED, 3 CORRECTED |
 | w83 | c85 change plans (R5-1), e2e14, mig 0058 | CLEARED at 0f1a26b, batch 42 |
 | w84 | c86 forecast ledger (R5-7), e2e3, mig 0059 | CLEARED at d84882d, batch 41 |
-| w85 | c87 private-mission visibility sweep, e2e4 | CLEARED at 4756324, batch 43 (web: before 16:00Z) |
-| w86 | c88 org evidence for members (T2) and column guard scope (M2d), e2e13 | CLEARED at 1f8ba45, batch 44 (web: before 16:00Z) |
+| w85 | c87 private-mission visibility sweep, e2e4 | MERGED at 7b1bbc5 (batch 43) |
+| w86 | c88 org evidence for members (T2) and column guard scope (M2d), e2e13 | MERGED at 4df4ae2 (batch 44) |
 | w87 | c89 plans and forecasts UI (U8), e2e15, **web: done by ~12:00Z or parked** | dispatched ~08:05Z |
 | — | Final report draft (FINAL-REPORT-PHASE2.md) | draft committed; finalise at the end |
 
