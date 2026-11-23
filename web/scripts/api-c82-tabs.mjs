@@ -30,7 +30,7 @@ export const PROBE = () => {
         boxes.forEach((o, j) => { if (i !== j && hit(a.content, o.tr)) out.push(`${sname}: label of "${a.name}" overlaps tab "${o.name}"`); });
         if (a.content.l < a.tr.left - 1 || a.content.r > a.tr.right + 1) out.push(`${sname}: label of "${a.name}" spills outside its own tab (${Math.round(a.content.l - a.tr.left)}/${Math.round(a.content.r - a.tr.right)}px)`);
       }
-      if (a.textShown && a.text.scrollWidth > a.text.clientWidth + 1) out.push(`${sname}: label "${a.name}" is clipped (scrollWidth ${a.text.scrollWidth} > ${a.text.clientWidth})`);
+      if (a.textShown && a.text !== a.t && a.text.scrollWidth > a.text.clientWidth + 1) out.push(`${sname}: label "${a.name}" is clipped (scrollWidth ${a.text.scrollWidth} > ${a.text.clientWidth})`);
       // no button-level scrollWidth check: the selected tab's animated pill (inset -1px, spring-moved by layoutId) makes it flap by 1-3 px; the exact checks are the label's own scrollWidth above and the spill check
       // icon-only state: the accessible name must survive
       if (!a.textShown && !(a.t.getAttribute('aria-label') || '').trim()) out.push(`${sname}: tab "${a.name}" shows no text and has no aria-label`);
