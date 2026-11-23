@@ -69,6 +69,37 @@ export const UNITS: Record<string, ObservationUnit> = {
     `select h.at as ts from task_owner_history h join tasks t on t.id = h.task_id join missions m on m.id = t.mission_id where h.tenant_id = $1 and h.source = 'change' and not t.simulated and ${REAL_M}`),
 };
 
+/**
+ * c88 (M2d): the columns each unit (and each helper that runs SQL in this file) reads, declared and REVIEWED here, next to the SQL. The c83 loader scan
+ * (server/test/contracts/columns.ts, planUnitProblems) reads this file's statements and fails on a column read that is not declared here (or a context
+ * column: the row key, the tenant, the mission link, and the demo and deleted flags of CONTEXT_READS), and on a declared column that is not read.
+ * Key `unit:<id>` = one unit's SQL; other keys = the enclosing function. Columns are `table.column`.
+ */
+export const PLAN_UNIT_READS: Record<string, readonly string[]> = {
+  'unit:run': ['mission_runs.started_at'],
+  'unit:mission_end': ['events.occurred_at', 'events.payload', 'events.type'],
+  'unit:approval_wait': ['events.occurred_at', 'events.payload', 'events.type'],
+  'unit:task': ['tasks.created_at', 'tasks.simulated'],
+  'unit:attempt': ['task_attempts.started_at', 'tasks.simulated'],
+  'unit:review': ['task_reviews.created_at'],
+  'unit:approval_decision': ['approval_decisions.decided_at', 'approval_requests.demo'],
+  'unit:delegated': ['mission_delegations.at', 'mission_delegations.edge_kind', 'mission_delegations.simulated'],
+  'unit:brief': ['delegation_briefs.created_at', 'delegation_briefs.simulated'],
+  'unit:progress_ledger': ['mission_ledgers.created_at', 'mission_ledgers.demo', 'mission_ledgers.kind'],
+  'unit:confirmed_tag': ['failure_tags.decided_at', 'failure_tags.status'],
+  'unit:grant': ['site_grants.issued_at'],
+  'unit:lesson_proposed': ['lesson_candidates.created_at'],
+  'unit:lesson_accepted': ['lesson_candidates.decided_at', 'lesson_candidates.status'],
+  'unit:playbook': ['playbooks.created_at'],
+  'unit:promotion': ['agent_version_proposals.decided_at', 'agent_version_proposals.status'],
+  'unit:rollback': ['audit_events.action', 'audit_events.at', 'audit_events.result'],
+  'unit:eval_run': ['eval_runs.started_at'],
+  'unit:org_revision': ['org_revisions.active_from'],
+  'unit:owner_change': ['task_owner_history.at', 'task_owner_history.source', 'tasks.simulated'],
+  changeBounds: ['org_revisions.active_from', 'org_revisions.seq'],
+  countObservations: ['org_revisions.active_from', 'org_revisions.seq'], // its `from (${u.sql})` wraps a unit's own SQL, which is checked under that unit
+};
+
 /** registry id -> unit id */
 export const METRIC_UNIT: Record<string, string> = {
   'scorecard.started': 'run', 'scorecard.finished': 'mission_end', 'scorecard.verified_success_rate': 'mission_end', 'scorecard.completed_unverified': 'mission_end',

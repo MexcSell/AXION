@@ -139,3 +139,17 @@ export async function computeEvidence(c: Q, tenantId: string, picked: readonly R
   }
   return { triggers, others, windowDays: EVIDENCE_WINDOW_DAYS };
 }
+
+/**
+ * c88 (T2): the view of a non-administrator. `GET /organization/proposals` is open to every signed-in user, but the stored counts are taken over ALL
+ * real missions of the tenant, private ones included, so a member could read how busy, how failed or how reassigned another member's private work is.
+ * Redaction at READ time (the stored row is not changed): a trigger whose facts or verdict come from mission data (load_imbalance, repeated_reassigns,
+ * failure_concentration) keeps its kind and its scope but loses its facts, its subjects and its `supported` flag (`supported` is itself a reading of the
+ * hidden counts, so it is hidden too), and carries `hidden: true`. `coverage_gap` reads the organisation chart and the agent list, which every member can
+ * already read, so it is shown as it is. Administrators get the stored evidence unchanged.
+ */
+const MISSION_DERIVED: readonly RestructureTrigger[] = ['load_imbalance', 'repeated_reassigns', 'failure_concentration'];
+const hideTrigger = (t: TriggerEvidence): TriggerEvidence => MISSION_DERIVED.includes(t.kind) ? { kind: t.kind, scope: t.scope, supported: null, facts: [], subjects: [], hidden: true } : t;
+export function redactEvidenceForMember(ev: OrgEvidence): OrgEvidence {
+  return { ...ev, triggers: ev.triggers.map(hideTrigger), ...(ev.others ? { others: ev.others.map(hideTrigger) } : {}) };
+}
