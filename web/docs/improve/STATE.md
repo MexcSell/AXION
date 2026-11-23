@@ -44,7 +44,7 @@ Rewritten 2026-11-22T07:35Z, 17:50Z, and 2026-11-23T03:40Z by the controller. Ol
 | w71 | c73 polish bundle (P2c, H18, P4c, H15) | scoped re-review of fix round (tip 59b78cf) |
 | w72 | c74 dev server watches shared (H19), e2e15 | implementing |
 | w73 | c75 approval evidence tamper-evident (P3c), e2e17, no migration | downgrade fix, then review |
-| w74 | c76 Stage 8 records (R1, A1), e2e18, mig 0056 | implementing, **PARKED (Q11): never queue** |
+| w74 | c76 Stage 8 records (R1, A1), e2e18, mig 0056 | in review (tip a1f6fbb), **PARKED (Q11): never queue** |
 | w75 | c77 Stage 9 records (M2, G1), e2e2, mig 0057 | implementing, **PARKED (Q11): never queue** |
 | — | Final report draft (FINAL-REPORT-PHASE2.md) | draft committed; finalise at the end |
 
