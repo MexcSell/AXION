@@ -213,8 +213,33 @@ function analyzeExec(command: string, step: number, ctx: Ctx, depth: number, add
 }
 
 /** commands whose every operand is a file they read: a glob among them is a read of whatever it matches */
-const FILE_READERS = new Set(['cat', 'head', 'tail', 'less', 'more', 'wc', 'diff', 'cmp', 'sort', 'tac', 'nl', 'cut', 'strings', 'xxd', 'od', 'stat', 'file', 'ls', 'tree', 'du', 'base64', 'sha256sum', 'md5sum', 'uniq', 'tr', 'cp', 'rsync', 'scp']);
-const GLOB_EXTENSIONS = ['', '_key', '-key', '_final', '.txt', '.json', '.md', '.csv', '.py', '.ts', '.js', '.yaml', '.yml'];
+const FILE_READERS = new Set(['cat', 'head', 'tail', 'less', 'more', 'wc', 'diff', 'cmp', 'sort', 'tac', 'nl', 'cut', 'strings', 'xxd', 'od', 'stat', 'file', 'ls', 'tree', 'du', 'base64', 'sha256sum', 'md5sum', 'uniq', 'cp', 'rsync', 'scp']);
+const GLOB_EXTENSIONS = ['_key', '-key', '_final', '.txt', '.json', '.md', '.csv', '.py', '.ts', '.js', '.yaml', '.yml'];
+/** names isAnswerSeg accepts without an extension, in two lists: a stem alone or a stem joined to one qualifier by `_`, `-` or a space (stem first), and the qualifier-first order */
+const ANSWER_NAMES_STEM_FIRST: readonly string[] = (() => {
+  const out = new Set<string>();
+  for (const st of ANSWER_STEMS) { out.add(st); out.add(`${st}_1`); out.add(`${st}-1`); for (const q of ANSWER_QUALIFIERS) for (const sep of ['_', '-', ' ']) out.add(st + sep + q); }
+  return [...out];
+})();
+const ANSWER_NAMES_QUALIFIER_FIRST: readonly string[] = (() => {
+  const out = new Set<string>();
+  for (const st of ANSWER_STEMS) for (const q of ANSWER_QUALIFIERS) for (const sep of ['_', '-', ' ']) out.add(q + sep + st);
+  return [...out];
+})();
+/** sed, grep, awk and jq take a script or pattern as their first operand (unless -e is used); it is code, not a file, so a glob character in it is not a read */
+const SCRIPT_FIRST = new Set(['sed', 'grep', 'egrep', 'fgrep', 'awk', 'gawk', 'jq', 'rg']);
+function scriptOperandIndexes(v: string, args: string[]): Set<number> {
+  const skip = new Set<number>();
+  if (!SCRIPT_FIRST.has(v)) return skip;
+  let explicit = false;
+  args.forEach((a, i) => {
+    if (a === '-e' || a === '--expression' || a === '--regexp') { explicit = true; skip.add(i + 1); }
+    else if (a.startsWith('--expression=') || a.startsWith('--regexp=') || a === '-f' || a === '--file' || a.startsWith('--file=')) explicit = true;
+    else if (shortCluster(a) && (a.includes('e') || a.includes('f'))) { explicit = true; if (a.endsWith('e')) skip.add(i + 1); }
+  });
+  if (!explicit) { const f = args.findIndex((a) => !isFlag(a)); if (f >= 0) skip.add(f); }
+  return skip;
+}
 /** expands {a,b} groups (no nesting), at most 64 results; null when it is too complex to expand (the caller then fails closed) */
 function expandBraces(seg: string, budget = 64): string[] | null {
   const o = seg.indexOf('{');
@@ -250,17 +275,25 @@ function segGlob(g: string, w: string): boolean {
   }
   return dp[n] === 1;
 }
-/** true when a glob path could expand to an answer file or directory. A segment with no literal character before its first dot (`*`, `*.ts`, `?.md`) names nothing in particular and is not flagged. */
+/** true when a glob path could expand to an answer file or directory, by the same naming rule as isAnswerSeg. Leading dots are ignored, only the part before the first
+ *  dot is matched against the answer names (the part after is an extension; for the last segment the whole glob is also tried against stem + extension), and a segment
+ *  with no literal character before its first dot (`*`, `*.ts`, `.*`) names nothing in particular and is not flagged. */
 function globMayNameAnswer(l: Loc): boolean {
   for (const [idx, raw] of l.segs.entries()) {
     if (!(raw.includes('*') || raw.includes('?') || raw.includes('[') || raw.includes('{'))) continue;
     const last = idx === l.segs.length - 1;
     const alts = expandBraces(raw);
     if (alts === null) return true; // too complex to expand: fail closed
-    for (const g of alts) {
+    for (const alt of alts) {
+      let k = 0; while (k < alt.length && alt[k] === '.') k++;
+      const g = alt.slice(k);
       const stemPart = g.split('.')[0];
-      if (!Array.from(stemPart).some((ch) => ch !== '*' && ch !== '?' && ch !== '[' && ch !== ']')) continue; // wildcard-only before the first dot
-      for (const word of ANSWER_STEMS) for (const ext of last ? GLOB_EXTENSIONS : ['', '_key', '-key']) if (segGlob(g, word + ext)) return true;
+      if (!Array.from(stemPart).some((ch) => ch !== '*' && ch !== '?' && ch !== '[' && ch !== ']')) continue;
+      // a glob with fewer than 3 literal characters (`re*`, `b*`) is matched against stem-first names only: against qualifier-first names (`real_answer`, `backup_answer`) it would flag nearly any short glob
+      const literals = Array.from(stemPart).filter((ch) => ch !== '*' && ch !== '?' && ch !== '[' && ch !== ']').length;
+      for (const name of ANSWER_NAMES_STEM_FIRST) if (segGlob(stemPart, name)) return true;
+      if (literals >= 3) for (const name of ANSWER_NAMES_QUALIFIER_FIRST) if (segGlob(stemPart, name)) return true;
+      if (last) for (const st of ANSWER_STEMS) for (const ext of GLOB_EXTENSIONS) if (segGlob(g, st + ext)) return true;
     }
   }
   return false;
@@ -328,7 +361,8 @@ function analyzeCmd(c: Cmd, step: number, ctx: Ctx, depth: number, add: Add, via
   // a glob among the files a command reads can expand to an answer file: flag it when a segment could name one
   const globby = (p: string) => p.includes('*') || p.includes('?') || p.includes('[') || p.includes('{');
   const globRead = (p: string, always: boolean) => { if (globby(p) && (always || p.includes('/') || FILE_READERS.has(v)) && globMayNameAnswer(locate(p, ctx.cwd))) add('glob_read', step, `glob could expand to an answer path ${p}`); };
-  for (const p of c.args) if (!isFlag(p)) globRead(p, false);
+  const scriptArgs = scriptOperandIndexes(v, c.args);
+  c.args.forEach((p, i) => { if (!isFlag(p) && !scriptArgs.has(i)) globRead(p, false); });
   for (const p of [...c.inputs, ...c.redirects]) globRead(p, true);
   if (v === 'xargs') { analyzeXargs(c, step, ctx, depth, add); return; }
   if (v === 'cd' || v === 'pushd') {
