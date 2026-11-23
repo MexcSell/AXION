@@ -6,10 +6,10 @@ const interleave = (a: Observation[], b: Observation[]) => a.flatMap((x, i) => [
 
 describe('c90 sequential confidence sequence', () => {
   it('hand-checked: rho and the n=10 arm half-width', () => {
-    // L = ln(40) = 3.688879; 2L = 7.377759; ln(1+2L) = ln(8.377759) = 2.125; rho = 12.5 / 9.5028 = 1.3154
-    expect(RHO).toBeCloseTo(1.3154, 3);
-    // n=10: v=2.5; (v+rho)=3.8154; ln(3.8154/1.3154)=1.0651; +7.377759 = 8.4429; sqrt(3.8154*8.4429)=5.6757; /10
-    expect(armHalfWidth(10)).toBeCloseTo(0.56757, 3);
+    // L = ln(80) = 4.38203; 2L = 8.76405; ln(1+2L) = ln(9.76405) = 2.27858; rho = 12.5 / 11.04263 = 1.13196
+    expect(RHO).toBeCloseTo(1.1320, 3);
+    // n=10: v=2.5; (v+rho)=3.63196; ln(3.63196/1.13196)=1.1658; +8.76405 = 9.9299; sqrt(3.63196*9.9299)=6.0054; /10
+    expect(armHalfWidth(10)).toBeCloseTo(0.60054, 3);
   });
   it('hand-checked small case: 10 vs 10, all 1 after, all 0 before', () => {
     const steps = sequence(interleave(mk('before', 0, 10), mk('after', 1, 10)));
@@ -18,7 +18,7 @@ describe('c90 sequential confidence sequence', () => {
     // after arm: mean 1 -> [1-h,1]; before arm: mean 0 -> [0,h]; diff [1-2h, 1]
     expect(last.lower).toBeCloseTo(1 - 2 * h, 10);
     expect(last.upper).toBeCloseTo(1, 10);
-    expect(last.zeroExcluded).toBe(false); // 1 - 2*0.5676 < 0: still inside, at n=10
+    expect(last.zeroExcluded).toBe(false); // 1 - 2*0.6005 < 0: still inside, at n=10
   });
   it('not enough evidence below the minimum, no bounds', () => {
     const steps = sequence(interleave(mk('before', 1, 9), mk('after', 0, 9)));

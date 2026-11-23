@@ -5,8 +5,9 @@
  * Source: Howard, Ramdas, McAuliffe, Sekhon (2021), "Time-uniform, nonparametric, nonasymptotic confidence sequences",
  * Annals of Statistics: normal-mixture boundary (Robbins 1970 mixture). A Bernoulli is 1/4-sub-Gaussian, so per arm
  *   P(exists t: |S_t| >= sqrt((v+rho) * (log((v+rho)/rho) + 2 log(1/a)))) <= a,   v = t/4, S_t = sum(x_i - p).
- * Each arm gets a = ALPHA/2; the difference interval [lo_after - hi_before, hi_after - lo_before] then holds at every
- * look at once with probability >= 1 - ALPHA (union bound; conservative).
+ * NOTE (fix round): the 2 log(1/a) form is Howard et al.'s ONE-sided bound at level a; used on |S_t| it is two-sided at
+ * 2a. So each arm gets a = ALPHA/4 (two-sided ALPHA/2 per arm), and the difference interval
+ * [lo_after - hi_before, hi_after - lo_before] holds at every look at once with probability >= 1 - ALPHA (union bound).
  * Tuning rule (fixed before any simulation): rho minimises the boundary at N_STAR = 50 per arm (closed form below).
  *
  * Running bounds ARE intersected (running max of lower, running min of upper, per arm), so the bounds are monotone:
@@ -14,10 +15,10 @@
  *
  * No automatic stopping and no verdict wording: `zeroExcluded` is a fact about the interval. Below MIN_PER_ARM
  * observations in either arm the status is "not_enough_evidence" and there are no bounds. INTERVALS ARE WIDE at small n:
- * at 100 per arm the full width is roughly 0.5 (see c90-report.md).
+ * at 100 per arm the full width is about 0.55 to 0.66 with no effect, and above 1 at 20 per arm (see c90-report.md).
  */
 export const ALPHA = 0.05;
-export const ARM_ALPHA = ALPHA / 2;
+export const ARM_ALPHA = ALPHA / 4;
 export const N_STAR = 50;
 export const MIN_PER_ARM = 10;
 const L = Math.log(1 / ARM_ALPHA);

@@ -11,8 +11,9 @@ Annals of Statistics, normal-mixture boundary (the Robbins 1970 mixture). A Bern
 Arm interval: mean_t +/- boundary(t)/t, clipped to [0,1].
 
 ## Alpha
-Total alpha = 5%. Each arm gets a = 2.5% (two-sided), so both arm sequences hold at once with probability >= 95%
-(union bound), and the difference interval [lo_after - hi_before, hi_after - lo_before] contains the true difference at
+Total alpha = 5%. CORRECTION (fix round, after review): the boundary with 2 log(1/a) is Howard et al.'s ONE-sided bound at level a, so
+used as |S_t| it is two-sided at 2a. Each arm therefore gets a = ALPHA/4 = 1.25% (L = ln 80), i.e. two-sided 2.5% per
+arm, so both arm sequences hold at once with probability >= 95% (union bound), and the difference interval [lo_after - hi_before, hi_after - lo_before] contains the true difference at
 all times together with probability >= 95%. This is conservative (wider than needed); we accept that.
 
 ## Running bounds
@@ -22,7 +23,7 @@ upper). Bounds are then monotone: the interval never widens, and "0 excluded" ne
 ## Tuning rule (fixed now, before any simulation)
 rho is the single tuning knob. Rule: choose rho to minimise the boundary at a target of n* = 50 observations per arm,
 using the closed form of Howard et al. (2021) eq. for the normal mixture:
-  rho = (n* / 4) / ( 2 log(1/a) + log(1 + 2 log(1/a)) ),   a = 0.025.
+  rho = (n* / 4) / ( 2 log(1/a) + log(1 + 2 log(1/a)) ),   a = 0.0125 (rho = 1.1320 after the correction; was 1.3153 with the wrong a = 0.025).
 n* = 50 is chosen as the volume at which AXION comparisons are first plausible; no other value will be tried and rho
 will not be adjusted after seeing any simulation result.
 
