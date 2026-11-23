@@ -69,7 +69,11 @@ export interface TriggerFact { label: string; value: number }
 /** `supported` = the recorded counts back the trigger (rule per kind in server/src/organization/evidence.ts); a picked trigger the data does not support is shown, not hidden. */
 export interface TriggerEvidence { kind: RestructureTrigger;
   /** 'now' = a point-in-time count (open tasks today, today's chart); 'window' = counted over `windowDays` */
-  scope: 'now' | 'window'; supported: boolean; facts: TriggerFact[]; subjects: string[] }
+  scope: 'now' | 'window';
+  /** null only when `hidden` (c88): whether the counts back the trigger depends on missions the reader may not see */
+  supported: boolean | null; facts: TriggerFact[]; subjects: string[];
+  /** c88 (T2): true in the view of a non-administrator for a trigger counted over missions (open tasks, failures, reassigns): `supported` is null, `facts` and `subjects` are empty. Only administrators see those counts. */
+  hidden?: boolean }
 export interface OrgEvidence {
   /** the triggers the proposer picked */
   triggers: TriggerEvidence[];

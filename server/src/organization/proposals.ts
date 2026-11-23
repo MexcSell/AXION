@@ -11,7 +11,7 @@ import { emit } from '../events/hooks.ts';
 import { createOrgRevision, edgesOf, latestRevision as latest, lockOrg } from '../agents/org.ts';
 import { validateOrg, type EdgeIn } from './validate.ts';
 import { dryRunCoverage, coverageAgents } from './coverageRoutes.ts';
-import { computeEvidence } from './evidence.ts';
+import { computeEvidence, redactEvidenceForMember } from './evidence.ts';
 import { contractChecks } from './guardrails.ts';
 import { churnStatus, linesChanged, cooldownMessage, budgetMessage } from './churn.ts';
 import type { OrgGuardrailSettings } from '../config.ts';
@@ -84,14 +84,15 @@ async function dryRun(c: Tx | Db, tenantId: string, edges: EdgeIn[], currentId: 
 const SELECT = `select p.*, cu.name as created_by_name, du.name as decided_by_name from org_proposals p
   left join users cu on cu.id = p.created_by left join users du on du.id = p.decided_by`;
 const iso = (d: unknown) => (d ? new Date(d as string).toISOString() : null);
-const dto = (r: any): OrgProposalDto => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
+const dto = (r: any, role: 'admin' | 'member'): OrgProposalDto => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
   id: r.id, title: r.title, why: r.why, baseRevision: r.base_revision, edges: fromStored(r.edges).map((e) => ({ ...e, edgeType: e.edgeType! })), sha: r.payload_sha,
   status: r.status, createdBy: r.created_by, createdByName: r.created_by_name ?? r.created_by, createdAt: iso(r.created_at)!, expiresAt: iso(r.expires_at)!,
   decidedBy: r.decided_by, decidedByName: r.decided_by ? (r.decided_by_name ?? r.decided_by) : null, decidedAt: iso(r.decided_at), decisionNote: r.decision_note,
-  appliedRevision: r.applied_revision, result: r.result,
+  appliedRevision: r.applied_revision, result: role === 'admin' || !r.result?.evidence ? r.result : { ...r.result, evidence: redactEvidenceForMember(r.result.evidence) }, // c88: the counts of a member's view
+ 
   triggers: r.triggers, baseline: r.baseline, expectedCost: r.expected_cost, linesChanged: r.lines_changed,
 });
-const one = async (c: Tx, tenantId: string, id: string) => dto((await c.query(`${SELECT} where p.id=$1 and p.tenant_id=$2`, [id, tenantId])).rows[0]);
+const one = async (c: Tx, ctx: Ctx, id: string) => dto((await c.query(`${SELECT} where p.id=$1 and p.tenant_id=$2`, [id, ctx.tenantId])).rows[0], ctx.user.role);
 
 /** Pending proposals past expires_at become 'expired' (audited, announced). Runs on read and on every decision. */
 export async function expireDue(c: Tx, tenantId: string) {
@@ -146,7 +147,7 @@ export async function createProposal(c: Tx, ctx: Ctx, b: { title: string; why: s
   const detail = { baseRevision: b.baseRevision, added: result.added.length, removed: result.removed.length, errors: result.errors.length, warnings: result.warnings.length, ...rb };
   await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'org.proposal.create', subject: id, result: 'ok', correlationId: ctx.correlationId, detail });
   await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'org.proposalCreated', subject: id, subjectKind: 'org', payload: { title: b.title, baseRevision: b.baseRevision, ok: result.ok, ...rb } });
-  return { status: 201, body: { proposal: await one(c, ctx.tenantId, id) } };
+  return { status: 201, body: { proposal: await one(c, ctx, id) } };
 }
 
 /** The pending proposals of a tenant on base revision `base` whose stored lines equal `edges` (any title or why). A stale one
@@ -161,7 +162,7 @@ export default async function proposalRoutes(app: FastifyInstance) {
     return tx(app.db, async (c) => {
       await expireDue(c, ctx.tenantId);
       const rows = (await c.query(`${SELECT} where p.tenant_id=$1 order by p.created_at desc, p.id limit 200`, [ctx.tenantId])).rows;
-      return { proposals: rows.map(dto), activeRevision: (await latest(c, ctx.tenantId)).seq };
+      return { proposals: rows.map((r) => dto(r, ctx.user.role)), activeRevision: (await latest(c, ctx.tenantId)).seq };
     });
   });
 
@@ -213,7 +214,7 @@ export default async function proposalRoutes(app: FastifyInstance) {
         if (!u.rowCount) throw new ApiError('PROPOSAL_NOT_PENDING', 409, 'This proposal was decided meanwhile.');
         await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: A, subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { decision: 'reject' } });
         await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'org.proposalDecided', subject: id, subjectKind: 'org', payload: { status: 'rejected' } });
-        return { proposal: await one(c, ctx.tenantId, id) };
+        return { proposal: await one(c, ctx, id) };
       }
       const cur = await latest(c, ctx.tenantId);
       if (cur.seq !== p.base_revision) return refuse(c, ctx, A, id, new ApiError('ORG_CHANGED', 409, `The organisation changed since this proposal was made (revision ${cur.seq} is active, it was made on ${p.base_revision}). It can only be rejected or withdrawn.`));
@@ -233,7 +234,7 @@ export default async function proposalRoutes(app: FastifyInstance) {
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'org.revision.apply', subject: String(rev.seq), result: 'ok', correlationId: ctx.correlationId, detail: { proposal: id, from: p.base_revision, edges: edges.length } });
       await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'org.proposalDecided', subject: id, subjectKind: 'org', payload: { status: 'applied', revision: rev.seq } });
       await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'org.revisionApplied', subject: String(rev.seq), subjectKind: 'org', payload: { proposalId: id, revision: rev.seq, previous: p.base_revision } });
-      return { proposal: await one(c, ctx.tenantId, id) };
+      return { proposal: await one(c, ctx, id) };
     });
     if ('err' in out) throw out.err;
     return out;
@@ -254,7 +255,7 @@ export default async function proposalRoutes(app: FastifyInstance) {
       if (!u.rowCount) throw new ApiError('PROPOSAL_NOT_PENDING', 409, 'This proposal was decided meanwhile.');
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: A, subject: id, result: 'ok', correlationId: ctx.correlationId });
       await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'org.proposalDecided', subject: id, subjectKind: 'org', payload: { status: 'withdrawn' } });
-      return { proposal: await one(c, ctx.tenantId, id) };
+      return { proposal: await one(c, ctx, id) };
     });
     if ('err' in out) throw out.err;
     return out;
