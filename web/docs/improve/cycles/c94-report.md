@@ -43,7 +43,18 @@ Lane w92, branch `c94-exec-profile`, base 362ced9. Server module, contracts type
 ## Files
 New: `shared/contracts/src/exec-profile.ts`; `server/src/exec-profile/{paths,validator,decider}.ts`; `server/test/c94-exec-profile-{schema,validator,decider,failclosed}.test.ts`; `server/test/fixtures/exec-profile-good.ts`, `server/test/fixtures/exec-profile-requests.json`; this report.
 
-## Full test run
-Serial run (`heavy.sh npx vitest run --maxWorkers=1 --no-file-parallelism`, load average about 3.3 at start), 682 s: 180 files, 4164 tests, **4127 passed, 36 skipped, 1 failed**.
+## Review round (controller findings, fixed)
+RED commit first (28 of the non-hanging review and decider tests failed; the ReDoS group could not be run to completion because the glob matcher hung the event loop, which is the finding), then the GREEN commit.
+1. **Major, profile read twice (accessors).** `validateExecProfile` validated the input, then copied it with `JSON.parse(JSON.stringify(input))`, so a getter could answer differently the second time. Now it takes one deep snapshot first (data properties only; getters, proxies, symbol keys, non-plain prototypes, functions, cycles and nesting over 6 levels make it refuse as `unparseable`), validates that snapshot, and returns that same snapshot. The input is never read again. Tests cover the 3-reads-then-evil getter probe, getters at three levels, proxies, class instances, cycles and detachment of the result.
+2. **Major, ReDoS in forbidden patterns.** The regex built from `**/` could go exponential. Replaced by `globMatch`, a dynamic-programming matcher (cost is tokens times path length, no backtracking), and the validator now refuses (`bad_pattern`) patterns over 128 characters, more than 3 `**`, more than 12 `*` or `?`, control characters, a backslash, and lists over 32 patterns. Tests: hostile patterns refused; a worst-case allowed pattern decides a 4096-character path in under 50 ms; glob meaning unchanged.
+3. **Sensitive scopes.** `/`, `/etc`, `/proc`, `/root`, `/sys`, `/dev` and everything under them are refused as writable or read-only scope (`path_too_broad`). Look-alike names (`/etcetera`, `/rooted`) are still fine.
+4. **Credential directories.** Matching now also tries the path with a trailing slash, so `/work/out/.ssh`, `.aws`, `.gnupg`, `.kube` and `.config/gcloud` themselves are denied, not only their children.
+5. **Redirect tag.** A hop with a wrong scheme or no scheme (`http://127.0.0.1/`, `//169.254.169.254/`, `ftp://localhost/`) is now tagged `redirect_internal` when its host is internal. It was already denied.
+6. **Not handled (Linux only).** Windows path spellings such as `.env ` with a trailing space or `.env::$DATA` are not handled. They do not exist on the Linux hosts this targets.
 
-The one failure, named: `test/c92-script-base.test.ts > c92 H23: script BASE resolution > no script hard-codes a live port default, and every script that needs a base uses the helper`. First error line: `AssertionError: expected [ 'c82-pixel.mjs:7' ] to deeply equal []`. It reads `web/scripts/c82-pixel.mjs`, a file this lane did not touch (diff stat below lists no `web/` file), so it fails on the base commit too. Not fixed here, because a `web/` change is outside the brief.
+## Full test run
+Round 1 (before the review fixes): 4164 tests, 4127 passed, 36 skipped, 1 failed.
+
+Round 2 (after the review fixes; serial, `heavy.sh`, 621 s): 181 files, 4200 tests, **4163 passed, 36 skipped, 1 failed**. The c94 tests are 5 files, 544 tests, all passing. `tsc` is clean.
+
+The one failure is the known `test/c92-script-base.test.ts > c92 H23 ... no script hard-codes a live port default` (`c82-pixel.mjs:7`). It reads a `web/scripts` file this lane does not touch, so it is ignored here.
