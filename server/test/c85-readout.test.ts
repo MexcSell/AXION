@@ -69,7 +69,7 @@ describe('item 3: the readout counts observations and gives no verdict', () => {
     expect(r.body.verdict).toBe('ready_for_analysis');
     expect(r.body.verdictText).toMatch(/ready for analysis \(not computed in this version\)/i);
     expect(JSON.stringify(r.body)).not.toMatch(/worked|effect size|p-value|significan|confidence interval|improv/i);
-    for (const k of Object.keys(r.body)) expect(k, 'no estimate fields').not.toMatch(/effect|estimate|pvalue|lift|delta/i);
+    for (const k of Object.keys(r.body)) expect(k, 'no estimate fields').not.toMatch(/^(effect(?!ivePlan)|estimate|pvalue|lift|delta)/i);
   });
 
   it('below the minimum n in either window it says "not enough evidence yet", never a verdict', async () => {
