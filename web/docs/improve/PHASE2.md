@@ -221,3 +221,10 @@ R5-8 was not started: its handoff record needs a new table, and no more migratio
 | Cycle | Lane | Scope | Merge by |
 |---|---|---|---|
 | c93 connection-cap resilience for the test suite (H14b) | w91, e2e4 | server (test pools bounded; connection acquisition retried on 53300 only) | 18:30Z |
+
+### Wave 8g (planned ~10:45Z, after research round 6 was verified: 16 confirmed, 6 corrected, 0 wrong)
+| Cycle | Lane | Scope | Merge by |
+|---|---|---|---|
+| c94 execution profile validator, deny by default (R6-1) | w92, e2e17 | server pure module and contracts | 18:30Z |
+| c95 run budget and halt checker (R6-5) | w93, e2e14 | server pure module and contracts | 18:30Z |
+The other round-6 candidates (R6-3 trajectory record, R6-4 stage ledger, R6-7 graders, R6-8 plan conformance; R6-2 and R6-6 on hold) go to the next-phase roadmap in the final report.
