@@ -6,7 +6,7 @@ import type { Db, Tx } from '../db.ts';
 import { snapshotTx, dbWindow, WINDOW_DAYS } from '../company/clock.ts';
 import type { ScorecardWindow } from '../../../shared/contracts/src/index.ts';
 import { littlesLaw } from './littles.ts';
-import type { CapacityCellDto, CapacityDeptDto, ReviewCapacityDto, SpanRowDto } from '../../../shared/contracts/src/index.ts';
+import type { CapacityCellDto, CapacityDeptDto, LittleLawDto, ReviewCapacityDto, SpanRowDto } from '../../../shared/contracts/src/index.ts';
 
 /** Percentiles are null below this many decided items. */
 export const MIN_PERCENTILE_N = 20;
@@ -117,6 +117,10 @@ export const MISSING_OPEN_SQL = `
 export function reviewCapacity(db: Db | Tx, tenantId: string, windowDays: number, viewerIsAdmin: boolean): Promise<ReviewCapacityDto> {
   return 'totalCount' in db ? snapshotTx(db as Db, (c) => reviewCapacityIn(c, tenantId, windowDays, viewerIsAdmin)) : reviewCapacityIn(db as Tx, tenantId, windowDays, viewerIsAdmin);
 }
+/** c87: the item-counting figures of the data check follow the same c58 floor as the cells (c65-brief.md item 5): a member gets openNow, avgOpen, lambdaTimesW, missingClose and missingOpen only when the total clears the floor, else null. Administrators and the record flags are unchanged. */
+function floorLittles(l: LittleLawDto, shown: boolean): LittleLawDto {
+  return shown ? l : { ...l, openNow: null, avgOpen: null, lambdaTimesW: null, missingClose: null, missingOpen: null };
+}
 async function reviewCapacityIn(db: Tx, tenantId: string, windowDays: number, viewerIsAdmin: boolean): Promise<ReviewCapacityDto> {
   const rows = (await db.query(
     `with ${ITEMS_SQL}
@@ -156,7 +160,7 @@ async function reviewCapacityIn(db: Tx, tenantId: string, windowDays: number, vi
     total: toCell(t, windowDays, viewerIsAdmin), departments,
     span: { rows: span, note: SPAN_NOTE },
     utilisation: { value: null, reason: 'not_measured', note: UTILISATION_NOTE },
-    littles: littlesLaw({ arrivals: t.arrivals, sumTisMs: t.sum_tis, sumOverlapMs: t.sum_overlap, windowMs: windowDays * 86_400_000, missingClose: t.missing, missingOpen, openNow: t.open_now }),
+    littles: floorLittles(littlesLaw({ arrivals: t.arrivals, sumTisMs: t.sum_tis, sumOverlapMs: t.sum_overlap, windowMs: windowDays * 86_400_000, missingClose: t.missing, missingOpen, openNow: t.open_now }), viewerIsAdmin || (t.arrivals >= MIN_ITEMS && t.people >= MIN_PEOPLE)),
   };
 }
 

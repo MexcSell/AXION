@@ -66,9 +66,9 @@ export function ReviewCapacity() {
               <motion.div className={cx('rc-cell', r.littles.status === 'fail' && 'bad')} data-cell="littles" data-status={r.littles.status} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .2 }}>
                 <span className="rc-cl">{r.littles.status === 'fail' ? <ShieldAlert size={13} aria-hidden /> : <ShieldCheck size={13} aria-hidden />}<span className="ellipsis">Data check</span><HelpTrigger k="ops.reviewCapacity.littles" /></span>
                 <span className={cx('rc-cv', 'rc-small', r.littles.status === 'fail' && 'bad')} role={r.littles.status === 'fail' ? 'alert' : undefined}>
-                  {r.littles.status === 'pass' ? 'No lost records' : r.littles.status === 'insufficient' ? 'Nothing to compare' : r.littles.reason === 'missing_close' ? `${r.littles.missingClose} item${r.littles.missingClose === 1 ? '' : 's'} lost a close record` : `${r.littles.missingOpen} waiting task${r.littles.missingOpen === 1 ? '' : 's'} lost a start record`}
+                  {r.littles.status === 'pass' ? 'No lost records' : r.littles.status === 'insufficient' ? 'Nothing to compare' : r.littles.missingClose === null || r.littles.missingOpen === null ? 'A record is missing (count hidden below the floor)' : r.littles.reason === 'missing_close' ? `${r.littles.missingClose} item${r.littles.missingClose === 1 ? '' : 's'} lost a close record` : `${r.littles.missingOpen} waiting task${r.littles.missingOpen === 1 ? '' : 's'} lost a start record`}
                 </span>
-                <span className="rc-cm tnum">{r.littles.avgOpen !== null && r.littles.lambdaTimesW !== null ? `avg open ${two(r.littles.avgOpen)} · rate×time ${two(r.littles.lambdaTimesW)}` : `open now ${r.littles.openNow}`}</span>
+                <span className="rc-cm tnum">{r.littles.avgOpen !== null && r.littles.lambdaTimesW !== null ? `avg open ${two(r.littles.avgOpen)} · rate×time ${two(r.littles.lambdaTimesW)}` : r.littles.openNow === null ? 'open count hidden below the floor' : `open now ${r.littles.openNow}`}</span>
               </motion.div>
             </div>
             {!t.shown && <p className="dim rc-note" data-floor="shown">{floor} {t.n} item{t.n === 1 ? '' : 's'} so far.</p>}
