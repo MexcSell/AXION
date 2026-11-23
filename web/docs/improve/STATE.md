@@ -60,7 +60,7 @@ Rewritten 2026-11-22T07:35Z, 17:50Z, and 2026-11-23T03:40Z by the controller; up
 | w85 | c87 private-mission visibility sweep, e2e4 | MERGED at 7b1bbc5 (batch 43) |
 | w86 | c88 org evidence for members (T2) and column guard scope (M2d), e2e13 | MERGED at 4df4ae2 (batch 44) |
 | w87 | c89 plans and forecasts UI (U8), e2e15, **web: done by ~12:00Z or parked** | dispatched ~08:05Z |
-| w88 | c90 sequential readout library (R5-4), e2e17 | dispatched ~08:55Z |
+| w88 | c90 sequential readout library (R5-4), e2e17 | CLEARED at 16efdda, batch 46 |
 | w89 | c91 skill promotion gate (R5-5), e2e14 | dispatched ~08:55Z |
 | w90 | c92 script live-port guard (H23) and scanner gap (M2c-1), e2e3 | CLEARED at fd6a021, batch 45 (web: before 16:00Z) |
 | — | Final report draft (FINAL-REPORT-PHASE2.md) | draft committed; finalise at the end |
