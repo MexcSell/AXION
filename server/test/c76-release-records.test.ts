@@ -269,6 +269,21 @@ describe('last-good and rollback-target records', () => {
   });
 });
 
+describe('F5: a mark stays inside its releases tenant, in the database', () => {
+  it('refuses a raw mark whose tenant differs from its release or its target release', async () => {
+    await t.pool.query(`insert into tenants(id, name) values ('t-2','Other')`);
+    const a = (await release(plain)).body.release.id as string;
+    const b = (await release({ ...plain, version: '1.0.2' })).body.release.id as string;
+    await A.admin.req('POST', `/releases/${a}/marks`, { kind: 'last_good' }, key());
+    const ins = (tenant: string, rel: string, kind: string, target: string | null) => t.pool.query(`insert into release_marks(tenant_id, release_id, kind, target_release_id, marked_by) values ($1,$2,$3,$4,'u')`, [tenant, rel, kind, target]);
+    await expect(ins('t-2', a, 'last_good', null)).rejects.toThrow(/tenant/);
+    await expect(ins('t-1', b, 'rollback_target', a).then(() => t.pool.query(`update tenants set id=id`)).then(() => ins('t-2', b, 'rollback_target', a))).rejects.toThrow(/tenant/);
+    await t.pool.query(`insert into releases(id, tenant_id, version, what, change_paths, released_by) values ('REL-OTHER','t-2','1','w','{x/y}','u')`);
+    await expect(ins('t-1', b, 'rollback_target', 'REL-OTHER')).rejects.toThrow(/tenant/);
+    await expect(ins('t-1', b, 'rollback_target', a)).resolves.toBeTruthy();
+  });
+});
+
 describe('append-only guards (releases, release_marks)', () => {
   const seed = async () => {
     const id = (await release(plain)).body.release.id as string;

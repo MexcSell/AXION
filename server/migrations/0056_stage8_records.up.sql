@@ -71,6 +71,14 @@ create table release_marks (
   check (target_release_id is distinct from release_id)
 );
 create index release_marks_tenant on release_marks(tenant_id, kind, id desc);
+-- A mark stays inside its releases' tenant, even for an insert that bypasses the service (the same check artifact_versions has).
+create function release_marks_check() returns trigger language plpgsql as $$
+begin
+  if not exists (select 1 from releases r where r.id = new.release_id and r.tenant_id = new.tenant_id) then raise exception 'release mark tenant does not match its release'; end if;
+  if new.target_release_id is not null and not exists (select 1 from releases r where r.id = new.target_release_id and r.tenant_id = new.tenant_id) then raise exception 'release mark tenant does not match its target release'; end if;
+  return new;
+end $$;
+create trigger release_marks_check before insert on release_marks for each row execute function release_marks_check();
 create trigger release_marks_no_edit before update or delete on release_marks for each row execute function stage8_append_only();
 create trigger release_marks_no_truncate before truncate on release_marks for each statement execute function stage8_append_only();
 
