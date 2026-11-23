@@ -387,6 +387,14 @@ describe('S1: sentinel secrets in every free-text source field never reach the d
     expect(spansOf(buildOtlp(r)).filter((s) => s.name.startsWith('execute_tool')).map((s) => s.name))
       .toEqual(['execute_tool web-search', 'execute_tool read-file.v2', ...Array(6).fill('execute_tool _OTHER')]);
   });
+  it('H15: vendor token prefixes (GitLab, Slack app, Shopify, GitHub fine-grained, npm, Hugging Face, Google) are refused as a tool name, case id and agent name', () => {
+    const toks = ['glpat-abcDEF123456', 'xapp-1-A0-123', 'shpat_abc123', 'shpca_abc123', 'shppa_abc123', 'github-pat-11AAAA', 'github_pat_11AAAA', 'npm_abcdef123456', 'hf_abcdef123456', 'ghu_abc123', 'ghr_abc123', 'AIzaSyAbc123', 'ya29.a0Abc', 'GLPAT-abc'];
+    const r = fixture(); r.evalResults[0].trace = { steps: toks.map((name) => ({ kind: 'tool', name })) };
+    expect(spansOf(buildOtlp(r)).filter((s) => s.name.startsWith('execute_tool')).map((s) => s.name)).toEqual(toks.map(() => 'execute_tool _OTHER'));
+    for (const v of toks) { const q = fixture(); q.evalResults[0].case_id = v; q.instances[1].agent_name = v; expect(JSON.stringify(buildOtlp(q)), v).not.toContain(v); }
+    const ok = fixture(); ok.evalResults[0].trace = { steps: ['npm-install', 'hf-search', 'glob-files', 'write-file'].map((name) => ({ kind: 'tool', name })) };
+    expect(spansOf(buildOtlp(ok)).filter((s) => s.name.startsWith('execute_tool')).map((s) => s.name)).toEqual(['execute_tool npm-install', 'execute_tool hf-search', 'execute_tool glob-files', 'execute_tool write-file']);
+  });
   it('H15: an all-digit string of 13 or more characters is not an identifier (case id, dataset id, judge family, agent name); 12 digits and mixed ids are kept', () => {
     const run = (v: string) => { const r = fixture(); r.evalResults[0].case_id = v; r.evalResults[0].dataset_id = v; r.evalResults[0].judge_model_family = v; r.instances[1].agent_name = v; return JSON.stringify(buildOtlp(r)); };
     for (const v of ['1234567890123', '4111111111111111', '0'.repeat(20)]) {
