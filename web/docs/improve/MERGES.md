@@ -849,3 +849,9 @@ Order merged: c72 (6511c04), c73 (59b78cf), c74 (8d9a9c3), c75 (af54328), c78 (9
 - **`Request failed (500)` lines in the api a11y output:** 1 (batch 48 tree: 2), all inside the `probe ... fail` rows. They are the a11y check's own mocked failures (`a11y-check.mjs` fulfils the probed route with `status: 500, message: 'mocked failure'` to see the failure state), not server errors; the e2e API log has no 500 and no error line. Demo mode: 0.
 - Batch 48 checks on its own tree: verify-all 10/10, fit demo and api x4 ALL FIT, api-c82-tabs, api-c46, api-c68 exit 0 (36/36 on the one that prints a total).
 - Slots: the api-mobile run held slot 0 (HEAVY_PRIORITY) and the other checks used normal slots and ports 5292/5293 with `axion_e2e5`. Load averages 2.7-5.8 during the runs.
+
+### Fix after the freeze: c94 contracts file imported node:crypto (integrator #6)
+
+- **Found by the controller on HEAD:** web tsc failed with `shared/contracts/src/exec-profile.ts(9,28): error TS2591: Cannot find name 'node:crypto'` (the web project typechecks the whole `shared/contracts` folder). My web-tsc pass ran before batch 52 merged and I did not re-run it on the final tree; the production build and api-c14 were unaffected because nothing in the web app imports that file. Lesson: re-run web tsc after every merge, including server-only batches that touch `shared/`.
+- **Fix `7678a3f` (`fix(c94 merge)`):** `execProfileSha256` and the `node:crypto` import moved to `server/src/exec-profile/hash.ts`; `canonicalJson` and the types stay in the contract; the validator and the two c94 tests (schema, validator) import the hash from the server module. Nothing added to `index.ts`. `shared/contracts/src` has no other `node:` import.
+- web tsc exit 0, server tsc exit 0, production build ok; full serial vitest **187 files + 1 skipped, 4409 passed, 36 skipped, 0 failed**.
