@@ -792,7 +792,7 @@
   "kind": "url",
   "input": "https://good.com/start",
   "expect": "deny",
-  "reason": "redirect_not_granted",
+  "reason": "redirect_internal",
   "redirects": [
    "http://127.0.0.1/admin"
   ]
@@ -1503,5 +1503,73 @@
   "access": "write",
   "expect": "deny",
   "reason": "path_write_readonly"
+ },
+ {
+  "id": "redirect-scheme-relative-internal",
+  "kind": "url",
+  "input": "https://good.com/start",
+  "redirects": [
+   "//169.254.169.254/latest"
+  ],
+  "expect": "deny",
+  "reason": "redirect_internal"
+ },
+ {
+  "id": "redirect-ftp-internal",
+  "kind": "url",
+  "input": "https://good.com/start",
+  "redirects": [
+   "ftp://localhost/x"
+  ],
+  "expect": "deny",
+  "reason": "redirect_internal"
+ },
+ {
+  "id": "creddir-0",
+  "kind": "path",
+  "input": "/work/out/.ssh",
+  "access": "write",
+  "expect": "deny",
+  "reason": "path_credential_file"
+ },
+ {
+  "id": "creddir-1",
+  "kind": "path",
+  "input": "/work/out/.ssh/",
+  "access": "write",
+  "expect": "deny",
+  "reason": "path_credential_file"
+ },
+ {
+  "id": "creddir-2",
+  "kind": "path",
+  "input": "/work/in/.aws",
+  "access": "read",
+  "expect": "deny",
+  "reason": "path_credential_file"
+ },
+ {
+  "id": "creddir-3",
+  "kind": "path",
+  "input": "/work/out/.gnupg",
+  "access": "write",
+  "expect": "deny",
+  "reason": "path_credential_file"
+ },
+ {
+  "id": "creddir-4",
+  "kind": "path",
+  "input": "/work/in/.kube",
+  "access": "read",
+  "expect": "deny",
+  "reason": "path_credential_file"
+ },
+ {
+  "id": "creddir-5",
+  "kind": "path",
+  "input": "/work/in/.config/gcloud",
+  "access": "read",
+  "expect": "deny",
+  "reason": "path_credential_file"
  }
 ]
