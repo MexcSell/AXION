@@ -108,7 +108,7 @@ export function PlanSection({ plan, error, retry }: { plan: OrgPlanDto | null; e
         <div className="pl-read" data-plan-readout>
           <div className="row wrap" style={{ gap: 6 }}>
             <Hourglass size={13} aria-hidden /><b style={{ fontSize: 12 }}>Readout</b><HelpTrigger k="plan.readout" />
-            <Chip hue={plan.verdict === 'ready_for_analysis' ? 205 : 38} size="sm" icon={plan.verdict === 'ready_for_analysis' ? CheckCircle2 : Hourglass}><span data-plan-verdict-text>{plan.verdictText}</span></Chip>
+            <span className="pl-verdict" data-ready={plan.verdict === 'ready_for_analysis' ? '1' : '0'}>{plan.verdict === 'ready_for_analysis' ? <CheckCircle2 size={13} aria-hidden /> : <Hourglass size={13} aria-hidden />}<span data-plan-verdict-text>{plan.verdictText}</span></span>
             {plan.change && <span className="dim" style={{ fontSize: 11.5 }}>change took effect {day(plan.change.activeFrom)} as rev {plan.change.revision}</span>}
           </div>
           {plan.windows && <div className="dim" style={{ fontSize: 11.5 }}>pre {day(plan.windows.pre.from)} to {day(plan.windows.pre.to)} · post {day(plan.windows.post.from)} to {day(plan.windows.post.to)} · {plan.windows.postComplete ? 'post window complete' : 'post window still running'}</div>}
