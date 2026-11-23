@@ -65,7 +65,7 @@ Rewritten 2026-11-22T07:35Z by the controller and again at 17:50Z after the live
 | w64 | c66 metric-gaming guard (R3-4), from c54 tip 78e149f, e2e9, mig 0050 | CLEARED at 35bb4a9, batch 25 |
 | w65 | c67 Agent Profile api-mode fit (H17), from 8c2c02e, e2e8 | MERGED (dfa16ce) |
 | w66 | c68 operator attention queue (R3-9), from 24a8f05, e2e7, no migration | CLEARED at 7ba9f49, batch 28 |
-| w67 | c69 process metrics (R3-5), from c66 tip 35bb4a9, e2e6, no migration | fix round (review CLEAR AFTER FIXES) |
+| w67 | c69 process metrics (R3-5), from c66 tip 35bb4a9, e2e6, no migration | CLEARED at 0226053, batch 29 |
 | w68 | c70 hardening bundle (H11b, H14, E1d), from 812c185, e2e5, mig 0052 | MERGED (b3c3fe3) |
 | w69 | c71 scorecard at scale (P6), from c83f33e, e2e14, mig 0053 if needed | implementing |
 | w58 | c59 origin-bound memory and skill records (R2-5), e2e17, mig 0044 | CLEARED at 67b40ed, batch 18 |
