@@ -1,4 +1,5 @@
 import { tx } from '../../src/db.ts';
+import { insertInstance } from '../../src/instances/service.ts';
 import { requestApproval } from '../../src/approvals/service.ts';
 import { createNotification } from '../../src/notifications/routes.ts';
 import { Browser } from '../helpers.ts';
@@ -56,11 +57,15 @@ async function finishedTask(v: VisWorld, id: string, owner: string, mission: str
   await v.w.pool.query(`update tasks set status=$2, created_at = now() + interval '2 minutes' where id=$1`, [id, outcome]);
   if (verdict) must(await v.t.admin.req('POST', `/tasks/${id}/reviews`, { verdict, rubric: [{ criterion: 'Output attached', result: verdict === 'accepted' ? 'pass' : 'fail', note: 'Seen' }], evidence: [{ kind: 'url', ref: 'https://example.com/' + id.toLowerCase() }] }, idem()), 201, 'review ' + id);
 }
+/** The instance of `agent` in `mission`; staffing only creates a few agents' instances, so the others are stored directly (as c79 does for tenant B). */
 const agentInstance = async (v: VisWorld, mission: string, agent: string) => {
   const list = (await v.t.admin.req('GET', '/agent-instances')).body.instances as { id: string; missionId: string; agentId: string }[];
-  const i = list.find((x) => x.missionId === mission && x.agentId === agent) ?? list.find((x) => x.missionId === mission && !x.id.endsWith(':gm'));
-  if (!i) throw new Error('no instance in ' + mission);
-  return i.id;
+  const i = list.find((x) => x.missionId === mission && x.agentId === agent);
+  if (i) return i.id;
+  await tx(v.t.app.db, (c) => insertInstance(c, { tenantId: v.t.tenantId, missionId: mission, agentId: agent, simulated: false }));
+  const again = ((await v.t.admin.req('GET', '/agent-instances')).body.instances as { id: string; missionId: string; agentId: string }[]).find((x) => x.missionId === mission && x.agentId === agent);
+  if (!again) throw new Error(`no instance of ${agent} in ${mission}`);
+  return again.id;
 };
 
 /** M's own visible outcomes, on the same agent, class and difficulty as O's private ones, with M just UNDER the n = 5 floor, so one hidden outcome crosses it. */
