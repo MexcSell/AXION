@@ -32,7 +32,11 @@ const IS_DEMO: Record<SampleRefKind, string> = {
 
 export interface AuditLabelIn { sampleRef: string; metricLabel: boolean; auditLabel: boolean; note?: string }
 
-/** The references that are not typed, or that name no record of the tenant (empty = all good). */
+/**
+ * The references that are not typed, or that name no record of the tenant (empty = all good).
+ * Known limits (c83 review): the check runs read-committed and takes no lock, so it can race a concurrent clearDemo (the table has no foreign key, so a
+ * label can land on a record deleted a moment later), and it does not look at `missions.deleted_at` (a soft-deleted mission still counts as existing).
+ * A record of ANOTHER tenant is reported exactly like a missing one (same 422 text), so the check is no existence oracle. */
 export async function badSampleRefs(c: Db | Tx, tenantId: string, refs: readonly string[]): Promise<string[]> {
   const bad: string[] = [];
   const byKind = new Map<SampleRefKind, Set<string>>();

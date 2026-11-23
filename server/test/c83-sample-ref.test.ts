@@ -91,3 +91,27 @@ describe('a demo purge leaves no label that points at purged demo data', () => {
     expect(await count()).toBeGreaterThan(0);
   });
 });
+
+describe('review fixes', () => {
+  it('a record of another tenant gets the same 422 as a missing id, and nothing is stored', async () => {
+    await q(`insert into tenants(id, name) values ('t-other', 'Other') on conflict do nothing`);
+    await q(`insert into missions(id, tenant_id, owner_id, status) values ('M-other-tenant', 't-other', $1, 'completed') on conflict do nothing`, [adminId]);
+    const before = await count();
+    const other = await post([label('mission:M-other-tenant')]);
+    const missing = await post([label('mission:M-no-such-row')]);
+    expect(other.status).toBe(422);
+    expect(other.status).toBe(missing.status);
+    expect(JSON.stringify(other.body.fieldErrors).replace('M-other-tenant', 'X')).toBe(JSON.stringify(missing.body.fieldErrors).replace('M-no-such-row', 'X'));
+    expect(await count()).toBe(before);
+  });
+
+  it('a legacy free-text row already in the table is ignored by the audit state (not counted, not shown)', async () => {
+    const g = async () => ((await A.req('GET', '/company/metric-guard')).body.rows as any[]).find((r) => r.id === 'scorecard.started').audit;
+    expect(await g()).toMatchObject({ n: 0 });
+    await q(`insert into metric_audit_labels(tenant_id, metric_id, sample_ref, metric_label, audit_label, audited_by) values ('t-1','scorecard.started','legacy free text',true,false,$1)`, [adminId]);
+    expect(await g()).toMatchObject({ n: 0, disagreements: 0, lastAuditedAt: null });
+    const [m] = await insertMissionRefs(t.pool, 't-1', adminId, 1, 'leg');
+    const r = await A.req('POST', '/company/metric-audits', { metricId: 'scorecard.started', samples: [label(m)] });
+    expect(r.body.audit).toMatchObject({ n: 1, disagreements: 1 });
+  });
+});

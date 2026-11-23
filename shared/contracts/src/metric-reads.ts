@@ -7,6 +7,12 @@
  * so a new loader file, a new statement or a new column cannot go uncovered. Columns are `table.column`; `table.*` means the loader selects every column.
  */
 
+/**
+ * Review notes (c83). (1) Which ROW uses a column is a reviewed declaration: the test checks the union over the rows that name a loader, and the dimension rows
+ * all share two loader files, so a column moved between two dimension rows is not caught. (2) The CONTEXT_READS wildcards (`*.id`, `*.mission_id`, `*.task_id`,
+ * `*.approval_id`, `*.tenant_id`) are accepted gaps: a new read of one of those columns is not reported.
+ */
+
 /** A loader: a file under server/src, optionally limited to one enclosing function or route (`file#scope`). No scope = every statement of the file. */
 export type LoaderRef = string;
 

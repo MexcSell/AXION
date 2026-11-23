@@ -28,6 +28,8 @@ async function auditStates(c: Db | Tx, tenantId: string): Promise<Map<string, Me
        from metric_audit_labels where tenant_id=$1 order by metric_id, sample_ref, id desc`, [tenantId])).rows;
   const by = new Map<string, { samples: AuditSample[]; last: number }>();
   for (const r of rows) {
+    // c83: a label stored before references were typed (free text) is ignored: it names no record, so it cannot be checked or purged. MetricAuditState has no field for a legacy count, so none is shown.
+    if (!parseSampleRef(r.sample_ref)) continue;
     const e = by.get(r.metric_id) ?? { samples: [], last: 0 };
     e.samples.push({ ref: r.sample_ref, metricLabel: r.metric_label, auditLabel: r.audit_label });
     e.last = Math.max(e.last, new Date(r.audited_at).getTime());

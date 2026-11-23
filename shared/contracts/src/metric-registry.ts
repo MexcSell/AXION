@@ -25,7 +25,8 @@ export const QUALITY_DIMENSION_IDS = Object.keys(QUALITY_DIMENSIONS) as QualityD
 
 /**
  * `weak` (c83): the counter-metric shares an input column with its primary row, so gaming that input moves both and the counter would not expose it.
- * The reason says why no independent counter exists. A row whose counter shares an input and is not marked weak fails the registry test.
+ * The reason says why no independent counter exists. The shared columns are computed from the declared `reads`, which are reviewed declarations at row level
+ * (the column test checks them as a union across the shared loader files, see metric-reads.ts), and `independent` means no shared input column, not a strong signal. A row whose counter shares an input and is not marked weak fails the registry test.
  */
 export type CounterMetric = { ref: string; why: string; weak?: string } | { none: string };
 export interface MetricMeta {
