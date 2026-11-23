@@ -813,3 +813,8 @@ Order merged: c72 (6511c04), c73 (59b78cf), c74 (8d9a9c3), c75 (af54328), c78 (9
 - **Batch 42, c85 (0f1a26b, merge 34661c8):** one conflict, `shared/contracts/src/index.ts` export list: kept both (`forecasts.ts`, `org-plan.ts`). Migration 0058 after 0059 (migrator applies any missing version). Server and web tsc OK. **Full serial vitest on the final tree: 168 files + 1 skipped, 3544 passed, 36 skipped, 0 failed** (c80 migration guards and the tenant sweep included).
 - **c83 column guard scope (reported, guard not changed):** `companyFiles()` scans only `server/src/company/*.ts`, plus loaders that a registry row names. Neither `server/src/forecasts/` nor `server/src/organization/plan-metrics.ts` is named, so both are **outside** the guard's loader scope.
 - Not run: browser checks for 41/42 (server and contracts only).
+
+## Batch 43 (Phase 2 · Wave 8c): c87-visibility-sweep (integrator #6) -- finding open
+
+- **Merged:** `--no-ff` of 4756324, merge commit 7b1bbc5, no conflicts, no migration. **Follow-up commit** `fix(c87 merge)`: removed the `POST /notifications/:id/ack` FINDINGS entry (c81's fix is on the tree). server tsc OK. test/tenant, c87/c65 tests and test/contracts: 125 tests, 124 passed; the ack case passes (404 for both ids).
+- **One failure, a finding on a merged route (c86):** `test/tenant/vis.test.ts > NOT_REACHED`: `unchanged routes with no entry in NOT_REACHED: expected [ 'GET /me/forecasts' ] to deeply equal []`. The sweep's administrator response for `GET /me/forecasts` does not change in the private-mission states, so the sweep is vacuous there and the table has no entry. No entry added. Reported to the controller; full vitest and the web checks not run yet.
