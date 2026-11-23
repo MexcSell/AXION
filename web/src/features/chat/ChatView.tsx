@@ -442,11 +442,21 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
     scroller.current?.scrollTo({ top: 1e6 });
     armed.current = true; prevLen.current = messages.length; prevLast.current = lastId;
   }, [messages.length, lastId]);
+  // c73 (P2c): the way to the bottom. A glide only for a short way and when motion is allowed; a long way, or reduced motion, jumps
+  // (a long smooth scroll falls behind a burst and, once started, pulls a reader back who has scrolled up meanwhile).
+  const toBottom = (el: HTMLElement | null) => {
+    if (!el) return;
+    const far = el.scrollHeight - el.scrollTop - el.clientHeight > el.clientHeight;
+    const still = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    el.scrollTo({ top: 1e6, behavior: far || still ? 'auto' : 'smooth' });
+  };
+  // follow the newest message: decided when the timer fires, not when it was set, so a reader who scrolled up in between is left alone
+  const follow = () => { if (atBottomRef.current) toBottom(scroller.current); };
   useEffect(() => {
     // only messages added at the end are new (older pages are prepended)
     if (messages.length > prevLen.current && lastId !== prevLast.current) {
       const i = messages.findIndex((m) => m.id === prevLast.current);
-      if (atBottom) window.setTimeout(() => scroller.current?.scrollTo({ top: 1e6, behavior: 'smooth' }), 30);
+      if (atBottom) window.setTimeout(follow, 30);
       else setNewCount((n) => n + Math.max(1, i >= 0 ? messages.length - 1 - i : messages.length - prevLen.current)); // only rows after the last one seen (an older page may land in the same render)
       if (i >= 0) { // announce what arrived from others, in order (the log is not a live region: see above)
         const fresh = messages.slice(i + 1).filter((m) => !m.pending && m.from !== `human:${myId}`); // not my own
@@ -477,7 +487,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
     anchor.current = null;
   }, [firstId]);
   useEffect(() => { if (!loadingOlder) anchor.current = null; }, [loadingOlder]); // a failed or empty load leaves nothing to restore
-  useEffect(() => { if (typing && atBottom) window.setTimeout(() => scroller.current?.scrollTo({ top: 1e6, behavior: 'smooth' }), 30); }, [typing, atBottom]);
+  useEffect(() => { if (typing && atBottom) window.setTimeout(follow, 30); }, [typing, atBottom]);
   // a reader pinned to the bottom stays there when measured heights replace estimates above (the browser's scroll
   // anchoring does not move a scroller that sits at its end)
   useLayoutEffect(() => { const el = scroller.current; if (el && atBottom && geoV) { el.scrollTop = el.scrollHeight; own.current = el.scrollTop; } }, [geoV]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -612,7 +622,7 @@ export function ChatThreadView({ title, headRight, messages, isRight, typing, co
       <div className="sr-only" role="status">{said}</div>
       <AnimatePresence>
         {newCount > 0 && (
-          <motion.button className="new-pill" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} onClick={() => { scroller.current?.scrollTo({ top: 1e6, behavior: 'smooth' }); setNewCount(0); }}>
+          <motion.button className="new-pill" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} onClick={() => { toBottom(scroller.current); setNewCount(0); }}>
             <ArrowDown size={13} /> {newCount} new
           </motion.button>
         )}
