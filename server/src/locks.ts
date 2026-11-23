@@ -16,3 +16,8 @@ export const advisoryXactLock = (c: Tx, name: string) => c.query(`select pg_advi
  */
 export const advisoryXactLockLower = (c: Tx, prefix: string, name: string) =>
   c.query(`select pg_advisory_xact_lock(${LOCK_KEY_SQL.replace('$1', "($1 || lower($2))")})`, [prefix, name]);
+/**
+ * c86: the one lock that orders "a forecast is recorded" against "the first review is recorded" for a task. Both paths take it as their first
+ * statement (a forecast, and recordReview), so a forecast can never be inserted after its outcome exists: whichever comes second waits, then sees the other.
+ */
+export const taskReviewLock = (c: Tx, taskId: string) => advisoryXactLock(c, 'task-review:' + taskId);

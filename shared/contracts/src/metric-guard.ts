@@ -169,6 +169,7 @@ export const ROUTE_NO_INPUT: Record<string, string> = {
   'POST /skills/:sid/retirement-dismiss': 'c59: dismisses a retirement proposal on a skill record; no row reads skills',
   'POST /failure-tags/:id/attributions': 'c60: appends an attribution (which step or mechanism a tag points at) to its own append-only table; no scorecard, KPI or dimension row reads attributions, only the OTel export does',
   'POST /skills': 'writes a skill record; no row reads skills', 'POST /skills/:sid/approve': 'writes a skill record; no row reads skills', 'POST /skills/:sid/retire': 'writes a skill record; no row reads skills',
+  'POST /tasks/:id/forecasts': 'c86: appends a person\'s forecast (a probability, before the first review) to its own append-only table; no scorecard, KPI or dimension row reads forecasts, and the outcome is read from reviews, never written',
   'POST /organization/proposals': ORG, 'POST /organization/proposals/:id/withdraw': ORG, 'POST /organization/revisions/:seq/rollback-proposal': ORG,
 };
 

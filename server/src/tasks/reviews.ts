@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import type { Tx, Db } from '../db.ts';
 import { audit } from '../audit.ts';
+import { taskReviewLock } from '../locks.ts';
 import { ApiError, badRequest, notFound } from '../errors.ts';
 import type { ErrorCode } from '../../../shared/contracts/src/index.ts';
 import { emit } from '../events/hooks.ts';
@@ -139,6 +140,7 @@ const rid = () => 'TR-' + randomBytes(12).toString('hex');
 
 /** Record one review (inside the caller's transaction). `reviewer` defaults to the signed-in person; no route lets a client name an agent. */
 export async function recordReview(c: Tx, ctx: ReviewCtx, taskId: string, input: ReviewInput, reviewer: Reviewer = { kind: 'user', id: ctx.user.id }): Promise<{ review: TaskReviewDto }> {
+  await taskReviewLock(c, taskId); // c86: first statement, so a forecast of this task (same lock) is either before this review or refused
   const t = await visibleTaskRow(c, ctx, taskId, true);
   const producer = await producerOf(c, t);
   if (!producer) throw new ApiError('TASK_NO_PRODUCER', 422, 'This task has no owner yet, so there is no recorded producer to review.');

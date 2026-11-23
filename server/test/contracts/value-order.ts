@@ -14,6 +14,9 @@
 export const RATING_FIELDS: Record<string, string[]> = {
   // c72 (registered at its merge): the adjusted rate of a skill cell; the cells are one agent's own, one per task class
   'GET /agents/:id/skills': ['classes[].adjusted.value'],
+  // c86: a person's own forecast scores. Per-forecast and per-class numbers sit in arrays of one person's own records; no response holds more than one person.
+  'GET /me/forecasts': ['meanBrier', 'meanLogLoss', 'skill.skill', 'skill.meanBrier', 'forecasts[].brier', 'forecasts[].logLoss', 'byClass[].meanBrier', 'byClass[].meanLogLoss'],
+  'GET /users/:id/forecasts': ['meanBrier', 'meanLogLoss', 'skill.skill', 'skill.meanBrier', 'forecasts[].brier', 'forecasts[].logLoss', 'byClass[].meanBrier', 'byClass[].meanLogLoss'],
 };
 /**
  * Matched against `route::array path::field path`. Every entry is a reviewed decision with the reason the order is not about agents and a rating:
@@ -27,6 +30,10 @@ export const ORDER_ALLOWED: [RegExp, string][] = [
 ];
 /** Keyed `route::array path`: arrays that legitimately hold a rating on two or more entries (one agent's own cells, one per task class). */
 export const RATED_LIST_ALLOWED: Record<string, string> = {
+  'GET /me/forecasts::forecasts': 'one person\'s own forecasts, newest first by the time they were made; each carries its own Brier and log loss. The list is of forecasts, never of people, and no route returns more than one person',
+  'GET /me/forecasts::byClass': 'one person\'s own per-task-class means, always in the fixed class order (never sorted by a score)',
+  'GET /users/:id/forecasts::forecasts': 'one person\'s forecasts (an administrator reads one person at a time), newest first by the time they were made; a list of forecasts, never of people',
+  'GET /users/:id/forecasts::byClass': 'one person\'s per-task-class means, always in the fixed class order (never sorted by a score)',
   'GET /agents/:id/skills::classes': 'one agent\'s own skill cells, one per task class, always in the fixed class order (never sorted by a rating); a single agent\'s vector, not a list of agents',
 };
 

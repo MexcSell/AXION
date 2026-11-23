@@ -48,6 +48,7 @@ export const WRITE_CASES: Record<string, Builder> = {
   'POST /skills/:sid/retire': (t) => ({ url: `/skills/${t.ids.skill}/retire`, body: { note: 'planted' } }),
   'POST /skills/:sid/retirement-dismiss': (t) => ({ url: `/skills/${t.ids.skill}/retirement-dismiss`, body: { note: 'planted' } }),
   'POST /tasks/:id/:action': (t) => ({ url: `/tasks/${t.ids.task}/retry`, body: {}, headers: idem() }),
+  'POST /tasks/:id/forecasts': (t) => ({ url: `/tasks/${t.ids.task}/forecasts`, body: { probability: 0.5 }, headers: idem() }),
   'POST /tasks/:id/reviews': (t) => ({ url: `/tasks/${t.ids.task3}/reviews`, body: { verdict: 'accepted', rubric: [{ criterion: 'planted', result: 'pass', note: 'x' }], evidence: [{ kind: 'url', ref: 'https://example.com/planted' }] }, headers: idem() }),
   'POST /threads/:id/messages': (t) => ({ url: `/threads/${t.ids.thread}/messages`, body: { kind: 'command', text: 'Planted', to: t.ids.instance.split(':')[1] }, headers: idem() }),
   'POST /users/:id/approve': (t) => ({ url: `/users/${t.ids.memberId}/approve` }),
