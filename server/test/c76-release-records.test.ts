@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { makeTestApp, withAdmin, type TestApp } from './helpers.ts';
+import { makeTestApp, withAdmin, type Browser, type TestApp } from './helpers.ts';
 import { requestApproval } from '../src/approvals/service.ts';
 import { tx } from '../src/db.ts';
 import { normalisePath, isGuardedPath, releaseDigest, GUARDED_SQL } from '../src/releases/guard.ts';
@@ -9,16 +9,23 @@ import { normalisePath, isGuardedPath, releaseDigest, GUARDED_SQL } from '../src
  */
 let t: TestApp;
 let A: Awaited<ReturnType<typeof withAdmin>>;
-beforeEach(async () => { t = await makeTestApp({ staffingStepMs: 3_600_000, conversationSimMs: 3_600_000 }); A = await withAdmin(t.app); });
+beforeEach(async () => { second = undefined; t = await makeTestApp({ staffingStepMs: 3_600_000, conversationSimMs: 3_600_000 }); A = await withAdmin(t.app); });
 afterEach(async () => { await t.close(); });
 
 let n = 0;
 const key = () => ({ 'idempotency-key': 'r' + Date.now() + n++ });
 const mission = async () => (await A.admin.req('POST', '/missions', { text: 'Ship the thing.', files: [], shared: false }, key())).body.mission.id as string;
 const ask = (missionId: string, kind: string, payload: Record<string, unknown> = { x: 1 }) => tx(t.app.db, (c) => requestApproval(c, { tenantId: 't-1', missionId, agentId: 'release-01', kind, title: 'T', detail: 'd', payload, expiresInMin: 60 } as any));
-const decide = async (id: string, decision: 'approved' | 'denied' = 'approved') => {
-  const a = (await A.admin.req('GET', '/approvals')).body.approvals.find((x: any) => x.id === id);
-  return A.admin.req('POST', `/approvals/${id}/decision`, { decision, digest: a.digest, reason: 'ok' }, key());
+// F1: the person who decides the R4 must not be the person who records the release, so guarded releases need a second administrator
+let second: Awaited<ReturnType<typeof A.member>> | undefined;
+const secondAdmin = async () => {
+  if (!second) { second = await A.member('Second'); await t.pool.query(`update users set role='admin' where id=$1`, [second.id]); }
+  return second;
+};
+const decide = async (id: string, decision: 'approved' | 'denied' = 'approved', by?: Browser) => {
+  const who = by ?? (await secondAdmin()).b;
+  const a = (await who.req('GET', '/approvals')).body.approvals.find((x: any) => x.id === id);
+  return who.req('POST', `/approvals/${id}/decision`, { decision, digest: a.digest, reason: 'ok' }, key());
 };
 const release = (body: Record<string, unknown>) => A.admin.req('POST', '/releases', body, key());
 const plain = { version: '1.0.1', what: 'Copy changes on the about page.', changePaths: ['web/src/pages/About.tsx'] };
@@ -143,6 +150,31 @@ describe('the guardrail-path denial', () => {
     const wrong = await ask(m, 'release'); await decide(wrong.id);
     await expect(ins('{server/src/policy/a.ts}', wrong.id)).rejects.toThrow(/R4/);
     expect(await count('releases')).toBe(0);
+  });
+});
+
+describe('F1: the decider of the R4 approval is not the person who records the release', () => {
+  it('refuses with SELF_APPROVAL when the recorder decided the approval, audits it, and records nothing', async () => {
+    const b = guardedBody();
+    const m = await mission();
+    const a = await ask(m, 'production_deploy', { releaseDigest: releaseDigest('t-1', b.version as string, b.changePaths as string[]) });
+    expect((await decide(a.id, 'approved', A.admin)).status).toBe(200); // the recorder (administrator Luca) decides it himself
+    const r = await release({ ...b, guardrailApprovalId: a.id });
+    expect(r.status).toBe(403);
+    expect(r.body.code).toBe('SELF_APPROVAL');
+    expect(await count('releases')).toBe(0);
+    expect((await t.pool.query('select consumed_at from approval_requests where id=$1', [a.id])).rows[0].consumed_at).toBeNull();
+    const au = (await t.pool.query(`select detail from audit_events where action='release.record' and result='denied'`)).rows;
+    expect(au.map((x) => x.detail.reason)).toEqual(['approval_decided_by_recorder']);
+  });
+  it('a different administrator deciding it makes the same release recordable', async () => {
+    const b = guardedBody();
+    expect((await release({ ...b, guardrailApprovalId: await r4(b) })).status).toBe(201);
+  });
+  it('the database refuses it too, for a raw insert', async () => {
+    const m = await mission();
+    const a = await ask(m, 'production_deploy'); await decide(a.id, 'approved', A.admin);
+    await expect(t.pool.query(`insert into releases(id, tenant_id, version, what, change_paths, guarded_paths, guardrail_approval_id, released_by) values ('REL-Z','t-1','7','w','{server/src/audit.ts}','{server/src/audit.ts}',$1,$2)`, [a.id, A.adminId])).rejects.toThrow(/decided/);
   });
 });
 

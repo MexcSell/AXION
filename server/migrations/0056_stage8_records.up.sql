@@ -35,6 +35,8 @@ begin
   if new.guardrail_approval_id is null then raise exception 'release touches guarded paths and needs a bound R4 approval'; end if;
   select * into a from approval_requests where id = new.guardrail_approval_id;
   if a.id is null or a.tenant_id <> new.tenant_id or a.risk <> 'R4' or a.state <> 'approved' then raise exception 'the guardrail approval must be an approved R4 request of this tenant'; end if;
+  -- F1: a release needs a second person: whoever decided the R4 request cannot be the one recording the release
+  if exists (select 1 from approval_decisions d where d.approval_id = a.id and d.decision = 'approved' and d.decided_by = new.released_by) then raise exception 'the guardrail approval was decided by the person recording the release'; end if;
   return new;
 end $$;
 create trigger releases_check before insert on releases for each row execute function releases_check();

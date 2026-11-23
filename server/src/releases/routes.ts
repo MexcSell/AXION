@@ -48,7 +48,7 @@ const MARK = `select m.*, r.version, tr.version as target_version, u.name as by_
   left join releases tr on tr.id = m.target_release_id left join users u on u.id = m.marked_by`;
 
 /** Why a named approval does not authorise this release, or null when it does. Read-only; the authoritative check repeats under the row lock. */
-async function approvalProblem(q: Q, tenantId: string, id: string, digest: string, lock = false): Promise<string | null> {
+async function approvalProblem(q: Q, tenantId: string, id: string, digest: string, recorderId: string, lock = false): Promise<string | null> {
   const a = (await q.query(`select *, (expires_at <= now()) as db_expired from approval_requests where id=$1 and tenant_id=$2 ${lock ? 'for update' : ''}`, [id, tenantId])).rows[0];
   if (!a) return 'approval_not_found';
   if (a.risk !== 'R4') return 'approval_not_r4';
@@ -56,8 +56,15 @@ async function approvalProblem(q: Q, tenantId: string, id: string, digest: strin
   if (a.consumed_at) return 'approval_already_used';
   if (a.db_expired) return 'approval_expired';
   if (a.payload?.releaseDigest !== digest) return 'approval_not_bound_to_this_release';
+  // F1: a release needs a second person. The one who decided the R4 request cannot be the one who records the release.
+  if ((await q.query(`select 1 from approval_decisions where approval_id=$1 and decision='approved' and decided_by=$2`, [id, recorderId])).rowCount) return 'approval_decided_by_recorder';
   return null;
 }
+
+/** One error per refusal reason: a recorder who decided the approval is SELF_APPROVAL (needs a second person), every other reason is POLICY_DENIED. */
+const refusal = (why: string) => why === 'approval_decided_by_recorder'
+  ? new ApiError('SELF_APPROVAL', 403, 'You decided this approval, so someone else must record this release. A guarded release needs a second administrator.')
+  : new ApiError('POLICY_DENIED', 403, `The named approval does not authorise this release (${why}).`);
 
 export default async function releaseRoutes(app: FastifyInstance) {
   app.get('/releases', async (req): Promise<ReleasesDto> => {
@@ -84,12 +91,12 @@ export default async function releaseRoutes(app: FastifyInstance) {
     const digest = releaseDigest(ctx.tenantId, b.version, paths);
     const deny = async (reason: string) => {
       await audit(app.db, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'release.record', subject: b.version, result: 'denied', correlationId: ctx.correlationId, detail: { reason, guardedPaths: guarded, guardrailApprovalId: b.guardrailApprovalId ?? null } });
-      throw new ApiError('POLICY_DENIED', 403, guarded.length && !b.guardrailApprovalId
-        ? 'This release changes guarded paths (policy, approvals, audit, locks or migrations). It needs an approved R4 request bound to this release.'
-        : `The named approval does not authorise this release (${reason}).`);
+      throw guarded.length && !b.guardrailApprovalId
+        ? new ApiError('POLICY_DENIED', 403, 'This release changes guarded paths (policy, approvals, audit, locks or migrations). It needs an approved R4 request bound to this release.')
+        : refusal(reason);
     };
     if (guarded.length && !b.guardrailApprovalId) await deny('guarded_paths_need_r4_approval');
-    if (guarded.length) { const why = await approvalProblem(app.db, ctx.tenantId, b.guardrailApprovalId!, digest); if (why) await deny(why); }
+    if (guarded.length) { const why = await approvalProblem(app.db, ctx.tenantId, b.guardrailApprovalId!, digest, ctx.user.id); if (why) await deny(why); }
     if (!guarded.length && b.guardrailApprovalId) throw new ApiError('VALIDATION', 422, 'Some fields are not valid.', { fieldErrors: { guardrailApprovalId: 'This release touches no guarded path, so it carries no guardrail approval.' } });
     const from = [...new Set(b.fromApprovals ?? [])];
     const out = await idempotent(app.db, req, ctx, async (c) => {
@@ -101,8 +108,8 @@ export default async function releaseRoutes(app: FastifyInstance) {
       await advisoryXactLock(c, `release:${ctx.tenantId}:${b.version}`);
       if ((await c.query('select 1 from releases where tenant_id=$1 and version=$2', [ctx.tenantId, b.version])).rowCount) throw new ApiError('CONFLICT', 409, `Version ${b.version} already has a release record.`);
       if (guarded.length) {
-        const why = await approvalProblem(c, ctx.tenantId, b.guardrailApprovalId!, digest, true);
-        if (why) throw new ApiError('POLICY_DENIED', 403, `The named approval does not authorise this release (${why}).`);
+        const why = await approvalProblem(c, ctx.tenantId, b.guardrailApprovalId!, digest, ctx.user.id, true);
+        if (why) throw refusal(why);
         const row = (await c.query('select * from approval_requests where id=$1', [b.guardrailApprovalId])).rows[0];
         await consumeApproval(c, { approvalId: row.id, action: boundActionOf(row), by: ctx.user.id });
       }

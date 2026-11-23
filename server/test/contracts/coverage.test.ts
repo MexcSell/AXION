@@ -389,7 +389,9 @@ describe('API coverage run', () => {
     await call(admin, 'GET', '/releases', '/releases');
     const relPaths = ['server/src/policy/baseline.ts', 'web/src/pages/About.tsx'];
     const r4 = await tx(t.app.db, (c) => requestApproval(c, { tenantId: 't-1', missionId: m1, agentId: 'release-01', kind: 'production_deploy', title: 'Guarded release', detail: 'c76 fixture', payload: { releaseDigest: releaseDigest('t-1', '2.0.0', relPaths) }, expiresInMin: 30 }));
-    await call(admin, 'POST', '/approvals/:id/decision', `/approvals/${r4.id}/decision`, { body: { decision: 'approved', digest: r4.digest, reason: 'ok' } });
+    const second = await A.member('Second Admin'); // the decider of the R4 must not be the recorder (F1)
+    await t.pool.query(`update users set role='admin' where id=$1`, [second.id]);
+    await call(second.b, 'POST', '/approvals/:id/decision', `/approvals/${r4.id}/decision`, { body: { decision: 'approved', digest: r4.digest, reason: 'ok' } });
     const relA = (await call(admin, 'POST', '/releases', '/releases', { status: 201, headers: key(), body: { version: '1.9.0', what: 'Copy changes.', changePaths: ['web/src/pages/About.tsx'], fromApprovals: [ap.id] } })).body.release;
     const relB = (await call(admin, 'POST', '/releases', '/releases', { status: 201, headers: key(), body: { version: '2.0.0', what: 'Policy change.', changePaths: relPaths, guardrailApprovalId: r4.id } })).body.release;
     await call(admin, 'POST', '/releases/:id/marks', `/releases/${relA.id}/marks`, { status: 201, headers: key(), body: { kind: 'last_good', reason: 'Checks passed.' } });
