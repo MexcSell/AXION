@@ -1,0 +1,36 @@
+c91 skill-gate fixture run: seed 20261123. SYNTHETIC candidates and scores; this tests the gate, not any skill.
+constants: margin A 0.03, margin B 0.03, regression budget 0.02, min items per class 20, attempt cap 20
+design: 4 classes, 40 items per class per set, incumbent 0.6, item sd 0.15, 50 candidates per kind, 300 per seed
+
+kind | n | admit | refuse | not enough evidence | reason counts (a candidate can have several)
+true_gain | 50 | 50 (100.0%) | 0 (0.0%) | 0 (0.0%) | all_checks_passed=50
+no_gain | 50 | 0 (0.0%) | 50 (100.0%) | 0 (0.0%) | probe_a_gain_too_small=50, probe_b_gain_too_small=50, replay_regression=24
+harmful_class | 50 | 0 (0.0%) | 50 (100.0%) | 0 (0.0%) | probe_a_gain_too_small=1, probe_b_gain_too_small=1, replay_regression=50
+overfit_to_a | 50 | 0 (0.0%) | 50 (100.0%) | 0 (0.0%) | probe_b_gain_too_small=50, replay_regression=29
+leaky | 50 | 0 (0.0%) | 50 (100.0%) | 0 (0.0%) | evidence_leakage=50
+too_small | 50 | 0 (0.0%) | 0 (0.0%) | 50 (100.0%) | probe_a_too_small=15, probe_b_too_small=17, replay_too_small=18
+
+mean net gain seen by the gate (where computed): true_gain.A 0.098, true_gain.B 0.100, no_gain.A 0.001, no_gain.B -0.002, harmful_class.A 0.060, harmful_class.B 0.062, overfit_to_a.A 0.098, overfit_to_a.B 0.001, leaky.A 0.101, leaky.B 0.101, too_small.A 0.097, too_small.B 0.100
+
+threshold | met | observed
+true_gain admitted 100% | MET | 50/50
+harmful_class refused 100% (not admitted) | MET | 0 admitted
+leaky refused 100% | MET | 50/50 refused
+overfit_to_a not admitted >= 90% | MET | 0 admitted; 50 had B gain below margin
+no_gain false-admit <= 2% | MET | 0/50
+too_small never admitted | MET | 0 admitted; 50 not enough evidence
+
+=== ADDED FAMILIES (after review) ===
+
+no_gain_noisy: per-class noise sd 0.10 on the class mean difference, zero true effect, same constants
+family | n candidates | admitted | false-admit rate
+no_gain_noisy n=20 | 500 | 4 admitted | 0.80% (SE 0.40%)
+no_gain_noisy n=40 | 500 | 5 admitted | 1.00% (SE 0.44%)
+no_gain_noisy pooled | 1000 | 9 | 0.90% (SE 0.30%) | bound 2%: MET (point estimate; upper 95% limit 1.49%)
+
+replay_neutral: true +0.10 on A and B, zero true change on replay, class-mean noise sd = 0.15/sqrt(n)
+family | n candidates | admitted | refused by replay budget | other
+replay_neutral n=20 (replay noise sd 0.034 vs budget 0.02) | 500 | 131 (26.2%) | 369 (73.8%) | 0
+replay_neutral n=40 (replay noise sd 0.024 vs budget 0.02) | 500 | 220 (44.0%) | 280 (56.0%) | 0
+
+past_cap (true-gain scores, attempts 21..70) | 50 | refused 50 | with attempts_exhausted reason 50 | MET
