@@ -58,7 +58,7 @@ const sessionOf = async (view: Tenant): Promise<Browser> => { const b = new Brow
 export const NOID_CASES: Record<string, SwapCase> = {
   'PATCH /me': jsonCase('PATCH', () => ({ url: '/me', body: { avatar: { kind: 'robot', hue: 120, robot: 'r1' } } })),
   'POST /agents': jsonCase('POST', (t) => ({ url: '/agents', body: { name: newName('Swap'), role: newName('Role'), dept: 'Ops', duty: newName('Duty'), model: 'test-model', skills: ['audit'], tools: [], parentId: t.ids.coder.replace('coder-01', 'ops-01') }, headers: idem() })),
-  'POST /company/metric-audits': jsonCase('POST', () => ({ url: '/company/metric-audits', body: { metricId: 'scorecard.finished', samples: [{ sampleRef: newName('s'), metricLabel: true, auditLabel: true }] } })),
+  'POST /company/metric-audits': jsonCase('POST', (t) => ({ url: '/company/metric-audits', body: { metricId: 'scorecard.finished', samples: [{ sampleRef: `mission:${t.ids.mission}`, metricLabel: true, auditLabel: true }] } })),
   'POST /failure-tags': jsonCase('POST', (t) => ({ url: '/failure-tags', body: { subjectKind: 'task', subjectId: t.ids.task, modeId: 'FM-1.1', note: newName('swap'), attribution: { agentId: 'agent-swap', stepRef: 'step-1' } }, headers: idem() })),
   'POST /missions': jsonCase('POST', () => ({ url: '/missions', body: { text: newName('Swap mission'), files: [], shared: false }, headers: idem() })),
   'POST /notifications/ack-all': jsonCase('POST', (t) => ({ url: '/notifications/ack-all', body: { ids: [t.ids.notification] } })),
