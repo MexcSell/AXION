@@ -1,0 +1,45 @@
+// RETIRED AT THE NEXT INTENTIONAL SCORECARD CHANGE (with test/c71-equivalence.test.ts; never edit it to follow a new rule).
+// Not fully frozen: this file imports the LIVE STALE_BEFORE_SQL and VISIBLE_SQL, so a change to either moves the old side too.
+import type { Tx } from '../../src/db.ts';
+import type { requireUser } from '../../src/auth/session.ts';
+import { VISIBLE_SQL } from '../../src/missions/visibility.ts';
+import { STALE_BEFORE_SQL } from '../../src/tasks/reviews.ts';
+import type { ScoreInput } from './scorecard-v0.ts';
+
+/** c71: the pre-c71 scorecard loader, frozen byte for byte (only renamed). The standing equivalence test runs it against the live route. Never edit. */
+/** The rows both company routes read: only missions the caller can see, every other table only for those missions. */
+export async function loadInputV0(db: Tx, ctx: Awaited<ReturnType<typeof requireUser>>, includeDemo: boolean): Promise<ScoreInput> {
+    const missions = (await db.query(
+      `select m.id, m.owner_id from missions m where m.tenant_id=$1 and m.deleted_at is null and ${VISIBLE_SQL('$2', '$3')} and ($4::boolean or not m.demo)`,
+      [ctx.tenantId, ctx.user.role === 'admin', ctx.user.id, includeDemo])).rows;
+    const ids = missions.map((m) => m.id as string);
+    const T = ctx.tenantId;
+    // one client runs one query at a time (node-postgres will stop queueing concurrent ones): await them in order
+    const fs: (() => Promise<{ rows: any[] }>)[] = ids.length ? [
+      () => db.query(`select mission_id, min(started_at) as started_at from mission_runs where mission_id = any($1::text[]) group by mission_id`, [ids]),
+      () => db.query(`select mission_id, payload->>'from' as f, payload->>'to' as t, occurred_at from events
+                 where tenant_id=$1 and type='mission.stateChanged' and mission_id = any($2::text[]) and occurred_at <= now() order by id`, [T, ids]),
+      () => db.query(`select id, mission_id, status, simulated from tasks where tenant_id=$1 and mission_id = any($2::text[])`, [T, ids]),
+      () => db.query(`select a.task_id, a.attempt_no, a.started_at, a.finished_at from task_attempts a join tasks t on t.id=a.task_id
+                 where t.tenant_id=$1 and t.mission_id = any($2::text[])`, [T, ids]),
+      () => db.query(`select r.mission_id, d.decision, d.decided_by, d.decided_at, (u.id is not null) as human
+                  from approval_decisions d join approval_requests r on r.id=d.approval_id
+                  left join users u on u.id=d.decided_by and u.tenant_id=r.tenant_id
+                 where r.tenant_id=$1 and r.mission_id = any($2::text[])`, [T, ids]),
+      () => db.query(`select mission_id, edge_kind, simulated from mission_delegations where mission_id = any($1::text[]) and edge_kind='verifies'`, [ids]),
+      () => db.query(`select r.task_id, r.mission_id, r.verdict, r.reviewer_id, r.producer_id, r.principal_id, jsonb_array_length(r.evidence) as ev, r.created_at, r.seq, (${STALE_BEFORE_SQL('r')} is not null) as stale from task_reviews r where r.tenant_id=$1 and r.mission_id = any($2::text[])`, [T, ids]),
+    ] : [];
+    const out: any[][] = [];
+    for (const f of fs) out.push((await f()).rows);
+    const [runs, transitions, tasks, attempts, decisions, delegations, reviews] = ids.length ? out : [[], [], [], [], [], [], []];
+    return {
+      missions: missions.map((m) => ({ id: m.id, ownerId: m.owner_id })),
+      runs: runs.filter((r) => r.started_at).map((r) => ({ missionId: r.mission_id, startedAt: new Date(r.started_at) })),
+      transitions: transitions.filter((e) => e.f && e.t).map((e) => ({ missionId: e.mission_id, from: e.f, to: e.t, at: new Date(e.occurred_at) })),
+      tasks: tasks.map((t) => ({ id: t.id, missionId: t.mission_id, status: t.status, simulated: t.simulated })),
+      attempts: attempts.map((a) => ({ taskId: a.task_id, attemptNo: a.attempt_no, startedAt: a.started_at ? new Date(a.started_at) : null, finishedAt: a.finished_at ? new Date(a.finished_at) : null })),
+      decisions: decisions.map((d) => ({ missionId: d.mission_id, decision: d.decision, decidedBy: d.decided_by, human: d.human, at: new Date(d.decided_at) })),
+      delegations: delegations.map((d) => ({ missionId: d.mission_id, edgeKind: d.edge_kind, simulated: d.simulated })),
+      reviews: reviews.map((r) => ({ taskId: r.task_id, missionId: r.mission_id, verdict: r.verdict, reviewerId: r.reviewer_id, producerId: r.producer_id, principalId: r.principal_id, evidenceCount: Number(r.ev), at: new Date(r.created_at), seq: Number(r.seq), stale: !!r.stale })),
+    };
+}

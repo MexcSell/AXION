@@ -276,9 +276,13 @@ describe('review freshness (c51)', () => {
     expect((await ben.req('GET', `/tasks/${id}/reviews`)).body.reviews[0].stale).toEqual({ beforeAttempt: 2 });
   });
   it('the stale flag is computed from the database clock, not the client (the timestamps compared are timestamptz in SQL)', async () => {
-    const src = await import('node:fs').then((fs) => fs.readFileSync(new URL('../src/tasks/reviews.ts', import.meta.url), 'utf8'));
-    expect(src).toMatch(/started_at/);
-    expect(src).not.toMatch(/Date\.now\(\)/);
+    // c71 (F4): the rule moved to company/stale.ts (reviews.ts re-exports it); the same two checks now run on the file that holds it, and the no-Date.now check on both
+    const read = (f: string) => import('node:fs').then((fs) => fs.readFileSync(new URL(f, import.meta.url), 'utf8'));
+    const rule = await read('../src/company/stale.ts'), reviews = await read('../src/tasks/reviews.ts');
+    expect(rule).toMatch(/started_at/);
+    expect(reviews).toMatch(/STALE_BEFORE_SQL/);
+    expect(rule).not.toMatch(/Date\.now\(\)/);
+    expect(reviews).not.toMatch(/Date\.now\(\)/);
   });
 });
 

@@ -4,8 +4,8 @@ import { requireUser } from '../auth/session.ts';
 import { parse } from '../auth/routes.ts';
 import type { Tx } from '../db.ts';
 import { VISIBLE_SQL } from '../missions/visibility.ts';
-import { STALE_BEFORE_SQL } from '../tasks/reviews.ts';
 import { SCORECARD_WINDOWS } from '../../../shared/contracts/src/index.ts';
+import { STALE_FLAG, STALE_JOINS } from './stale.ts';
 import { dbNow, dbWindow, snapshotTx } from './clock.ts';
 import { computeScorecard, computeThroughput, THROUGHPUT_WEEKS_MAX, type ScoreInput } from './scorecard.ts';
 
@@ -18,7 +18,13 @@ const QueryIn = z.object({ window: z.enum(SCORECARD_WINDOWS).default('30d'), inc
  * Every other table is read only for those missions, so a private mission never leaks through a count.
  */
 /** The rows both company routes read: only missions the caller can see, every other table only for those missions. */
-async function loadInput(db: Tx, ctx: Awaited<ReturnType<typeof requireUser>>, includeDemo: boolean): Promise<ScoreInput> {
+/**
+ * c71 (P6): what each route needs, and no more. `throughput` uses only missions, first runs and transitions (its weekly counts never read a
+ * task, attempt, decision, delegation or review), so it skips those four reads. For `scorecard`: attempts are loaded only for tasks with more
+ * than one (the only tasks recovery ever looks at), and a review's freshness (the c51 rule, STALE_BEFORE_SQL) comes from one lateral join
+ * on the task's latest attempt instead of three correlated sub-selects per review. Same numbers: test/c71-equivalence.test.ts.
+ */
+export async function loadInput(db: Tx, ctx: Awaited<ReturnType<typeof requireUser>>, includeDemo: boolean, need: 'scorecard' | 'throughput' = 'scorecard'): Promise<ScoreInput> {
     const missions = (await db.query(
       `select m.id, m.owner_id from missions m where m.tenant_id=$1 and m.deleted_at is null and ${VISIBLE_SQL('$2', '$3')} and ($4::boolean or not m.demo)`,
       [ctx.tenantId, ctx.user.role === 'admin', ctx.user.id, includeDemo])).rows;
@@ -30,17 +36,22 @@ async function loadInput(db: Tx, ctx: Awaited<ReturnType<typeof requireUser>>, i
       () => db.query(`select mission_id, payload->>'from' as f, payload->>'to' as t, occurred_at from events
                  where tenant_id=$1 and type='mission.stateChanged' and mission_id = any($2::text[]) and occurred_at <= now() order by id`, [T, ids]),
       () => db.query(`select id, mission_id, status, simulated from tasks where tenant_id=$1 and mission_id = any($2::text[])`, [T, ids]),
-      () => db.query(`select a.task_id, a.attempt_no, a.started_at, a.finished_at from task_attempts a join tasks t on t.id=a.task_id
-                 where t.tenant_id=$1 and t.mission_id = any($2::text[])`, [T, ids]),
+      () => db.query(`select a.task_id, a.attempt_no, a.started_at, a.finished_at from (
+                 select x.task_id, x.attempt_no, x.started_at, x.finished_at, count(*) over (partition by x.task_id) as n
+                   from task_attempts x join tasks t on t.id=x.task_id where t.tenant_id=$1 and t.mission_id = any($2::text[])) a where a.n > 1`, [T, ids]),
       () => db.query(`select r.mission_id, d.decision, d.decided_by, d.decided_at, (u.id is not null) as human
                   from approval_decisions d join approval_requests r on r.id=d.approval_id
                   left join users u on u.id=d.decided_by and u.tenant_id=r.tenant_id
                  where r.tenant_id=$1 and r.mission_id = any($2::text[])`, [T, ids]),
       () => db.query(`select mission_id, edge_kind, simulated from mission_delegations where mission_id = any($1::text[]) and edge_kind='verifies'`, [ids]),
-      () => db.query(`select r.task_id, r.mission_id, r.verdict, r.reviewer_id, r.producer_id, r.principal_id, jsonb_array_length(r.evidence) as ev, r.created_at, r.seq, (${STALE_BEFORE_SQL('r')} is not null) as stale from task_reviews r where r.tenant_id=$1 and r.mission_id = any($2::text[])`, [T, ids]),
+      () => db.query(`select r.task_id, r.mission_id, r.verdict, r.reviewer_id, r.producer_id, r.principal_id, jsonb_array_length(r.evidence) as ev, r.created_at, r.seq, ${STALE_FLAG('r')} as stale
+                  from task_reviews r
+                  ${STALE_JOINS('r')}
+                 where r.tenant_id=$1 and r.mission_id = any($2::text[])`, [T, ids]),
     ] : [];
     const out: any[][] = [];
-    for (const f of fs) out.push((await f()).rows);
+    // throughput reads only the first two (first runs and transitions): the rest stay empty
+    for (let i = 0; i < fs.length; i++) out.push(need === 'throughput' && i >= 2 ? [] : (await fs[i]()).rows);
     const [runs, transitions, tasks, attempts, decisions, delegations, reviews] = ids.length ? out : [[], [], [], [], [], [], []];
     return {
       missions: missions.map((m) => ({ id: m.id, ownerId: m.owner_id })),
@@ -73,7 +84,7 @@ export default async function companyRoutes(app: FastifyInstance) {
     const includeDemo = qs.includeDemo === '1';
     return snapshotTx(app.db, async (c) => {
       const to = await dbNow(c);
-      return computeThroughput(await loadInput(c, ctx, includeDemo), { weeks: qs.weeks, to, includeDemo });
+      return computeThroughput(await loadInput(c, ctx, includeDemo, 'throughput'), { weeks: qs.weeks, to, includeDemo });
     });
   });
 }

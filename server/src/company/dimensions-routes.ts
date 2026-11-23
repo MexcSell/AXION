@@ -4,7 +4,7 @@ import { requireUser } from '../auth/session.ts';
 import { parse } from '../auth/routes.ts';
 import { notFound } from '../errors.ts';
 import { tx } from '../db.ts';
-import { STALE_BEFORE_SQL } from '../tasks/reviews.ts';
+import { STALE_FLAG, STALE_JOINS } from './stale.ts';
 import { VISIBLE_SQL } from '../missions/visibility.ts';
 import { DIMENSION_WINDOWS, FAILURE_TAXONOMY_VERSION } from '../../../shared/contracts/src/index.ts';
 import { computeDimensions, type DimInput } from './dimensions.ts';
@@ -23,6 +23,12 @@ const QueryIn = z.object({ window: z.enum(DIMENSION_WINDOWS as unknown as [strin
  */
 /** One client runs one query at a time: await them in order (the snapshot is the transaction, not concurrency). */
 async function runInOrder<T>(_c: unknown, fs: (() => Promise<T>)[]): Promise<T[]> { const out: T[] = []; for (const f of fs) out.push(await f()); return out; }
+
+/** The reviews read (c71: freshness through STALE_JOINS; test/c71-equivalence.test.ts compares it with the pre-c71 query row by row). $1 tenant, $2 mission ids. */
+export const DIM_REVIEWS_SQL = `select r.task_id, r.mission_id, r.reviewer_id, r.reviewer_kind, r.reviewer_model_family, r.producer_id, r.producer_kind, r.producer_model_family, r.principal_id,
+                  r.verdict, jsonb_array_length(r.evidence) as ev, r.created_at, r.seq, (t.simulated or m.demo) as simulated, ${STALE_FLAG('r')} as stale
+             from task_reviews r join tasks t on t.id=r.task_id join missions m on m.id=r.mission_id ${STALE_JOINS('r')}
+            where r.tenant_id=$1 and r.mission_id = any($2::text[]) and r.created_at <= now()`;
 
 export default async function dimensionRoutes(app: FastifyInstance) {
   app.get('/company/dimensions', async (req) => {
@@ -51,10 +57,7 @@ export default async function dimensionRoutes(app: FastifyInstance) {
       // nothing older than the previous window is needed by a window cell; snapshots read in full below
       const queries: (() => Promise<{ rows: Record<string, any>[] }>)[] = [
         () => q(`select i.mission_id, i.agent_id, i.simulated, i.created_at from agent_instances i where i.tenant_id=$1 and i.mission_id = any($2::text[])`, [T, ids]),
-        () => q(`select r.task_id, r.mission_id, r.reviewer_id, r.reviewer_kind, r.reviewer_model_family, r.producer_id, r.producer_kind, r.producer_model_family, r.principal_id,
-                  r.verdict, jsonb_array_length(r.evidence) as ev, r.created_at, r.seq, (t.simulated or m.demo) as simulated, (${STALE_BEFORE_SQL('r')} is not null) as stale
-             from task_reviews r join tasks t on t.id=r.task_id join missions m on m.id=r.mission_id
-            where r.tenant_id=$1 and r.mission_id = any($2::text[]) and r.created_at <= now()`, [T, ids]),
+        () => q(DIM_REVIEWS_SQL, [T, ids]),
         () => q(`select l.mission_id, l.version, l.body, l.created_at, l.demo from mission_ledgers l where l.tenant_id=$1 and l.kind='progress' and l.mission_id = any($2::text[]) and l.created_at <= now()`, [T, ids]),
         () => q(`select r.mission_id, r.created_at, (select min(d.decided_at) from approval_decisions d where d.approval_id=r.id) as decided_at, r.demo
              from approval_requests r where r.tenant_id=$1 and r.mission_id = any($2::text[])`, [T, ids]),
