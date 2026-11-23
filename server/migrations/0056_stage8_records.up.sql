@@ -1,0 +1,60 @@
+-- c76 (R1 + A1, PARKED for owner decision Q11): Stage 8 RECORDS only. Nothing here releases, deploys, restarts, rolls back, stores a file or serves one.
+-- One shared append-only guard: no UPDATE, no TRUNCATE, and no DELETE except the cascade of a demo purge (axion.purge_demo, set by clearDemo only).
+create function stage8_append_only() returns trigger language plpgsql as $$
+begin
+  if tg_op = 'DELETE' and coalesce(current_setting('axion.purge_demo', true), '') = 'on' then return old; end if;
+  raise exception '% is append-only', tg_table_name;
+end $$;
+
+-- R1: a release is a record of what was released, by whom, and from which approvals. change_paths are stored in the normal form of releases/guard.ts.
+create table releases (
+  id text primary key,                                        -- 'REL-' + 128 random bits (upper-case hex)
+  tenant_id text not null references tenants(id),
+  version text not null check (version ~ '^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$'),
+  what text not null check (length(what) between 1 and 1000),
+  change_paths text[] not null check (cardinality(change_paths) between 1 and 200),
+  guarded_paths text[] not null default '{}',                 -- the subset of change_paths on a guardrail path (recomputed by the trigger below)
+  from_approvals text[] not null default '{}',                -- ids of the approvals the change came from (checked by the service, no foreign key: approvals are never deleted but this is a claim)
+  guardrail_approval_id text references approval_requests(id),
+  released_by text not null,
+  created_at timestamptz not null default now(),
+  unique (tenant_id, version)
+);
+create index releases_tenant_time on releases(tenant_id, created_at desc, id);
+
+-- The denial, in the database too: a release touching a guarded path needs a bound R4 approval (approved, this tenant); a release not touching one carries none.
+create function releases_check() returns trigger language plpgsql as $$
+declare g text[]; a approval_requests;
+begin
+  select coalesce(array_agg(p order by p), '{}') into g from unnest(new.change_paths) p where lower(normalize(p, NFKC)) ~ '(^|/)(policy|approvals?|audit[a-z_-]*|locks?|migrations?)([/._-]|$)';
+  if (select coalesce(array_agg(p order by p), '{}') from unnest(new.guarded_paths) p) is distinct from g then raise exception 'release guarded_paths do not match its change_paths'; end if;
+  if cardinality(g) = 0 then
+    if new.guardrail_approval_id is not null then raise exception 'a release that touches no guarded path carries no guardrail approval'; end if;
+    return new;
+  end if;
+  if new.guardrail_approval_id is null then raise exception 'release touches guarded paths and needs a bound R4 approval'; end if;
+  select * into a from approval_requests where id = new.guardrail_approval_id;
+  if a.id is null or a.tenant_id <> new.tenant_id or a.risk <> 'R4' or a.state <> 'approved' then raise exception 'the guardrail approval must be an approved R4 request of this tenant'; end if;
+  return new;
+end $$;
+create trigger releases_check before insert on releases for each row execute function releases_check();
+create trigger releases_no_edit before update or delete on releases for each row execute function stage8_append_only();
+create trigger releases_no_truncate before truncate on releases for each statement execute function stage8_append_only();
+
+-- The last-good pointer and the rollback-target records are one append-only log of marks. The pointer is the newest last_good mark; a rollback_target
+-- mark says "if this release is ever rolled back, the known-good one to return to is target_release_id". Recording a mark moves nothing and runs nothing.
+create table release_marks (
+  id bigint generated always as identity primary key,
+  tenant_id text not null references tenants(id),
+  release_id text not null references releases(id) on delete cascade,
+  kind text not null check (kind in ('last_good','rollback_target')),
+  target_release_id text references releases(id) on delete cascade,
+  marked_by text not null,
+  reason text check (reason is null or length(reason) <= 500),
+  created_at timestamptz not null default now(),
+  check ((kind = 'rollback_target') = (target_release_id is not null)),
+  check (target_release_id is distinct from release_id)
+);
+create index release_marks_tenant on release_marks(tenant_id, kind, id desc);
+create trigger release_marks_no_edit before update or delete on release_marks for each row execute function stage8_append_only();
+create trigger release_marks_no_truncate before truncate on release_marks for each statement execute function stage8_append_only();

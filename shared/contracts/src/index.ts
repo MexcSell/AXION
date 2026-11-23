@@ -7,6 +7,7 @@ export * from './conversations.ts';
 export * from './tasks.ts';
 export * from './company.ts';
 export * from './reviews.ts';
+export * from './releases.ts';
 export * from './departments.ts';
 export * from './browser.ts';
 export * from './failures.ts';

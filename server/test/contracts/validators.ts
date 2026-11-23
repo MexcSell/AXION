@@ -18,6 +18,7 @@ import {
   type CapacityCellDto, type CapacityDeptDto, type CapacityPersonDto, type CapacityPeopleBody, type ReviewCapacityDto, type LittleLawDto, type SpanDto, type SpanRowDto,
   type MetricGuardDto, type MetricGuard, type MetricGuardRow, type MetricAuditState, type MetricAuditResult, QUALITY_DIMENSION_IDS,
   type ProcessDto, type ProcessCell, PROCESS_WINDOWS,
+  type ReleaseDto, type ReleaseMarkDto, type LastGoodDto, type ReleasesDto, RELEASE_MARK_KINDS,
 } from '../../../shared/contracts/src/index.ts';
 
 export const errorEnvelope: V<ErrorEnvelope> = obj<ErrorEnvelope>({ code: oneOf(ERROR_CODES), message: str, correlationId: str, retryable: bool, fieldErrors: opt(dict(str)) });
@@ -457,3 +458,11 @@ export const attention: V<AttentionDto> = obj<AttentionDto>({
   rows: arr(attentionRow), totals: obj<AttentionDto['totals']>({ items: int, rows: int, collapsed: int }),
   settings: obj<AttentionDto['settings']>({ waitingHours: int, nearExpiryHours: int, failureWindowDays: int }), ranking: str, checkedAt: iso,
 });
+
+// ---- c76 (parked): release records
+const release: V<ReleaseDto> = obj<ReleaseDto>({ id: str, version: str, what: str, changePaths: arr(str), guardedPaths: arr(str), fromApprovals: arr(str), guardrailApprovalId: nullable(str), releasedBy: str, releasedByName: str, createdAt: iso });
+const releaseMark: V<ReleaseMarkDto> = obj<ReleaseMarkDto>({ id: str, releaseId: str, version: str, kind: oneOf(RELEASE_MARK_KINDS), targetReleaseId: nullable(str), targetVersion: nullable(str), markedBy: str, markedByName: str, reason: nullable(str), createdAt: iso });
+const lastGood: V<LastGoodDto> = obj<LastGoodDto>({ id: str, releaseId: str, version: str, markedBy: str, markedByName: str, reason: nullable(str), createdAt: iso });
+export const releases: V<ReleasesDto> = obj<ReleasesDto>({ releases: arr(release), lastGood: nullable(lastGood), rollbackTargets: arr(releaseMark), marks: arr(releaseMark) });
+export const releaseBody = obj<{ release: ReleaseDto }>({ release });
+export const releaseMarkBody = obj<{ mark: ReleaseMarkDto }>({ mark: releaseMark });
