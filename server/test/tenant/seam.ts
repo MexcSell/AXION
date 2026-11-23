@@ -78,3 +78,8 @@ export const useSeams = (app: FastifyInstance) => SEAMS.get(app)!;
 export const onlyWhen = (when: (params: unknown[]) => boolean, r: Rewrite): Rewrite => (sql, params) => (when(params) ? r(sql, params) : null);
 /** A fault that lets the request choose the tenant: while the header is present, every statement is given that tenant id instead of t-1. */
 export const tenantFromHeader: Rewrite = (sql, params) => (asked.tenant && params.includes('t-1') ? { sql, params: params.map((p) => (p === 't-1' ? asked.tenant : p)) } : null);
+/** A lookup by exact id and tenant becomes a lookup by id PREFIX across all tenants (a forged, shortened id finds another tenant's row). */
+export const prefixLookup = (read: RegExp, predicate: RegExp): Rewrite => (sql, params) => {
+  if (!/^\s*(with|select)/i.test(sql) || !read.test(sql) || !predicate.test(sql)) return null;
+  return { sql: sql.replace(predicate, "($1::text is not null) and d.id like $2 || '%'"), params };
+};

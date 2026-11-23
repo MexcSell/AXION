@@ -3,6 +3,7 @@ vi.mock('../../src/agents/seed.ts', async (orig) => { const real = await orig<ty
 import { buildWorld, seedTenant, type World } from './fixture.ts';
 import { attachSeams, SEAMS, sharedCache } from './seam.ts';
 import { swapTenant } from './swap.ts';
+import { forgedScope } from './forged.ts';
 import { detect, DetectorInvalid, type Violation } from './isolation.ts';
 import { foreignWrites } from './writes.ts';
 import { MUTANTS } from './mutants.ts';
@@ -26,6 +27,7 @@ describe('seeded-leak mutants', () => {
         const d = await detect(w, view, other, ++round, { arm });
         violations = d.violations;
         if (m.expect.test('WRITE')) violations.push(...(await foreignWrites(w, view, other, arm)).violations);
+        if (m.expect.test('MR4')) violations.push(...(await forgedScope(w, view, other, arm)).violations);
         if (m.expect.test('MR2')) violations.push(...(await swapTenant(w, view, other, arm)).violations);
       } catch (e) { if (e instanceof DetectorInvalid) throw e; thrown = (e as Error).message.slice(0, 160); }
       finally { seam.fn = null; seam.fromHeader = false; for (const t of [w.A, w.B]) SEAMS.get(t.app)!.cacheOn = false; sharedCache.clear(); }
