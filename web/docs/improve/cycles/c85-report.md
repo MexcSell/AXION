@@ -42,3 +42,12 @@ Which kinds of change should be allowed or required to carry a plan (org changes
 
 ## Files changed
 See `git diff 2c3b7d5..HEAD --stat`: migration 0058 (up, down), `server/src/organization/{plan.ts,plan-metrics.ts,proposals.ts}`, `server/src/app.ts`, `shared/contracts/src/{org-plan.ts,index.ts,errors.ts,metric-guard.ts}`, c85 tests and helpers, c50/c66/c79 test registries and fixtures, `c80-guards.test.ts` floor. No `web/` source file.
+
+## Fix round (review c85-review.md)
+1. `GET .../plan` is now `requireAdmin` (counts include private missions). Test: member 403 FORBIDDEN, anonymous 401, and an administrator's count includes a member's private mission. c50 entry marked `admin: true`.
+2. Approving a planned proposal without `planSha` is 409 `PLAN_SHA_REQUIRED` ("This proposal has a change plan. Approve it through the API with the plan's sha (planSha). The app does not show plans yet."); a wrong sha stays `PROPOSAL_CHANGED`. Added to contracts. The web UI needs a plan view and a planSha on approve: BACKLOG item for the controller.
+3. Units: demo/deleted-mission filter added to grants, confirmed tags and owner changes. Lessons, playbooks, eval runs and promotions have no mission link and no demo marker (the demo seed never writes them), so no filter is possible there. `lessons_rolled_back` and `verdict_outcomes` are NOT_COUNTABLE and refused. The readout gains `otherChanges` and says "Another change took effect during the window: counts mix both".
+4. The readout shows the stored `plan_sha` and `shaMatches`; a mismatch adds a warning. The trigger now refuses a plan change in the update that decides the proposal and a plan_sha set while pending (migration 0058 edited in place; it is unmerged).
+5. U+0000 in the plan `why` and amendment `reason` is a 400.
+RED: `c85-fix.test.ts` 9 failed before the fixes. c83 guard not run (base predates it; the integrator runs it).
+Fix-round runs: server and web tsc clean; full serial vitest 156 files passed, 1 skipped; 3450 passed, 36 skipped, 1 failed (`jobs.test.ts` lease stress test, a timing test under load average about 8; passes alone, 76/76). No `admin connect failed`.
