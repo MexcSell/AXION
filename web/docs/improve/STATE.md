@@ -46,7 +46,7 @@ Rewritten 2026-11-22T07:35Z, 17:50Z, and 2026-11-23T03:40Z by the controller. Ol
 | w73 | c75 approval evidence tamper-evident (P3c), e2e17, no migration | CLEARED at af54328, batch 34 |
 | w74 | c76 Stage 8 records (R1, A1), e2e18, mig 0056 | CLEARED at dfd1bff, **PARKED (Q11): never queue** |
 | w75 | c77 Stage 9 records (M2, G1), e2e2, mig 0057 | CLEARED at da75e62, **PARKED (Q11): never queue** |
-| w76 | c78 test hygiene II (H21, H20, O1c), e2e3, tests only | implementing (merge before 18:30Z) |
+| w76 | c78 test hygiene II (H21, H20, O1c), e2e3, tests only | CLEARED at 96ed66e, batch 35 |
 | — | Final report draft (FINAL-REPORT-PHASE2.md) | draft committed; finalise at the end |
 
 Every other Wave 5–7 lane (c53–c71) is MERGED and live (2026-11-23T02:22Z). Details are in QUEUE.md, MERGES.md and LOG.md.
