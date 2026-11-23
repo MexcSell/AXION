@@ -36,31 +36,52 @@ function historyShape(h: unknown): TrajectoryStep[] | null {
   return h as TrajectoryStep[];
 }
 
+/** Resolve `.`/`..` and `//` in the path of a URL or an absolute path before a prefix/contains test. null = refuse (encoded, backslash, control characters, relative). */
+function normalisePathish(v: string): string | null {
+  for (let i = 0; i < v.length; i++) { const k = v.charCodeAt(i); if (k < 32 || k === 127 || k === 92 || k === 37) return null; }
+  let head = '', rest = v;
+  if (v.startsWith('https://')) { const i = v.indexOf('/', 8); if (i === -1) return v; head = v.slice(0, i); rest = v.slice(i); }
+  else if (!v.startsWith('/')) return v; // not a path: compared as plain text
+  let tail = '';
+  const q = rest.search(/[?#]/); // fixed class, applied to the value, never built from it
+  if (q !== -1) { tail = rest.slice(q); rest = rest.slice(0, q); }
+  const out: string[] = [];
+  const parts = rest.split('/');
+  for (let i = 1; i < parts.length; i++) {
+    const seg = parts[i];
+    if (seg === '..') out.pop(); else if (seg !== '.' && seg !== '') out.push(seg);
+    else if (i === parts.length - 1 && seg === '') out.push('');
+  }
+  return head + '/' + out.join('/') + tail;
+}
 type ArgVerdict = 'ok' | 'narrow' | 'wider' | 'missing';
 const same = (a: unknown, b: unknown) => a === b; // strict: 1 and '1' differ, no coercion
 function checkArg(c: ArgConstraint, present: boolean, v: unknown): ArgVerdict {
-  if (!present) return c.optional ? 'narrow' : 'missing';
+  if (!present) return c.omitNarrows ? 'narrow' : 'missing';
   switch (c.kind) {
     case 'exact': return !Array.isArray(v) && same(v, c.value) ? 'ok' : 'wider';
     case 'oneOf': return !Array.isArray(v) && c.values.some((x) => same(x, v)) ? 'ok' : 'wider';
     case 'text': {
       if (typeof v !== 'string') return 'wider';
-      const ok = c.op === 'prefix' ? v.startsWith(c.value) : c.op === 'suffix' ? v.endsWith(c.value) : v.includes(c.value);
+      let w = v;
+      if (c.op !== 'suffix' && c.value.includes('/')) { const n = normalisePathish(v); if (n === null) return 'wider'; w = n; }
+      const ok = c.op === 'prefix' ? w.startsWith(c.value) : c.op === 'suffix' ? w.endsWith(c.value) : w.includes(c.value);
       return ok ? 'ok' : 'wider';
     }
     case 'range': {
-      if (typeof v !== 'number') return 'wider';
+      if (typeof v !== 'number' || (c.integer && !Number.isInteger(v))) return 'wider';
       return (c.min === undefined || v >= c.min) && (c.max === undefined || v <= c.max) ? 'ok' : 'wider';
     }
     case 'subsetOf': {
-      if (!Array.isArray(v)) return 'wider';
-      const cap = Math.min(c.values.length, c.maxItems ?? L.maxList);
+      if (!Array.isArray(v) || v.length === 0) return 'wider'; // an empty list often means "no filter" (everything)
+      const cap = c.maxItems ?? c.values.length;
       if (v.length > cap) return 'wider';
       for (let i = 0; i < v.length; i++) {
         if (!c.values.some((x) => same(x, v[i]))) return 'wider';
         for (let j = 0; j < i; j++) if (same(v[j], v[i])) return 'wider'; // duplicates: fail closed (quadratic in at most 32 items)
       }
-      return v.length < cap ? 'narrow' : 'ok';
+      // With maxItems any list up to the cap is in plan. Without it, a strict subset of the allowed values is a narrowing.
+      return c.maxItems === undefined && v.length < c.values.length ? 'narrow' : 'ok';
     }
   }
 }
@@ -95,7 +116,8 @@ function checkInner(planInput: unknown, callInput: unknown, historyInput: unknow
   const call = callShape(cs.value), history = historyShape(hs.value);
   if (!call || !history) return deny('malformed');
 
-  if (plan.forbiddenTools.includes(call.tool)) return deny('forbidden_tool');
+  const lower = call.tool.toLowerCase();
+  if (plan.forbiddenTools.some((t) => t.toLowerCase() === lower)) return deny('forbidden_tool');
   if (call.origin !== null && !plan.grants.includes(call.origin)) return deny('origin_not_granted');
 
   const ids = new Map<string, number>();
@@ -103,6 +125,8 @@ function checkInner(planInput: unknown, callInput: unknown, historyInput: unknow
   const cands = plan.calls.filter((c) => c.tool === call.tool).map((c) => evaluate(c, call, ids));
   const clean = cands.filter((c) => c.reasons.length === 0);
   const best = clean.find((c) => !c.narrowed) ?? clean[0];
+  // An untrusted narrowing is denied until label propagation exists: untrusted content picks WHICH narrower call runs.
+  if (best && best.narrowed && call.provenance === 'untrusted') return { decision: 'deny', reasons: ['untrusted_narrowing'], planCallId: null };
   if (best) return { decision: best.narrowed ? 'narrow-allow' : 'allow', reasons: [best.narrowed ? 'narrowed' : 'in_plan'], planCallId: best.call.id };
 
   const reasons: ConformanceReason[] = cands.length === 0 ? ['new_tool'] : [...cands.reduce((a, b) => (b.reasons.length < a.reasons.length ? b : a)).reasons];

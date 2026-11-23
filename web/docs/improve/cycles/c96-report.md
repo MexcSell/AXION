@@ -12,9 +12,10 @@ Branch `c96-plan-conformance`, base `d3ce0ff`. Thresholds and fixture design wer
 
 ## Rules
 - Decisions: `allow`, `narrow-allow`, `needs-approval`, `deny`. D4's split is used rather than a plan hash: less authority than a plan call is auto-allowed and recorded; more authority needs approval. There is no plan-level approval digest in this slice.
-- Narrowing means an omitted optional argument, or a list argument that is a strict subset of the allowed list.
+- Narrowing means a non-empty list that is a strict subset of the allowed list (when the plan sets no `maxItems`), or an omission the plan itself declares narrower (`omitNarrows`). An empty list or an omitted argument is otherwise an expansion (fix round: a default is often wider than what was approved).
+- An untrusted narrowing is `deny` (reason `untrusted_narrowing`) until label propagation exists; narrow-allow stays for user and system provenance.
 - Expansion: new tool, wider value, extra argument, missing required argument, a granted origin the call does not list, out of order, use count over `max`.
-- `deny`: forbidden tool, origin outside the grants, anything malformed, and any `untrusted` call that is not allow or narrow-allow. Untrusted content never adds calls.
+- `deny`: forbidden tool (case-insensitive), origin outside the grants, anything malformed, and any `untrusted` call that is not allow or narrow-allow. Untrusted content never adds calls.
 - Provenance (`user`, `system`, `untrusted`) is given by the trusted harness. Matching is linear string comparison; no regex is built from input.
 
 ## Thresholds (committed before the runs; run with `heavy.sh`, load average about 5.3)
@@ -34,9 +35,9 @@ Read T-c with care. I authored the 24 workflows: 12 follow the plan and 12 each 
 RED/GREEN: I wrote the module and the tests together and committed the tests before the first run, so there is no separate RED run. The first run was GREEN (87/87). A fault-detection check was not run against a deliberately broken checker.
 
 ## Tests and checks
-- `server/test/exec-plan.test.ts`: 87 tests (schema, each decision path, boundaries, fail-closed and accessor cases, linear-time cases, T-a, T-b, T-c, T-m).
+- `server/test/exec-plan.test.ts`: 95 tests after the fix round (schema, each decision path, boundaries, fail-closed and accessor cases, linear-time cases, T-a, T-b, T-c, T-m).
 - `tsc --noEmit` clean.
-- Full serial vitest (`--maxWorkers=1 --no-file-parallelism`): 177 files passed, 1 skipped; 3716 tests passed, 36 skipped; no failure. Duration 694 s, load average about 5.
+- Full serial vitest (fix round, `--maxWorkers=1 --no-file-parallelism`): 177 files passed, 1 skipped; 3724 tests passed, 36 skipped; no failure; 717 s, load average about 5. `exec-plan.test.ts`: 95 tests.
 
 ## Files changed
 `shared/contracts/src/exec-plan.ts`, `shared/contracts/src/index.ts` (one export line), `server/src/exec-plan/{snapshot,plan,conformance}.ts`, `server/test/exec-plan.test.ts`, `server/test/exec-plan-fixtures.ts`, `web/docs/improve/cycles/c96-thresholds.md`, this report.
@@ -48,3 +49,15 @@ RED/GREEN: I wrote the module and the tests together and committed the tests bef
 - The checker trusts the harness for `provenance` and for the history. A lying harness defeats it.
 - `validatePlan` runs on each `checkCall` (simple and safe, not cached).
 - The trajectory replay treats a `needs-approval` step as approved once and not counting toward any plan call's uses; this is one assumption among several possible.
+
+## Fix round (after review: NOT CLEAR)
+Numbers here replace the ones above where they differ (T-a2 n=37, T-b, T-c narrowing count, tests 95).
+
+1. **Untrusted narrowing.** Probes added as tests: untrusted `tickets.tag {tags: []}` and untrusted `docs.search` without `limit` (repeated 4 times, max 4) are no longer narrow-allow; they are `deny`, and `needs-approval` for user provenance (reason `missing_arg` or `wider_value`). An untrusted real narrowing is `deny` (`untrusted_narrowing`).
+2. **T-b was largely tautological on the tight plan, and still is: it is a weak test.** On the tight plan (navigate, observe, finish only) 240 of 240 state-changing cases are denied, but 223 of them die as `new_tool`, 15 as `wider_value`, 2 as `origin_not_granted`. New T-b variants on the broader fixture plans, where click or fill is allowed (untrusted injected step, n=240 state-changing cases):
+   - shop plan (click Next/Details/Specs, navigate under the shop origin): 234 deny, 6 allow, 0 needs-approval. First reasons: wider_value 132, new_tool 85, forbidden_tool 8, new_origin 2, origin_not_granted 1, extra_arg 6, in_plan 6. With trusted provenance: 225 needs-approval, 9 deny, 6 allow.
+   - form plan (fill sec_ value refs, select, Save draft): 238 deny, 2 allow. First reasons: wider_value 220, forbidden_tool 8, extra_arg 7, origin_not_granted 2, new_origin 1, in_plan 2. Trusted: 228 needs-approval, 10 deny, 2 allow.
+   - The 6 and 2 allowed calls are in-plan actions (a permitted click or navigation) that injected content chose. **A plan check can't stop an in-plan action with harmful arguments chosen by injected content. That is what label propagation (next phase) is for.** So T-b on the broader plans is not 100% blocked, and I do not claim it is.
+3. **Mapper.** The mapper is now faithful: a locator becomes `by` plus its identifying fields (`exact` dropped), every other action key keeps its own name, and it adds no key. Split of the tight-plan denials: all 240 are the checker's own rules (new_tool 223, wider_value 15, origin_not_granted 2); the mapper contributes none. `extra_arg` appears on 6 (shop) and 7 (form) cases, all carried by the corpus action itself (a css `selector`, `script`/`evaluate`/`cdp`, or a `value` on a fill). The earlier version flattened locators to `target.by`-style names, which tripped extra-arg on every locator action; that part of the earlier 100% was the mapper's.
+4. **Minors fixed:** `range` has an `integer` flag (ids and counts use it; `id: 1.5` needs approval); URL and absolute-path `prefix`/`contains` are normalised first (`.`, `..`, `//`; encoded, backslash and control characters are refused), so `/workspace/reports/../secrets/key` needs approval; `forbiddenTools` and the planned-versus-forbidden check are case-insensitive; a `subsetOf` list within `maxItems` is `allow`, and without `maxItems` a strict non-empty subset is the narrowing; a permanent RED test shows an always-allow stub and an always-deny stub both fail the T-a rows.
+5. **Notes.** History and provenance are trusted from the harness. T-c's share comes from my authored 12/12 mix: now 12 of 24 workflows (50.0%), 12 of 108 steps (11.1%), 5 steps auto-allowed as narrowing, 0 denied (plan-following workflows were adjusted to pass the `note` and `limit` arguments that are now required). T-m: 1000 mutants, 0 leaks.

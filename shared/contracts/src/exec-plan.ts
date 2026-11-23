@@ -10,10 +10,10 @@ export type ArgConstraint = (
   | { kind: 'exact'; value: string | number | boolean | null }
   | { kind: 'oneOf'; values: (string | number | boolean)[] }
   | { kind: 'text'; op: 'prefix' | 'suffix' | 'contains'; value: string }
-  | { kind: 'range'; min?: number; max?: number }
-  /** the argument is a list; every element must be in `values`; a strict subset is a narrowing */
+  | { kind: 'range'; min?: number; max?: number; /** only whole numbers match (ids, counts) */ integer?: boolean }
+  /** the argument is a list; every element must be in `values`, no duplicates, not empty. With `maxItems` any such list up to that length is in plan; without it a strict subset of `values` is a narrowing */
   | { kind: 'subsetOf'; values: (string | number | boolean)[]; maxItems?: number }
-) & { /** an omitted optional argument is a narrowing; an omitted required argument is an expansion */ optional?: boolean };
+) & { /** The plan declares that leaving this argument out means something NARROWER than any value (a safe default). Without it an omitted argument is an expansion (missing_arg), because a default is often wider than what was approved. */ omitNarrows?: boolean };
 
 export interface PlanCall {
   id: string;
@@ -48,7 +48,7 @@ export interface TrajectoryStep { planCallId: string | null }
 
 export type ConformanceDecision = 'allow' | 'narrow-allow' | 'needs-approval' | 'deny';
 export type ConformanceReason =
-  | 'in_plan' | 'narrowed' | 'new_tool' | 'forbidden_tool' | 'origin_not_granted' | 'new_origin' | 'wider_value' | 'extra_arg'
+  | 'in_plan' | 'narrowed' | 'untrusted_narrowing' | 'new_tool' | 'forbidden_tool' | 'origin_not_granted' | 'new_origin' | 'wider_value' | 'extra_arg'
   | 'missing_arg' | 'out_of_order' | 'exceeds_count' | 'untrusted_off_plan' | 'malformed';
 export interface ConformanceResult { decision: ConformanceDecision; reasons: ConformanceReason[]; planCallId: string | null }
 

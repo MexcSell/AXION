@@ -27,22 +27,23 @@ const keysOnly = (o: Obj, allowed: string[]): boolean => Object.keys(o).every((k
 function constraintErrors(c: unknown, where: string): string[] {
   if (!isObj(c)) return [`${where}: constraint must be an object`];
   const e: string[] = [];
-  if (c.optional !== undefined && typeof c.optional !== 'boolean') e.push(`${where}: optional must be boolean`);
+  if (c.omitNarrows !== undefined && typeof c.omitNarrows !== 'boolean') e.push(`${where}: omitNarrows must be boolean`);
   const strOk = (v: unknown) => typeof v === 'string' && v.length <= L.maxString;
   switch (c.kind) {
-    case 'exact': if (!keysOnly(c, ['kind', 'value', 'optional'])) e.push(`${where}: unknown field`); if (!('value' in c) || !(c.value === null || scalar(c.value)) || (typeof c.value === 'string' && !strOk(c.value))) e.push(`${where}: exact value invalid`); break;
+    case 'exact': if (!keysOnly(c, ['kind', 'value', 'omitNarrows'])) e.push(`${where}: unknown field`); if (!('value' in c) || !(c.value === null || scalar(c.value)) || (typeof c.value === 'string' && !strOk(c.value))) e.push(`${where}: exact value invalid`); break;
     case 'oneOf': case 'subsetOf': {
-      if (!keysOnly(c, ['kind', 'values', 'optional', 'maxItems'])) e.push(`${where}: unknown field`);
+      if (!keysOnly(c, ['kind', 'values', 'omitNarrows', 'maxItems'])) e.push(`${where}: unknown field`);
       if (c.kind === 'oneOf' && 'maxItems' in c) e.push(`${where}: maxItems only on subsetOf`);
       if (!Array.isArray(c.values) || c.values.length === 0 || c.values.length > L.maxValues || !c.values.every((v) => scalar(v) && (typeof v !== 'string' || strOk(v)))) e.push(`${where}: values invalid`);
       else if (new Set(c.values.map((v) => typeof v + ':' + String(v))).size !== c.values.length) e.push(`${where}: duplicate values`);
       if (c.maxItems !== undefined && !(Number.isInteger(c.maxItems) && (c.maxItems as number) >= 0 && (c.maxItems as number) <= L.maxList)) e.push(`${where}: maxItems invalid`);
       break;
     }
-    case 'text': if (!keysOnly(c, ['kind', 'op', 'value', 'optional'])) e.push(`${where}: unknown field`); if (c.op !== 'prefix' && c.op !== 'suffix' && c.op !== 'contains') e.push(`${where}: op invalid`); if (!strOk(c.value) || (c.value as string).length === 0) e.push(`${where}: text value invalid`); break;
+    case 'text': if (!keysOnly(c, ['kind', 'op', 'value', 'omitNarrows'])) e.push(`${where}: unknown field`); if (c.op !== 'prefix' && c.op !== 'suffix' && c.op !== 'contains') e.push(`${where}: op invalid`); if (!strOk(c.value) || (c.value as string).length === 0) e.push(`${where}: text value invalid`); break;
     case 'range': {
-      if (!keysOnly(c, ['kind', 'min', 'max', 'optional'])) e.push(`${where}: unknown field`);
+      if (!keysOnly(c, ['kind', 'min', 'max', 'integer', 'omitNarrows'])) e.push(`${where}: unknown field`);
       const lo = c.min, hi = c.max;
+      if (c.integer !== undefined && typeof c.integer !== 'boolean') e.push(`${where}: integer must be boolean`);
       if (lo === undefined && hi === undefined) e.push(`${where}: range needs min or max`);
       if ((lo !== undefined && !(typeof lo === 'number' && Number.isFinite(lo))) || (hi !== undefined && !(typeof hi === 'number' && Number.isFinite(hi)))) e.push(`${where}: bounds must be finite numbers`);
       else if (typeof lo === 'number' && typeof hi === 'number' && lo > hi) e.push(`${where}: min above max`);
@@ -65,12 +66,12 @@ export function validatePlan(input: unknown): PlanResult {
   if (!Array.isArray(p.calls) || p.calls.length === 0 || p.calls.length > L.maxCalls) e.push('calls must hold 1..' + L.maxCalls + ' entries');
   if (e.length === 0) {
     const ids = new Set<string>();
-    const grants = p.grants as string[], forbidden = new Set(p.forbiddenTools as string[]);
+    const grants = p.grants as string[], forbidden = new Set((p.forbiddenTools as string[]).map((t) => t.toLowerCase()));
     for (const [i, c] of (p.calls as unknown[]).entries()) {
       const w = `calls[${i}]`;
       if (!isObj(c) || !keysOnly(c, ['id', 'tool', 'args', 'origins', 'after', 'max'])) { e.push(`${w}: closed object required`); continue; }
       if (!idOk(c.id) || ids.has(c.id)) e.push(`${w}: id invalid or duplicate`);
-      if (!toolNameOk(c.tool)) e.push(`${w}: tool invalid`); else if (forbidden.has(c.tool)) e.push(`${w}: tool is also forbidden`);
+      if (!toolNameOk(c.tool)) e.push(`${w}: tool invalid`); else if (forbidden.has(c.tool.toLowerCase())) e.push(`${w}: tool is also forbidden`);
       if (!isObj(c.args) || Object.keys(c.args).length > L.maxArgs) e.push(`${w}: args invalid`);
       else for (const [k, v] of Object.entries(c.args)) { if (!argNameOk(k)) e.push(`${w}.args: bad name`); e.push(...constraintErrors(v, `${w}.args.${k.slice(0, 20)}`)); }
       if (!Array.isArray(c.origins) || c.origins.length > L.maxOrigins || !c.origins.every((o) => typeof o === 'string' && grants.includes(o)) || new Set(c.origins).size !== c.origins.length) e.push(`${w}: origins must be unique members of grants`);

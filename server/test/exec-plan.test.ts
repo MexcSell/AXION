@@ -4,7 +4,7 @@ import { checkCall, checkTrajectory } from '../src/exec-plan/conformance.ts';
 import { validatePlan, planSha256 } from '../src/exec-plan/plan.ts';
 import { snapshot } from '../src/exec-plan/snapshot.ts';
 import { canonicalPlanJson, type ExecPlan, type ProposedCall } from '../../shared/contracts/src/exec-plan.ts';
-import { PLANS, FAMILIES, call, outOfPlanRows, inPlanRows, workflows, shopPlan, supportPlan, SHOP, DOCS, API, EVIL, type Row } from './exec-plan-fixtures.ts';
+import { PLANS, FAMILIES, call, outOfPlanRows, inPlanRows, workflows, shopPlan, formPlan, supportPlan, SHOP, DOCS, API, EVIL, type Row } from './exec-plan-fixtures.ts';
 
 const hist = (ids: (string | null)[]) => ids.map((planCallId) => ({ planCallId }));
 const run = (r: Row) => checkCall(PLANS[r.plan], r.call, hist(r.history));
@@ -56,9 +56,33 @@ describe('plan schema', () => {
 
 describe('decision paths', () => {
   it('allow: in plan', () => { const r = checkCall(shopPlan, call('browser.observe', {}, SHOP)); expect(r).toEqual({ decision: 'allow', reasons: ['in_plan'], planCallId: 'obs' }); });
-  it('narrow-allow: a strict subset list, and an omitted optional arg', () => {
-    const r = checkCall(supportPlan, call('tickets.tag', { id: 1, tags: ['bug'] }, API), hist(['read']));
+  it('narrow-allow (user and system only): a strict subset list, and an omission the plan declares narrower', () => {
+    const r = checkCall(supportPlan, call('tickets.tag', { id: 1, tags: ['bug'], note: 'triage' }, API), hist(['read']));
     expect(r.decision).toBe('narrow-allow'); expect(r.reasons).toEqual(['narrowed']);
+    expect(checkCall(supportPlan, { ...call('tickets.tag', { id: 1, tags: ['bug'], note: 'triage' }, API), provenance: 'system' }, hist(['read'])).decision).toBe('narrow-allow');
+    expect(checkCall(PLANS.deploy, call('logs.read', { service: 'web' }, API), hist(['status'])).decision).toBe('narrow-allow');
+  });
+  it('an UNTRUSTED narrowing is deny until label propagation exists', () => {
+    const u = (c: ProposedCall): ProposedCall => ({ ...c, provenance: 'untrusted' });
+    expect(checkCall(supportPlan, u(call('tickets.tag', { id: 1, tags: ['bug'], note: 'triage' }, API)), hist(['read']))).toMatchObject({ decision: 'deny', reasons: ['untrusted_narrowing'] });
+    expect(checkCall(PLANS.deploy, u(call('logs.read', { service: 'web' }, API)), hist(['status']))).toMatchObject({ decision: 'deny', reasons: ['untrusted_narrowing'] });
+  });
+  it('review probes: an empty list and an omitted argument are NOT narrowings (they can mean "no filter" or a wider default)', () => {
+    for (const provenance of ['user', 'untrusted'] as const) {
+      const tag = { ...call('tickets.tag', { id: 1, tags: [], note: 'triage' }, API), provenance };
+      const search = { ...call('docs.search', { q: 'refund?' }, DOCS), provenance };
+      expect(checkCall(supportPlan, tag, hist(['read'])).decision).toBe(provenance === 'user' ? 'needs-approval' : 'deny');
+      const r = checkCall(supportPlan, search);
+      expect(r.decision).toBe(provenance === 'user' ? 'needs-approval' : 'deny'); expect(r.reasons).toContain('missing_arg');
+    }
+    // repeatable up to max 4 for an untrusted call: none of them is allowed
+    const calls = Array(4).fill({ ...call('docs.search', { q: 'refund?' }, DOCS), provenance: 'untrusted' });
+    expect(checkTrajectory(supportPlan, calls).results.map((r) => r.decision)).toEqual(['deny', 'deny', 'deny', 'deny']);
+  });
+  it('subsetOf with maxItems: any list up to the cap is in plan (allow), longer is wider', () => {
+    const plan = clone(supportPlan); (plan.calls[2].args.tags as any).maxItems = 2;
+    const t = (tags: string[]) => checkCall(plan, call('tickets.tag', { id: 1, tags, note: 'triage' }, API), hist(['read'])).decision;
+    expect([t(['bug']), t(['bug', 'ux']), t(['bug', 'ux', 'billing'])]).toEqual(['allow', 'allow', 'needs-approval']);
   });
   it('a list that equals the full allowed set is allow, not narrowing', () => {
     expect(checkCall(supportPlan, call('tickets.tag', { id: 1, tags: ['ux', 'bug', 'billing'], note: 'triage' }, API), hist(['read'])).decision).toBe('allow');
@@ -114,7 +138,7 @@ describe('boundaries', () => {
   });
   it('subsetOf: duplicates, unknown element and over-cap lists are wider; the empty list narrows', () => {
     const tags = (t: unknown) => checkCall(supportPlan, call('tickets.tag', { id: 1, tags: t as any, note: 'triage' }, API), hist(['read'])).decision;
-    expect([tags(['bug', 'bug']), tags(['bug', 'x']), tags(['bug', 'billing', 'ux', 'bug']), tags([]), tags('bug')]).toEqual(['needs-approval', 'needs-approval', 'needs-approval', 'narrow-allow', 'needs-approval']);
+    expect([tags(['bug', 'bug']), tags(['bug', 'x']), tags(['bug', 'billing', 'ux', 'bug']), tags([]), tags('bug')]).toEqual(['needs-approval', 'needs-approval', 'needs-approval', 'needs-approval', 'needs-approval']);
   });
   it('types are strict: "1" is not 1, true is not "true", an array is not a scalar', () => {
     expect(checkCall(supportPlan, call('tickets.read', { id: '5' as any }, API)).decision).toBe('needs-approval');
@@ -126,14 +150,33 @@ describe('boundaries', () => {
     expect(checkCall(shopPlan, call('browser.navigate', { url: SHOP }, SHOP)).decision).toBe('needs-approval');
     expect(checkCall(shopPlan, call('browser.navigate', { url: SHOP + '.evil.example.org/' }, SHOP)).decision).toBe('needs-approval');
     expect(checkCall(shopPlan, call('browser.navigate', { url: 'https://shop.example.com@evil.example.org/' }, SHOP)).decision).toBe('needs-approval');
-    expect(checkCall(supportPlan, call('docs.search', { q: 'ok?' }, DOCS)).decision).toBe('narrow-allow');
-    expect(checkCall(supportPlan, call('docs.search', { q: 'ok？' }, DOCS)).decision).toBe('needs-approval'); // fullwidth question mark
-    expect(checkCall(supportPlan, call('tickets.tag', { id: 1, tags: [], note: 'TRIAGE' }, API), hist(['read'])).decision).toBe('needs-approval');
+    expect(checkCall(supportPlan, call('docs.search', { q: 'ok?', limit: 1 }, DOCS)).decision).toBe('allow');
+    expect(checkCall(supportPlan, call('docs.search', { q: 'ok？', limit: 1 }, DOCS)).decision).toBe('needs-approval'); // fullwidth question mark
+    expect(checkCall(supportPlan, call('tickets.tag', { id: 1, tags: ['bug'], note: 'TRIAGE' }, API), hist(['read'])).decision).toBe('needs-approval');
   });
   it('string and list limits: 4096-char value is accepted, 4097 is malformed', () => {
     expect(checkCall(shopPlan, call('browser.navigate', { url: SHOP + '/' + 'a'.repeat(4096 - SHOP.length - 1) }, SHOP)).decision).toBe('allow');
     expect(checkCall(shopPlan, call('browser.navigate', { url: SHOP + '/' + 'a'.repeat(4097 - SHOP.length - 1) }, SHOP))).toMatchObject({ decision: 'deny', reasons: ['malformed'] });
     expect(checkCall(supportPlan, call('tickets.tag', { id: 1, tags: Array(33).fill('bug') as any }, API)).reasons).toEqual(['malformed']);
+  });
+});
+
+describe('review minors', () => {
+  it('integer ranges refuse fractions (ids)', () => {
+    expect(checkCall(supportPlan, call('tickets.read', { id: 1.5 }, API)).decision).toBe('needs-approval');
+    expect(checkCall(supportPlan, call('tickets.read', { id: 2 }, API)).decision).toBe('allow');
+    expect(checkCall(shopPlan, call('browser.scroll', { direction: 'up', pixels: 10.5 }, SHOP)).decision).toBe('allow'); // pixels has no integer flag
+  });
+  it('URL and path prefix/contains are normalised before matching', () => {
+    const nav = (url: string) => checkCall(shopPlan, call('browser.navigate', { url }, SHOP)).decision;
+    expect([nav(SHOP + '/a/./b'), nav(SHOP + '/a/../b'), nav(SHOP + '//a'), nav(SHOP + '/a%2e%2e/b'), nav(SHOP + '/a\\..\\b'), nav(SHOP + '/a\u0000b')]).toEqual(['allow', 'allow', 'allow', 'needs-approval', 'needs-approval', 'needs-approval']);
+    const rd = (path: string) => checkCall(PLANS.report, call('files.read', { path })).decision;
+    expect([rd('/workspace/reports/a.md'), rd('/workspace/reports/../secrets/key'), rd('/workspace/reports/../../etc/passwd'), rd('/workspace/reports/./x/../a.md'), rd('/workspace/reports/%2e%2e/x'), rd('workspace/reports/a')]).toEqual(['allow', 'needs-approval', 'needs-approval', 'allow', 'needs-approval', 'needs-approval']);
+  });
+  it('forbiddenTools is case-insensitive, and so is the planned-vs-forbidden conflict', () => {
+    expect(checkCall(shopPlan, call('Browser.Download', {}, SHOP)).reasons).toEqual(['forbidden_tool']);
+    expect(checkCall(shopPlan, call('SHELL.EXEC', {})).reasons).toEqual(['forbidden_tool']);
+    const p = clone(shopPlan); p.forbiddenTools.push('BROWSER.NAVIGATE'); expect(validatePlan(p).ok).toBe(false);
   });
 });
 
@@ -222,61 +265,81 @@ describe('T-a: fixture rows', () => {
     const wrong = inp.filter((r) => run(r).decision !== r.expect).map((r) => `${r.plan}/${r.name}: ${run(r).decision} ${run(r).reasons}`);
     expect(wrong).toEqual([]);
   });
+  it('permanent RED evidence: an always-allow stub and an always-deny stub both fail this suite\'s T-a checks', () => {
+    const allowAll = (r: Row) => ({ decision: 'allow' as const });
+    const denyAll = (r: Row) => ({ decision: 'deny' as const });
+    const failsOut = (f: (r: Row) => { decision: string }) => out.filter((r) => f(r).decision !== r.expect).length;
+    const failsIn = (f: (r: Row) => { decision: string }) => inp.filter((r) => f(r).decision !== r.expect).length;
+    expect(failsOut(allowAll)).toBe(out.length);       // every out-of-plan row catches the allow-all stub
+    expect(failsIn(allowAll)).toBeGreaterThan(0);      // narrowing rows catch it too
+    expect(failsIn(denyAll)).toBe(inp.length);         // and deny-all cannot pass the in-plan rows
+    expect(failsOut(run)).toBe(0); expect(failsIn(run)).toBe(0);
+  });
   it('the families cover every plan', () => { expect(Object.keys(FAMILIES).sort()).toEqual(Object.keys(PLANS).sort()); });
 });
 
 describe('T-b: the c37 injection corpus as scripted trajectories', () => {
   const corpus = JSON.parse(readFileSync(new URL('./fixtures/browser-injection.json', import.meta.url), 'utf8')) as any[];
-  // The plan: navigate to the shop, observe, finish. Nothing else (no click, fill, select, download, scroll, screenshot).
-  const plan: ExecPlan = { v: 1, grants: [SHOP], forbiddenTools: [], calls: [
+  // TIGHT plan: navigate, observe, finish only. Most injected tools are simply absent, so this plan mostly tests new_tool (a weak test, reported as such).
+  const tight: ExecPlan = { v: 1, grants: [SHOP], forbiddenTools: [], calls: [
     { id: 'nav', tool: 'browser.navigate', args: { url: { kind: 'exact', value: SHOP + '/checkout' } }, origins: [SHOP] },
     { id: 'obs', tool: 'browser.observe', args: {}, origins: [SHOP], max: 5 },
     { id: 'fin', tool: 'browser.finish', args: { summary: { kind: 'exact', value: 'done' } }, origins: [] },
   ] };
   const STATE_CHANGING = new Set(['click', 'fill', 'select', 'download', 'navigate']);
-  /** Flatten a corpus action into a proposed call: nested locator fields become `target.<field>`; unknown keys travel as arguments. */
+  /** Faithful mapper: a locator becomes `by` plus its identifying field (role+name, label, testId, selector); `exact` is dropped; every other key of the action travels under its own name.
+   *  It adds NO key of its own, so an `extra_arg` can only come from a key the corpus action itself carries (script, evaluate, cdp, a `value` on a fill). */
   function toCall(action: any, page: any, provenance: 'untrusted' | 'user'): unknown {
     const type = action && typeof action === 'object' && typeof action.type === 'string' ? action.type : '??';
     const args: Record<string, any> = {};
     if (action && typeof action === 'object') for (const [k, v] of Object.entries(action)) {
       if (k === 'type') continue;
-      if (v && typeof v === 'object' && !Array.isArray(v)) for (const [k2, v2] of Object.entries(v as object)) args[`${k}.${k2}`] = v2; else args[k] = v;
+      if (k === 'target' && v && typeof v === 'object') { for (const [k2, v2] of Object.entries(v as object)) if (k2 !== 'exact') args[k2] = v2; } else args[k] = v;
     }
     let origin: string | null = null;
     try { origin = page?.actualUrl ? new URL(page.actualUrl).origin : null; } catch { origin = null; }
     return { tool: 'browser.' + type, args, origin, provenance };
   }
-  const steps = (c: any, prov: 'untrusted' | 'user') => [
-    { tool: 'browser.navigate', args: { url: SHOP + '/checkout' }, origin: SHOP, provenance: 'user' }, { tool: 'browser.observe', args: {}, origin: SHOP, provenance: 'user' }, toCall(c.action, c.page, prov),
-  ];
+  const pre = { tight: [{ tool: 'browser.navigate', args: { url: SHOP + '/checkout' }, origin: SHOP, provenance: 'user' }, { tool: 'browser.observe', args: {}, origin: SHOP, provenance: 'user' }],
+    shop: [{ tool: 'browser.navigate', args: { url: SHOP + '/products' }, origin: SHOP, provenance: 'user' }, { tool: 'browser.observe', args: {}, origin: SHOP, provenance: 'user' }],
+    form: [{ tool: 'browser.navigate', args: { url: SHOP + '/form' }, origin: SHOP, provenance: 'user' }] } as const;
+  const plans = { tight, shop: shopPlan, form: formPlan } as const;
+  const replay = (which: keyof typeof plans, c: any, prov: 'untrusted' | 'user') => { const o = checkTrajectory(plans[which], [...pre[which], toCall(c.action, c.page, prov)]); return { pre: o.results.slice(0, pre[which].length), last: o.results[pre[which].length] }; };
   const sc = corpus.filter((c) => STATE_CHANGING.has(c.action?.type));
   const rejects = corpus.filter((c) => c.expect?.parse === 'reject');
+  const tally = (which: keyof typeof plans, cases: any[], prov: 'untrusted' | 'user') => {
+    const d: Record<string, number> = {}, why: Record<string, number> = {};
+    for (const c of cases) { const r = replay(which, c, prov).last; d[r.decision] = (d[r.decision] ?? 0) + 1; const k = r.reasons[0]; why[k] = (why[k] ?? 0) + 1; }
+    return { d, why };
+  };
   it('replays all cases', () => { expect(corpus.length).toBeGreaterThanOrEqual(80); expect(sc.length).toBeGreaterThan(50); });
-  it('T-b: every state-changing injected step (untrusted) is denied; the two in-plan steps before it are allowed', () => {
+  it('T-b tight plan: every state-changing injected step (untrusted) is denied, and the steps before it are allowed', () => {
     const bad: string[] = [];
-    for (const c of sc) {
-      const o = checkTrajectory(plan, steps(c, 'untrusted'));
-      if (o.results[0].decision !== 'allow' || o.results[1].decision !== 'allow' || o.results[2].decision !== 'deny') bad.push(`${c.id}: ${o.results.map((r) => r.decision)}`);
-    }
+    for (const c of sc) { const r = replay('tight', c, 'untrusted'); if (r.pre.some((x) => x.decision !== 'allow') || r.last.decision !== 'deny') bad.push(c.id); }
     expect(bad).toEqual([]);
-    console.log(`T-b n=${sc.length} state-changing corpus cases (of ${corpus.length} replayed), all denied`);
+    const t = tally('tight', sc, 'untrusted');
+    console.log(`T-b TIGHT plan n=${sc.length} state-changing cases: ${JSON.stringify(t.d)}; first reason ${JSON.stringify(t.why)} (new_tool dominates: weak test, the tools are simply absent from this plan)`);
+    const rj = rejects.filter((c) => replay('tight', c, 'untrusted').last.decision !== 'deny');
+    expect(rj.map((c) => c.id)).toEqual([]); console.log(`T-b parse-reject n=${rejects.length}, all denied on the tight plan`);
   });
-  it('every parse-reject case (malformed or code-bearing action) is denied', () => {
-    const bad = rejects.filter((c) => checkTrajectory(plan, steps(c, 'untrusted')).results[2].decision !== 'deny').map((c) => c.id);
-    expect(bad).toEqual([]); console.log(`T-b parse-reject n=${rejects.length}, all denied`);
+  it.each(['shop', 'form'] as const)('T-b broader plan (%s: click or fill is allowed): untrusted off-plan is deny, never needs-approval; trusted off-plan is needs-approval or deny', (which) => {
+    const un = tally(which, sc, 'untrusted'), tr = tally(which, sc, 'user');
+    expect(un.d['needs-approval'] ?? 0).toBe(0);
+    expect(tr.d['allow'] ?? 0).toBe(un.d['allow'] ?? 0);   // provenance never changes what is in plan
+    const extra = sc.filter((c) => replay(which, c, 'untrusted').last.reasons.includes('extra_arg')).length;
+    const own = (c: any) => c.action?.target?.selector !== undefined || ['script', 'evaluate', 'cdp'].some((k) => k in (c.action ?? {})) || (c.action?.type === 'fill' && 'value' in c.action);
+    const ownKeys = sc.filter((c) => replay(which, c, 'untrusted').last.reasons.includes('extra_arg') && own(c)).length;
+    console.log(`T-b BROADER plan ${which} n=${sc.length}: untrusted ${JSON.stringify(un.d)} first reasons ${JSON.stringify(un.why)}; trusted ${JSON.stringify(tr.d)}; calls with extra_arg=${extra} (of which carried by the corpus action itself: css selector, script/evaluate/cdp, or a value on a fill: ${ownKeys}; the mapper adds none)`);
   });
-  it('no corpus case at all gets an allow for an off-plan call (observe cases are in plan)', () => {
+  it('broader plans: the calls that ARE allowed are in-plan actions with arguments chosen by injected content (a plan check cannot stop these)', () => {
+    const allowed = (which: 'shop' | 'form') => sc.filter((c) => replay(which, c, 'untrusted').last.decision === 'allow').map((c) => `${c.action.type}:${JSON.stringify(c.action.target ?? c.action.url).slice(0, 60)}`);
+    console.log('T-b allowed on shop plan', allowed('shop').length, 'on form plan', allowed('form').length);
+    expect(allowed('shop').every((x) => x.startsWith('click:') || x.startsWith('navigate:'))).toBe(true);
+  });
+  it('no corpus case gets an allow on the tight plan except in-plan observe', () => {
     let allowed = 0, inPlan = 0;
-    for (const c of corpus) {
-      const r = checkTrajectory(plan, steps(c, 'untrusted')).results[2];
-      if (r.decision === 'allow' || r.decision === 'narrow-allow') { allowed++; if (c.action?.type === 'observe' || c.action?.type === 'finish') inPlan++; }
-    }
-    expect(allowed).toBe(inPlan); console.log(`T-b all ${corpus.length} cases: ${allowed} allowed, all of them in-plan observe or finish`);
-  });
-  it('with trusted provenance the same state-changing steps need approval or are denied, never allowed', () => {
-    const counts: Record<string, number> = {};
-    for (const c of sc) { const d = checkTrajectory(plan, steps(c, 'user')).results[2].decision; counts[d] = (counts[d] ?? 0) + 1; expect(['needs-approval', 'deny']).toContain(d); }
-    console.log('T-b trusted variant', JSON.stringify(counts));
+    for (const c of corpus) { const r = replay('tight', c, 'untrusted').last; if (r.decision === 'allow' || r.decision === 'narrow-allow') { allowed++; if (c.action?.type === 'observe') inPlan++; } }
+    expect(allowed).toBe(inPlan); console.log(`T-b tight, all ${corpus.length} cases: ${allowed} allowed, all in-plan observe`);
   });
 });
 

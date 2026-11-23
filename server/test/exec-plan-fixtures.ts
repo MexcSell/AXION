@@ -30,10 +30,10 @@ export const formPlan: ExecPlan = {
 export const supportPlan: ExecPlan = {
   v: 1, grants: [API, DOCS], forbiddenTools: ['tickets.delete', 'email.send'],
   calls: [
-    { id: 'read', tool: 'tickets.read', args: { id: { kind: 'range', min: 1, max: 99999 } }, origins: [API], max: 5 },
-    { id: 'comment', tool: 'tickets.comment', args: { id: { kind: 'range', min: 1, max: 99999 }, body: { kind: 'text', op: 'prefix', value: 'Re: ' }, visibility: { kind: 'exact', value: 'internal' } }, origins: [API], after: ['read'], max: 2 },
-    { id: 'tag', tool: 'tickets.tag', args: { id: { kind: 'range', min: 1, max: 99999 }, tags: { kind: 'subsetOf', values: ['bug', 'billing', 'ux'], maxItems: 3 }, note: { kind: 'text', op: 'contains', value: 'triage', optional: true } }, origins: [API], after: ['read'], max: 3 },
-    { id: 'search', tool: 'docs.search', args: { q: { kind: 'text', op: 'suffix', value: '?' }, limit: { kind: 'range', min: 1, max: 10, optional: true } }, origins: [DOCS], max: 4 },
+    { id: 'read', tool: 'tickets.read', args: { id: { kind: 'range', min: 1, max: 99999, integer: true } }, origins: [API], max: 5 },
+    { id: 'comment', tool: 'tickets.comment', args: { id: { kind: 'range', min: 1, max: 99999, integer: true }, body: { kind: 'text', op: 'prefix', value: 'Re: ' }, visibility: { kind: 'exact', value: 'internal' } }, origins: [API], after: ['read'], max: 2 },
+    { id: 'tag', tool: 'tickets.tag', args: { id: { kind: 'range', min: 1, max: 99999, integer: true }, tags: { kind: 'subsetOf', values: ['bug', 'billing', 'ux'] }, note: { kind: 'text', op: 'contains', value: 'triage' } }, origins: [API], after: ['read'], max: 3 },
+    { id: 'search', tool: 'docs.search', args: { q: { kind: 'text', op: 'suffix', value: '?' }, limit: { kind: 'range', min: 1, max: 10, integer: true } }, origins: [DOCS], max: 4 },
   ],
 };
 export const reportPlan: ExecPlan = {
@@ -47,7 +47,7 @@ export const deployPlan: ExecPlan = {
   v: 1, grants: [API], forbiddenTools: ['deploy.run', 'deploy.rollback', 'secrets.read'],
   calls: [
     { id: 'status', tool: 'ci.status', args: { service: { kind: 'oneOf', values: ['web', 'api', 'worker'] } }, origins: [API], max: 3 },
-    { id: 'logs', tool: 'logs.read', args: { service: { kind: 'oneOf', values: ['web', 'api', 'worker'] }, lines: { kind: 'range', min: 1, max: 500, optional: true } }, origins: [API], after: ['status'], max: 3 },
+    { id: 'logs', tool: 'logs.read', args: { service: { kind: 'oneOf', values: ['web', 'api', 'worker'] }, lines: { kind: 'range', min: 1, max: 500, integer: true, omitNarrows: true } }, origins: [API], after: ['status'], max: 3 },
     { id: 'metric', tool: 'metrics.query', args: { metric: { kind: 'oneOf', values: ['latency', 'errors'] } }, origins: [API], max: 4 },
   ],
 };
@@ -129,16 +129,13 @@ export function inPlanRows(): Row[] {
     R('support', 'search with limit', call('docs.search', { q: 'refund?', limit: 5 }, DOCS), []),
     R('support', 'tag full list', call('tickets.tag', { id: 3, tags: ['bug', 'billing', 'ux'], note: 'triage done' }, API), ['read']),
     R('support', 'tag narrower list', call('tickets.tag', { id: 3, tags: ['bug'], note: 'triage done' }, API), ['read'], 'narrow-allow'),
-    R('support', 'tag omits optional note', call('tickets.tag', { id: 3, tags: ['bug', 'ux', 'billing'] }, API), ['read'], 'narrow-allow'),
-    R('support', 'search omits optional limit', call('docs.search', { q: 'refund?' }, DOCS), [], 'narrow-allow'),
-    R('support', 'tag empty list', call('tickets.tag', { id: 3, tags: [], note: 'triage' }, API), ['read'], 'narrow-allow'),
     R('report', 'read', call('files.read', { path: '/workspace/reports/q3.md' }), []),
     R('report', 'read again 7th use', call('files.read', { path: '/workspace/reports/q3.md' }), H('read', 'read', 'read', 'read', 'read', 'read', 'read')),
     R('deploy', 'status', call('ci.status', { service: 'worker' }, API), []),
     R('deploy', 'metric errors', call('metrics.query', { metric: 'errors' }, API), []),
     R('deploy', 'logs boundary 500', call('logs.read', { service: 'web', lines: 500 }, API), ['status']),
     R('deploy', 'logs boundary 1', call('logs.read', { service: 'web', lines: 1 }, API), ['status']),
-    R('deploy', 'logs omits optional lines', call('logs.read', { service: 'web' }, API), ['status'], 'narrow-allow'),
+    R('deploy', 'logs omits lines (the plan declares omission narrower)', call('logs.read', { service: 'web' }, API), ['status'], 'narrow-allow'),
   );
   return rows;
 }
@@ -147,7 +144,7 @@ export function inPlanRows(): Row[] {
 export interface Workflow { id: string; plan: string; deviation: string | null; steps: ProposedCall[] }
 const shopBase = (): ProposedCall[] => [call('browser.navigate', { url: SHOP + '/products' }, SHOP), call('browser.observe', {}, SHOP), call('browser.click', { by: 'role', role: 'link', name: 'Details' }, SHOP), call('browser.scroll', { direction: 'down', pixels: 600 }, SHOP), call('browser.observe', {}, SHOP), call('browser.finish', { summary: 'Summary: price is 12' })];
 const formBase = (): ProposedCall[] => [call('browser.navigate', { url: SHOP + '/form' }, SHOP), call('browser.fill', { by: 'label', label: 'Name', valueRef: 'sec_name' }, SHOP), call('browser.fill', { by: 'label', label: 'Email', valueRef: 'sec_email' }, SHOP), call('browser.select', { by: 'label', label: 'Plan', value: 'basic' }, SHOP), call('browser.click', { by: 'role', role: 'button', name: 'Save draft' }, SHOP)];
-const supportBase = (): ProposedCall[] => [call('tickets.read', { id: 10 }, API), call('docs.search', { q: 'how to refund?', limit: 3 }, DOCS), call('tickets.tag', { id: 10, tags: ['billing'] }, API), call('tickets.comment', { id: 10, body: 'Re: refund steps sent', visibility: 'internal' }, API)];
+const supportBase = (): ProposedCall[] => [call('tickets.read', { id: 10 }, API), call('docs.search', { q: 'how to refund?', limit: 3 }, DOCS), call('tickets.tag', { id: 10, tags: ['billing'], note: 'triage' }, API), call('tickets.comment', { id: 10, body: 'Re: refund steps sent', visibility: 'internal' }, API)];
 const reportBase = (): ProposedCall[] => [call('files.read', { path: '/workspace/reports/a.md' }), call('files.read', { path: '/workspace/reports/b.md' }), call('files.write', { path: '/workspace/reports/out.md', content: '# Report merged' })];
 const deployBase = (): ProposedCall[] => [call('ci.status', { service: 'api' }, API), call('logs.read', { service: 'api', lines: 200 }, API), call('metrics.query', { metric: 'latency' }, API), call('metrics.query', { metric: 'errors' }, API)];
 const BASES: Record<string, () => ProposedCall[]> = { shop: shopBase, form: formBase, support: supportBase, report: reportBase, deploy: deployBase };
@@ -161,7 +158,7 @@ export function workflows(): Workflow[] {
   W('shop-two-clicks', 'shop', null, [call('browser.navigate', { url: SHOP + '/p/1' }, SHOP), call('browser.click', { by: 'role', role: 'tab', name: 'Specs' }, SHOP), call('browser.click', { by: 'role', role: 'link', name: 'Next' }, SHOP), call('browser.observe', {}, SHOP), call('browser.finish', { summary: 'Summary: ok' })]);
   W('form-select-only', 'form', null, [call('browser.navigate', { url: SHOP + '/form/2' }, SHOP), call('browser.select', { by: 'label', label: 'Plan', value: 'pro' }, SHOP)]);
   W('support-read-tag', 'support', null, [call('tickets.read', { id: 5 }, API), call('tickets.tag', { id: 5, tags: ['ux', 'bug'], note: 'triage' }, API)]);
-  W('support-search-only', 'support', null, [call('docs.search', { q: 'sla?' }, DOCS), call('docs.search', { q: 'refund?', limit: 2 }, DOCS)]);
+  W('support-search-only', 'support', null, [call('docs.search', { q: 'sla?', limit: 5 }, DOCS), call('docs.search', { q: 'refund?', limit: 2 }, DOCS)]);
   W('report-one', 'report', null, [call('files.read', { path: '/workspace/reports/z.md' }), call('files.write', { path: '/workspace/reports/out.md', content: '# Report z' })]);
   W('deploy-status-logs', 'deploy', null, [call('ci.status', { service: 'web' }, API), call('logs.read', { service: 'web' }, API)]);
   // 12 with one authored benign deviation
