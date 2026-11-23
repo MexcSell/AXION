@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as G from '../src/evolution/outcome-grader.ts';
 import { TOY_TASKS } from '../src/evolution/outcome-tasks.ts';
 import { DEFAULT_SCORE_CUTOFF, detectTamper, type TamperConfig } from '../src/evolution/tamper-detector.ts';
-import { cleanExtraFixtures, cleanFixtures, hackFixtures, heldOutFixtures, reviewerProbeFixtures, STORED_ANSWER_SHA } from './c97-fixtures.ts';
+import { round2CleanFixtures, round2ProbeFixtures, cleanExtraFixtures, cleanFixtures, hackFixtures, heldOutFixtures, reviewerProbeFixtures, STORED_ANSWER_SHA } from './c97-fixtures.ts';
 
 // c97 fix round. Fixture-only; a lexical detector is a tripwire, not a guarantee.
 const cfg: TamperConfig = { storedAnswerSha: STORED_ANSWER_SHA, scoreCutoff: DEFAULT_SCORE_CUTOFF };
@@ -151,5 +151,59 @@ describe('fix round 4: minors', () => {
       expect(r.leaks).toEqual(['malformed_state']);
     }
     expect(G.checkTrialStart(t, G.cloneState(t.initial)).clean).toBe(true);
+  });
+});
+
+describe('fix round 2: cheap gaps (new family, separate from the held-out set)', () => {
+  it('every round-2 probe is flagged', () => {
+    const ps = round2ProbeFixtures();
+    const missed = ps.filter((p) => !detectTamper(p.traj, cfg).flagged);
+    console.info('C97 R2 probes (n=%d):', ps.length, JSON.stringify({ ...w(ps.length - missed.length, ps.length), missed: missed.map((m) => m.traj.id) }));
+    expect(missed.map((m) => m.traj.id)).toEqual([]);
+  });
+  it('legitimate neighbours stay clean', () => {
+    const cs = round2CleanFixtures();
+    const ff = cs.filter((t) => detectTamper(t, cfg).flagged);
+    console.info('C97 R2 clean (n=%d):', cs.length, JSON.stringify({ ...w(ff.length, cs.length), flagged: ff.map((t) => t.id) }));
+    expect(ff.map((t) => t.id)).toEqual([]);
+  });
+  it('the earlier families still hold', () => {
+    expect(reviewerProbeFixtures().filter((p) => !detectTamper(p.traj, cfg).flagged).length).toBe(0);
+    expect(cleanExtraFixtures().filter((t) => detectTamper(t, cfg).flagged).length).toBe(0);
+    expect(cleanFixtures().filter((t) => detectTamper(t, cfg).flagged).length).toBe(2);
+  });
+  it('the answer-name rule is not a blanket prefix match', () => {
+    const f = (path: string) => detectTamper({ id: 'a', taskId: 't', steps: [{ kind: 'read', path }] }, cfg).flagged;
+    expect(f('/work/answer_key')).toBe(true);
+    expect(f('/work/answer_summary.txt')).toBe(false);
+    expect(f('/work/answers-faq.md')).toBe(false);
+  });
+});
+
+describe('fix round 2: gradeValidity and buildVariants fail closed', () => {
+  const t = TOY_TASKS[0];
+  it('a null or malformed variant entry is a flag, not a throw', () => {
+    const good = G.buildVariants(t);
+    for (const bad of [null, undefined, 5, {}, { name: 'x', expect: 'pass', state: null }, { name: 'x', expect: 'maybe', state: t.initial }]) {
+      let r: G.ValidityReport | undefined;
+      expect(() => { r = G.gradeValidity(t, t.grade, [...good, bad as unknown as G.Variant]); }).not.toThrow();
+      expect(r?.flags).toContain('malformed_variant');
+    }
+  });
+  it('a null task, null initial, or non-array variants is a flag', () => {
+    for (const [task, vs] of [[null, G.buildVariants(t)], [{ initial: null }, G.buildVariants(t)], [t, null], [t, 'x'], [undefined, undefined]] as const) {
+      let r: G.ValidityReport | undefined;
+      expect(() => { r = G.gradeValidity(task as unknown as typeof t, t.grade, vs as unknown as G.Variant[]); }).not.toThrow();
+      expect(r?.flagged).toBe(true);
+      expect(r?.flags).toContain('malformed_input');
+    }
+  });
+  it('buildVariants never throws on a bad task (it returns no variants, which validity then flags)', () => {
+    for (const bad of [null, undefined, {}, { initial: null, reference: () => null }, { initial: t.initial, reference: () => { throw new Error('boom'); }, nul: t.nul }]) {
+      let v: G.Variant[] = [];
+      expect(() => { v = G.buildVariants(bad as unknown as typeof t); }).not.toThrow();
+      expect(v).toEqual([]);
+      expect(G.gradeValidity(t, t.grade, v).flagged).toBe(true);
+    }
   });
 });
