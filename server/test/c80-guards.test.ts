@@ -13,7 +13,7 @@ const FLOOR = [
   'agent_versions', 'approval_decisions', 'approval_requests', 'audit_events', 'delegation_briefs', 'eval_attestations', 'eval_calibration_labels',
   'eval_cases', 'eval_datasets', 'eval_regrade_cases', 'eval_regrades', 'eval_results', 'eval_runs', 'events', 'failure_attributions',
   'failure_pattern_candidates', 'failure_tags', 'lesson_candidates', 'mentoring_milestones', 'mentoring_plans', 'message_receipts', 'messages',
-  'metric_audit_labels', 'mission_delegations', 'mission_ledgers', 'org_edges', 'org_revisions', 'playbooks', 'record_contributions', 'site_grants',
+  'metric_audit_labels', 'mission_delegations', 'mission_ledgers', 'org_edges', 'org_plan_amendments', 'org_revisions', 'playbooks', 'record_contributions', 'site_grants',
   'skill_outcomes', 'skills', 'system_jobs', 'task_attempts', 'task_owner_history', 'task_reviews',
 ];
 
