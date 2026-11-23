@@ -5,7 +5,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeSchema } from './helpers.ts';
 import { discoverAppendOnly } from './append-only-guards.ts';
-import { lintMigration, type LintFinding } from '../src/migration-lint.ts';
+import { lintMigration, type LintFinding } from './migration-lint.ts';
 
 // c80 item 2 (R4-6): a lint over migration files. Existing migrations are a frozen baseline (name + sha256 of the up and down file);
 // every migration NOT in the baseline (0058 onward, or an unused reserved number that lands later) is linted.
