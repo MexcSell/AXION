@@ -186,3 +186,13 @@ Every lane: no migration (next free 0058 stays unused, so the 19:30Z live update
 | Research round 5 (next-phase ideas: causal evaluation of org changes, agent learning loops, estimation) | — | docs only | report |
 
 Excluded on purpose: E4b, R4-1/3/5 (owner targets), T1(1) agent-id rescoping (a large migration; the owner decides), R4-2 (needs a v2 chain). H11b and M1c turned out done (c70, c54); their BACKLOG rows are stale and get corrected at report time.
+
+### Wave 8b (planned ~06:10Z, after research round 5 was verified)
+Research round 5 is verified: 23 CONFIRMED, 3 CORRECTED, 0 WRONG. Verifier GO: R5-1 and R5-7 (first slices), R5-8 conditional. LATER: R5-4, R5-5. NO-GO: R5-2, R5-3, R5-6.
+
+| Cycle | Lane | Scope | Migration |
+|---|---|---|---|
+| c85 change plan records for org proposals (R5-1) | w83, e2e14 | server and contracts | 0058, only if needed |
+| c86 forecast ledger, first-review question (R5-7) | w84, e2e3 | server and contracts | 0059, only if needed, independent of 0058 |
+
+This reverses Wave 8's "no migrations" deliberately. Both are new append-only tables with c80's lint and four-guards test. If either merges, the 19:30Z live update is a migrating one: back up, run the restore check, migrate, verify. UI for both is next phase (web freeze). New owner question Q17: which change kinds carry a plan.

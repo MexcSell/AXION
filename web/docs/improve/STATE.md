@@ -54,7 +54,9 @@ Rewritten 2026-11-22T07:35Z, 17:50Z, and 2026-11-23T03:40Z by the controller; up
 | w80 | c82 390 px tab strips (H16, H22), e2e16, **web: done by ~12:00Z** | dispatched ~06:15Z |
 | w81 | c83 metric guard follow-ups (M2b), e2e15 | dispatched ~06:15Z |
 | w82 | c84 judge gate without selection bias (E1e), e2e17 | dispatched ~06:15Z |
-| — | Research round 5 (docs only) | dispatched ~06:15Z |
+| — | Research round 5 (docs only) | verified: 23 CONFIRMED, 3 CORRECTED |
+| w83 | c85 change plans (R5-1), e2e14, mig 0058 if needed | dispatched ~06:15Z |
+| w84 | c86 forecast ledger (R5-7), e2e3, mig 0059 if needed | dispatched ~06:15Z |
 | — | Final report draft (FINAL-REPORT-PHASE2.md) | draft committed; finalise at the end |
 
 Every other Wave 5–7 lane (c53–c71) is MERGED and live (2026-11-23T02:22Z). Details are in QUEUE.md, MERGES.md and LOG.md.
@@ -73,4 +75,4 @@ Every other Wave 5–7 lane (c53–c71) is MERGED and live (2026-11-23T02:22Z). 
 
 ## Ids already taken
 - **Dialog ids:** up to DL-100 in use. DL-96, 97, 98 (retired) and 99 are not in use.
-- **Migrations:** files up to 0053 on improve-30h. 0054 (c72) and 0055 (c75) were reserved and are unused; 0056 and 0057 are used on the parked c76/c77 branches. c80's lint covers 0058+. The next free number is **0058**; Wave 8 lanes should add none.
+- **Migrations:** files up to 0053 on improve-30h. 0054 (c72) and 0055 (c75) were reserved and are unused; 0056 and 0057 are used on the parked c76/c77 branches. c80's lint covers 0058+. 0058 is reserved for c85 (w83) and 0059 for c86 (w84), each only if needed; the next free number is **0060**.
