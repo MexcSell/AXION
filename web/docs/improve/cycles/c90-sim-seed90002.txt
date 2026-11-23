@@ -1,9 +1,9 @@
-c90 sequential simulation: seed 90002, 1000 no-effect streams per p, 200 obs per arm (arms alternate), checked after every observation from 10 per arm, alpha 0.05, rho 1.3153
+c90 sequential simulation: seed 90002, 1000 no-effect streams per p, 200 obs per arm (arms alternate), checked after every observation from 10 per arm, alpha 0.05, rho 1.1320
 limit for (a): 5.00% + 2 x MC SE (0.69 points) = 6.38%
 p=0.1: ever-exclude-zero, confidence sequence 0.00% (0/1000) -> PASS; naive 95% Wald re-checked every observation 31.70% (317/1000)
-  median width, confidence sequence: n=20: 0.947, n=50: 0.654, n=100: 0.520; fixed-horizon Wald (single look): n=20: 0.367, n=50: 0.235, n=100: 0.166
+  median width, confidence sequence: n=20: 0.997, n=50: 0.688, n=100: 0.543; fixed-horizon Wald (single look): n=20: 0.367, n=50: 0.235, n=100: 0.166
 p=0.3: ever-exclude-zero, confidence sequence 0.00% (0/1000) -> PASS; naive 95% Wald re-checked every observation 39.00% (390/1000)
-  median width, confidence sequence: n=20: 1.276, n=50: 0.865, n=100: 0.614; fixed-horizon Wald (single look): n=20: 0.554, n=50: 0.358, n=100: 0.253
+  median width, confidence sequence: n=20: 1.342, n=50: 0.930, n=100: 0.663; fixed-horizon Wald (single look): n=20: 0.554, n=50: 0.358, n=100: 0.253
 p=0.5: ever-exclude-zero, confidence sequence 0.00% (0/1000) -> PASS; naive 95% Wald re-checked every observation 40.10% (401/1000)
-  median width, confidence sequence: n=20: 1.414, n=50: 0.862, n=100: 0.606; fixed-horizon Wald (single look): n=20: 0.607, n=50: 0.389, n=100: 0.276
-SUMMARY seed 90002: threshold (a) PASS on all p; elapsed 0.2s, load average 2.10 2.98 4.60
+  median width, confidence sequence: n=20: 1.508, n=50: 0.931, n=100: 0.656; fixed-horizon Wald (single look): n=20: 0.607, n=50: 0.389, n=100: 0.276
+SUMMARY seed 90002: threshold (a) PASS on all p; elapsed 0.2s, load average 7.74 8.49 7.29
