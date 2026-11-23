@@ -6,7 +6,7 @@ import { join } from 'node:path';
  * c72-no-ranking.test.ts. Limits are stated there.
  */
 /** A key is split into words (camelCase, snake_case, kebab-case); a word that starts with one of these is a ranking word. */
-const BANNED_PREFIX = ['rank', 'leader', 'standing', 'ordinal', 'winner', 'loser', 'better', 'worse', 'higher', 'lower', 'best', 'worst', 'scoreboard', 'percentile', 'orderby', 'sortby'];
+const BANNED_PREFIX = ['podium', 'ladder', 'rank', 'leader', 'standing', 'ordinal', 'winner', 'loser', 'better', 'worse', 'higher', 'lower', 'best', 'worst', 'scoreboard', 'percentile', 'orderby', 'sortby'];
 const BANNED_WORD = new Set(['top', 'position', 'positions', 'place', 'placing', 'score', 'scores', 'order']);
 /** Existing keys that contain one of the words above for an unrelated reason, each with the reason. A new entry is a reviewed decision. */
 /** Keyed `route::key`, so an exemption never spreads to another route. */

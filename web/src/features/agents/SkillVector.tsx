@@ -33,7 +33,7 @@ function Bar({ c }: { c: SkillCellDto }) {
     <span className={cx('sk-bar', !a && 'none')} aria-hidden>
       {a && <>
         <motion.i className="sk-range" initial={{ opacity: 0, scaleX: .2 }} animate={{ opacity: 1, scaleX: 1 }} transition={{ duration: .5 }} style={{ left: `${a.lo}%`, width: `${Math.max(2, a.hi - a.lo)}%` }} />
-        <motion.b className="sk-dot" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: .25 }} style={{ left: `${a.value}%` }} />
+        {c.headline && <motion.b className="sk-dot" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: .25 }} style={{ left: `${a.value}%` }} />}
       </>}
     </span>
   );

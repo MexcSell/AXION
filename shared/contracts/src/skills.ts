@@ -92,7 +92,7 @@ export function compareSkill(a: readonly LevelCount[], b: readonly LevelCount[])
   const sa = standardise(a, shared)!, sb = standardise(b, shared)!;
   if (sa.n < SKILL_MIN_N || sb.n < SKILL_MIN_N) return { verdict: 'indistinguishable', reason: `Fewer than ${SKILL_MIN_N} outcomes each on the levels they share.`, sharedLevels: shared };
   const apart = sa.hi < sb.lo || sb.hi < sa.lo;
-  return { verdict: apart ? 'distinguishable' : 'indistinguishable', reason: apart ? 'The nominal 95% intervals on the shared levels do not overlap.' : 'The 95% intervals on the shared levels overlap.', sharedLevels: shared };
+  return { verdict: apart ? 'distinguishable' : 'indistinguishable', reason: apart ? 'The nominal 95% intervals on the shared levels do not overlap.' : 'The nominal 95% intervals on the shared levels overlap.', sharedLevels: shared };
 }
 /** The same rule on the raw rates (what a table of raw counts invites). Used only to show the difference in the simulation. */
 export function compareRaw(a: readonly LevelCount[], b: readonly LevelCount[]): { verdict: SkillVerdict; aHigher: boolean } {

@@ -22,7 +22,7 @@ const key = () => ({ 'idempotency-key': 'c72r-' + Date.now() + '-' + n++ });
 describe('guard self-tests (RED proofs)', () => {
   it('reports a key that names a rank or a direction, at any depth', () => {
     expect(rankingKeyProblems({ classes: [{ classId: 'coding', verdict: 'distinguishable' }] }, 'ok')).toEqual([]);
-    for (const k of ['rank', 'position', 'place', 'leaderboard', 'standing', 'ordinal', 'winner', 'better', 'higher', 'score', 'order', 'topAgents', 'rankIndex', 'top', 'leaders', 'agent_rank', 'top_n', 'bestAgent']) expect(rankingKeyProblems({ a: [{ b: { [k]: 1 } }] }, 'r').join(), k).toContain(k);
+    for (const k of ['rank', 'position', 'place', 'leaderboard', 'standing', 'ordinal', 'winner', 'better', 'higher', 'score', 'order', 'topAgents', 'rankIndex', 'top', 'leaders', 'agent_rank', 'top_n', 'bestAgent', 'podium', 'ladder', 'ladderStep', 'standing', 'leaderboard']) expect(rankingKeyProblems({ a: [{ b: { [k]: 1 } }] }, 'r').join(), k).toContain(k);
   });
   it('reports a list that is ordered by a rating, ascending or descending, and accepts a mixed order', () => {
     const rating = new Map([['a', 90], ['b', 70], ['c', 80], ['d', 60]]);

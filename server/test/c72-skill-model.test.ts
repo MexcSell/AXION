@@ -42,6 +42,8 @@ describe('pure estimator', () => {
     expect(compareSkill(a2, a2).verdict).toBe('indistinguishable');
     expect(compareSkill(L([3, 4, 4]), L([3, 4, 0])).verdict).toBe('indistinguishable'); // under 5 tasks at the level: left out
     expect(Object.keys(far).sort()).toEqual(['reason', 'sharedLevels', 'verdict']); // no direction, no score
+    expect(far.reason).toMatch(/nominal 95%/); // re-review minor: every user-visible 95% says nominal
+    expect(compareSkill(a2, a2).reason).toMatch(/nominal 95%/);
   });
   it('cells below the floor are null and every class is present in the fixed order', () => {
     const cells = skillCells(new Map([['coding', L([2, 4, 4])], ['research', L([2, 5, 5])]]));
