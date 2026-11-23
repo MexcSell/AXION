@@ -12,8 +12,10 @@ const apiProxy = { target: API, changeOrigin: false, configure: (proxy: Proxy) =
 export default defineConfig({
   plugins: [react()],
   resolve: { alias: { '@contracts': fileURLToPath(new URL('../shared/contracts/src/index.ts', import.meta.url)), '@': fileURLToPath(new URL('./src', import.meta.url)) } },
+  // H19: shared/contracts lies outside the root, so chokidar watches its files one by one by inode. An atomic rename (git merge, editor save) swaps the
+  // inode and every second change goes unseen. Polling (300 ms) is rename-proof. Check with scripts/shared-watch-check.sh.
   // /api goes to the AXION server (127.0.0.1:5191; AXION_API=http://127.0.0.1:5192 for the e2e server).
-  server: { host: '127.0.0.1', port: 5190, strictPort: false, proxy: { '/api': apiProxy }, fs: { allow: ['.', '../shared'], deny: ['.env', '.env.*', '*.dump', '**/backups/**', '**/server/**'] } },
+  server: { host: '127.0.0.1', port: 5190, strictPort: false, watch: { usePolling: true, interval: 300 }, proxy: { '/api': apiProxy }, fs: { allow: ['.', '../shared'], deny: ['.env', '.env.*', '*.dump', '**/backups/**', '**/server/**'] } },
   preview: { host: '127.0.0.1', port: 4190, proxy: { '/api': apiProxy }, headers: WEB_SECURITY_HEADERS }, // cycle 14: strict CSP on the built app
   build: { chunkSizeWarningLimit: 400 },
 });
