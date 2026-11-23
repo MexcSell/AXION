@@ -196,3 +196,8 @@ Research round 5 is verified: 23 CONFIRMED, 3 CORRECTED, 0 WRONG. Verifier GO: R
 | c86 forecast ledger, first-review question (R5-7) | w84, e2e3 | server and contracts | 0059, only if needed, independent of 0058 |
 
 This reverses Wave 8's "no migrations" deliberately. Both are new append-only tables with c80's lint and four-guards test. If either merges, the 19:30Z live update is a migrating one: back up, run the restore check, migrate, verify. UI for both is next phase (web freeze). New owner question Q17: which change kinds carry a plan.
+
+### Wave 8c (planned ~07:20Z)
+| Cycle | Lane | Scope |
+|---|---|---|
+| c87 private-mission visibility sweep inside one tenant (prompted by the c86 baseline leak) | w85, e2e4 | tests only |
