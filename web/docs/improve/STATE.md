@@ -53,27 +53,27 @@ Rewritten 2026-11-22T07:35Z by the controller and again at 17:50Z after the live
 ## Wave 5 in flight (dispatched about 17:55Z from bfe891e; PHASE2.md, Wave 5)
 | Lane | Cycle | Status |
 |---|---|---|
-| w52 | c53 eval-run integrity (E1c), e2e18, mig 0040 | CLEARED at 2d23cca, batch 15 |
-| w53 | c54 clock bounds + dimensions follow-ups (H11, M1b, M1c), e2e2 (no migration) | CLEARED at 78e149f, batch 21 |
-| w54 | c55 thread follow-ups (P2b), e2e3 | CLEARED at c1289a1, batch 20 |
-| w55 | c56 public suffix list (P4b), e2e4 (no migration) | CLEARED at 3480bff, batch 14 |
-| w56 | c57 test hygiene (H12, H13), e2e15 | CLEARED at 38d807d, batch 14 |
+| w52 | c53 eval-run integrity (E1c), e2e18, mig 0040 | MERGED (batch 15, 2d23cca), live 2026-11-23T02:22Z |
+| w53 | c54 clock bounds + dimensions follow-ups (H11, M1b, M1c), e2e2 (no migration) | MERGED (batch 21, 78e149f), live 2026-11-23T02:22Z |
+| w54 | c55 thread follow-ups (P2b), e2e3 | MERGED (batch 20, c1289a1), live 2026-11-23T02:22Z |
+| w55 | c56 public suffix list (P4b), e2e4 (no migration) | MERGED (batch 14, 3480bff), live 2026-11-23T02:22Z |
+| w56 | c57 test hygiene (H12, H13), e2e15 | MERGED (batch 14, 38d807d), live 2026-11-23T02:22Z |
 | — | Research round 2: research-r2.md plus research-r2-verified.md (22 CONFIRMED, 4 CORRECTED; R2-4 dropped) | done |
-| w57 | c58 Rule-of-Two profile + approval quality (R2-6, R2-9), e2e16, mig 0043, DL-100 | CLEARED at 7f31c94, batch 17 |
-| w61 | c63 failure learning (R3-8), from c60 tip df8c17e, e2e12, mig 0047 | CLEARED at 99376e4, batch 22 |
-| w62 | c64 restructure guardrails (R3-6), e2e11, mig 0048 | CLEARED at 9f7582a, batch 23 |
-| w63 | c65 review capacity (R3-10), from c58 tip 7f31c94, e2e10, no migration | CLEARED at fdcbaa0, batch 24 |
-| w64 | c66 metric-gaming guard (R3-4), from c54 tip 78e149f, e2e9, mig 0050 | CLEARED at 35bb4a9, batch 25 |
+| w57 | c58 Rule-of-Two profile + approval quality (R2-6, R2-9), e2e16, mig 0043, DL-100 | MERGED (batch 17, 7f31c94), live 2026-11-23T02:22Z |
+| w61 | c63 failure learning (R3-8), from c60 tip df8c17e, e2e12, mig 0047 | MERGED (batch 22, 99376e4), live 2026-11-23T02:22Z |
+| w62 | c64 restructure guardrails (R3-6), e2e11, mig 0048 | MERGED (batch 23, 9f7582a), live 2026-11-23T02:22Z |
+| w63 | c65 review capacity (R3-10), from c58 tip 7f31c94, e2e10, no migration | MERGED (batch 24, fdcbaa0), live 2026-11-23T02:22Z |
+| w64 | c66 metric-gaming guard (R3-4), from c54 tip 78e149f, e2e9, mig 0050 | MERGED (batch 25, 35bb4a9), live 2026-11-23T02:22Z |
 | w65 | c67 Agent Profile api-mode fit (H17), from 8c2c02e, e2e8 | MERGED (dfa16ce) |
-| w66 | c68 operator attention queue (R3-9), from 24a8f05, e2e7, no migration | CLEARED at 7ba9f49, batch 28 |
-| w67 | c69 process metrics (R3-5), from c66 tip 35bb4a9, e2e6, no migration | CLEARED at 0226053, batch 29 |
+| w66 | c68 operator attention queue (R3-9), from 24a8f05, e2e7, no migration | MERGED (batch 28, 7ba9f49), live 2026-11-23T02:22Z |
+| w67 | c69 process metrics (R3-5), from c66 tip 35bb4a9, e2e6, no migration | MERGED (batch 29, 0226053), live 2026-11-23T02:22Z |
 | w68 | c70 hardening bundle (H11b, H14, E1d), from 812c185, e2e5, mig 0052 | MERGED (b3c3fe3) |
-| w69 | c71 scorecard at scale (P6), from c83f33e, e2e14, mig 0053 | CLEARED at 75dd86d, batch 30 |
+| w69 | c71 scorecard at scale (P6), from c83f33e, e2e14, mig 0053 | MERGED (batch 30, 75dd86d), live 2026-11-23T02:22Z |
 | w70 | c72 difficulty-adjusted skill ratings (R3-7 + R3-1), from c852be8, e2e13, no migration | fix round (review CLEAR AFTER FIXES) |
 | w71 | c73 polish bundle (P2c, H18, P4c, H15), from c852be8, e2e16 | implementing |
-| w58 | c59 origin-bound memory and skill records (R2-5), e2e17, mig 0044 | CLEARED at 67b40ed, batch 18 |
-| w60 | c61 eval instruments (R2-2, R2-3, R2-1), from c53 tip 2d23cca, e2e13, mig 0046 | CLEARED at 43c1b7c, batch 19 |
-| w59 | c60 failure attribution + OTel mapping (R2-10, R2-8), e2e14, mig 0045 | CLEARED at df8c17e, batch 16 |
+| w58 | c59 origin-bound memory and skill records (R2-5), e2e17, mig 0044 | MERGED (batch 18, 67b40ed), live 2026-11-23T02:22Z |
+| w60 | c61 eval instruments (R2-2, R2-3, R2-1), from c53 tip 2d23cca, e2e13, mig 0046 | MERGED (batch 19, 43c1b7c), live 2026-11-23T02:22Z |
+| w59 | c60 failure attribution + OTel mapping (R2-10, R2-8), e2e14, mig 0045 | MERGED (batch 16, df8c17e), live 2026-11-23T02:22Z |
 | — | Integrator #5: verification pass on the merged tree | running |
 
 Waiting: c62 (R2-7) after owner Q12. No new lane starts after 2026-11-23T13:45Z. The gated Wave 4 items (R1, A1, M2, G1) still run last, as their own droppable batch (Q11).
