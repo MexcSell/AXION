@@ -3,7 +3,7 @@ vi.mock('../../src/agents/seed.ts', async (orig) => { const real = await orig<ty
 import { tx } from '../../src/db.ts';
 import { createNotification } from '../../src/notifications/routes.ts';
 import { buildWorld, seedTenant, type World } from './fixture.ts';
-import { freshSessions } from './isolation.ts';
+import { freshSessions, reverseQueryCases, QUERY, QUERY_ID_PLACEHOLDERS } from './isolation.ts';
 
 /** Improvement cycle 81 (T1 items 2 and 3 of the c79 review): two tenants in one schema, as in c79. */
 let w: World;
@@ -68,5 +68,18 @@ describe('T1(3): acknowledging a notification needs a notification the caller ca
     expect((await reads([w.B.ids.notification, 'n-99999998'])), 'no orphan marker for a foreign or nonexistent id').toEqual([]);
     expect((await A.member.req('POST', '/notifications/ack-all', { ids })).status).toBe(200); // idempotent
     expect((await reads([w.A.ids.notification])).filter((x) => x.user_id === w.A.ids.memberId)).toHaveLength(1);
+  });
+});
+
+describe('item 5: the reverse query case is generated from the QUERY map', () => {
+  it('every id placeholder used in QUERY has a source, and each such route gets an own-path, foreign-query case that is refused', async () => {
+    for (const [k, qs] of Object.entries(QUERY)) for (const q of qs) for (const m of q.match(/__[a-z0-9]+__/g) ?? []) expect(QUERY_ID_PLACEHOLDERS, `${k}: ${m}`).toHaveProperty(m);
+    const { cases, skipped } = reverseQueryCases(w.A, w.B);
+    expect(skipped).toEqual([]);
+    expect(cases.map((c) => c.key).sort()).toEqual(['GET /agents/:id/skills/compare', 'GET /failure-tags']);
+    const A = await freshSessions(w.A);
+    const cmp = cases.find((c) => c.key.includes('compare'))!;
+    expect(cmp.url).toBe(`/agents/${w.A.ids.coder}/skills/compare?with=${w.B.ids.tester}`);
+    for (const c of cases) expect([403, 404], c.label).toContain((await A.admin.req('GET', c.url)).status);
   });
 });

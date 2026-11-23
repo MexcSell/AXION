@@ -75,6 +75,9 @@ export const ALLOWED_STATUS: { match: (key: string, who: Tenant) => boolean; sta
   { match: (k, w) => w.tenantId === 't-b' && /^GET \/organization\/revisions\/:seq/.test(k), statuses: [404], why: 'tenant B has no organisation chart (agent ids and the root id are global, see seedmock.ts)' },
 ];
 
+/** c81: the id placeholders a QUERY value may hold, and where each comes from. A placeholder not listed here fails the inventory test. */
+export const QUERY_ID_PLACEHOLDERS: Record<string, (i: Record<string, string>) => string> = { __task__: (i) => i.task ?? '', __agent2__: (i) => i.tester ?? '' };
+export const fillQuery = (q: string, ids: Record<string, string>): string => q.replace(/__[a-z0-9]+__/g, (m) => QUERY_ID_PLACEHOLDERS[m]?.(ids) ?? m);
 export interface GetCase { key: string; url: string; label: string }
 export function getCases(t: Tenant, ids: Record<string, string> = t.ids): { cases: GetCase[]; skipped: string[] } {
   const cases: GetCase[] = []; const skipped: string[] = [];
@@ -83,7 +86,7 @@ export function getCases(t: Tenant, ids: Record<string, string> = t.ids): { case
     if (key in GET_EXCEPTIONS) continue;
     const base = urlFor(key.slice(4), ids);
     if (base === undefined) { skipped.push(key); continue; }
-    for (const q of QUERY[key] ?? ['']) cases.push({ key, url: base + q.replace('__task__', ids.task ?? '').replace('__agent2__', ids.tester ?? ''), label: key + (q ? ' ' + q : '') });
+    for (const q of QUERY[key] ?? ['']) cases.push({ key, url: base + fillQuery(q, ids), label: key + (q ? ' ' + q : '') });
   }
   return { cases, skipped };
 }
@@ -192,7 +195,32 @@ export async function foreignGets(view: Tenant, other: Tenant): Promise<{ violat
       violations.push(...markerHits(r.raw.body, other, `${name} ${c.label}`));
     }
   }
-  return { violations, tried, untried: skipped };
+  const rev = reverseQueryCases(view, other);
+  for (const [name, b] of [['admin', view.admin], ['member', view.member]] as [string, Browser][]) {
+    for (const c of rev.cases) {
+      const r = await b.req('GET', c.url);
+      tried.push(`${name} ${c.label}`);
+      if (![403, 404].includes(r.status)) violations.push({ relation: 'FOREIGN-GET', where: `${name} ${c.label}`, detail: `status ${r.status}, expected 404 or 403` });
+      violations.push(...markerHits(r.raw.body, other, `${name} ${c.label}`));
+    }
+  }
+  return { violations, tried, untried: [...skipped, ...rev.skipped] };
+}
+/**
+ * c81 (item 5): the reverse case. For every QUERY value that holds an id placeholder, the caller's OWN id in the path (where the route has one) and
+ * the OTHER tenant's id in the query. A route that checks only the path id would answer 200 here. Generated from the QUERY map, not listed by hand.
+ */
+export function reverseQueryCases(view: Tenant, other: Tenant): { cases: GetCase[]; skipped: string[] } {
+  const cases: GetCase[] = []; const skipped: string[] = [];
+  const keys = [...new Set(view.app.routeTable.filter((r) => r.method === 'GET').map((r) => 'GET ' + r.url.replace(/^\/api\/v1/, '')))].sort();
+  for (const key of keys) {
+    const withId = (QUERY[key] ?? []).filter((q) => /__[a-z0-9]+__/.test(q));
+    if (!withId.length) continue;
+    const base = urlFor(key.slice(4), view.ids);
+    if (base === undefined) { skipped.push(key); continue; }
+    for (const q of withId) cases.push({ key, url: base + fillQuery(q, other.ids), label: key + ' ' + q + ' [own path, foreign query id]' });
+  }
+  return { cases, skipped };
 }
 /** Routes whose id is a per-tenant counter or a name that exists in both tenants, so a "foreign id" is not meaningful. */
 export const NO_ID_NAMESPACE = new Set([
