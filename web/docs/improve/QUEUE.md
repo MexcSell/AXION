@@ -5,6 +5,12 @@
 
 Integration tree: `/home/luca/AXION`, branch `improve-30h`. Merged so far: cycles 1–3 (done on improve-30h directly), c07 (648e32b), c05 (6f8bd59).
 
+## End-of-phase freeze (controller, 2026-11-23T03:40Z)
+- **About 16:00Z:** the last merge that touches `web/`. After it, run the final api-mobile (full, DATA_MODE=api), verify-all, and fit-check in demo and api mode at 1366×768 and 1280×760, on the frozen web tree. Any new FAIL blocks.
+- **About 18:30Z:** the last merge of any kind. Only server-only merges run between 16:00Z and 18:30Z.
+- **About 19:30Z:** the final live update (controller).
+- **Gated Stage 8/9 branches (R1, A1, M2, G1):** never queued. They stay as cleared branches for the owner (Q11).
+
 ## Merge in batches (each branch gets its own `--no-ff` commit; server tsc + vitest after each merge; full checks once per batch)
 
 | Batch | Branches, in order | Extra checks / notes |

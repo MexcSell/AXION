@@ -1,27 +1,31 @@
 # Improvement loop state (resume from here)
 
-Rewritten 2026-11-22T07:35Z by the controller and again at 17:50Z after the live update. The old w2–w18 lane list is history; see LOG.md.
+Rewritten 2026-11-22T07:35Z, 17:50Z, and 2026-11-23T03:40Z by the controller. Older lane lists are history in LOG.md.
 
 ## Clocks
-- **30 h loop:** 2026-11-21T11:36:18Z → 2026-11-22T17:36:18Z. The last batch (13) was still being verified at 17:36Z; its log commit ed3ed73 landed at 17:43Z.
-- **Phase 2 (owner 2026-11-22 ~00:50Z, 28 h, PHASE2.md): 2026-11-22T17:45Z → 2026-11-23T21:45Z.** Started when the integration queue (batches 7–13) was merged and the live update was done. Waves 1–4 (ungated) were built early, in lanes, during the 30 h loop. Phase 2 proper starts with Wave 5.
+- **30 h loop:** 2026-11-21T11:36:18Z → 2026-11-22T17:36:18Z (done).
+- **Phase 2:** 2026-11-22T17:45Z → **2026-11-23T21:45Z**. Waves 5–7 are built. Schedule to the end:
+  - **13:45Z:** no new lane starts.
+  - **About 16:00Z:** last merge that touches `web/`. Then the final api-mobile, verify-all and fit (demo and api) on the frozen web tree.
+  - **About 18:30Z:** last merge of any kind (server-only after 16:00Z).
+  - **About 19:30Z:** final live update.
+  - **Then:** final report (FINAL-REPORT-PHASE2.md, plus a published page) before 21:45Z.
 
 ## Branch and live
 - Integration tree `/home/luca/AXION`, branch `improve-30h`, local only. Never push or move the tag without the owner.
-- **Web dev 5190** serves the working tree. Restarted 2026-11-23T02:22Z after a stale watcher (3rd time, BACKLOG H19); PID in /tmp/axion-5190.pid.
-- **API 5191** runs the real `axion` DB. **Restarted 2026-11-23T02:22Z on 229536a** (batches 14–30) from a clean tree; PID in /tmp/axion-5191.pid.
-  - Schema version 53 (38 migration files; 0036, 0038, 0041, 0042, 0049, 0051 unused).
-  - Backup `backups/axion-20261123T012236Z.dump`; restore check PASS. Previous: `axion-20261122T174415Z.dump` (version 39).
-  - Audit anchor line 2 written at this update; chain and anchor OK.
-  - The live DB holds 1 tenant and 1 audit row.
-- **Audit anchor (c49):** settings are in the live server/.env (mode 600; the key is never printed). The first anchor is written: t-1 through seq 1, in `server/data/audit-anchors.jsonl` (git-ignored). `audit:verify`: chain OK, anchor OK. **The owner should copy the anchor file off-host.**
-- **Every later live update follows these steps:**
-  1. Stop 5191 by port.
+- **Web dev 5190** serves the working tree. It was restarted 2026-11-23T02:22Z after a stale watcher (the 3rd time; BACKLOG H19). PID in /tmp/axion-5190.pid. After any merge touching `shared/`, curl a served contracts file.
+- **API 5191** runs the real `axion` DB. Restarted 2026-11-23T02:22Z on 229536a (batches 14–30), from a clean tree; PID in /tmp/axion-5191.pid.
+  - Schema version 53: 38 migration files, with 0036, 0038, 0041, 0042, 0049 and 0051 unused.
+  - Backup `backups/axion-20261123T012236Z.dump`, restore check PASS. Previous backups: 20261122T174415Z (v39).
+  - Audit anchor: 2 lines in `server/data/audit-anchors.jsonl` (git-ignored); chain and anchor OK. **The owner should copy the file off-host.**
+- **Every live update:**
+  1. Stop 5191 by its recorded PID or port.
   2. `npm run db:backup`, then `npm run db:restore-check`.
   3. `npm run migrate`.
-  4. Restart from a clean tree: `node --env-file=.env --import tsx src/main.ts >> data/api.log`.
-  5. `npm run audit:anchor`.
-  6. `npm run audit:verify`.
+  4. `npm run audit:verify`.
+  5. Restart from a clean tree: `node --env-file=.env --import tsx src/main.ts >> data/api.log`, and record the PID.
+  6. `npm run audit:anchor`, then `npm run audit:verify`.
+  7. Check health directly and through 5190.
 
 ## Process
 - PROCESS.md, LANES.md and QUEUE.md. Every lane goes brief → implementer → independent reviewer → fix round → re-review → QUEUE batch → integrator (`--no-ff`).
@@ -29,58 +33,30 @@ Rewritten 2026-11-22T07:35Z by the controller and again at 17:50Z after the live
 - `heavy.sh` has 6 slots plus slot 0, reserved for the integrator (`HEAVY_PRIORITY=1`).
 - Ports 8790 and 9090 belong to other apps.
 
-## Integration queue
-- Everything is merged through batch 13 (HEAD ed3ed73):
-  - c44, c45, c48, c47, c49, c40, c46, c50, c52, c51;
-  - the c46 clock fix f5e2d01.
-- Integrator #4 is finished. Full server suite 2114/2114, 3 of 3 runs. Merge details are in MERGES.md.
+## Integration
+- Merged through batch 30, and live. Batch 31 (c72) is CLEARED and queued.
+- Integrator #5 is running the low-load verification (verify-all, api-mobile, stage6 ×20), then batch 31. Start a **fresh integrator** after that for the final stretch (MERGES.md and QUEUE.md are the hand-off).
 
-## Lanes (all merged; the table is history from here)
+## Lanes now
 | Lane | Cycle | Status |
 |---|---|---|
-| w38 | c40 mobile debt | MERGED (6c5a922) |
-| w42 | c43 flows hardening (H7) | MERGED (2aba0a0, 09dd6cb) |
-| w43 | c44 page/store perf | MERGED (b80c2d1, partial) |
-| w44 | c45 job leases J1 | MERGED (8798e82) |
-| w45 | c46 six-dimension scorecard M1 | MERGED (feb5f96, clock fix f5e2d01) |
-| w46 | c47 E1b eval evidence | MERGED (94806cf) |
-| w47 | c48 P3a approvals UI | MERGED (8274a8d) |
-| w48 | c49 P5b audit anchor | MERGED (af6bed5) |
-| w49 | c50 H9 contract coverage | MERGED (5002d01, registry 1abeca3) |
-| w50 | c51 O3a+O2a review hardening (migration 0039) | MERGED (86a634b) |
-| w51 | c52 H10 merge minors | MERGED (a33ae82) |
+| w70 | c72 difficulty-adjusted skill ratings (R3-7 + R3-1) | CLEARED at 6511c04, batch 31 |
+| w71 | c73 polish bundle (P2c, H18, P4c, H15) | scoped re-review of fix round (tip 59b78cf) |
 
-## Wave 5 in flight (dispatched about 17:55Z from bfe891e; PHASE2.md, Wave 5)
-| Lane | Cycle | Status |
-|---|---|---|
-| w52 | c53 eval-run integrity (E1c), e2e18, mig 0040 | MERGED (batch 15, 2d23cca), live 2026-11-23T02:22Z |
-| w53 | c54 clock bounds + dimensions follow-ups (H11, M1b, M1c), e2e2 (no migration) | MERGED (batch 21, 78e149f), live 2026-11-23T02:22Z |
-| w54 | c55 thread follow-ups (P2b), e2e3 | MERGED (batch 20, c1289a1), live 2026-11-23T02:22Z |
-| w55 | c56 public suffix list (P4b), e2e4 (no migration) | MERGED (batch 14, 3480bff), live 2026-11-23T02:22Z |
-| w56 | c57 test hygiene (H12, H13), e2e15 | MERGED (batch 14, 38d807d), live 2026-11-23T02:22Z |
-| — | Research round 2: research-r2.md plus research-r2-verified.md (22 CONFIRMED, 4 CORRECTED; R2-4 dropped) | done |
-| w57 | c58 Rule-of-Two profile + approval quality (R2-6, R2-9), e2e16, mig 0043, DL-100 | MERGED (batch 17, 7f31c94), live 2026-11-23T02:22Z |
-| w61 | c63 failure learning (R3-8), from c60 tip df8c17e, e2e12, mig 0047 | MERGED (batch 22, 99376e4), live 2026-11-23T02:22Z |
-| w62 | c64 restructure guardrails (R3-6), e2e11, mig 0048 | MERGED (batch 23, 9f7582a), live 2026-11-23T02:22Z |
-| w63 | c65 review capacity (R3-10), from c58 tip 7f31c94, e2e10, no migration | MERGED (batch 24, fdcbaa0), live 2026-11-23T02:22Z |
-| w64 | c66 metric-gaming guard (R3-4), from c54 tip 78e149f, e2e9, mig 0050 | MERGED (batch 25, 35bb4a9), live 2026-11-23T02:22Z |
-| w65 | c67 Agent Profile api-mode fit (H17), from 8c2c02e, e2e8 | MERGED (dfa16ce) |
-| w66 | c68 operator attention queue (R3-9), from 24a8f05, e2e7, no migration | MERGED (batch 28, 7ba9f49), live 2026-11-23T02:22Z |
-| w67 | c69 process metrics (R3-5), from c66 tip 35bb4a9, e2e6, no migration | MERGED (batch 29, 0226053), live 2026-11-23T02:22Z |
-| w68 | c70 hardening bundle (H11b, H14, E1d), from 812c185, e2e5, mig 0052 | MERGED (b3c3fe3) |
-| w69 | c71 scorecard at scale (P6), from c83f33e, e2e14, mig 0053 | MERGED (batch 30, 75dd86d), live 2026-11-23T02:22Z |
-| w70 | c72 difficulty-adjusted skill ratings (R3-7 + R3-1), from c852be8, e2e13, no migration | CLEARED at 6511c04, batch 31 |
-| w71 | c73 polish bundle (P2c, H18, P4c, H15), from c852be8, e2e16 | fix round (review NOT CLEAR: fix missing from commit) |
-| w58 | c59 origin-bound memory and skill records (R2-5), e2e17, mig 0044 | MERGED (batch 18, 67b40ed), live 2026-11-23T02:22Z |
-| w60 | c61 eval instruments (R2-2, R2-3, R2-1), from c53 tip 2d23cca, e2e13, mig 0046 | MERGED (batch 19, 43c1b7c), live 2026-11-23T02:22Z |
-| w59 | c60 failure attribution + OTel mapping (R2-10, R2-8), e2e14, mig 0045 | MERGED (batch 16, df8c17e), live 2026-11-23T02:22Z |
-| — | Integrator #5: verification pass on the merged tree | running |
+Every other Wave 5–7 lane (c53–c71) is MERGED and live (2026-11-23T02:22Z). Details are in QUEUE.md, MERGES.md and LOG.md.
 
-Waiting: c62 (R2-7) after owner Q12. No new lane starts after 2026-11-23T13:45Z. The gated Wave 4 items (R1, A1, M2, G1) still run last, as their own droppable batch (Q11).
+**Parked, by design:**
+- c62 (R2-7 signed receipts) waits for owner Q12.
+- R3-3 (earned autonomy) waits for Q13.
+- The gated Stage 8/9 items (R1, A1, M2, G1) wait for Q11. They are to be built as **unmerged branches** (CLEARED, with no QUEUE row and no live migration) for the owner to take or drop.
 
-## Owner questions
-Q1–Q11 are queued for the final report (PHASE2.md, LOG.md).
+## Owner questions (for the final report)
+- **Q1–Q12:** see LOG.md and PHASE2.md. Q11 covers the gated Stage 8/9 items; Q12 covers signing-key custody.
+- **Q13:** may an autonomy level ever be a policy input?
+- **Q14:** should there be a "read private company data" capability (Rule of Two flag b)?
+- **Q15:** values for c64's cooldown and churn budget (off by default).
+- **Q16:** keep the Needs-you tab's hidden header aside, or fold the header?
 
 ## Ids already taken
-- **Dialog ids:** up to DL-98 in use. DL-96, DL-97 and DL-99 were reserved but are unused.
-- **Migrations:** files up to 0039. 0036 and 0038 are unused.
+- **Dialog ids:** up to DL-100 in use. DL-96, 97, 98 (retired) and 99 are not in use.
+- **Migrations:** files up to 0053. 0054 was reserved for c72 and is unused. The next free number is **0055**.
