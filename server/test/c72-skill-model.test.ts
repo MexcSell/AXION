@@ -40,7 +40,7 @@ describe('pure estimator', () => {
     const far = compareSkill(a2, b2);
     expect(far.verdict).toBe('distinguishable'); expect(far.sharedLevels).toEqual([2, 3]);
     expect(compareSkill(a2, a2).verdict).toBe('indistinguishable');
-    expect(compareSkill(L([3, 4, 4]), L([3, 4, 0])).verdict).toBe('indistinguishable'); // under 5 shared outcomes each
+    expect(compareSkill(L([3, 4, 4]), L([3, 4, 0])).verdict).toBe('indistinguishable'); // under 5 tasks at the level: left out
     expect(Object.keys(far).sort()).toEqual(['reason', 'sharedLevels', 'verdict']); // no direction, no score
   });
   it('cells below the floor are null and every class is present in the fixed order', () => {

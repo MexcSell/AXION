@@ -450,12 +450,12 @@ export const attention: V<AttentionDto> = obj<AttentionDto>({
 // ---- c72 skill ratings (no field names a rank, a position or an ordering)
 const skillInterval = obj<SkillInterval>({ value: int, lo: int, hi: int });
 const skillCell: V<SkillCellDto> = obj<SkillCellDto>({
-  classId: oneOf(TASK_CLASS_IDS), label: str, n: int, successes: int, state: oneOf(['ok', 'not_enough_evidence'] as const),
+  classId: oneOf(TASK_CLASS_IDS), label: str, n: int, successes: int, state: oneOf(['ok', 'thin', 'not_enough_evidence'] as const), headline: bool,
   raw: nullable(skillInterval), adjusted: nullable(skillInterval),
-  levels: arr(obj<SkillCellDto['levels'][number]>({ difficulty: int, label: str, n: int, successes: int })), evidence: str,
+  levels: arr(obj<SkillCellDto['levels'][number]>({ difficulty: int, label: str, n: int, successes: int, used: bool })), evidence: str,
 });
 export const agentSkillsBody = obj<{ skills: AgentSkillsDto }>({ skills: obj<AgentSkillsDto>({
-  agentId: str, method: str, minN: int, classes: arr(skillCell), unrated: int, includesSimulated: bool,
+  agentId: str, method: str, minN: int, classes: arr(skillCell), unrated: int, finished: int, includesSimulated: bool,
   pairRatings: obj<AgentSkillsDto['pairRatings']>({ built: lit(false as const), why: str }), dependsOn: obj<AgentSkillsDto['dependsOn']>({ gameable: bool, text: str }),
 }) });
 export const skillCompareBody = obj<{ compare: SkillCompareDto }>({ compare: obj<SkillCompareDto>({

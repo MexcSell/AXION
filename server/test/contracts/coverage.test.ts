@@ -256,12 +256,13 @@ describe('API coverage run', () => {
       for (let i = 0; i < 16; i++) { await fin(sa, i < 15 ? 'passed' : 'failed', 'coding', 2 + (i % 2)); await fin(sb, i < 3 ? 'passed' : 'failed', 'coding', 2 + (i % 2)); }
       for (let i = 0; i < 5; i++) await fin(sa, 'passed', 'research', 1);
       await fin(sb, 'passed', 'research', 5);
+      for (let d = 1; d <= 5; d++) await fin(sa, 'passed', 'planning', d); // 5 tasks, one per level: no level reaches 5, state `thin`
       await fin(sa, 'passed', 'writing', null); // class without a difficulty: counted as unrated
       const r = await call(admin, 'GET', '/agents/:id/skills', `/agents/${sa.agent_id}/skills`);
       expect((r.body.skills.classes as { state: string }[]).some((c) => c.state === 'ok') && r.body.skills.unrated > 0).toBe(true);
       await call(admin, 'GET', '/agents/:id/skills', `/agents/${sb.agent_id}/skills`, { query: '?includeSimulated=1' });
       const cmp = await call(admin, 'GET', '/agents/:id/skills/compare', `/agents/${sa.agent_id}/skills/compare`, { query: `?with=${sb.agent_id}` });
-      expect((cmp.body.compare.classes as { verdict: string }[]).map((c) => c.verdict).sort()).toEqual(['distinguishable', 'indistinguishable']);
+      expect((cmp.body.compare.classes as { verdict: string }[]).map((c) => c.verdict).sort()).toEqual(['distinguishable', 'indistinguishable', 'indistinguishable']); // coding, research (no shared level), planning (B has none)
     }
     const newAg = await call(admin, 'POST', '/agents', '/agents', { status: 201, body: { name: 'Audit Bot', role: 'Auditor', dept: 'Ops', duty: 'Audit the audits', model: 'test-model', skills: ['audit'], tools: [], parentId: 'ops-01' }, headers: key() });
     await call(admin, 'PATCH', '/agents/:id', `/agents/${newAg.body.agent.id}`, { body: { description: 'Audits things.' }, headers: { 'if-match': String(newAg.body.agent.rowVersion) } });

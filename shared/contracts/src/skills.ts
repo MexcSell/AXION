@@ -9,9 +9,11 @@
  *  - Per agent and task class, outcomes are counted per difficulty level. The raw rate is successes over all outcomes (what an agent
  *    handed easy tasks looks good on). The adjusted rate re-weights the per-level rates to a FIXED reference mix (the five levels equally,
  *    REFERENCE_MIX), over the levels the agent has evidence for. The levels used are named on every cell.
+ *  - Gate (fix round F2): a level with fewer than SKILL_LEVEL_MIN_N tasks is left out of the adjusted rate.
  *  - Interval: variance of the weighted rate, from per-level rates smoothed by half an observation (so a level with 0 or all successes
- *    still has spread); effective n = p(1-p)/variance (Kish); then the Wilson score interval at 95% for (rate, effective n).
- *  - Comparing two agents: only on the difficulty levels BOTH have evidence for. The verdict is "distinguishable" when the two 95% intervals
+ *    still has spread); effective n = p(1-p)/variance (Kish), capped at the number of tasks used; then the Wilson score interval, NOMINAL 95%
+ *    (measured coverage is in the c72 report; it is not exactly 95% everywhere).
+ *  - Comparing two agents: only on the difficulty levels BOTH have evidence for. The verdict is "distinguishable" when the two nominal-95% intervals
  *    do not overlap, otherwise "indistinguishable". With no shared level, or fewer than 5 outcomes on the shared levels, nothing can be
  *    said, and that is reported as "indistinguishable" with the reason. No direction, no rank, no score order.
  *  - A cell with fewer than SKILL_MIN_N outcomes is null ("not enough evidence").
@@ -37,9 +39,13 @@ export const DIFFICULTY_LABELS: Record<number, string> = { 1: 'Routine', 2: 'Eas
 
 /** fewer outcomes than this in a cell: the cell is null (the same floor as the reliability) */
 export const SKILL_MIN_N = 5;
+/** c72 fix round (F2): a difficulty level feeds the adjusted rate only with at least this many tasks (sparse levels under-cover; see the c72 report) */
+export const SKILL_LEVEL_MIN_N = 5;
+/** c72 fix round (F3): the adjusted rate is shown as a headline percentage only when it is built from at least this many levels; otherwise as a muted range */
+export const SKILL_HEADLINE_MIN_LEVELS = 3;
 /** the fixed reference mix: every level counts the same */
 export const REFERENCE_MIX: Record<number, number> = { 1: 0.2, 2: 0.2, 3: 0.2, 4: 0.2, 5: 0.2 };
-export const SKILL_METHOD = 'Direct standardisation to a fixed difficulty mix (levels 1 to 5 weighted equally), 95% Wilson interval on the effective sample size';
+export const SKILL_METHOD = 'Direct standardisation to a fixed difficulty mix (levels 1 to 5 weighted equally; a level with fewer than 5 tasks is left out), nominal 95% Wilson interval on the effective sample size (never narrower than the plain interval on the tasks used)';
 
 export const PAIR_RATING_NOTE = 'Pair ratings (an agent working with a person) are not built. Nothing recorded says that a person worked with the agent on a task: a brief names who delegated, which is not who collaborated, and a review comes after the work. Without that, a pair rating would only rename the delegator.';
 
@@ -65,7 +71,7 @@ export function rawRate(levels: readonly LevelCount[]): (Standardised) | null {
 }
 /** The adjusted rate over `use` (default: every level with evidence). Null when there is no evidence on those levels. */
 export function standardise(levels: readonly LevelCount[], use?: readonly number[]): Standardised | null {
-  const have = levels.filter((l) => l.n > 0 && (!use || use.includes(l.d)) && REFERENCE_MIX[l.d] !== undefined);
+  const have = levels.filter((l) => l.n >= SKILL_LEVEL_MIN_N && (!use || use.includes(l.d)) && REFERENCE_MIX[l.d] !== undefined);
   if (have.length === 0) return null;
   const wsum = have.reduce((s, l) => s + REFERENCE_MIX[l.d], 0);
   let p = 0, ps = 0, v = 0, n = 0, x = 0;
@@ -73,20 +79,20 @@ export function standardise(levels: readonly LevelCount[], use?: readonly number
     const w = REFERENCE_MIX[l.d] / wsum, pt = (l.x + 0.5) / (l.n + 1);
     p += w * (l.x / l.n); ps += w * pt; v += w * w * pt * (1 - pt) / l.n; n += l.n; x += l.x;
   }
-  const nEff = ps * (1 - ps) / v;
+  const nEff = Math.min(n, ps * (1 - ps) / v);
   return { value: p, ...wilson(p, nEff), n, x, nEff, levels: have.map((l) => l.d) };
 }
 
 export type SkillVerdict = 'distinguishable' | 'indistinguishable';
 /** Two agents in one class, on the difficulty levels both have evidence for. Said as "distinguishable" or "indistinguishable" only. */
 export function compareSkill(a: readonly LevelCount[], b: readonly LevelCount[]): { verdict: SkillVerdict; reason: string; sharedLevels: number[] } {
-  const hasB = new Set(b.filter((l) => l.n > 0).map((l) => l.d));
-  const shared = a.filter((l) => l.n > 0 && hasB.has(l.d)).map((l) => l.d).sort((p, q) => p - q);
-  if (shared.length === 0) return { verdict: 'indistinguishable', reason: 'The two agents have no difficulty level in common, so no fair comparison exists.', sharedLevels: [] };
+  const hasB = new Set(b.filter((l) => l.n >= SKILL_LEVEL_MIN_N).map((l) => l.d));
+  const shared = a.filter((l) => l.n >= SKILL_LEVEL_MIN_N && hasB.has(l.d)).map((l) => l.d).sort((p, q) => p - q);
+  if (shared.length === 0) return { verdict: 'indistinguishable', reason: `The two agents have no difficulty level in common (a level needs at least ${SKILL_LEVEL_MIN_N} tasks from each), so no fair comparison exists.`, sharedLevels: [] };
   const sa = standardise(a, shared)!, sb = standardise(b, shared)!;
   if (sa.n < SKILL_MIN_N || sb.n < SKILL_MIN_N) return { verdict: 'indistinguishable', reason: `Fewer than ${SKILL_MIN_N} outcomes each on the levels they share.`, sharedLevels: shared };
   const apart = sa.hi < sb.lo || sb.hi < sa.lo;
-  return { verdict: apart ? 'distinguishable' : 'indistinguishable', reason: apart ? 'The 95% intervals on the shared levels do not overlap.' : 'The 95% intervals on the shared levels overlap.', sharedLevels: shared };
+  return { verdict: apart ? 'distinguishable' : 'indistinguishable', reason: apart ? 'The nominal 95% intervals on the shared levels do not overlap.' : 'The 95% intervals on the shared levels overlap.', sharedLevels: shared };
 }
 /** The same rule on the raw rates (what a table of raw counts invites). Used only to show the difference in the simulation. */
 export function compareRaw(a: readonly LevelCount[], b: readonly LevelCount[]): { verdict: SkillVerdict; aHigher: boolean } {
@@ -102,12 +108,15 @@ export interface SkillCellDto {
   classId: TaskClassId; label: string;
   /** outcomes with both a class and a difficulty */
   n: number; successes: number;
-  state: 'ok' | 'not_enough_evidence';
+  /** ok: adjusted rate available; thin: 5 or more tasks but no level has 5; not_enough_evidence: under 5 tasks */
+  state: 'ok' | 'thin' | 'not_enough_evidence';
   /** null below SKILL_MIN_N */
   raw: SkillInterval | null;
   adjusted: SkillInterval | null;
   /** the difficulty levels the adjusted rate is built from */
-  levels: { difficulty: number; label: string; n: number; successes: number }[];
+  levels: { difficulty: number; label: string; n: number; successes: number; /** false: fewer than SKILL_LEVEL_MIN_N tasks, left out of the adjusted rate */ used: boolean }[];
+  /** true when the adjusted rate is built from SKILL_HEADLINE_MIN_LEVELS or more levels (shown as a number); false: shown only as a muted range */
+  headline: boolean;
   evidence: string;
 }
 export interface AgentSkillsDto {
@@ -118,6 +127,8 @@ export interface AgentSkillsDto {
   classes: SkillCellDto[];
   /** finished tasks of this agent whose brief names a class but no difficulty, or the reverse: left out of every cell */
   unrated: number;
+  /** every finished task of this agent in view (rated + unrated), so the share with a usable label can be shown */
+  finished: number;
   includesSimulated: boolean;
   pairRatings: { built: false; why: string };
   dependsOn: { gameable: boolean; text: string };
@@ -136,13 +147,14 @@ export function skillCells(byClass: ReadonlyMap<TaskClassId, readonly LevelCount
     const n = raw?.n ?? 0, x = raw?.x ?? 0;
     const enough = n >= SKILL_MIN_N;
     const adj = enough ? standardise(lv) : null;
+    const state: SkillCellDto['state'] = !enough ? 'not_enough_evidence' : adj ? 'ok' : 'thin';
     return {
-      classId, label: TASK_CLASSES[classId], n, successes: x,
-      state: enough ? 'ok' : 'not_enough_evidence',
+      classId, label: TASK_CLASSES[classId], n, successes: x, state,
       raw: enough ? toInterval(raw) : null,
       adjusted: toInterval(adj),
-      levels: DIFFICULTY_LEVELS.map((d) => lv.find((l) => l.d === d)).filter((l): l is LevelCount => !!l).map((l) => ({ difficulty: l.d, label: DIFFICULTY_LABELS[l.d], n: l.n, successes: l.x })),
-      evidence: (enough ? '' : `not enough evidence (${n} of ${SKILL_MIN_N}) · `) + (n ? `${x} of ${n} finished task${n === 1 ? '' : 's'} passed` : 'no finished tasks with a stated class and difficulty') + ' · all recorded time',
+      headline: !!adj && adj.levels.length >= SKILL_HEADLINE_MIN_LEVELS,
+      levels: DIFFICULTY_LEVELS.map((d) => lv.find((l) => l.d === d)).filter((l): l is LevelCount => !!l).map((l) => ({ difficulty: l.d, label: DIFFICULTY_LABELS[l.d], n: l.n, successes: l.x, used: l.n >= SKILL_LEVEL_MIN_N })),
+      evidence: (state === 'not_enough_evidence' ? `not enough evidence (${n} of ${SKILL_MIN_N}) · ` : state === 'thin' ? `no difficulty level has ${SKILL_LEVEL_MIN_N} tasks yet, so no adjusted rate · ` : '') + (n ? `${x} of ${n} finished task${n === 1 ? '' : 's'} passed` : 'no finished tasks with a stated class and difficulty') + ' · all recorded time',
     };
   });
 }

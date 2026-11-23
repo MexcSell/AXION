@@ -60,7 +60,7 @@ export { skillCells };
 export function skillsOf(outcomes: readonly SkillOutcome[], agentId: string, includeSimulated: boolean): AgentSkillsDto {
   const { byClass, unrated } = levelsByClass(outcomes, agentId);
   return {
-    agentId, method: SKILL_METHOD, minN: SKILL_MIN_N, classes: skillCells(byClass), unrated, includesSimulated: includeSimulated,
+    agentId, method: SKILL_METHOD, minN: SKILL_MIN_N, classes: skillCells(byClass), unrated, finished: unrated + [...byClass.values()].reduce((a, lv) => a + lv.reduce((x, l) => x + l.n, 0), 0), includesSimulated: includeSimulated,
     pairRatings: { built: false, why: PAIR_RATING_NOTE },
     dependsOn: { gameable: writabilityOf(SKILL_RATING_INPUTS).agentWritable, text: skillRatingDependsText() },
   };
