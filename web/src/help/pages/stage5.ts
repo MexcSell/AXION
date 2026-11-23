@@ -18,8 +18,8 @@ const entries: Record<string, HelpEntry> = {
   'shell.account': { title: 'Account', what: 'Who is connected in this browser. Every tab of a browser is the same user; use another browser or a private window for a second user.', how: 'Open your profile, or sign out to connect as someone else.' },
   'ops.serverHealth': {
     title: 'AXION server',
-    what: 'Live, read-only status of the real server: API uptime, database size and mission count, event-log length, open live streams, the newest backup, and whether mission execution is enabled.',
-    how: 'Refreshes every 15 seconds and after live events. Backups: npm run db:backup on the server; npm run db:restore-check proves a backup restores.',
+    what: 'Live, read-only status of the real server: API uptime, database size and mission count, event-log length, open live streams, the newest backup, the age of the public suffix list snapshot, and whether mission execution is enabled.',
+    how: 'Refreshes every 15 seconds and after live events. Backups: npm run db:backup on the server; npm run db:restore-check proves a backup restores. The public suffix list (which decides how broad a site grant is) is a pinned snapshot: the tile warns once it is older than 90 days. Refreshing it is a reviewed code change with a new manifest, never a button.',
     why: 'Execution stays disabled in Stage 5: missions are planned and staffed (simulated), but no agent, model or browser runs yet.',
     permission: 'Administrators only.',
   },

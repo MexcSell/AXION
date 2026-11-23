@@ -8,6 +8,7 @@ import { queueSummary } from '../jobs/summary.ts';
 import { ApiError } from '../errors.ts';
 import { SlidingWindow } from '../ratelimit.ts';
 import { verifyAnchors } from '../audit-anchor.ts';
+import { readPslHealth } from '../grants/psl-age.ts';
 
 export const DEFAULT_BACKUP_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'backups');
 
@@ -51,6 +52,7 @@ export default async function opsRoutes(app: FastifyInstance) {
       db, events,
       sse: { clients: app.sse.clients },
       backup,
+      publicSuffix: await readPslHealth(app.db), // c73: snapshot date, age (database date) and the 90-day warning
       execution: 'disabled',
       checkedAt: new Date().toISOString(),
     };
