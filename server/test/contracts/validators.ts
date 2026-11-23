@@ -18,6 +18,7 @@ import {
   type CapacityCellDto, type CapacityDeptDto, type CapacityPersonDto, type CapacityPeopleBody, type ReviewCapacityDto, type LittleLawDto, type SpanDto, type SpanRowDto,
   type MetricGuardDto, type MetricGuard, type MetricGuardRow, type MetricAuditState, type MetricAuditResult, QUALITY_DIMENSION_IDS,
   type ProcessDto, type ProcessCell, PROCESS_WINDOWS,
+  TASK_CLASS_IDS, type AgentSkillsDto, type SkillCellDto, type SkillCompareDto, type SkillInterval,
 } from '../../../shared/contracts/src/index.ts';
 
 export const errorEnvelope: V<ErrorEnvelope> = obj<ErrorEnvelope>({ code: oneOf(ERROR_CODES), message: str, correlationId: str, retryable: bool, fieldErrors: opt(dict(str)) });
@@ -156,7 +157,7 @@ const tier = oneOf(['R0', 'R1', 'R2', 'R3', 'R4'] as const);
 const capability = obj<{ kind: string; origin?: string }>({ kind: str, origin: opt(str) });
 const briefDto: V<DelegationBriefDto> = obj<DelegationBriefDto>({
   id: str, missionId: str, taskId: nullable(str), fromId: str, fromKind: oneOf(['user', 'agent'] as const), toInstanceId: str, toAgentId: str,
-  brief: obj({ goal: str, inputs: arr(str), acceptance: arr(str), capabilities: arr(capability), budget: opt(num), deadline: opt(str), escalation: str }),
+  brief: obj({ goal: str, inputs: arr(str), acceptance: arr(str), capabilities: arr(capability), budget: opt(num), deadline: opt(str), escalation: str, taskClass: opt(oneOf(TASK_CLASS_IDS)), difficulty: opt(int) }),
   sha256: str, parentBriefId: nullable(str), supersedesId: nullable(str), depth: int, simulated: bool, createdAt: iso,
   tiers: dict(nullable(tier as V<BriefTier>)),
   effective: opt(obj({ capabilities: arr(capability), deadline: nullable(str), budget: nullable(num), narrowedBy: arr(obj({ briefId: str, toAgentId: str, dropped: arr(str) })) })),
@@ -457,3 +458,19 @@ export const attention: V<AttentionDto> = obj<AttentionDto>({
   rows: arr(attentionRow), totals: obj<AttentionDto['totals']>({ items: int, rows: int, collapsed: int }),
   settings: obj<AttentionDto['settings']>({ waitingHours: int, nearExpiryHours: int, failureWindowDays: int }), ranking: str, checkedAt: iso,
 });
+
+// ---- c72 skill ratings (no field names a rank, a position or an ordering)
+const skillInterval = obj<SkillInterval>({ value: int, lo: int, hi: int });
+const skillCell: V<SkillCellDto> = obj<SkillCellDto>({
+  classId: oneOf(TASK_CLASS_IDS), label: str, n: int, successes: int, state: oneOf(['ok', 'thin', 'not_enough_evidence'] as const), headline: bool,
+  raw: nullable(skillInterval), adjusted: nullable(skillInterval),
+  levels: arr(obj<SkillCellDto['levels'][number]>({ difficulty: int, label: str, n: int, successes: int, used: bool })), evidence: str,
+});
+export const agentSkillsBody = obj<{ skills: AgentSkillsDto }>({ skills: obj<AgentSkillsDto>({
+  agentId: str, method: str, minN: int, classes: arr(skillCell), unrated: int, finished: int, includesSimulated: bool,
+  pairRatings: obj<AgentSkillsDto['pairRatings']>({ built: lit(false as const), why: str }), dependsOn: obj<AgentSkillsDto['dependsOn']>({ gameable: bool, text: str }),
+}) });
+export const skillCompareBody = obj<{ compare: SkillCompareDto }>({ compare: obj<SkillCompareDto>({
+  agentId: str, withId: str, method: str,
+  classes: arr(obj<SkillCompareDto['classes'][number]>({ classId: oneOf(TASK_CLASS_IDS), label: str, verdict: oneOf(['distinguishable', 'indistinguishable'] as const), reason: str, sharedLevels: arr(int) })),
+}) });

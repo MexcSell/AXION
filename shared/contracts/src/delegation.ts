@@ -1,8 +1,11 @@
+import type { TaskClassId } from './skills.ts';
 /** Typed delegation brief (c42). The server validates it with zod; this is the shape the web reads. */
 export type BriefTier = 'R0' | 'R1' | 'R2' | 'R3' | 'R4';
 export interface BriefCapability { kind: string; origin?: string }
 export interface DelegationBriefData {
   goal: string; inputs: string[]; acceptance: string[]; capabilities: BriefCapability[]; budget?: number; deadline?: string; escalation: string;
+  /** c72: optional, set by the delegator (so gameable) */
+  taskClass?: TaskClassId; difficulty?: number;
 }
 export interface DelegationBriefDto {
   id: string; missionId: string; taskId: string | null; fromId: string; fromKind: 'user' | 'agent'; toInstanceId: string; toAgentId: string;

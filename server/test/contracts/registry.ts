@@ -13,6 +13,8 @@ export const ROUTES: Record<string, RouteEntry> = {
   'GET /agent-instances/:id': { v: C.instanceBody },
   'GET /agents': { v: C.agentsBody },
   'GET /agents/:id': { v: C.agentBody },
+  'GET /agents/:id/skills': { v: C.agentSkillsBody },
+  'GET /agents/:id/skills/compare': { v: C.skillCompareBody },
   'GET /agents/:id/mentoring': { v: C.plansBody },
   'GET /agents/:id/playbook': { v: C.playbookBody },
   'GET /agents/:id/playbook/diff': { v: C.playbookDiffBody },

@@ -26,6 +26,7 @@ import { activityFor, fmtTokens } from '@/data/activity';
 import { ChannelChat } from '@/features/chat/ChannelChat';
 import { VersionProposalList } from '@/features/agents/VersionProposals';
 import { ServerMentoring } from '@/features/agents/Mentoring';
+import { SkillVector } from '@/features/agents/SkillVector';
 import { channelId } from '@/store/chat';
 import { useMe } from '@/store/auth';
 import { AGENTS, AGENT_BY_ID } from '@/data/agents';
@@ -412,9 +413,10 @@ function PerformanceTab({ a }: { a: Agent }) {
     { l: 'Error rate', v: `${(100 - a.success) / 2}%`, d: perfSeries(a, 'err', 16, 12, 8), c: 'var(--warn)' },
     { l: 'Tokens per task', v: `${(8 + (100 - a.success) * .9).toFixed(1)}k`, d: perfSeries(a, 'cost', 16, 50, 12), c: 'var(--violet)' },
   ];
-  if (needsEvidence(a)) return <Panel icon={TrendingUp} titleSize="lg" title="Performance" help="agent.perfTrend" actions={<ProvenanceChip agent={a} />}><EmptyState icon={TrendingUp} title="Not enough evidence yet" body={`${NOT_ENOUGH}. Trends appear once its tasks have been verified.`} /></Panel>;
+  if (needsEvidence(a)) return <><SkillVector agentId={a.id} agentName={a.name} /><Panel icon={TrendingUp} titleSize="lg" title="Performance" help="agent.perfTrend" actions={<ProvenanceChip agent={a} />}><EmptyState icon={TrendingUp} title="Not enough evidence yet" body={`${NOT_ENOUGH}. Trends appear once its tasks have been verified.`} /></Panel></>;
   return (
     <>
+      <SkillVector agentId={a.id} agentName={a.name} />
       {isApi() && <div className="row" style={{ gap: 8 }}><ProvenanceChip agent={a} /></div>}
       <div className="oa-grid-4s">
         {mini.map((m, i) => (

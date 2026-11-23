@@ -30,7 +30,10 @@ function buildDepts(): Dept[] {
   return names.map((name) => {
   const m = metaOf(name);
   const members = AGENTS.filter((a) => a.dept === name);
-  const mgr = [...members].sort((a, b) => b.success - a.success || b.sample - a.sample)[0];
+  // c72: the head is who reports to someone OUTSIDE the department (normally the GM), by structure and never by performance; several: first by name; none: first by name
+  const inDept = new Set(members.map((a) => a.id));
+  const byName = [...members].sort((a, b) => a.name.localeCompare(b.name));
+  const mgr = byName.find((a) => a.managerId && !inDept.has(a.managerId)) ?? byName.find((a) => a.managerId === a.id) ?? byName[0];
   const r = seeded('dept' + name);
   const used = members.length ? Math.round(members.reduce((s, a) => s + a.load, 0) / members.length) : 0;
   const skills = Array.from(new Set(members.flatMap((a) => a.skills))).slice(0, 5);

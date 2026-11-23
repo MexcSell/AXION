@@ -193,3 +193,16 @@ export interface MetricAuditResult { recorded: number; audit: MetricAuditState }
  */
 export const AUDIT_BAR = 15;
 export const AUDIT_MIN_N = 100;
+
+/**
+ * c72 (R3-7): the skill rating is not a scorecard row, so it has no entry in METRICS. It is registered here instead: which stored
+ * fields a rating reads. Two of them, the task class and the difficulty, are set by whoever delegates, which makes the rating gameable
+ * (a delegator can make tasks look hard, or relabel them). Whether it is gameable is derived from the writability inventory.
+ */
+export const SKILL_RATING_INPUTS: readonly InputFieldId[] = ['delegation_briefs.task_class', 'delegation_briefs.difficulty', 'tasks.status', 'tasks.owner'];
+export function skillRatingDependsText(): string {
+  const w = writabilityOf(SKILL_RATING_INPUTS);
+  return 'A skill rating depends on two fields set by the person or agent that delegates: the task class and the difficulty. ' +
+    (w.agentWritable ? 'An agent identity can write them through a delegation brief, so a rating can be moved by relabelling tasks or calling them harder. ' : 'No agent identity can write them today. ') +
+    'Read a rating as "given the difficulty the delegator stated", never as a measured fact. Nothing in AXION changes because of a rating.';
+}
