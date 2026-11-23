@@ -31,11 +31,10 @@ Each passed alone. Every such flake costs a re-run and a judgement call.
    - This is product code, so it needs a unit test with a fake pool that throws 53300 twice then succeeds, and one that throws a different error, which is not retried.
    - Log each retry at warn.
    - State plainly in the report that production gets this too, and why that is safe: acquisition only, and bounded.
-4. **Prove it.**
-   - Run 3 consecutive full serial runs at the current machine load, with the load printed.
-   - Then add an artificial squeeze: a small side script that holds N connections to **your own lane test DB** for the duration of one run, chosen so that before the change the run hits 53300.
-   - Show that before (on the base) the squeezed run fails and after it passes.
-   - Name every failure.
+4. **Prove it, without squeezing the shared cap.** The 45-connection cap is shared by every lane and the integrator, so **never hold extra real connections to create pressure.**
+   - Prove the retry with fault injection instead: a test-only hook that makes the first K connection acquisitions throw a 53300 error. Run the five named files (auth, site-grants, c86-record, playbooks, jobs stress) with K > 0, and show they pass. With the retry disabled they must fail with the same `admin connect failed` / 53300 text, which reproduces the flake.
+   - Then run 3 consecutive full serial runs at the current machine load, with the load printed, and name every failure.
+   - For item 1, sample `pg_stat_activity` filtered in SQL to `datname` = your lane's test database only.
 
 ## Pass threshold
 - Items 1–4.
