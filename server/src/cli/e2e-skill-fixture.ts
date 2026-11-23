@@ -28,7 +28,7 @@ const fin = async (ag: typeof A, status: 'passed' | 'failed', cls: string | null
   const id = `T-c72e-${tag}-${++k}`;
   await pool.query(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent) values ($1,$2,$3,$4,$5,$6)`, [id, ag.tenant_id, first.mission_id, `c72 fixture ${k}`, status, ag.agent_id]);
   const brief = { goal: `c72 fixture task ${k}`, inputs: [], acceptance: ['Done'], capabilities: [{ kind: 'read' }], escalation: 'Ask the mission owner', ...(cls ? { taskClass: cls } : {}), ...(d ? { difficulty: d } : {}) };
-  await pool.query(`insert into delegation_briefs(tenant_id, mission_id, task_id, from_id, from_kind, to_instance, to_agent, brief, sha256, depth, created_by) values ($1,$2,$3,'c72-harness','user',$4,$5,$6,$7,1,'c72-harness')`,
+  await pool.query(`insert into delegation_briefs(tenant_id, mission_id, task_id, from_id, from_kind, to_instance, to_agent, brief, sha256, depth, created_by, created_at) values ($1,$2,$3,'c72-harness','user',$4,$5,$6,$7,1,'c72-harness', now() - interval '1 hour')`,
     [ag.tenant_id, first.mission_id, id, ag.id, ag.agent_id, JSON.stringify(brief), sha(brief)]);
 };
 for (let i = 0; i < 16; i++) { await fin(A, i < 15 ? 'passed' : 'failed', 'coding', 2 + (i % 2)); await fin(B, i < 3 ? 'passed' : 'failed', 'coding', 2 + (i % 2)); }

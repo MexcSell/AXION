@@ -251,7 +251,7 @@ describe('API coverage run', () => {
         const id = `T-c72s-${++k}`;
         await t.pool.query(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent) values ($1,$2,$3,'c72 fixture',$4,$5)`, [id, ag.tenant_id, m1, status, ag.agent_id]);
         const b = { goal: 'c72 fixture task', inputs: [], acceptance: ['Done'], capabilities: [{ kind: 'read' }], escalation: 'Ask', ...(cls ? { taskClass: cls } : {}), ...(d ? { difficulty: d } : {}) };
-        await t.pool.query(`insert into delegation_briefs(tenant_id, mission_id, task_id, from_id, from_kind, to_instance, to_agent, brief, sha256, depth, created_by) values ($1,$2,$3,'c72','user',$4,$5,$6,$7,1,'c72')`, [ag.tenant_id, m1, id, ag.id, ag.agent_id, JSON.stringify(b), createHash('sha256').update(JSON.stringify(b)).digest('hex')]);
+        await t.pool.query(`insert into delegation_briefs(tenant_id, mission_id, task_id, from_id, from_kind, to_instance, to_agent, brief, sha256, depth, created_by, created_at) values ($1,$2,$3,'c72','user',$4,$5,$6,$7,1,'c72', now() - interval '1 hour')`, [ag.tenant_id, m1, id, ag.id, ag.agent_id, JSON.stringify(b), createHash('sha256').update(JSON.stringify(b)).digest('hex')]);
       };
       for (let i = 0; i < 16; i++) { await fin(sa, i < 15 ? 'passed' : 'failed', 'coding', 2 + (i % 2)); await fin(sb, i < 3 ? 'passed' : 'failed', 'coding', 2 + (i % 2)); }
       for (let i = 0; i < 5; i++) await fin(sa, 'passed', 'research', 1);

@@ -11,20 +11,26 @@ import {
  * shared/contracts/src/skills.ts. Read model: nothing here writes, assigns or ranks, and no function returns agents ordered by a rating.
  *
  * An outcome is a finished (passed or failed) task of a mission the viewer can see, owned by the agent when it finished, with a delegation
- * brief to that agent (the FIRST one for the task, i.e. the label stated when the task was handed over, so a later brief cannot relabel an outcome that is already known) that names BOTH a task class and a difficulty. A task whose brief names only one of the
+ * brief to that agent that was created BEFORE the task first finished (the first such one, so no later brief can relabel an outcome that is already known; see loadSkillOutcomes) and names BOTH a task class and a difficulty. A task whose brief names only one of the
  * two is counted as "unrated" and left out of every cell. Simulated (DEMO) tasks are left out unless includeSimulated.
  */
 export interface SkillOutcome { agentId: string; classId: TaskClassId | null; difficulty: number | null; success: boolean }
 const isClass = (s: unknown): s is TaskClassId => typeof s === 'string' && (TASK_CLASS_IDS as readonly string[]).includes(s);
 
 export async function loadSkillOutcomes(c: Tx | Db, viewer: { tenantId: string; admin: boolean; userId: string }, includeSimulated: boolean): Promise<SkillOutcome[]> {
+  // c72 fix round (F1). `fin` is the time the task FIRST became passed, failed or canceled (the first such state-change event; a task with no event, such as a
+  // fixture, uses its creation time). The owner is the agent that owned the task at `fin` (task_owner_history; before the first row, the first owner), so a
+  // reassignment after a failure moves nothing. A label counts only from a brief to that owner created before `fin` (the first such brief).
   const rows = (await c.query(
     `select o.owner, o.status, b.brief->>'taskClass' as cls, b.brief->>'difficulty' as diff
-       from (select t.id, t.status, coalesce(i.agent_id, t.owner_agent) as owner
-               from tasks t join missions m on m.id = t.mission_id left join agent_instances i on i.id = t.owner_instance_id
-              where m.tenant_id = $1 and m.deleted_at is null and ${VISIBLE_SQL('$2', '$3')}
-                and t.status in ('passed','failed') and ($4::boolean or not (t.simulated or m.demo))) o
-       join lateral (select d.brief from delegation_briefs d where d.task_id = o.id and d.to_agent = o.owner order by d.seq asc limit 1) b on true
+       from (select t.id, t.status, t.fin, (select coalesce(h.agent_id, h.owner_agent) from task_owner_history h where h.task_id = t.id
+                                               order by (h.at <= t.fin) desc, (case when h.at <= t.fin then -h.seq else h.seq end) limit 1) as owner
+               from (select t.id, t.status, coalesce((select min(e.occurred_at) from events e where e.tenant_id = t.tenant_id and e.type = 'task.stateChanged' and e.subject_id = t.id
+                                                         and e.payload->>'to' in ('passed','failed','canceled')), t.created_at) as fin
+                       from tasks t join missions m on m.id = t.mission_id
+                      where m.tenant_id = $1 and m.deleted_at is null and ${VISIBLE_SQL('$2', '$3')}
+                        and t.status in ('passed','failed') and ($4::boolean or not (t.simulated or m.demo))) t) o
+       left join lateral (select d.brief from delegation_briefs d where d.task_id = o.id and d.to_agent = o.owner and d.created_at < o.fin order by d.seq asc limit 1) b on true
       where o.owner is not null`,
     [viewer.tenantId, viewer.admin, viewer.userId, includeSimulated])).rows as { owner: string; status: string; cls: string | null; diff: string | null }[];
   return rows.map((r) => {

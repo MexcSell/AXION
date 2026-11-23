@@ -59,7 +59,7 @@ const outcomes = async (m: string, ag: { id: string; agent_id: string; tenant_id
     const id = `T-c72r-${tag}-${i}`;
     await t.pool.query(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent) values ($1,$2,$3,'fixture',$4,$5)`, [id, ag.tenant_id, m, i < pass ? 'passed' : 'failed', ag.agent_id]);
     const b = { goal: 'Do the fixture task', inputs: [], acceptance: ['Done'], capabilities: [{ kind: 'read' }], escalation: 'Ask', taskClass: cls, difficulty: d };
-    await t.pool.query(`insert into delegation_briefs(tenant_id, mission_id, task_id, from_id, from_kind, to_instance, to_agent, brief, sha256, depth, created_by) values ($1,$2,$3,'c72','user',$4,$5,$6,$7,1,'c72')`, [ag.tenant_id, m, id, ag.id, ag.agent_id, JSON.stringify(b), briefSha(b)]);
+    await t.pool.query(`insert into delegation_briefs(tenant_id, mission_id, task_id, from_id, from_kind, to_instance, to_agent, brief, sha256, depth, created_by, created_at) values ($1,$2,$3,'c72','user',$4,$5,$6,$7,1,'c72', now() - interval '1 hour')`, [ag.tenant_id, m, id, ag.id, ag.agent_id, JSON.stringify(b), briefSha(b)]);
   }
 };
 

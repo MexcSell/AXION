@@ -73,7 +73,7 @@ async function setup() {
     await t.pool.query(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent, simulated) values ($1,$2,$3,'fixture',$4,$5,$6)`, [id, agent.tenant_id, mission, status, agent.agent_id, o.simulated ?? false]);
     const to = o.briefTo ?? agent;
     const brief = { goal: 'Do the fixture task', inputs: [], acceptance: ['Done'], capabilities: [{ kind: 'read' }], escalation: 'Ask', ...(cls ? { taskClass: cls } : {}), ...(difficulty ? { difficulty } : {}) };
-    await t.pool.query(`insert into delegation_briefs(tenant_id, mission_id, task_id, from_id, from_kind, to_instance, to_agent, brief, sha256, depth, created_by) values ($1,$2,$3,'c72','user',$4,$5,$6,$7,1,'c72')`, [agent.tenant_id, mission, id, to.id, to.agent_id, JSON.stringify(brief), briefSha(brief)]);
+    await t.pool.query(`insert into delegation_briefs(tenant_id, mission_id, task_id, from_id, from_kind, to_instance, to_agent, brief, sha256, depth, created_by, created_at) values ($1,$2,$3,'c72','user',$4,$5,$6,$7,1,'c72', now() - interval '1 hour')`, [agent.tenant_id, mission, id, to.id, to.agent_id, JSON.stringify(brief), briefSha(brief)]);
     return id;
   };
   return { A, m, inst, mk, outcome };
@@ -123,7 +123,7 @@ describe('GET /agents/:id/skills', () => {
     const r = (await skills(A.admin, a.agent_id)).body.skills;
     const c = r.classes.find((x: any) => x.classId === 'research');
     expect(c.n).toBe(5); expect(c.successes).toBe(5);
-    expect(r.unrated).toBe(2);
+    expect(r.unrated).toBe(3); // class only, difficulty only, and the task whose brief went to another agent (no label for its owner): every finished task outside a cell
     const withSim = (await skills(A.admin, a.agent_id, '?includeSimulated=1')).body.skills;
     expect(withSim.classes.find((x: any) => x.classId === 'research').n).toBe(6);
     expect(withSim.includesSimulated).toBe(true);
@@ -171,6 +171,7 @@ describe('how a brief reaches a task', () => {
     const stored = (await t.pool.query(`select brief->>'taskClass' c, brief->>'difficulty' d from delegation_briefs where mission_id=$1 and task_id like 'T-c72re-%'`, [m])).rows;
     expect(stored).toHaveLength(5); expect(stored.every((r) => r.c === 'planning' && r.d === '4')).toBe(true);
     await t.pool.query(`update tasks set status='passed' where id like 'T-c72re-%'`);
+    await t.pool.query(`insert into events(tenant_id, type, mission_id, subject_kind, subject_id, payload) select tenant_id, 'task.stateChanged', mission_id, 'task', id, jsonb_build_object('taskId', id, 'from', 'running', 'to', 'passed') from tasks where id like 'T-c72re-%'`);
     const c = (await skills(A.admin, inst[2].agent_id)).body.skills.classes.find((x: any) => x.classId === 'planning');
     expect(c.n).toBe(5); expect(c.levels).toEqual([expect.objectContaining({ difficulty: 4, n: 5, successes: 5 })]);
   });
@@ -184,5 +185,44 @@ describe('how a brief reaches a task', () => {
     const c = (await skills(A.admin, inst[1].agent_id)).body.skills.classes.find((x: any) => x.classId === 'coding');
     expect(c.levels.map((l: any) => l.difficulty)).toEqual([5]); // not moved to level 1 after the outcome was known
     expect(c.n).toBe(5);
+  });
+});
+
+describe('F1 (review): a label counts only if its brief existed before the task first finished, and an outcome belongs to the owner at that time', () => {
+  const base = (over: Record<string, unknown> = {}) => ({ goal: 'Do the fixture task', inputs: [], acceptance: ['Done'], capabilities: [{ kind: 'read' }], escalation: 'Ask', ...over });
+  const finishEvent = (tn: string, m: string, id: string, to: string, ago: string) => t.pool.query(`insert into events(tenant_id, type, mission_id, subject_kind, subject_id, payload, occurred_at) values ($1,'task.stateChanged',$2,'task',$3,$4,now() - $5::interval)`, [tn, m, id, JSON.stringify({ taskId: id, from: 'running', to }), ago]);
+
+  it('a failure stays with the agent that owned the task when it failed; a reassign afterwards (with a brief labelling it very hard) moves nothing', async () => {
+    const { A, m, inst } = await setup();
+    const tn = inst[1].tenant_id;
+    for (let i = 0; i < 5; i++) {
+      const id = `T-c72f1-${i}`;
+      await t.pool.query(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent, owner_instance_id, created_at) values ($1,$2,$3,'A task','running',$4,$5, now() - interval '3 hours')`, [id, tn, m, inst[1].agent_id, inst[1].id]);
+      const b = base({ taskClass: 'coding', difficulty: 2 });
+      await t.pool.query(`insert into delegation_briefs(tenant_id, mission_id, task_id, from_id, from_kind, to_instance, to_agent, brief, sha256, depth, created_by, created_at) values ($1,$2,$3,'c72','user',$4,$5,$6,$7,1,'c72', now() - interval '2 hours')`, [tn, m, id, inst[1].id, inst[1].agent_id, JSON.stringify(b), briefSha(b)]);
+      await t.pool.query(`update tasks set status='failed' where id=$1`, [id]);
+      await finishEvent(tn, m, id, 'failed', '1 hour');
+      const r = await A.admin.req('POST', `/tasks/${id}/reassign`, { toInstanceId: inst[2].id, reason: 'x', brief: base({ taskClass: 'coding', difficulty: 5 }) }, key());
+      expect(r.status, JSON.stringify(r.body)).toBe(200);
+    }
+    const a = (await skills(A.admin, inst[1].agent_id)).body.skills.classes.find((x: any) => x.classId === 'coding');
+    const b = (await skills(A.admin, inst[2].agent_id)).body.skills.classes.find((x: any) => x.classId === 'coding');
+    expect(a.levels).toEqual([expect.objectContaining({ difficulty: 2, n: 5, successes: 0 })]); // the failure is A's, at the level stated before it
+    expect(b.n).toBe(0); // B inherits nothing, and no level 5 appears
+  });
+
+  it('a first-ever brief posted to the owner of an already finished task does not label it', async () => {
+    const { A, m, inst } = await setup();
+    const tn = inst[1].tenant_id;
+    for (let i = 0; i < 5; i++) {
+      const id = `T-c72f1b-${i}`;
+      await t.pool.query(`insert into tasks(id, tenant_id, mission_id, title, status, owner_agent, owner_instance_id, created_at) values ($1,$2,$3,'A task','passed',$4,$5, now() - interval '3 hours')`, [id, tn, m, inst[1].agent_id, inst[1].id]);
+      await finishEvent(tn, m, id, 'passed', '1 hour');
+      const r = await A.admin.req('POST', `/missions/${m}/delegation-briefs`, { toInstanceId: inst[1].id, taskId: id, brief: base({ taskClass: 'coding', difficulty: 1 }) }, key());
+      expect(r.status, JSON.stringify(r.body)).toBe(201);
+    }
+    const s = (await skills(A.admin, inst[1].agent_id)).body.skills;
+    expect(s.classes.find((x: any) => x.classId === 'coding').n).toBe(0);
+    expect(s.unrated).toBe(5); // counted apart, in no cell
   });
 });
