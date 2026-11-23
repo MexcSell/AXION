@@ -29,7 +29,7 @@ const amend = (by: Browser, id: string, body: unknown) => by.req('POST', `/organ
 const REASON = 'The first window was too short to see the effect.';
 
 beforeAll(async () => {
-  t = await makeTestApp({ staffingStepMs: 3_600_000, conversationSimMs: 3_600_000 });
+  t = await makeTestApp({ staffingStepMs: 3_600_000, conversationSimMs: 3_600_000, writeLimits: { proposals: { max: 1000, windowMs: 60_000 } } });
   const w = await withAdmin(t.app);
   A = w.admin; aId = w.adminId;
   const b = await w.member('Bea'); B = b.b; bId = b.id;

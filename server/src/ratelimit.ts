@@ -25,6 +25,8 @@ export const LIMITED_ROUTES: Record<string, WriteBucket> = {
   'POST /api/v1/organization/proposals': 'proposals',
   'POST /api/v1/organization/proposals/:id/decision': 'proposals',
   'POST /api/v1/organization/proposals/:id/withdraw': 'proposals',
+  'PUT /api/v1/organization/proposals/:id/plan': 'proposals', // c85
+  'POST /api/v1/organization/proposals/:id/plan/amendments': 'proposals', // c85
   // merge follow-up (c14 review I1): every governance write shares the proposals budget. The route-table test in
   // security.test.ts fails when a new message, upload, proposal, rollback or mentoring write route is missing here.
   'POST /api/v1/organization/revisions/:seq/rollback-proposal': 'proposals', // c04

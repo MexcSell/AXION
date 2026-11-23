@@ -34,7 +34,7 @@ const planOf = (over: Record<string, unknown> = {}) => ({
 const get = (id: string, by = M) => by.req('GET', `/organization/proposals/${id}/plan`);
 
 beforeAll(async () => {
-  t = await makeTestApp({ staffingStepMs: 3_600_000, conversationSimMs: 3_600_000 });
+  t = await makeTestApp({ staffingStepMs: 3_600_000, conversationSimMs: 3_600_000, writeLimits: { proposals: { max: 1000, windowMs: 60_000 } } });
   const w = await withAdmin(t.app);
   A = w.admin; M = (await w.member('Mia')).b;
   await seedDemo(t.app.db, 't-1', w.adminId);
