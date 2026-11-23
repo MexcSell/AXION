@@ -1,6 +1,5 @@
-import { describe, it, expect, afterEach } from 'vitest';
-import { acquireWithRetry, isConnectionCap, makePool, connectClient } from '../src/db.ts';
-import { TEST_DB } from './helpers.ts';
+import { describe, it, expect } from 'vitest';
+import { acquireWithRetry, isConnectionCap } from '../src/db.ts';
 
 const cap = () => Object.assign(new Error('too many connections for role "axion"'), { code: '53300' });
 const noSleep = { sleep: async () => {}, random: () => 0.5 };
@@ -46,38 +45,4 @@ describe('c93 connection-acquisition retry (unit)', () => {
     expect(connects).toBe(1); expect(queries).toBe(1);
   });
 });
-
-describe('c93 retry inside makePool and connectClient (fault injection, real test DB, no extra connections held)', () => {
-  const saved = { f: process.env.AXION_TEST_FAULT_53300, n: process.env.AXION_TEST_NO_RETRY };
-  afterEach(() => { for (const [k, v] of [['AXION_TEST_FAULT_53300', saved.f], ['AXION_TEST_NO_RETRY', saved.n]] as const) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } });
-
-  it('the first 2 acquisitions of the pool fail with 53300: pool.query still succeeds, 2 warn lines, and a failed query is not retried', async () => {
-    process.env.AXION_TEST_FAULT_53300 = '2'; delete process.env.AXION_TEST_NO_RETRY;
-    const warns: unknown[] = [];
-    const pool = makePool(TEST_DB(), undefined, 2, (i) => warns.push(i));
-    try {
-      expect((await pool.query('select 1 as n')).rows[0].n).toBe(1);
-      expect(warns.length).toBe(2);
-      let acquired = 0; pool.on('acquire', () => acquired++);
-      await expect(pool.query('select 1/0')).rejects.toMatchObject({ code: '22012' });
-      expect(acquired).toBe(1); expect(warns.length).toBe(2); // one acquisition, no retry of the failed statement
-      const c = await pool.connect(); c.release(); // promise form too
-    } finally { await pool.end(); }
-  });
-  it('without the retry the same fault surfaces as 53300 (this is the flake)', async () => {
-    process.env.AXION_TEST_FAULT_53300 = '1'; process.env.AXION_TEST_NO_RETRY = '1';
-    const pool = makePool(TEST_DB(), undefined, 2);
-    try { await expect(pool.query('select 1')).rejects.toMatchObject({ code: '53300' }); } finally { await pool.end(); }
-  });
-  it('connectClient retries the same way', async () => {
-    process.env.AXION_TEST_FAULT_53300 = '2'; delete process.env.AXION_TEST_NO_RETRY;
-    const warns: unknown[] = [];
-    const c = await connectClient({ connectionString: TEST_DB() }, (i) => warns.push(i));
-    try { expect((await c.query('select 1 as n')).rows[0].n).toBe(1); expect(warns.length).toBe(2); } finally { await c.end(); }
-  });
-  it('production defaults: no fault and a 10-connection pool outside vitest knobs', () => {
-    delete process.env.AXION_TEST_FAULT_53300; delete process.env.AXION_TEST_NO_RETRY;
-    const v = process.env.VITEST; delete process.env.VITEST;
-    try { const p = makePool(TEST_DB()); expect((p as unknown as { options: { max: number } }).options.max).toBe(10); void p.end(); } finally { process.env.VITEST = v; }
-  });
-});
+// c98: the real-pool fault tests moved to test/c98-db-hooks.test.ts (acquireHook option instead of env knobs inside src/db.ts)
