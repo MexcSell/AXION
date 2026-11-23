@@ -1,7 +1,7 @@
 /**
- * c71 (P6) scale bench. Runs ONLY against this lane's own e2e database (axion_e2e<N>): empties it, migrates, seeds N tasks
+ * c71 (P6) scale bench. Runs ONLY against an e2e database (axion_e2e or axion_e2e<N>, E2E_DATABASE_URL, needs CONFIRM_WIPE=1): empties it, migrates, seeds N tasks
  * (test/c71-scale-fixtures.ts) and times every company route, printing the load average next to each timing.
- * Run: /home/luca/AXION-lanes/heavy.sh npx tsx --env-file=.env scripts/c71-scale.ts 5000 25000
+ * Run: CONFIRM_WIPE=1 /home/luca/AXION-lanes/heavy.sh npx tsx --env-file=.env scripts/c71-scale.ts 5000 25000
  * Optional: C71_REF=1 also times the frozen pre-c71 reference (test/c71-reference.ts) interleaved with the live route.
  */
 import pg from 'pg';
@@ -11,14 +11,14 @@ import { join } from 'node:path';
 import { buildApp } from '../src/app.ts';
 import { migrate } from '../src/migrate.ts';
 import { Browser } from '../test/helpers.ts';
+import { assertC71Wipe } from './c71-guard.ts';
 import { seedScale } from '../test/c71-scale-fixtures.ts';
 import { snapshotTx, dbWindow, dbNow } from '../src/company/clock.ts';
 import { computeScorecard as scV0, computeThroughput as thV0 } from '../test/c71-reference/scorecard-v0.ts';
 import { loadInputV0 } from '../test/c71-reference/load-v0.ts';
 
 const url = process.env.E2E_DATABASE_URL;
-// lane w69's assigned e2e database is axion_e2e14 (LANES.md), not the axion_e2e<N> that scale-guard derives from the worktree name
-if (!url || new URL(url).pathname !== '/axion_e2e14') throw new Error('refusing to wipe anything but axion_e2e14');
+assertC71Wipe(url, process.env.CONFIRM_WIPE); // empties the database: e2e names only, no query string, CONFIRM_WIPE=1 (scripts/c71-guard.ts)
 const sizes = process.argv.slice(2).map(Number).filter(Boolean);
 const TPM = Number(process.env.C71_TPM ?? 10);
 const RUNS = Number(process.env.C71_RUNS ?? 12);
