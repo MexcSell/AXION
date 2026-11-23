@@ -1,4 +1,5 @@
 import { INPUT_FIELDS, writabilityOf, type InputFieldId, type Writability } from './metric-guard.ts';
+import { METRIC_READS, type LoaderRef } from './metric-reads.ts';
 
 /**
  * Improvement cycle 66 (R3-4), item 1: the row registry. Every scorecard row, KPI tile and six-dimension cell declares three things
@@ -35,17 +36,22 @@ export interface MetricMeta {
   covers: readonly QualityDimension[];
   /** quality dimensions it does not cover; never empty */
   uncovered: readonly QualityDimension[];
+  /** c83: the loader files (`file` or `file#function`, under server/src) whose SQL feeds the row; empty only when the row reads no input */
+  loaders: readonly LoaderRef[];
+  /** c83: the `table.column` (or `table.*`) the row reads, besides the context columns of metric-reads.ts; a server test compares it with the loaders' SQL */
+  reads: readonly string[];
 }
+type MetricBase = Omit<MetricMeta, 'loaders' | 'reads'>;
 
-const S = (key: string, label: string, inputs: InputFieldId[], counter: CounterMetric, covers: QualityDimension[], uncovered: QualityDimension[]): MetricMeta => ({ id: `scorecard.${key}`, kind: 'scorecard', label, inputs, counter, covers, uncovered });
-const D = (key: string, label: string, inputs: InputFieldId[], counter: CounterMetric, covers: QualityDimension[], uncovered: QualityDimension[], inputsNote?: string): MetricMeta =>
+const S = (key: string, label: string, inputs: InputFieldId[], counter: CounterMetric, covers: QualityDimension[], uncovered: QualityDimension[]): MetricBase => ({ id: `scorecard.${key}`, kind: 'scorecard', label, inputs, counter, covers, uncovered });
+const D = (key: string, label: string, inputs: InputFieldId[], counter: CounterMetric, covers: QualityDimension[], uncovered: QualityDimension[], inputsNote?: string): MetricBase =>
   ({ id: `dimension.${key}`, kind: 'dimension', label, inputs, counter, covers, uncovered, ...(inputsNote ? { inputsNote } : {}) });
-const K = (key: string, label: string, inputs: InputFieldId[], counter: CounterMetric, covers: QualityDimension[], uncovered: QualityDimension[]): MetricMeta => ({ id: `kpi.${key}`, kind: 'kpi', label, inputs, counter, covers, uncovered });
-const P = (key: string, label: string, inputs: InputFieldId[], counter: CounterMetric, covers: QualityDimension[], uncovered: QualityDimension[], inputsNote?: string): MetricMeta =>
+const K = (key: string, label: string, inputs: InputFieldId[], counter: CounterMetric, covers: QualityDimension[], uncovered: QualityDimension[]): MetricBase => ({ id: `kpi.${key}`, kind: 'kpi', label, inputs, counter, covers, uncovered });
+const P = (key: string, label: string, inputs: InputFieldId[], counter: CounterMetric, covers: QualityDimension[], uncovered: QualityDimension[], inputsNote?: string): MetricBase =>
   ({ id: `process.${key}`, kind: 'process', label, inputs, counter, covers, uncovered, ...(inputsNote ? { inputsNote } : {}) });
 const via = (ref: string, why: string): CounterMetric => ({ ref, why });
 
-export const METRICS: readonly MetricMeta[] = [
+const BASE_METRICS: readonly MetricBase[] = [
   // ---- company scorecard (c02, c12, c38)
   S('started', 'Missions started', ['mission_runs.started'], via('scorecard.finished', 'starting many missions that never end raises started but not finished'), [], ['correctness', 'completeness', 'user_value', 'cost']),
   S('finished', 'Missions finished', ['events.mission_state_changed'], via('scorecard.verified_success_rate', 'ending missions by failing or cancelling them raises finished without raising the verified share'), ['completeness'], ['correctness', 'independence', 'user_value', 'cost']),
@@ -95,6 +101,9 @@ export const METRICS: readonly MetricMeta[] = [
   P('approval_decision_h', 'Approval wait', ['approval_requests.record', 'approval_decisions.decision'], { none: 'a short wait can mean quick care or rubber-stamping, and nothing stored tells them apart; only the human audit sample can' }, ['timeliness'], ['correctness', 'safety', 'independence', 'cost']),
   P('cost', 'Cost', [], { none: 'cost is not measured until Stage 9 (the usage ledger), so there is no number to game yet' }, [], ['cost', 'correctness', 'completeness', 'timeliness'], 'no source exists until Stage 9'),
 ];
+
+/** The registry: each row's declaration plus its loaders and columns (metric-reads.ts). A row without an entry there has none, which registryProblems reports. */
+export const METRICS: readonly MetricMeta[] = BASE_METRICS.map((m) => ({ ...m, loaders: METRIC_READS[m.id]?.loaders ?? [], reads: METRIC_READS[m.id]?.reads ?? [] }));
 
 export const METRIC_BY_ID: ReadonlyMap<string, MetricMeta> = new Map(METRICS.map((m) => [m.id, m]));
 

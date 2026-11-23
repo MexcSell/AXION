@@ -8,14 +8,26 @@ import { parseSampleRef, type SampleRefKind } from '../../../shared/contracts/sr
  * - Write: every sample reference must parse (`parseSampleRef`: a kind from a closed set plus an id) and must name a record of this tenant. Free text is refused.
  * - Purge: a demo purge (clearDemo) deletes every label whose reference resolves to a record of a demo mission, before the missions go, so no label
  *   outlives the data it points at. The table is append-only; the purge runs inside clearDemo's transaction, which sets axion.purge_demo.
- * Each kind maps to a table that carries `mission_id` (the mission itself for 'mission'), which is how a record is tied to a demo mission.
  */
-const KIND_TABLE: Record<SampleRefKind, { table: string; mission: string }> = {
-  mission: { table: 'missions', mission: 'id' },
-  task: { table: 'tasks', mission: 'mission_id' },
-  review: { table: 'task_reviews', mission: 'mission_id' },
-  approval: { table: 'approval_requests', mission: 'mission_id' },
-  failure_tag: { table: 'failure_tags', mission: 'mission_id' },
+/**
+ * Each kind maps to a table that carries `mission_id` (the mission itself for 'mission'), which is how a record is tied to a demo mission. The SQL is spelled
+ * out per kind (no table name is built at run time), so the c83 column scan sees every column this file reads. The Record over SampleRefKind makes
+ * TypeScript fail until a new kind has both queries.
+ */
+const EXISTS: Record<SampleRefKind, string> = {
+  mission: 'select id from missions where tenant_id=$1 and id = any($2::text[])',
+  task: 'select id from tasks where tenant_id=$1 and id = any($2::text[])',
+  review: 'select id from task_reviews where tenant_id=$1 and id = any($2::text[])',
+  approval: 'select id from approval_requests where tenant_id=$1 and id = any($2::text[])',
+  failure_tag: 'select id from failure_tags where tenant_id=$1 and id = any($2::text[])',
+};
+/** The label's reference (`<kind>:<id>`, so the id starts after the colon) resolves to a record of a demo mission. */
+const IS_DEMO: Record<SampleRefKind, string> = {
+  mission: `(split_part(l.sample_ref, ':', 1) = 'mission' and exists (select 1 from missions m where m.id = split_part(l.sample_ref, ':', 2) and m.tenant_id = $1 and m.demo))`,
+  task: `(split_part(l.sample_ref, ':', 1) = 'task' and exists (select 1 from tasks x join missions m on m.id = x.mission_id where x.id = split_part(l.sample_ref, ':', 2) and m.tenant_id = $1 and m.demo))`,
+  review: `(split_part(l.sample_ref, ':', 1) = 'review' and exists (select 1 from task_reviews x join missions m on m.id = x.mission_id where x.id = split_part(l.sample_ref, ':', 2) and m.tenant_id = $1 and m.demo))`,
+  approval: `(split_part(l.sample_ref, ':', 1) = 'approval' and exists (select 1 from approval_requests x join missions m on m.id = x.mission_id where x.id = split_part(l.sample_ref, ':', 2) and m.tenant_id = $1 and m.demo))`,
+  failure_tag: `(split_part(l.sample_ref, ':', 1) = 'failure_tag' and exists (select 1 from failure_tags x join missions m on m.id = x.mission_id where x.id = split_part(l.sample_ref, ':', 2) and m.tenant_id = $1 and m.demo))`,
 };
 
 export interface AuditLabelIn { sampleRef: string; metricLabel: boolean; auditLabel: boolean; note?: string }
@@ -30,8 +42,7 @@ export async function badSampleRefs(c: Db | Tx, tenantId: string, refs: readonly
     byKind.set(p.kind, (byKind.get(p.kind) ?? new Set()).add(p.id));
   }
   for (const [kind, ids] of byKind) {
-    const { table } = KIND_TABLE[kind];
-    const found = new Set((await c.query(`select id from ${table} where tenant_id=$1 and id = any($2::text[])`, [tenantId, [...ids]])).rows.map((r) => r.id as string));
+    const found = new Set((await c.query(EXISTS[kind], [tenantId, [...ids]])).rows.map((r) => r.id as string));
     for (const id of ids) if (!found.has(id)) bad.push(`${kind}:${id}`);
   }
   return bad;
@@ -48,8 +59,6 @@ export async function insertAuditLabels(c: Db | Tx, a: { tenantId: string; metri
 
 /** Called by clearDemo inside its transaction (axion.purge_demo is on), before the demo missions are deleted. Returns how many labels went. */
 export async function purgeDemoAuditLabels(c: Tx, tenantId: string): Promise<number> {
-  const resolves = (Object.entries(KIND_TABLE) as [SampleRefKind, { table: string; mission: string }][]).map(([kind, { table, mission }]) =>
-    `(split_part(l.sample_ref, ':', 1) = '${kind}' and exists (select 1 from ${table} x join missions m on m.id = x.${mission} where x.id = substr(l.sample_ref, ${kind.length + 2}) and m.tenant_id = $1 and m.demo))`);
-  const r = await c.query(`delete from metric_audit_labels l where l.tenant_id = $1 and (${resolves.join(' or ')})`, [tenantId]);
+  const r = await c.query(`delete from metric_audit_labels l where l.tenant_id = $1 and (${Object.values(IS_DEMO).join(' or ')})`, [tenantId]);
   return r.rowCount ?? 0;
 }
