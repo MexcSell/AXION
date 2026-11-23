@@ -63,6 +63,7 @@ Rewritten 2026-11-22T07:35Z, 17:50Z, and 2026-11-23T03:40Z by the controller; up
 | w88 | c90 sequential readout library (R5-4), e2e17 | CLEARED at 16efdda, batch 46 |
 | w89 | c91 skill promotion gate (R5-5), e2e14 | CLEARED at 8734f80, batch 47 |
 | w90 | c92 script live-port guard (H23) and scanner gap (M2c-1), e2e3 | CLEARED at fd6a021, batch 45 (web: before 16:00Z) |
+| w91 | c93 connection-cap resilience (H14b), e2e4 | dispatched ~09:25Z |
 | — | Final report draft (FINAL-REPORT-PHASE2.md) | draft committed; finalise at the end |
 
 Every other Wave 5–7 lane (c53–c71) is MERGED and live (2026-11-23T02:22Z). Details are in QUEUE.md, MERGES.md and LOG.md.

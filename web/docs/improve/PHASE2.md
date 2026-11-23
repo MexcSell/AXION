@@ -216,3 +216,8 @@ This reverses Wave 8's "no migrations" deliberately. Both are new append-only ta
 | c92 scripts refuse live-port defaults (H23) and the scanner sub-select gap (M2c-1) | w90, e2e3 | web/scripts and server/test | **16:00Z** (done by 12:00Z) |
 
 R5-8 was not started: its handoff record needs a new table, and no more migrations go in this late.
+
+### Wave 8f (planned ~09:25Z)
+| Cycle | Lane | Scope | Merge by |
+|---|---|---|---|
+| c93 connection-cap resilience for the test suite (H14b) | w91, e2e4 | server (test pools bounded; connection acquisition retried on 53300 only) | 18:30Z |
