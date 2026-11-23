@@ -11,5 +11,6 @@ export default defineConfig({
     pool: 'forks',
     // c93 (H14b): every test pool is small (the axion role's 45 connections are shared by every lane); a test that really needs more passes its own max
     env: { AXION_TEST_POOL_MAX: '3' },
+    setupFiles: ['test/setup.ts'],
   },
 });

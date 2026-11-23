@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { makePool, connectClient } from '../src/db.ts';
+import { makePool, connectClient, setPoolDefaults } from '../src/db.ts';
+import { applyTestDefaults } from './setup.ts';
 import { TEST_DB } from './helpers.ts';
 
 const capErr = () => Object.assign(new Error('too many connections for role "axion"'), { code: '53300' });
@@ -26,7 +27,8 @@ describe('c98 H14c-1: no test hook in src/db.ts, fault injection through the acq
     try { expect((await c.query('select 1 as n')).rows[0].n).toBe(1); expect(warns.length).toBe(2); } finally { await c.end(); }
   });
   it('production default: a 10-connection pool, with no option and no env knob', () => {
-    const p = makePool(TEST_DB()); try { expect((p as unknown as { options: { max: number } }).options.max).toBe(10); } finally { void p.end(); }
+    setPoolDefaults({}); // what production has: no test defaults
+    const p = makePool(TEST_DB()); try { expect((p as unknown as { options: { max: number } }).options.max).toBe(10); } finally { void p.end(); applyTestDefaults(); }
   });
 });
 

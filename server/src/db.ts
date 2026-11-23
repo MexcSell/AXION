@@ -1,5 +1,4 @@
 import pg from 'pg';
-import { appendFileSync } from 'node:fs';
 
 /**
  * c93 (H14b): the `axion` role is capped (SQLSTATE 53300 "too many connections for role") and every lane shares that cap.
@@ -43,41 +42,46 @@ export async function acquireWithRetry<T>(acquire: () => Promise<T>, o: RetryOpt
 }
 
 /**
- * Test-only fault injection (active only under vitest): AXION_TEST_FAULT_53300=K makes the first K connection attempts of every pool
- * (and every connectClient call) throw a real-looking 53300 error, so the retry can be proven without holding extra real connections
- * on the shared role. AXION_TEST_NO_RETRY=1 turns the retry off, to show the same runs fail without it.
+ * c98 (H14c): the test knobs are options, never environment checks. `acquireHook(n)` runs before every connection attempt of one pool (or one
+ * connectClient call), n counting from 1; a test makes it throw to inject a failure. `retry: false` turns the 53300 retry off. `max` is the pool size
+ * when the caller passes none. Production passes none of these, so none of this code is reached there.
  */
-function faultK(): number { return process.env.VITEST ? Number(process.env.AXION_TEST_FAULT_53300 || 0) : 0; }
-function retryOn(): boolean { return !(process.env.VITEST && process.env.AXION_TEST_NO_RETRY === '1'); }
-function capError(): Error { return Object.assign(new Error('too many connections for role "axion"'), { code: '53300', severity: 'FATAL' }); }
-/** One acquirer per pool (or per client call): the injected faults are counted once for the pool, not per query. */
-function guarded<T>(acquire: () => Promise<T>, warn?: DbWarn): () => Promise<T> {
-  let left = faultK();
-  const a = async () => { if (left > 0) { left--; throw capError(); } return acquire(); };
-  const w: NonNullable<DbWarn> = warn ?? defaultWarn;
-  // under fault injection each retry is also appended to AXION_TEST_FAULT_LOG (if set), so a run can count them: test apps log nowhere
-  const wrapped: DbWarn = left > 0 ? (i, m) => { const f = process.env.AXION_TEST_FAULT_LOG; if (f) try { appendFileSync(f, `${process.env.VITEST_POOL_ID ?? ''} retry ${i?.attempt}\n`); } catch { /* best effort */ } w(i, m); } : w;
-  return retryOn() ? () => acquireWithRetry(a, { warn: wrapped }) : a;
+export interface PoolOpts {
+  acquireHook?: (attempt: number) => void | Promise<void>;
+  retry?: boolean;
+  max?: number;
 }
+let poolDefaults: PoolOpts = {};
+/** Test setup (vitest setupFiles) sets the defaults every makePool/connectClient without an explicit option uses. Production never calls it. */
+export function setPoolDefaults(o: PoolOpts): void { poolDefaults = { ...o }; }
+
 const defaultWarn: NonNullable<DbWarn> = (info, msg) => console.warn(JSON.stringify({ level: 'warn', msg, ...info }));
+/** One acquirer per pool (or per client call): the hook's attempt counter is kept once for the pool, not per query. */
+function guarded<T>(acquire: () => Promise<T>, warn: DbWarn | undefined, o: PoolOpts): () => Promise<T> {
+  const hook = o.acquireHook ?? poolDefaults.acquireHook;
+  let n = 0;
+  const a = hook ? async () => { await hook(++n); return acquire(); } : acquire;
+  return (o.retry ?? poolDefaults.retry) === false ? a : () => acquireWithRetry(a, { warn: warn ?? defaultWarn });
+}
 
 export type DbWarn = RetryOpts['warn'];
 
 /** Postgres pool. search_path is set per connection (startup option) so every pooled client sees the same schema. */
-/** Test runs (vitest only) default every pool to AXION_TEST_POOL_MAX instead of 10, set once in vitest.config.ts; an explicit `max` still wins. */
-function defaultMax(): number { const t = process.env.VITEST ? Number(process.env.AXION_TEST_POOL_MAX || 0) : 0; return t > 0 ? t : 10; }
-
-export function makePool(databaseUrl: string, schema?: string, max: number = defaultMax(), warn?: DbWarn): pg.Pool {
+export function makePool(databaseUrl: string, schema?: string, max?: number, warn?: DbWarn, opts: PoolOpts = {}): pg.Pool {
   if (schema && !/^[a-z_][a-z0-9_]*$/.test(schema)) throw new Error('bad schema name');
-  const pool = new pg.Pool({ connectionString: databaseUrl, max, connectionTimeoutMillis: 5000, idleTimeoutMillis: 30000, ...(schema ? { options: `-c search_path=${schema}` } : {}) });
+  const size = max ?? opts.max ?? poolDefaults.max ?? 10;
+  const pool = new pg.Pool({ connectionString: databaseUrl, max: size, connectionTimeoutMillis: 5000, idleTimeoutMillis: 30000, ...(schema ? { options: `-c search_path=${schema}` } : {}) });
   pool.on('error', () => { /* idle client died; the pool replaces it */ });
   // wrap acquisition (pool.connect, which pool.query also calls); promise and callback forms
   const rawConnect = pool.connect.bind(pool) as (cb?: unknown) => unknown;
-  const acquire = guarded(() => rawConnect() as Promise<pg.PoolClient>, warn);
-  (pool as unknown as { connect: (cb?: (err: Error | undefined, c?: pg.PoolClient, done?: (e?: unknown) => void) => void) => Promise<pg.PoolClient> | void }).connect = function (cb) {
+  const acquire = guarded(() => rawConnect() as Promise<pg.PoolClient>, warn, opts);
+  type Cb = (err: Error | undefined, c?: pg.PoolClient, done?: (e?: unknown) => void) => void;
+  (pool as unknown as { connect: (cb?: Cb) => Promise<pg.PoolClient> | void }).connect = function (cb) {
     const p = acquire();
     if (typeof cb === 'function') {
-      p.then((c) => cb(undefined, c, (e?: unknown) => c.release(e as Error | undefined)), (e: Error) => cb(e));
+      // c98 (H14c-2): a throwing callback must not become an unhandled rejection (pg-pool lets it surface as an uncaught exception): rethrow on nextTick
+      const call = (...a: Parameters<Cb>) => { try { cb(...a); } catch (e) { process.nextTick(() => { throw e; }); } };
+      p.then((c) => call(undefined, c, (e?: unknown) => c.release(e as Error | undefined)), (e: Error) => call(e));
       return;
     }
     return p;
@@ -86,8 +90,8 @@ export function makePool(databaseUrl: string, schema?: string, max: number = def
 }
 
 /** A standalone client (tests' admin/fixture clients), connected with the same bounded 53300 retry. A failed attempt's client is discarded. */
-export async function connectClient(config: pg.ClientConfig, warn?: DbWarn): Promise<pg.Client> {
-  return guarded(async () => { const c = new pg.Client(config); try { await c.connect(); } catch (e) { c.end().catch(() => {}); throw e; } return c; }, warn)();
+export async function connectClient(config: pg.ClientConfig, warn?: DbWarn, opts: PoolOpts = {}): Promise<pg.Client> {
+  return guarded(async () => { const c = new pg.Client(config); try { await c.connect(); } catch (e) { c.end().catch(() => {}); throw e; } return c; }, warn, opts)();
 }
 
 export type Db = pg.Pool;
