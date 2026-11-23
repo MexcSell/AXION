@@ -1,0 +1,15 @@
+# base fit-check (fixed 600 ms) vs a 2.5 s slow route chunk, FIT_NAV=domcontentloaded equivalent; first 4 lines
+BAD /agents/coder-01?tab=profile                 mainOver 0 regions [] gap 18
+BAD /agents/coder-01?tab=capabilities            mainOver 0 regions [] gap 18
+BAD /agents/coder-01?tab=tools                   mainOver 0 regions [] gap 18
+BAD /agents/coder-01?tab=instances               mainOver 0 regions [] gap 18
+
+# new fit-check, same slow chunk (tail)
+ok  /agents/coder-01?tab=evolution               mainOver 0 regions [[338,0]] gap 18
+ok  /agents/coder-01?tab=audit                   mainOver 0 regions [[338,214]] gap 18
+ALL FIT
+
+# new fit-check, chunk never arrives within the 1.5 s bound
+FAIL /agents/coder-01?tab=profile                 not rendered: main has no visible .fit-scroll/.fit-fill after the wait (not a fit verdict)
+FAIL /agents/coder-01?tab=capabilities            not rendered: main has no visible .fit-scroll/.fit-fill after the wait (not a fit verdict)
+FAIL /agents/coder-01?tab=tools                   not rendered: main has no visible .fit-scroll/.fit-fill after the wait (not a fit verdict)

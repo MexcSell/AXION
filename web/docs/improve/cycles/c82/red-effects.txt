@@ -1,0 +1,5 @@
+[heavy] slot 2 acquired at 06:03:39
+FAIL A: a parent re-render moved the scrolled strip 91 -> 6 (selected tab = Directory, the first)
+FAIL B from the start: focused "Proposals" sits inside the 28 px edge fade (left 324px, right -20px, atStart true, atEnd false)
+PASS B from the end: focused "Development" sits clear of the fade (left 48px, right 256px)
+2 FAIL

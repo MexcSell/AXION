@@ -1,0 +1,18 @@
+# BASE crawl-deep, ERR_NETWORK_CHANGED injected once on /agents/gm (no retry): fails
+missions: 15 (incl. edge cases M-137, M-138), agents: 24
+/agents/gm ERROR Failed to load resource: net::ERR_NETWORK_CHANGED
+exit=1
+
+# NEW crawl-deep smoke, injected once (retried, passes) and twice (still FAIL)
+--- FAKE_NETCHANGE='/agents/gm=1'
+exit=0
+RETRIED /agents/gm (harness retry, browser network change): Failed to load resource: net::ERR_NETWORK_CHANGED
+missions: 1 (incl. edge cases M-137, M-138), agents: 24
+harness retries (ERR_NETWORK_CHANGED, once per page): 1
+NO PROBLEMS
+--- FAKE_NETCHANGE='/agents/gm=2'
+exit=1
+RETRIED /agents/gm (harness retry, browser network change): Failed to load resource: net::ERR_NETWORK_CHANGED
+missions: 1 (incl. edge cases M-137, M-138), agents: 24
+harness retries (ERR_NETWORK_CHANGED, once per page): 1
+/agents/gm ERROR Failed to load resource: net::ERR_NETWORK_CHANGED

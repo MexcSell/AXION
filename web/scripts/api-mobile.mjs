@@ -6,11 +6,13 @@ import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
 import { signIn, settle } from './_session.mjs';
 import { MEASURE } from './_mobile-measure.mjs';
+import { probeStrips } from './api-c82-tabs.mjs'; // c82 (H16): tab labels never overlap or clip
 const base = process.env.BASE || 'http://127.0.0.1:5193';
 const SHOTS = process.env.SHOTS; if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 const SIZES = (process.env.SIZES || '390x844,900x1000').split(',').map((s) => s.split('x').map(Number));
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || '/root/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome' });
-const fails = []; const smalls = new Map(); let states = 0, dialogs = 0;
+const fails = []; const smalls = new Map(); let states = 0, dialogs = 0, stripViews = 0, stripTabs = 0;
+const strips = async (p, tag) => { const r = await probeStrips(p, tag); stripViews++; stripTabs += r.tabs; fails.push(...r.fails); };
 const SHOT_KEYS = new Set((process.env.SHOT_KEYS || 'connect,waiting,/overview,/operations?tab=agents,dlg:first').split(','));
 
 const record = (tag, m) => {
@@ -87,16 +89,16 @@ const run = async (W, H) => {
       await tabEl.scrollIntoViewIfNeeded().catch(() => {}); await tabEl.click({ timeout: 2000 }).catch(() => {}); await p.waitForTimeout(450);
       const tag = `${tagW} ${path} tab=${key}`;
       if (seen.has(tag)) continue; seen.add(tag);
-      record(tag, await p.evaluate(MEASURE)); await dialogsAt(tag.slice(tagW.length + 1));
+      record(tag, await p.evaluate(MEASURE)); await strips(p, tag); await dialogsAt(tag.slice(tagW.length + 1));
     }
   };
   for (const path of routes) {
     await go(path);
-    record(`${tagW} ${path}`, await p.evaluate(MEASURE)); await shot(p, path, path.replace(/\W+/g, '_'));
+    record(`${tagW} ${path}`, await p.evaluate(MEASURE)); await strips(p, `${tagW} ${path}`); await shot(p, path, path.replace(/\W+/g, '_'));
     await dialogsAt(path);
     await tabsAt(path);
     // sub-tabs of the Operations tabs
-    if (path === '/operations') { for (const t of ['agents&sub=dimensions', 'agents&sub=dimensions&view=process', 'agents', 'models', 'logs', 'vms', 'usage', 'queues']) { await go(`/operations?tab=${t}`); record(`${tagW} /operations?tab=${t}`, await p.evaluate(MEASURE)); await shot(p, `/operations?tab=${t}`, `ops_${t}`); await tabsAt(`/operations?tab=${t}`); } }
+    if (path === '/operations') { for (const t of ['agents&sub=dimensions', 'agents&sub=dimensions&view=process', 'agents', 'models', 'logs', 'vms', 'usage', 'queues']) { await go(`/operations?tab=${t}`); record(`${tagW} /operations?tab=${t}`, await p.evaluate(MEASURE)); await strips(p, `${tagW} /operations?tab=${t}`); await shot(p, `/operations?tab=${t}`, `ops_${t}`); await tabsAt(`/operations?tab=${t}`); } }
     if (path === '/settings') { for (const t of ['users', 'navigation', 'general', 'appearance']) { await go(`/settings?tab=${t}`); record(`${tagW} /settings?tab=${t}`, await p.evaluate(MEASURE)); await dialogsAt(`/settings?tab=${t}`); } }
     if (path === '/notifications') { for (const t of ['pending', 'news', 'all']) { await go(`/notifications?tab=${t}`); record(`${tagW} /notifications?tab=${t}`, await p.evaluate(MEASURE)); await dialogsAt(`/notifications?tab=${t}`); } }
   }
@@ -109,7 +111,7 @@ const run = async (W, H) => {
 };
 for (const [W, H] of SIZES) await run(W, H);
 await b.close();
-console.log(`states measured: ${states}, dialogs measured: ${dialogs}`);
+console.log(`states measured: ${states}, dialogs measured: ${dialogs}, tab-strip probes: ${stripViews} views / ${stripTabs} tabs`);
 const f = [...new Set(fails)]; console.log(f.length ? f.join('\n') : 'NO FAILURES');
 const hot = [...smalls.entries()].sort((a, b2) => b2[1].length - a[1].length);
 console.log(`small tap targets (<40px): ${hot.length} distinct controls`);

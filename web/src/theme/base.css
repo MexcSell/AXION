@@ -286,6 +286,8 @@ h1, h2, h3, h4, p { margin: 0; }
 /* ------------------------------------------------------------------ */
 .tabs { display: flex; align-items: center; gap: 6px; min-width: 0; overflow-x: auto; scrollbar-width: none; padding: 2px; }
 .tabs::-webkit-scrollbar { display: none; }
+/* c82 (H16): a tab never shrinks below its content, so labels cannot overlap; a narrow strip scrolls (data-fade marks the clipped edge) */
+.tabs > .tab { flex: none; }
 /* c54: a strip wider than its box fades the edge that hides tabs (Tabs.tsx sets data-fade), so a clipped tab is never invisible */
 .tabs[data-fade='r'] { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
 .tabs[data-fade='l'] { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent); }
