@@ -381,6 +381,26 @@ describe('S1: sentinel secrets in every free-text source field never reach the d
     const r = fixture(); r.evalResults[0].trace = { steps: [{ kind: 'tool', name: 'web_search.v2' }, { kind: 'tool', name: 'a b' }, { kind: 'tool', name: 'a'.repeat(65) }] };
     expect(spansOf(buildOtlp(r)).filter((s) => s.name.startsWith('execute_tool')).map((s) => s.name)).toEqual(['execute_tool web_search.v2', 'execute_tool _OTHER', 'execute_tool _OTHER']);
   });
+  // c73 (H15)
+  it('H15: a hyphen is allowed in a tool name (web-search is kept), while sk-/pk-/rk- shapes and other odd names stay _OTHER', () => {
+    const r = fixture(); r.evalResults[0].trace = { steps: ['web-search', 'read-file.v2', 'sk-abc', 'pk-abc', 'rk-abc', 'SK-abc', '-lead', 'a b'].map((name) => ({ kind: 'tool', name })) };
+    expect(spansOf(buildOtlp(r)).filter((s) => s.name.startsWith('execute_tool')).map((s) => s.name))
+      .toEqual(['execute_tool web-search', 'execute_tool read-file.v2', ...Array(6).fill('execute_tool _OTHER')]);
+  });
+  it('H15: an all-digit string of 13 or more characters is not an identifier (case id, dataset id, judge family, agent name); 12 digits and mixed ids are kept', () => {
+    const run = (v: string) => { const r = fixture(); r.evalResults[0].case_id = v; r.evalResults[0].dataset_id = v; r.evalResults[0].judge_model_family = v; r.instances[1].agent_name = v; return JSON.stringify(buildOtlp(r)); };
+    for (const v of ['1234567890123', '4111111111111111', '0'.repeat(20)]) {
+      const j = run(v);
+      expect(j, v).not.toContain(v);
+    }
+    expect(run('123456789012')).toContain('123456789012');
+    expect(run('case-1234567890123')).toContain('case-1234567890123');
+  });
+  it('H15: the export help says identifier-shaped ids and names leave in the default mode', () => {
+    expect(USAGE).toMatch(/identifier-shaped/i);
+    expect(USAGE).toMatch(/case id/i); expect(USAGE).toMatch(/dataset id/i); expect(USAGE).toMatch(/judge/i); expect(USAGE).toMatch(/agent name/i);
+    expect(USAGE).toMatch(/default/i);
+  });
   it('attribution agent/step, owner agent and evidence ref are content: _ref pointers by default, the text only with content on', () => {
     const doc = buildOtlp(planted());
     const t1 = spansOf(doc).find((s) => attr(s, 'axion.task.id') === 'T-1')!;

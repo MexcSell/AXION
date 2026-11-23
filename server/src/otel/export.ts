@@ -79,8 +79,9 @@ const present = (x: unknown) => x !== null && x !== undefined && x !== '' && !(A
 export const ERROR_TYPES: ReadonlySet<string> = new Set(['timeout', 'rate_limit', 'not_found', 'permission_denied', 'invalid_input', 'unavailable', 'cancelled', 'internal_error']);
 const SECRET_SHAPE = /^(sk|pk|rk)[-_.]|^(ghp|gho|ghs|xox[a-z]|AKIA|eyJ)/i; // defence in depth; the character class is the real guard
 /** Untrusted text that must be a plain identifier to be exported (tool names, case ids...). Anything else is "_OTHER". */
-const TOOL_NAME = /^[A-Za-z][A-Za-z0-9_.]{0,47}$/;
-const ident = (x: unknown, re: RegExp = /^[A-Za-z0-9][A-Za-z0-9_.:\/-]{0,63}$/): string => (typeof x === 'string' && re.test(x) && !SECRET_SHAPE.test(x) ? x : '_OTHER');
+const TOOL_NAME = /^[A-Za-z][A-Za-z0-9_.-]{0,47}$/; // c73: a hyphen is allowed (web-search); SECRET_SHAPE still refuses sk-/pk-/rk- names
+const LONG_DIGITS = /^[0-9]{13,}$/; // c73: 13 or more digits alone look like a card, phone or account number, not an identifier
+const ident = (x: unknown, re: RegExp = /^[A-Za-z0-9][A-Za-z0-9_.:\/-]{0,63}$/): string => (typeof x === 'string' && re.test(x) && !SECRET_SHAPE.test(x) && !LONG_DIGITS.test(x) ? x : '_OTHER');
 const toolName = (x: string) => ident(x, TOOL_NAME);
 const agentName = (x: string) => ident(x, /^[A-Za-z0-9][A-Za-z0-9 _.:-]{0,63}$/);
 

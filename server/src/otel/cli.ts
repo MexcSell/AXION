@@ -42,6 +42,9 @@ export const USAGE = [
   '  (a mission a person could not see in the app is exported too).',
   '  Evaluation results are linked to the mission through the pinned agent version of its instances, so they can belong to other missions that ran',
   '  the same version (marked axion.export.linked_by = agent_version); with --include-content their trace text is exported too.',
+  '  Identifier-shaped ids and names leave in the default mode too: case id, dataset id, judge family, agent name, tool name, and the ids of missions, tasks,',
+  '  instances and runs (only a plain identifier is exported; anything else, a key-shaped name or 13 or more digits alone, becomes _OTHER). Do not',
+  '  put anything sensitive in such an id or name. Free text (titles, notes, criteria, inputs and outputs) stays out unless --include-content.',
   '  The file is created with mode 0600; a symlink at --out is refused, even with --force.',
 ].join('\n');
 
