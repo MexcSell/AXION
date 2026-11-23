@@ -17,6 +17,7 @@ import { churnStatus, linesChanged, cooldownMessage, budgetMessage } from './chu
 import type { OrgGuardrailSettings } from '../config.ts';
 import { RESTRUCTURE_TRIGGERS, type OrgDryRun, type OrgProposalDto, type RestructureTrigger } from '../../../shared/contracts/src/index.ts';
 import { advisoryXactLock } from '../locks.ts';
+import { lockedPlanSha } from './plan.ts';
 
 /**
  * Improvement cycle 1: organisation change proposals. An administrator proposes the full set of reporting lines
@@ -39,7 +40,7 @@ const CreateIn = CreateBase;
 const DryRunIn = CreateBase.extend({ baseline: Statement.optional(), expectedCost: Statement.optional() }).strict();
 /** The picked triggers once each, in the canonical order of the closed list. */
 export const canonTriggers = (t: readonly RestructureTrigger[]) => RESTRUCTURE_TRIGGERS.filter((k) => t.includes(k));
-const DecisionIn = z.object({ decision: z.enum(['approve', 'reject']), note: z.string().trim().max(1000).optional(), sha: z.string().max(128) }).strict();
+const DecisionIn = z.object({ decision: z.enum(['approve', 'reject']), note: z.string().trim().max(1000).optional(), sha: z.string().max(128), /** c85: the plan sha the approver reviewed; needed only when the proposal has a plan */ planSha: z.string().max(128).optional() }).strict();
 
 /** Locale-independent order (it feeds the sha). */
 const cmp = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
@@ -201,6 +202,10 @@ export default async function proposalRoutes(app: FastifyInstance) {
       if (b.sha !== p.payload_sha || payloadSha({ title: p.title, why: p.why, baseRevision: p.base_revision, edges, triggers: p.triggers, baseline: p.baseline, expectedCost: p.expected_cost }) !== p.payload_sha)
         return refuse(c, ctx, A, id, new ApiError('PROPOSAL_CHANGED', 409, 'This proposal is not the one you reviewed. Reload it and review it again.'));
       const note = b.note || null;
+      // c85: a proposal with a plan is approved only together with the sha of the plan the approver reviewed (the plan can be replaced while pending)
+      const lockSha = b.decision === 'approve' ? lockedPlanSha(p) : null;
+      if (b.decision === 'approve' && lockSha !== null && b.planSha !== lockSha)
+        return refuse(c, ctx, A, id, new ApiError('PROPOSAL_CHANGED', 409, 'This proposal has a plan, and it is not the plan you reviewed. Reload it and review the plan again.'));
       if (b.decision === 'reject') {
         const u = await c.query(`update org_proposals set status='rejected', decided_by=$2, decided_at=now(), decision_note=$3 where id=$1 and tenant_id=$4 and status='pending' returning id`, [id, ctx.user.id, note, ctx.tenantId]);
         if (!u.rowCount) throw new ApiError('PROPOSAL_NOT_PENDING', 409, 'This proposal was decided meanwhile.');
@@ -218,10 +223,11 @@ export default async function proposalRoutes(app: FastifyInstance) {
       if (!check.ok) return refuse(c, ctx, A, id, new ApiError('ORG_INVALID', 422, `This proposal cannot be applied: ${check.errors[0].message}`));
       const rev = await createOrgRevision(c, { tenantId: ctx.tenantId, edges: fromStored(edges), expectSeq: p.base_revision, note: `Proposal ${id}: ${p.title}`, createdBy: ctx.user.id }); // validates the chart again
       const u = await c.query(
-        `update org_proposals set status='applied', decided_by=$2, decided_at=now(), decision_note=$3, applied_revision=$4 where id=$1 and tenant_id=$5 and status='pending' returning id`,
-        [id, ctx.user.id, note, rev.seq, ctx.tenantId]);
+        `update org_proposals set status='applied', decided_by=$2, decided_at=now(), decision_note=$3, applied_revision=$4, plan_sha=$6 where id=$1 and tenant_id=$5 and status='pending' returning id`,
+        [id, ctx.user.id, note, rev.seq, ctx.tenantId, lockSha]);
       if (!u.rowCount) throw new ApiError('PROPOSAL_NOT_PENDING', 409, 'This proposal was decided meanwhile.'); // rolls the revision back
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: A, subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { decision: 'approve', revision: rev.seq } });
+      if (lockSha !== null) await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'org.proposal.plan.lock', subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { planSha: lockSha, revision: rev.seq } });
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'org.revision.apply', subject: String(rev.seq), result: 'ok', correlationId: ctx.correlationId, detail: { proposal: id, from: p.base_revision, edges: edges.length } });
       await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'org.proposalDecided', subject: id, subjectKind: 'org', payload: { status: 'applied', revision: rev.seq } });
       await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'org.revisionApplied', subject: String(rev.seq), subjectKind: 'org', payload: { proposalId: id, revision: rev.seq, previous: p.base_revision } });

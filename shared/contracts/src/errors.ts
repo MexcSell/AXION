@@ -17,6 +17,7 @@ export const ERROR_CODES = [
   'BRIEF_REQUIRED',
   'ACTIVE_CAP_REACHED', 'ORIGIN_NOT_ALLOWED',
   'ORG_COOLDOWN', 'ORG_CHURN_BUDGET',
+  'PLAN_LOCKED', 'PLAN_NOT_APPLIED', 'PLAN_MISSING',
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
