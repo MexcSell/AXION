@@ -1,0 +1,40 @@
+# c81 report: tenant isolation fixes and stronger relations (lane w79, branch c81-tenant-fixes)
+
+Base 5891ad7. Server only: no `web/` file and no migration changed. E2E DB `axion_e2e13`; the live `axion` database was never touched. MR2 and MR4 are the researcher's own construction, labelled that way in the code.
+
+## Item 1: open-check (all reproduced on the base)
+RED run of `test/tenant/c81-fixes.test.ts` and `test/departments-order.test.ts` on the base, before any fix (5 failed, 1 passed; the passing one is the idempotency check that must keep passing):
+- `departments-order`: memberIds in reverse or shuffled row order is not sorted.
+- health: `db.sizeBytes` present for a tenant when two tenants exist.
+- ack: a foreign id, a nonexistent id answer 200 and store a marker.
+- ack: an admins-only notice acked by a member answers 200.
+- ack-all: foreign, nonexistent and hidden ids are stored.
+Item 5 on the base: see item 5 below (the seeded fault survives the c79 sweep).
+
+## Items 2-8
+| Item | Result | Evidence |
+|---|---|---|
+| 2 health size | PASS | `ops/routes.ts`: `sizeBytes` is returned only while `select count(*) from tenants` is 1 or less, otherwise omitted. Reason: `pg_database_size` counts every tenant's rows, and a figure computed per tenant would need a scan of every tenant table on each health call; with one tenant the database holds only the caller's data, so single-tenant deployments (the live one) keep the figure. `web/ServerHealth.tsx` renders a missing `sizeBytes` as a dash (`mb()` returns the em dash for undefined), so no UI change is needed. DTO (`opt(num)` in `contracts/validators.ts`) already optional; registry, DTO and validator agree, no allowlist line. Test: two tenants, neither admin sees the field, and B's `db`+`events` block is identical after A inserts about 800 KB of ballast and notifications. The c79 `VOLATILE_KEYS.sizeBytes` entry is removed, so the sweep compares the whole body. |
+| 3 ack visibility | PASS | One `VISIBLE` predicate (the one the list uses) now also guards `POST /notifications/:id/ack` (404 for foreign, hidden or nonexistent; nothing stored) and `ack-all` (ids the caller cannot see are ignored, never stored; the answer stays `{ok:true}`). Acking an own notice twice is still 200 with one row. The c79 reasoned exception `SELF_SCOPED_OK` is emptied, so the generated write sweep now requires 404 or 403 on the ack route. `test/approvals.test.ts` acked the made-up ids `N-1`, `N-2` and expected them stored; that is exactly the orphan behaviour this item removes, so the test now acks the caller's real notices and asserts nothing is stored for the made-up ids (no loosening of any visibility rule). |
+| 4 member order | PASS | `memberIds` sorted by agent id in code-point order with the same `cmp` the module uses for department names and `gmReports` ties (the department cards show the first three ids as avatars, so id order is what the UI shows). Test inserts the rows in reverse and shuffled order. The c79 `UNORDERED_KEYS` entries (memberIds, gmReports) are removed, so the sweep compares those arrays in order. |
+| 5 reverse compare | PASS | `reverseQueryCases` in `isolation.ts` is generated from `QUERY`: every value with an id placeholder gets an own-path, foreign-query case (`compare ?with=<B agent>` and `failure-tags ?subjectId=<B task>`; both answer 404), run as admin and member inside `foreignGets`. Placeholders now live in `QUERY_ID_PLACEHOLDERS` and an unknown one fails the inventory test. RED: mutant M19 (second-agent lookup loses its tenant predicate) SURVIVED the c79 sweep (commit 0483f13); GREEN: killed after the generated case (9c4dffa). |
+| 6 MR2 tenant swap | PASS | `swap.ts` + `c81-swap.test.ts`. As tenant A, B's id as `tenantId`/`tenant_id`/`tenant` in body, query, `x-tenant-id`/`x-tenant` header and all together. 76 GET cases x 3 variants (no body on GET) and all 55 write routes x 4 variants; no write route is excepted. Rule: same answer as the same request without, or 400; B's GET responses and every tenant_id table of B unchanged afterwards. "Same" for a write is judged against a second plain request (state moves on): byte-equal after c79 normalisation when plain 1 and 2 were byte-equal, otherwise same status and same JSON shape (30 of 55 writes are compared by shape). 25 writes answered 200 and 17 answered 201 plain, so the relation is not vacuous. 70 forged requests were refused with 400 (strict schemas). Auth routes use throwaway members and sessions. Found while writing it: the c79 at-rest byte compare is order-sensitive and a B `events` rewrite once reordered rows, so MR2 compares sorted rows. |
+| 7 MR4 forged scope | PASS | `forged.ts` + `c81-forged.test.ts`: reviewed table of 75 forged inputs (59 path forms of B ids over 10 route targets: case, whitespace/tab/newline, percent and double percent encoding, `..%2F`, Cyrillic and full-width confusables, zero-width, truncated and `b-` prefixes, `%`/`_` wildcards, quote, NUL, comma list; plus 16 structural: arrays and repeated keys where a scalar is expected, nested arrays, JSON-path keys `__proto__`, `$.tenantId`, `a.b`, `tenant[id]`, `$where`). 140 requests (admin; member for GETs). Rule: no 5xx or 429, no B marker, no B id in the answer unless the caller sent it (an error that echoes the caller's own input is not B's data), B unchanged. RED: `GET /agents/%00b-tester-01` answered 500 (PostgreSQL rejects NUL). Fixed in `app.ts`: error codes 22021 and 22P05 now answer 400. |
+| 8 mutants | PASS | M18 ack without visibility (item 3, killed by WRITE), M19 reverse compare id (item 5, killed by FOREIGN-GET), M20 tenant taken from `x-tenant-id` (item 6, killed by MR2), M21 agent lookup by id prefix across tenants (item 7, killed by MR4). RED for 20 and 21: with the new relation switched off, M21 SURVIVED the suite, and M20 was never even applied because the c79 suite never sends that header. All four are killed by their intended check in `mutants.test.ts` (22 mutants, all killed). |
+
+## Threshold
+- Items 2-8 RED then GREEN: PASS.
+- `test/tenant`: 5 files, 41 tests, all green.
+- Full serial vitest (`--maxWorkers=1 --no-file-parallelism`, committed tree, 668 s): 156 files passed, 1 skipped; 3429 tests passed, 36 skipped, 0 failed: PASS. The first full run (before the approvals test edit) had exactly one failure, `test/approvals.test.ts > notifications > mission notices follow mission visibility; ack-all marks the given ids` (`expected [] to deeply equal ArrayContaining ["N-1","N-2"]`), explained in item 3.
+- tsc clean: PASS (`npx tsc --noEmit -p .` after the last change).
+- No `web/` file, no migration: checked with `git diff 5891ad7..HEAD --stat`.
+
+## Files
+Product: `server/src/ops/routes.ts`, `server/src/notifications/routes.ts`, `server/src/company/departments.ts`, `server/src/app.ts`.
+Tests: `server/test/tenant/{c81-fixes,c81-swap,c81-forged}.test.ts`, `swap.ts`, `forged.ts`, and edits to `isolation.ts`, `writes.ts`, `mutants.ts`, `mutants.test.ts`, `seam.ts`; `server/test/departments-order.test.ts`; `server/test/approvals.test.ts`.
+
+## Concerns
+- Deleting a tenant: the "only tenant" test uses the row count of `tenants`; a deployment that later adds a second tenant silently loses the size figure (the intended behaviour).
+- `ack-all` ignores hidden ids silently (200) rather than 404, so a client that sends a stale id is not broken. A client that wants to know can compare `read` after the call.
+- MR2 compares writes by shape when state moves on; a leak that changes only values inside a created row would be seen by the at-rest check on B, not by the response comparison.
+- The `N-1`/`N-2` test change is a test edit, flagged for the reviewer: the old behaviour was the item-3 bug.
