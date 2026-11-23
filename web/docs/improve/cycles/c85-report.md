@@ -28,7 +28,14 @@ A record of what was planned before an org change, so the metric cannot be chose
 - `org_plan_amendments` is found by the c80 generated four-guards test (37 tables) and pinned in its FLOOR (one-word edit to the test; the frozen baseline fixture is untouched, c80 lint passes on 0058).
 
 ## Pass threshold
-(final numbers in the section below)
+All from the committed tree (before the report commit), load average about 11-12.
+- Items 1-4 RED to GREEN: PASS (evidence above).
+- c80 migration lint on 0058, frozen baseline unedited: PASS. Four-guards test covers `org_plan_amendments`: PASS.
+- c79 tenant tests green with the new routes swept (write cases and a marker plan, no exceptions): PASS.
+- c50, c66, c78 guards green: PASS (c83 not on this base).
+- Full vitest: a parallel run hit "too many connections for role axion" (35 failures, all that message, other lanes' load). Serial fallback (`--maxWorkers=1 --no-file-parallelism`): **156 files passed, 1 skipped; 3442 tests passed, 36 skipped, 0 failed**: PASS. An earlier parallel run also showed security.test.ts "route table" failing because the two new write routes were not in `LIMITED_ROUTES`; fixed in `src/ratelimit.ts` (proposals bucket), which is a real find of the existing guard.
+- tsc clean: PASS.
+- Diff stat: no `web/` source file (this report is under web/docs only); one migration (0058): PASS.
 
 ## Owner question Q17
 Which kinds of change should be allowed or required to carry a plan (org changes only, or also process toggles and version promotions)? This slice covers org change proposals only, and a plan is optional.
