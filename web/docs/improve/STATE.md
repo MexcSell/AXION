@@ -13,12 +13,12 @@ Rewritten 2026-11-24 ~01:05Z by the controller. **Phase 2 is closed.** History i
 - **Integration tree:** `/home/luca/AXION`, branch `improve-30h`. On 2026-11-24 the owner approved: `main` was fast-forwarded to it, pushed to `origin`, and tagged `release_1.1.0`. Any further push or tag still needs the owner.
 - **Web dev 5190:** serves the working tree, with a polling watcher. PID 714937, in /tmp/axion-5190.pid.
 - **API 5191:** runs the real `axion` DB.
-  - Final live update 2026-11-24 ~01:02Z, to b598113 (batches through 56).
-  - Schema 59, no new migration.
-  - Backup `backups/axion-20261124T010230Z.dump`; restore check PASS.
-  - PID 3577265, in /tmp/axion-5191.pid.
+  - Final live update 2026-11-24 ~04:49Z, batches through 58 (c76 and c77 taken by the owner).
+  - Schema 59, with 0056 and 0057 now applied too (the migrator applies any missing version).
+  - Backup `backups/axion-20261124T044814Z.dump`; restore check PASS.
+  - PID 3818198 (own session, started with setsid), in /tmp/axion-5191.pid.
   - Health: `GET /api/v1/health`.
-  - Audit anchor: **6 lines** in `server/data/audit-anchors.jsonl` (git-ignored). The owner must copy the file and `AUDIT_ANCHOR_KEY` off-host.
+  - Audit anchor: **7 lines** in `server/data/audit-anchors.jsonl` (git-ignored). The owner must copy the file and `AUDIT_ANCHOR_KEY` off-host.
 - **Live-update procedure:**
   1. Stop 5191 by PID.
   2. `npm run db:backup`, then `db:restore-check`.
@@ -29,27 +29,23 @@ Rewritten 2026-11-24 ~01:05Z by the controller. **Phase 2 is closed.** History i
   7. Health direct and via 5190.
 
 ## Integration
-- **Merged:** through batch 56 (c99). The final tree is b598113 plus docs.
+- **Merged:** through batch 58 (c76, c77 after c99).
 - **Final checks:**
-  - full serial vitest on b598113: 4489 passed, 36 skipped, 0 failed (196 files + 1 skipped);
+  - full serial vitest with batches 1–58: 4587 passed, 36 skipped, 0 failed (201 files + 1 skipped);
   - server tsc and web tsc exit 0.
   - The browser checks are from the frozen web tree (verify-all 10/10, fit ALL FIT ×4, a11y 0, api-c14 31/31, api-mobile NO FAILURES). No `web/` source changed since then.
 
 ## Lanes
 | Lane | Cycle | Status |
 |---|---|---|
-| w74 | c76 Stage 8 records (mig 0056) | CLEARED at dfd1bff, **PARKED (Q11)**: owner decision |
-| w75 | c77 Stage 9 records (mig 0057) | CLEARED at da75e62, **PARKED (Q11)**: owner decision |
-
-Every other lane, w19–w97 (c01–c99), is merged. Each cycle's brief, report and review is in cycles/. The stray branch `c99-backup` (an earlier c99 history with a report draft) is superseded and was not merged.
+None open. Every lane, w19–w97 (c01–c99), is merged; c76 and c77 (w74, w75) were taken by the owner on 2026-11-24 as batches 57 and 58. Each cycle's brief, report and review is in cycles/. The stray branch `c99-backup` (an earlier c99 history with a report draft) is superseded and was not merged.
 
 ## Waiting for the owner
-FINAL-REPORT-PHASE2.md §8–§9 and §12 list:
-- Q1–Q18 and the approval points O1–O5;
-- the parked branches c76 and c77 (Q11). Their migrations 0056/0057 sit below live schema 59, so taking them means a migration on the real DB;
-- copying the audit anchor file and key off-host.
+Answered on 2026-11-24 (FINAL-REPORT §9, "Your answers"): Q1–Q18 defaults confirmed, Q11 taken, O1–O5 approved as the plan (each concrete item still comes to the owner; Phase A not started). Still open:
+- Q8, the hand check with a screen reader;
+- copying `/root/axion-offhost-20261124.tar.gz` (anchor file, 7 lines, plus key) off-host, then deleting it from the server.
 
 ## Ids already taken
 - **Dialog ids:** up to **DL-101**.
-- **Migrations:** files up to **0059** on improve-30h. 0056 and 0057 exist only on the parked branches. The next free number is **0060**.
+- **Migrations:** files up to **0059**, all applied live. The next free number is **0060**.
 - **Lanes:** up to w97.

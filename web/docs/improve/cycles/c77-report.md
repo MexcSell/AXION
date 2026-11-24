@@ -1,4 +1,4 @@
-PARKED for owner decision (Q11); do not merge without approval.
+Was PARKED for owner decision Q11. **Taken by the owner on 2026-11-24 and merged as batch 58**; the migration was applied live at about 04:49Z.
 
 # c77 report: Stage 9 records (M2 usage ledger, G1 model registry), lane w75
 

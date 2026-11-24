@@ -1,4 +1,4 @@
-PARKED for owner decision (Q11); do not merge without approval.
+Was PARKED for owner decision Q11. **Taken by the owner on 2026-11-24 and merged as batch 57**; the migration was applied live at about 04:49Z.
 
 # c76 report: Stage 8 records, release/last-good (R1) and artifact metadata (A1) (lane w74, branch c76-stage8-records, from improve-30h 0759872)
 

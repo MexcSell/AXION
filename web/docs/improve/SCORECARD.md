@@ -5,7 +5,7 @@ number to compare. The loop builds the measurement for those (see LOG.md); it do
 
 | Measure | Baseline (2026-11-21 ~11:40Z, b621fbb) | Final |
 |---|---|---|
-| Server tests | 219/219 in 17 files, 16.6 s | **4489 passed, 36 skipped, 0 failed** in 196 files (1 skipped), full serial run on the final tree b598113 (2026-11-24 ~00:55Z) |
+| Server tests | 219/219 in 17 files, 16.6 s | **4587 passed, 36 skipped, 0 failed** in 201 files (1 skipped), full serial run with batches 1–58 (2026-11-24 ~04:45Z) |
 | Browser checks (api mode) | auth 15/15 · missions 23/23 · stage 6 94/94 | auth 15/15 · flows 23/23 · stage 6 94/94 (20 of 20 runs) · api-mobile full NO FAILURES on the frozen tree (877 states / 500 dialogs on ebea695) · strict-CSP production check 31/31 · new api-c64/c65/c66/c69/c82/c88/c89 checks all PASS |
 | Demo-mode suite (verify-all) | green (dialog smoke 104/0) | ALL 10 STEPS PASSED on the final tree; dialog smoke now covers 66 dialogs (the baseline's 104 counted differently: cause not confirmed) |
 | Production build | main chunk 543.9 kB (176.5 kB gzip) · Chips chunk 343.3 kB (118.8 kB gzip) · dist 2.28 MB · build 2.3 s | entry chunk 107.2 kB gzip · Missions chunk 30.1 kB gzip · all JS together 669.7 kB gzip (many more features; split into route chunks) |

@@ -16,12 +16,12 @@ Sources: everything is in `web/docs/improve/`.
 
 ## 1. Summary
 
-- **Built:** cycles c01 to c99. c62 was not built. Two branches are parked for you: c76 and c77.
+- **Built:** cycles c01 to c99, including c76 and c77, which you took on 2026-11-24. c62 was not built. 
   - Every cycle went through the same steps: a brief, an implementer, an independent reviewer, a fix round, then a merge.
   - Everything is on the branch `improve-30h`. With your approval on 2026-11-24 it was fast-forwarded into `main`, pushed to GitHub (`origin`), and tagged `release_1.1.0`. `release_1.0.0` was not moved.
-- **Live:** every merged batch (through 56) runs on the real `axion` database, at schema version 59. The latest live update was at about 01:02Z on 2026-11-24 (final tree b598113), after a backup and a restore check. The audit chain verifies, and the anchor file has 6 lines.
+- **Live:** every merged batch (through 58) runs on the real `axion` database, at schema version 59 with 0056 and 0057 now applied. The latest live update was at about 04:49Z on 2026-11-24, after a backup and a restore check. The audit chain verifies, and the anchor file has 7 lines.
 - **Quality gates:**
-  - **Server tests:** from 219 at the start to **4489 passed**, 0 failed, on the final tree b598113.
+  - **Server tests:** from 219 at the start to **4587 passed**, 0 failed, on the final tree (batches 1–58).
   - **Demo suite:** verify-all passed all 10 steps.
   - **Phone-width run, api mode:** no failures on the frozen tree.
   - **Fit and accessibility:** both fit checks are ALL FIT at both sizes, accessibility shows 0 violations in both modes, and the production build under the strict CSP passes 31/31.
@@ -160,8 +160,8 @@ All rows are merged and live unless marked. Cycle ids are in brackets.
 
 | Item | What it is | Status | Waits for |
 |---|---|---|---|
-| c76 | Stage 8 records: release, last-good and rollback-target records, artifact metadata and hashes (R1, A1). Migration 0056. No route performs a release. | CLEARED at dfd1bff on branch `c76-stage8-records`; never queued; no live migration | Q11 |
-| c77 | Stage 9 records: usage ledger with budget caps, model registry, routing policy (M2, G1). Migration 0057. Fake adapter only. | CLEARED at da75e62 on branch `c77-stage9-records`; never queued; no live migration | Q11 |
+| c76 | Stage 8 records: release, last-good and rollback-target records, artifact metadata and hashes (R1, A1). Migration 0056. No route performs a release. | **Taken 2026-11-24:** merged as batch 57, migration applied live | Q11 (answered) |
+| c77 | Stage 9 records: usage ledger with budget caps, model registry, routing policy (M2, G1). Migration 0057. Fake adapter only. | **Taken 2026-11-24:** merged as batch 58, migration applied live | Q11 (answered) |
 | c62 | Signed decision receipts with an offline verifier (R2-7) | Not built. Test key only until you answer. | Q12 |
 | R3-3 | Earned-autonomy ladder, display-only | Not built | Q13 |
 | c64 settings | Cooldown and churn budget | Live, but switched off | Q15 |
@@ -188,7 +188,7 @@ All numbers are code-level. The load average is stated where the log gives it.
 
 | Measure | Baseline (c00, b621fbb) | Now | Source |
 |---|---|---|---|
-| Server tests | 219 in 17 files | **4489 passed**, 36 skipped, 0 failed (196 files, serial), final tree b598113 | MERGES.md (final checks) |
+| Server tests | 219 in 17 files | **4587 passed**, 36 skipped, 0 failed (201 files, serial), final tree with batches 1–58 | MERGES.md (final checks) |
 | Demo suite (verify-all) | 10 steps | ALL 10 STEPS PASSED on the frozen web tree (after batch 50), run from the integration tree | MERGES.md (final checks) |
 | Phone-width run (api-mobile, api mode) | not recorded | NO FAILURES on the frozen web tree (it now also probes every tab strip, c82); 877 states and 500 dialogs on ebea695 | MERGES.md, LOG.md |
 | Stage 6 suite, api mode | 94/94 | 20 of 20 runs at 94/94 (load 5 to 8) | MERGES.md |
@@ -266,10 +266,10 @@ The SCORECARD.md "Final" column is filled from these runs.
 
 ## 8. Your actions
 
-1. **Copy `server/data/audit-anchors.jsonl` off the machine.** It has 6 lines after the final update. Also store a copy of `AUDIT_ANCHOR_KEY` (in `server/.env`) safely off-host. Never paste the key in chat or commit it.
-2. Answer Q1 to Q18 (section 9). The loop used the listed defaults meanwhile.
+1. **Copy `server/data/audit-anchors.jsonl` off the machine.** It has 7 lines after the final update. A private bundle with the file, the key and checksums is ready at `/root/axion-offhost-20261124.tar.gz` (mode 600); copy it off-host, for example with `scp`, then delete it from the server. Also store a copy of `AUDIT_ANCHOR_KEY` (in `server/.env`) safely off-host. Never paste the key in chat or commit it.
+2. ~~Answer Q1 to Q18.~~ Answered on 2026-11-24 (section 9, "Your answers").
 3. Set the Q15 values, or tell me to keep the guardrails off.
-4. Take or drop the parked branches c76 and c77 (Q11). Decide on c62 (Q12) and R3-3 (Q13).
+4. ~~Take or drop the parked branches c76 and c77 (Q11).~~ Taken on 2026-11-24 (batches 57 and 58). c62 (Q12) and R3-3 (Q13) stay at the defaults.
 5. ~~Decide what to do with `improve-30h`.~~ Done on 2026-11-24 at your request: merged into `main` (fast-forward), pushed, and tagged `release_1.1.0`.
 6. Verify long-thread screen-reader behaviour by hand (Q8).
 
@@ -289,7 +289,7 @@ The SCORECARD.md "Final" column is filled from these runs.
 | 8 | Please verify long-thread keyboard and screen-reader behaviour with NVDA or VoiceOver. | Arrow, PgUp, PgDn, Home and End move between messages. | You verify by hand. |
 | 9 | Should a distinct owner role exist for R4 approvals? | With one admin, "decider is not requester" never bites. | Keep admin (default) or add the role. |
 | 10 | Confirm the licence approach for the failure taxonomy (CC BY-NC-ND). | AXION keeps ids and short names, with attribution, and writes its own descriptions. | Confirm (default). |
-| 11 | Take or drop the Stage 8 and 9 records branches (c76, c77)? | Built as parked, unmerged branches. | Parked (default). |
+| 11 | Take or drop the Stage 8 and 9 records branches (c76, c77)? | Built as parked, unmerged branches. | Parked (default). **Your answer: taken** (batches 57 and 58). |
 | 12 | Who holds the key for signed decision receipts, and how is it rotated? | Same custody question as the audit anchor key. | Test keys only; c62 not built. |
 | 13 | May an agent's autonomy level ever be an input to the policy service? | No research result supports it. | Display only (default). |
 | 14 | Should AXION define a "read private company data" capability? | Without it, Rule-of-Two flag (b) covers only live systems and credentials. | Not defined (default). |
@@ -297,6 +297,14 @@ The SCORECARD.md "Final" column is filled from these runs.
 | 16 | Keep the hidden header aside on the "Needs you" tab? | Hiding it fits 13 rows instead of 9. | Keep (default). |
 | 17 | Which kinds of change should be allowed or required to carry a change plan? | c85 covers org proposals only. | Org proposals only, optional (default); or also process toggles and version promotions; or required. |
 | 18 | At phone width (390 px), should long tab strips collapse to icons, or scroll as they do now? | c82 made them scroll under an edge fade, so labels stay readable and the last tabs are reached by swiping. Your icon-first rule would suggest collapsing to icons instead. | Scroll (default, built) or icon-collapse at narrow widths. |
+
+### Your answers (2026-11-24)
+
+You answered "yes" to the questions, to the approval points and to taking the parked branches. That was recorded as follows:
+- **Q1–Q7, Q9, Q10, Q12–Q18:** the listed defaults are confirmed and stay in force. Q15 stays off, so the guardrails are not enforced. Q12 stays at test keys only, and c62 is not built.
+- **Q11: taken.** c76 and c77 were merged as batches 57 and 58, and migrations 0056 and 0057 were applied to the live database at about 04:49Z.
+- **Q8** is a check only you can do by hand, with NVDA or VoiceOver. It stays open.
+- **O1–O5 (section 12):** the roadmap is approved as the plan. Each point still approves a concrete item when its phase reaches it: the execution profile and egress allowlist (O1), the digest change (O1b), the plan-conformance policy and the extra-approval share (O2), and the provider, per-lease budget and run floor for the first model call (O3). Nothing executes and no model is called until that item is in front of you. Phase A has not started.
 
 ## 10. Incidents and process lessons
 

@@ -865,3 +865,11 @@ Order merged: c72 (6511c04), c73 (59b78cf), c74 (8d9a9c3), c75 (af54328), c78 (9
   - Browser checks were not re-run: the web tree has been unchanged since the freeze (batches 51–56 touch no `web/` source).
 - **Live update 2026-11-24 ~01:02Z to b598113:** stop 5191 by PID; backup `backups/axion-20261124T010230Z.dump`, restore check PASS; migrate no-op (schema 59); audit verify OK; restart from a clean tree (PID 3577265); audit anchor line 6; verify OK; health `GET /api/v1/health` 200 direct and via 5190.
 - 01:10Z: 5191 relaunched detached with `setsid` (the first start was not a session leader); PID 3577265; audit verify OK; health 200 direct and via 5190.
+
+### Owner took the parked branches (Q11), 2026-11-24
+
+- **Batch 57, c76-stage8-records (dfd1bff, merge c69b48c):** one conflict in `server/test/contracts/validators.ts` (two additive hunks, c72/c86 validators beside c76's release and artifact validators; both kept). server and web tsc exit 0.
+- **Batch 58, c77-stage9-records (da75e62, merge eaca1a7):** no conflicts.
+- **First full serial run: 6 failed**, all in the privacy sweeps (`test/tenant/c81-swap`, `real`, `vis`), which were built after c76 was parked: the c76 routes had no generated case. **Fix `2d81672` (`test(c76 merge)`):** the tenant fixture records an artifact, a release and a last-good mark per tenant (with markers); `artifacts:id` and `releases:id` id sources; foreign-id write cases for `POST /artifacts/:id/versions` and `POST /releases/:id/marks`; swap cases for `POST /artifacts` and `POST /releases`; NOT_REACHED reasons for `GET /artifacts` and `GET /releases` (administrator-only, no mission data). No sweep was loosened. test/tenant 7 files, 60/60.
+- **Full serial vitest after the fix: 201 files passed + 1 skipped, 4587 passed, 36 skipped, 0 failed.**
+- **Live update ~04:49Z:** stop 5191; backup `axion-20261124T044814Z.dump`, restore check PASS; migrate applied 0056 and 0057 (`schema_migrations` now 59, 58, 57, 56, 53, ...; tables `releases`, `artifacts`, `usage_ledger` present); audit verify OK; restart detached (PID 3818198); anchor line 7; verify OK; health 200 direct and via 5190; `GET /releases` and `GET /artifacts` answer 401 without a session.
