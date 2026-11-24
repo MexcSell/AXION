@@ -62,6 +62,7 @@ export const NOID_CASES: Record<string, SwapCase> = {
   'POST /failure-tags': jsonCase('POST', (t) => ({ url: '/failure-tags', body: { subjectKind: 'task', subjectId: t.ids.task, modeId: 'FM-1.1', note: newName('swap'), attribution: { agentId: 'agent-swap', stepRef: 'step-1' } }, headers: idem() })),
   'POST /artifacts': jsonCase('POST', () => ({ url: '/artifacts', body: { name: newName('Swap artifact'), version: { sha256: 'c'.repeat(64), sizeBytes: 3, mediaType: 'text/plain', producer: 'swap', producerKind: 'system' } }, headers: idem() })),
   'POST /releases': jsonCase('POST', () => ({ url: '/releases', body: { version: `9.${Date.now().toString(36)}.${n++}`, what: newName('Swap release'), changePaths: ['web/src/swap.ts'] }, headers: idem() })),
+  'POST /cloud-models/:id/complete': jsonCase('POST', () => ({ url: '/cloud-models/claude-1/complete', body: { prompt: 'swap' } })), // no model in this world: 503 either way; a forged field is 400
   'POST /missions': jsonCase('POST', () => ({ url: '/missions', body: { text: newName('Swap mission'), files: [], shared: false }, headers: idem() })),
   'POST /notifications/ack-all': jsonCase('POST', (t) => ({ url: '/notifications/ack-all', body: { ids: [t.ids.notification] } })),
   'POST /organization/proposals': jsonCase('POST', async (t) => {

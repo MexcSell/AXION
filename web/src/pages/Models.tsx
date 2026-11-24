@@ -21,6 +21,9 @@ import {
   usageShare, LOADER_PICKS,
 } from '@/data/models';
 import { Heartbeat } from './_emuShared';
+import { isApi } from '@/api/mode';
+import { useCloudModels, runCloudPrompt, LIVE_PREFIX, type CloudRun } from '@/api/cloudModel';
+import type { CloudModelStatusDto } from '@contracts';
 import { KIND_ICON, RUNTIME, runtimeOf, UseRing, TraitBars, CapacityLine } from './_modelParts';
 
 const TAB_ICONS = [SlidersHorizontal, Server, Route, FlaskConical, BarChart3, HeartPulse];
@@ -253,6 +256,65 @@ export function VoicePipeline() {
   );
 }
 
+/** Owner 2026-11-24: the server's real cloud models (api mode), one card per CLAUDE_CODE_OAUTH_TOKEN<n>. "Test connection" sends one real prompt (administrators). */
+function LiveProviders() {
+  const { data, error, refresh } = useCloudModels();
+  if (!data) return error ? <div className="warn" style={{ fontSize: 12 }}><AlertTriangle size={12} style={{ display: 'inline', verticalAlign: -2 }} /> {error}</div> : null;
+  if (!data.models.length) return (
+    <div className="subpanel glass-card row" style={{ padding: 14, gap: 10 }} data-testid="live-cloud-none">
+      <span className="emu-model-ico" style={{ ['--h' as string]: 40 }}><Cloud size={20} /></span>
+      <div><b>No live cloud model</b><div className="mono dim" style={{ fontSize: 11.5 }}>Set CLAUDE_CODE_OAUTH_TOKEN1 (and TOKEN2, ...) in the server environment and restart the API.</div></div>
+    </div>
+  );
+  return (
+    <div className="grid g-2" data-testid="live-cloud-models">
+      {data.models.map((m, i) => <LiveModelCard key={m.id} m={m} i={i} maxInFlight={data.maxInFlight} canPrompt={data.canPrompt} refresh={refresh} />)}
+    </div>
+  );
+}
+
+function LiveModelCard({ m, i, maxInFlight, canPrompt, refresh }: { m: CloudModelStatusDto; i: number; maxInFlight: number; canPrompt: boolean; refresh: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [last, setLast] = useState<CloudRun | null>(null);
+  const hue = m.lastCall && !m.lastCall.ok ? 40 : 150;
+  const test = async () => {
+    setBusy(true);
+    const r = await runCloudPrompt(m.id, 'Reply with the single word: pong', 'text');
+    setBusy(false); setLast(r); refresh();
+    if (r.ok) toast({ tone: 'success', title: `${m.label} connected · ${(r.value.durationMs / 1000).toFixed(1)} s`, body: `${r.value.model} answered "${r.value.text.slice(0, 60)}". The token stayed on the server.` });
+    else toast({ tone: 'warning', title: `${m.label} did not answer`, body: r.message });
+  };
+  return (
+    <motion.div className="subpanel glass-card" style={{ padding: 14, borderColor: `hsl(${hue} 80% 55% / .45)` }} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * .07 }} data-testid="live-cloud-model" data-model-id={m.id}>
+      <div className="row" style={{ gap: 10 }}>
+        <span className="emu-model-ico" style={{ ['--h' as string]: hue }}><Cloud size={20} /></span>
+        <div style={{ minWidth: 0 }}><b>{m.label} · live cloud model</b><div className="mono dim ellipsis" style={{ fontSize: 11.5 }}>{m.model} · claude CLI on the server · tools off</div></div>
+        <span className="spacer" />
+        <Chip hue={hue} size="sm"><Dot tone={hue === 150 ? 'good' : 'warn'} pulse />live</Chip>
+      </div>
+      <div className="emu-cred">
+        <KeyRound size={16} className="good" />
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div className="row" style={{ gap: 6, fontSize: 12.5, fontWeight: 600 }}>Claude Code OAuth token, server only<span className="emu-mask" aria-label="secret hidden">••••••••</span></div>
+          <div className="mono dim ellipsis" style={{ fontSize: 11 }}>{m.tokenVar} · never sent to the browser</div>
+        </div>
+      </div>
+      <div className="row wrap" style={{ gap: 12, margin: '10px 0', fontSize: 12 }}>
+        <span className="dim">Running <b className="tnum">{m.inFlight} / {maxInFlight}</b></span>
+        <span className="dim">Last call <b>{m.lastCall ? `${m.lastCall.ok ? 'ok' : 'failed'} · ${(m.lastCall.durationMs / 1000).toFixed(1)} s · ${new Date(m.lastCall.at).toLocaleTimeString()}` : 'none since the server started'}</b></span>
+      </div>
+      <div className="row" style={{ gap: 6 }}>
+        <button className="btn sm" disabled={!canPrompt || busy} onClick={() => void test()} title={!canPrompt ? 'Only an administrator can send prompts' : undefined}>
+          {busy ? <><RefreshCcw size={13} className="emu-spin" />Testing...</> : last?.ok ? <><CheckCircle2 size={13} className="good" />Connected</> : last && !last.ok ? <><AlertTriangle size={13} className="warn" />Failed, retry</> : <><Activity size={13} />Test connection</>}
+        </button>
+        <button className="btn sm ghost" onClick={refresh}><RefreshCcw size={13} />Refresh</button>
+        <span className="spacer" />
+        <span className="dim" style={{ fontSize: 11 }}>Admins only · missions do not use it</span>
+      </div>
+    </motion.div>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 function Providers() {
   const [state, setState] = useState<Record<string, 'idle' | 'testing' | 'ok' | 'warn'>>({});
@@ -263,6 +325,8 @@ function Providers() {
   return (
     <div className="col" style={{ gap: 12 }}>
       <div className="row emu-note"><Lock size={16} className="good" /><span><b>Credentials are encrypted and write-only.</b> The browser only ever sees a reference and a status. Rotate a key to replace it; you cannot read it back.</span></div>
+      {isApi() && <LiveProviders />}
+      {isApi() && <div className="dim" style={{ fontSize: 11.5 }}>The providers below are sample data (DEMO). Only the live cards above are real.</div>}
       <div className="grid g-2">
         {PROVIDERS.map((p, i) => {
           const st = state[p.id] ?? 'idle';
@@ -390,31 +454,78 @@ function Playground({ all, model, setModel }: { all: ModelDef[]; model: string; 
   const [other, setOther] = useState('claude-haiku-5-5');
   useEffect(() => { setPrompt(s.prompt); setExpectJson(s.json); setRun(0); }, [sample]); // eslint-disable-line react-hooks/exhaustive-deps
   const llms = all.filter((m) => m.kind === 'LLM' || m.kind === 'Vision' || m.kind === 'Translation');
+  const cloud = useCloudModels();
+  const liveModels = cloud.data?.models ?? [];
+  const live = model.startsWith(LIVE_PREFIX) ? liveModels.find((m) => LIVE_PREFIX + m.id === model) ?? null : null;
+  const isLive = !!live;
+  const canPrompt = !!cloud.data?.canPrompt;
+  const [liveRun, setLiveRun] = useState<{ busy: boolean; result: CloudRun | null; started: number }>({ busy: false, result: null, started: 0 });
+  const shown = useRef(model); // the model whose output is on screen: a late answer for another one is dropped
+  useEffect(() => { shown.current = model; setLiveRun({ busy: false, result: null, started: 0 }); }, [model]);
+  const runLive = async () => {
+    if (!live) return;
+    const forModel = model;
+    setLiveRun({ busy: true, result: null, started: Date.now() });
+    const r = await runCloudPrompt(live.id, prompt, expectJson ? 'json' : 'text');
+    if (shown.current === forModel) setLiveRun((x) => ({ ...x, busy: false, result: r }));
+    cloud.refresh();
+  };
   return (
     <div className="emu-split wide">
       <div className="col" style={{ gap: 10 }}>
         <div className="grid g-2" style={{ gap: 10 }}>
-          <div className="field"><label className="field-label">Model</label><select className="select" value={model} onChange={(e) => setModel(e.target.value)} aria-label="Model">{llms.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></div>
+          <div className="field"><label className="field-label">Model</label><select className="select" value={model} onChange={(e) => setModel(e.target.value)} aria-label="Model">{liveModels.length > 0 && <optgroup label="Live (real answers)">{liveModels.map((m) => <option key={m.id} value={LIVE_PREFIX + m.id}>{m.label} · {m.model} · live</option>)}</optgroup>}<optgroup label={isApi() ? 'Catalog (DEMO answers)' : 'Catalog'}>{llms.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</optgroup></select></div>
           <div className="field"><label className="field-label">Sample</label><select className="select" value={sample} onChange={(e) => setSample(e.target.value)} aria-label="Sample prompt">{PLAY_SAMPLES.map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}</select></div>
         </div>
         <div className="field"><label className="field-label">Prompt</label><textarea className="textarea" rows={6} value={prompt} onChange={(e) => setPrompt(e.target.value)} aria-label="Prompt" data-autofocus /></div>
         <div className="row wrap" style={{ gap: 14, fontSize: 12.5 }}>
-          <span className="row" style={{ gap: 8, flex: 1, minWidth: 180 }}>Temperature <input type="range" className="range" min={0} max={1} step={0.1} value={temp} onChange={(e) => setTemp(+e.target.value)} aria-label="Temperature" /><b className="tnum">{temp.toFixed(1)}</b></span>
+          <span className="row" style={{ gap: 8, flex: 1, minWidth: 180, opacity: isLive ? .45 : 1 }} title={isLive ? 'The live model runs with its default sampling' : undefined}>Temperature <input type="range" className="range" min={0} max={1} step={0.1} value={temp} disabled={isLive} onChange={(e) => setTemp(+e.target.value)} aria-label="Temperature" /><b className="tnum">{temp.toFixed(1)}</b></span>
           <Segmented ariaLabel="Expected format" size="sm" value={expectJson ? 'json' : 'text'} onChange={(k) => setExpectJson(k === 'json')} options={[{ key: 'text', label: 'Text' }, { key: 'json', label: <><Braces size={12} />JSON</> }]} />
         </div>
         <div className="row wrap" style={{ gap: 8 }}>
-          <label className="row" style={{ gap: 8, fontSize: 12.5 }}>Compare<Switch checked={compare} onChange={setCompare} label="Compare two models" /></label>
-          {compare && <select className="select" style={{ width: 170 }} value={other} onChange={(e) => setOther(e.target.value)} aria-label="Compare with">{llms.filter((m) => m.id !== model).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select>}
+          {!isLive && <label className="row" style={{ gap: 8, fontSize: 12.5 }}>Compare<Switch checked={compare} onChange={setCompare} label="Compare two models" /></label>}
+          {compare && !isLive && <select className="select" style={{ width: 170 }} value={other} onChange={(e) => setOther(e.target.value)} aria-label="Compare with">{llms.filter((m) => m.id !== model).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select>}
           <span className="spacer" />
           <button className="btn" onClick={() => openDialog('model-playground', { model })}><FlaskConical size={14} />Benchmark test</button>
-          <button className="btn primary" onClick={() => setRun((r) => r + 1)}><Play size={14} />Run</button>
+          {isLive
+            ? <button className="btn primary" disabled={liveRun.busy || !canPrompt || !prompt.trim()} title={!canPrompt ? 'Only an administrator can send prompts' : undefined} onClick={() => void runLive()}>{liveRun.busy ? <RefreshCcw size={14} className="emu-spin" /> : <Play size={14} />}Run live</button>
+            : <button className="btn primary" onClick={() => setRun((r) => r + 1)}><Play size={14} />Run</button>}
         </div>
-        <div className="dim" style={{ fontSize: 11.5 }}><Lock size={11} style={{ display: 'inline' }} /> Playground calls are isolated. They never change production routing.</div>
+        <div className="dim" style={{ fontSize: 11.5 }}><Lock size={11} style={{ display: 'inline' }} /> {isLive ? 'Live: the prompt goes to the real model through the server. It is audited (sizes only) and never changes routing.' : 'Playground calls are isolated. They never change production routing.'}</div>
       </div>
       <div className="grid" style={{ gridTemplateColumns: compare ? '1fr' : '1fr', gap: 10 }}>
-        <Output model={MODEL_BY_ID[model] ?? all.find((m) => m.id === model)!} text={s.out} expectJson={expectJson} run={run} />
-        {compare && <Output model={MODEL_BY_ID[other]} text={s.key === 'bad' ? s.out : s.out.replace(/evidence/g, 'proof')} expectJson={expectJson} run={run} alt />}
+        {isLive
+          ? <LiveOutput label={live.label} model={live.model} state={liveRun} />
+          : <Output model={MODEL_BY_ID[model] ?? all.find((m) => m.id === model) ?? llms[0]} text={s.out} expectJson={expectJson} run={run} />}
+        {compare && !isLive && <Output model={MODEL_BY_ID[other]} text={s.key === 'bad' ? s.out : s.out.replace(/evidence/g, 'proof')} expectJson={expectJson} run={run} alt />}
       </div>
+    </div>
+  );
+}
+
+/** A valid JSON answer is shown indented (a fenced block is unwrapped); anything else exactly as the model wrote it. */
+const pretty = (text: string, valid: boolean | null) => {
+  if (!valid) return text;
+  try { return JSON.stringify(JSON.parse(text.trim().replace(/^```(?:json)?\s*\n([\s\S]*?)\n?```$/, '$1')), null, 2); } catch { return text; }
+};
+/** The live model's real answer (owner 2026-11-24). No typewriter: the server returns the whole answer at once. */
+function LiveOutput({ label, model, state }: { label: string; model: string; state: { busy: boolean; result: CloudRun | null; started: number } }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { if (!state.busy) return; const t = setInterval(() => setNow(Date.now()), 200); return () => clearInterval(t); }, [state.busy]);
+  const r = state.result;
+  return (
+    <div className="subpanel emu-out" style={{ minHeight: 200, minWidth: 0 }} data-testid="live-output">
+      <div className="row wrap" style={{ gap: 8, marginBottom: 8 }}>
+        <Cloud size={15} className="good" /><b style={{ fontSize: 13, whiteSpace: 'nowrap' }}>{label}</b><span className="mono dim" style={{ fontSize: 11 }}>{model}</span><Chip hue={150} size="sm"><Dot tone="good" />live</Chip>
+        <span className="spacer" />
+        {state.busy && <Chip hue={200} size="sm"><Dot tone="info" pulse />thinking {((now - state.started) / 1000).toFixed(1)} s</Chip>}
+        {r?.ok && <><span className="mono dim" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>{r.value.usage.input} in · {r.value.usage.output} out tok · {(r.value.durationMs / 1000).toFixed(1)} s</span>
+          {r.value.format === 'text' ? <Chip hue={215} size="sm">free text</Chip> : r.value.validJson ? <Chip hue={150} size="sm" icon={CheckCircle2}>valid JSON</Chip> : <Chip hue={352} size="sm" icon={AlertTriangle}>invalid JSON</Chip>}</>}
+      </div>
+      {!state.busy && !r && <div className="emu-out-empty"><Wand2 size={26} /><span>Press Run live to send this prompt to the real model.</span></div>}
+      {state.busy && <div className="emu-out-empty"><RefreshCcw size={24} className="emu-spin" /><span>Waiting for the real answer...</span></div>}
+      {r?.ok && <pre className="emu-pre" style={{ maxHeight: 'min(470px, calc(100vh - 440px))', overflow: 'auto' }}>{pretty(r.value.text, r.value.validJson)}{r.value.truncated ? '\n\n[cut at 20,000 characters]' : ''}</pre>}
+      {r && !r.ok && <div className="warn" style={{ fontSize: 12.5 }}><AlertTriangle size={13} style={{ display: 'inline', verticalAlign: -2 }} /> {r.message}</div>}
     </div>
   );
 }

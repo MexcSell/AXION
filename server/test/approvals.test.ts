@@ -110,8 +110,13 @@ describe('execution guard (Stage 5: nothing executes)', () => {
     walk(join(import.meta.dirname, '..', 'src'));
     for (const f of ['features/mission/staffing-plan.ts', 'data/agents.ts', 'data/missions.ts', 'data/types.ts']) files.push(join(import.meta.dirname, '..', '..', 'web', 'src', f)); // the web files the server imports
     const banned = /from ['"](node:)?(child_process|worker_threads|cluster)['"]|from ['"](playwright|puppeteer|openai|@anthropic-ai\/[^'"]+|ollama|bullmq|pg-boss)['"]|\bspawn\(|\bexecFile?\(|\bfetch\(/;
-    const hits = files.filter((f) => banned.test(readFileSync(f, 'utf8')));
+    // owner 2026-11-24: the live cloud model is the ONE allowed exception (claude CLI, tools off, admin prompts only); missions stay disabled above
+    const CLOUD = join(import.meta.dirname, '..', 'src', 'cloud', 'claude-cli.ts');
+    const hits = files.filter((f) => f !== CLOUD && banned.test(readFileSync(f, 'utf8')));
     expect(hits).toEqual([]);
     expect(files.length).toBeGreaterThan(15);
+    // and only the cloud routes and the config may load it: no mission, task, routing or job code reaches the model
+    const importers = files.filter((f) => f !== CLOUD && /claude-cli\.ts/.test(readFileSync(f, 'utf8'))).map((f) => f.split('/src/')[1]).sort();
+    expect(importers).toEqual(['cloud/routes.ts', 'config.ts']);
   });
 });

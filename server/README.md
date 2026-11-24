@@ -2,7 +2,8 @@
 
 Fastify + PostgreSQL API for the AXION web app: sign-in with administrator approval of users and devices, missions with
 a server-side state machine, approvals, notifications, a durable event log and a live event stream (SSE).
-**Nothing executes**: no model, browser or process is started (`mission_runs.execution = 'disabled'`).
+**Missions do not execute**: no browser is started and no mission, task or route calls a model (`mission_runs.execution = 'disabled'`).
+The one exception is the **live cloud models** (owner requests 2026-11-24, below): administrators can send them prompts from Models › Providers and Playground.
 
 ## Run
 
@@ -27,15 +28,34 @@ loaded at that moment, owned by the administrator and marked DEMO.
 | `DEMO_SEED` | `1` = load the DEMO missions when the first administrator registers |
 | `COOKIE_SECURE` | `1` once the app is served over HTTPS |
 | `HOST`/`PORT` | always 127.0.0.1; 5191 |
+| `CLAUDE_CODE_OAUTH_TOKEN1`, `…TOKEN2`, … | one live cloud model per token ("Claude 1", "Claude 2", ids `claude-1`, `claude-2`; an unnumbered `CLAUDE_CODE_OAUTH_TOKEN` is "Claude"). They live in the **repository root** `.env` (mode 600, never committed); `npm run dev`/`start` load it with `--env-file-if-exists=../.env`. None set = no cloud model |
+| `CLOUD_MODEL1`, `CLOUD_MODEL2`, … (`CLOUD_MODEL` for all) | model id per token, default `claude-opus-5-5` (must look like `claude-<name>`) |
+| `CLOUD_MODEL_TIMEOUT_MS` | per-prompt limit, default 120000 (5000..600000) |
+| `CLAUDE_BIN` / `CLOUD_MODEL_HOME` | path of the `claude` CLI (default: first on PATH, else `~/.local/bin/claude`) and the root of the private HOMEs, one per model (default `server/data/cloud-home/<id>`) |
 
 Only `axion`, `axion_test`, `axion_e2e` and `axion_restore_check` belong to AXION. The other databases on this PostgreSQL
 server (`myapp`, `agentapp`, `ajp`, `ajp_test`, `postgres`) are never read or changed.
+
+## Live cloud models (owner requests 2026-11-24)
+
+- `GET /cloud-models` (everyone signed in): `{models: [{id, label, provider, transport, tokenVar, model, inFlight, lastCall}], maxInFlight, canPrompt}`.
+  `tokenVar` is the variable's NAME; no token ever leaves the server.
+- `POST /cloud-models/:id/complete {prompt (1..8000 chars), format?: 'text'|'json'}` (administrators only, X-CSRF): the real answer
+  `{id, model, text, truncated, format, validJson, durationMs, usage}`. Errors: 400 `VALIDATION`, 404 (no such id), 503 `MODEL_NOT_CONFIGURED`
+  (no model at all), 429 `MODEL_BUSY` (2 at once per model) or `RATE_LIMITED` (bucket `cloud`, 10 a minute per session across all models),
+  504 `MODEL_TIMEOUT`, 502 `MODEL_FAILED` (the reason goes to the server log only, token scrubbed). Each call writes one audit row
+  `model.cloud.complete` (subject `<id>:<model>`) with sizes, token counts and timing, never the prompt or the answer.
+- How it runs: each token is a Claude Code credential; a direct Messages API probe on 2026-11-24 was refused (one 429), so `src/cloud/claude-cli.ts` runs
+  `claude -p` locked down: no tools, no setting sources, MCP servers, slash commands or saved sessions, a HOME of its own per model, a child
+  environment with only PATH, HOME and that model's token (no `DATABASE_URL`), the prompt on stdin, and a hard timeout. That file is the only server file allowed to
+  start a process (`test/approvals.test.ts`), and only `cloud/routes.ts` and `config.ts` may import it.
+- Each token is one of the owner's own subscriptions: that is why only administrators may prompt. Tests never use it (fake adapter, fake CLI).
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `npm test` | 560 Vitest tests against `axion_test` |
+| `npm test` | 4,601 Vitest tests (203 files) against `axion_test` |
 | `npm run typecheck` | TypeScript |
 | `npm run migrate [-- down <n>]` | migrations up (default) or down to version n (`down 0` empties the schema) |
 | `npm run admin:approve-device -- <name>` | recovery: approves that user's newest waiting device (e.g. the only admin lost their cookies) |

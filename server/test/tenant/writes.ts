@@ -64,6 +64,7 @@ export const WRITE_CASES: Record<string, Builder> = {
 };
 /** Write routes with an id that have no foreign-id case, with the reason. */
 export const WRITE_EXCEPTIONS: Record<string, string> = {
+  'POST /cloud-models/:id/complete': 'owner 2026-11-24: the id names a live cloud model configured in the server environment (claude-1, claude-2), the same for every tenant; it is not a tenant record, so there is no foreign id. The call stores only an audit row under the caller\'s own tenant.',
   'POST /organization/revisions/:seq/rollback-proposal': 'The id is a per-tenant revision counter (1, 2, ...), so the same number names a different record in each tenant; there is no foreign id to send. The proposal it creates is stored under the caller\'s own tenant (checked by the at-rest sweep of the owner).',
 };
 /**

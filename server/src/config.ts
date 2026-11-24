@@ -1,3 +1,6 @@
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { cloudAdaptersFromEnv } from './cloud/claude-cli.ts';
 export interface Config {
   databaseUrl: string;
   /** Postgres schema (tests use one per file); defaults to public */
@@ -29,6 +32,8 @@ export interface Config {
   writeLimits?: Partial<Record<import('./ratelimit.ts').WriteBucket, import('./ratelimit.ts').WriteLimit>>;
   /** c59: most active items one agent's playbook may hold. An operator setting only (never a route): whole number 1..200, default 25. */
   playbookActiveCap?: number;
+  /** the live cloud models (owner 2026-11-24): one per CLAUDE_CODE_OAUTH_TOKEN<n>, built by configFromEnv; tests pass fakes; empty = none configured */
+  cloudModels?: import('./cloud/claude-cli.ts').CloudAdapter[];
 }
 
 export interface OrgGuardrailSettings {
@@ -64,5 +69,6 @@ export function configFromEnv(): Config {
     orgGuardrails: { cooldownHours: envInt('ORG_COOLDOWN_HOURS'), churnBudget: envInt('ORG_CHURN_BUDGET'), churnWindowHours: envInt('ORG_CHURN_WINDOW_HOURS'), maxEscalationLevels: envInt('ORG_MAX_ESCALATION_LEVELS') },
     allowedOrigins: (process.env.ALLOWED_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean),
     playbookActiveCap: process.env.PLAYBOOK_ACTIVE_CAP ? Number(process.env.PLAYBOOK_ACTIVE_CAP) : undefined,
+    cloudModels: cloudAdaptersFromEnv(process.env, process.env.CLOUD_MODEL_HOME || join(dirname(fileURLToPath(import.meta.url)), '..', 'data', 'cloud-home')),
   };
 }

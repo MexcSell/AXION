@@ -59,7 +59,9 @@ let streamEvents: { event: string; data: any }[] = [];
 
 describe('API coverage run', () => {
   beforeAll(async () => {
-    t = await makeTestApp({ staffingStepMs: 30, conversationSimMs: 80, writeLimits: { proposals: { max: 1000, windowMs: 60_000 } }, configure: recordServed, auditAnchor: anchorCfg });
+    // owner 2026-11-24: a FAKE cloud model, so the cloud routes answer 2xx without any network
+    const cloudModels = [1, 2].map((n) => ({ id: `claude-${n}`, label: `Claude ${n}`, tokenVar: `CLAUDE_CODE_OAUTH_TOKEN${n}`, model: 'claude-opus-5-5', complete: async () => ({ text: '{"ok":true}', durationMs: 5, usage: { input: 4, output: 2 } }) }));
+    t = await makeTestApp({ staffingStepMs: 30, conversationSimMs: 80, writeLimits: { proposals: { max: 1000, windowMs: 60_000 } }, configure: recordServed, auditAnchor: anchorCfg, cloudModels });
     await t.app.listen({ host: '127.0.0.1', port: 0 });
     base = `http://127.0.0.1:${(t.app.server.address() as { port: number }).port}`;
   });
@@ -214,6 +216,8 @@ describe('API coverage run', () => {
     await call(admin, 'GET', '/channels/admin/:userId/messages', `/channels/admin/${minaId}/messages`);
     await call(admin, 'POST', '/channels/admin/:userId/messages', `/channels/admin/${minaId}/messages`, { status: 201, body: { kind: 'reply', text: 'Done.' }, headers: key() });
     await call(admin, 'GET', '/channels', '/channels');
+    await call(admin, 'POST', '/cloud-models/:id/complete', '/cloud-models/claude-1/complete', { body: { prompt: 'Say ok as JSON.', format: 'json' } });
+    await call(admin, 'GET', '/cloud-models', '/cloud-models');
     await call(mina, 'GET', '/channels', '/channels');
 
     // ---- approvals and notifications

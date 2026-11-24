@@ -52,6 +52,7 @@ import failureRoutes from './failures/routes.ts';
 import releaseRoutes from './releases/routes.ts';
 import artifactRoutes from './artifacts/routes.ts';
 import attentionRoutes from './attention/routes.ts';
+import cloudModelRoutes from './cloud/routes.ts';
 
 declare module 'fastify' {
   interface FastifyInstance { routeTable: { method: string; url: string; bodyLimit?: number }[]; db: Db; cfg: Required<Pick<Config, 'tenantId'>> & Config; onFirstAdmin?: (userId: string) => Promise<void> }
@@ -139,6 +140,7 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   await app.register(attentionRoutes, { prefix: '/api/v1' });
   await app.register(delegationRoutes, { prefix: '/api/v1' });
   await app.register(staffingRetryRoutes, { prefix: '/api/v1' });
+  await app.register(cloudModelRoutes, { prefix: '/api/v1' }); // owner 2026-11-24: the live cloud model (admin prompts only)
   await tx(db, (c) => seedCompany(c, app.cfg.tenantId)); // decision E1: company data, idempotent, independent of DEMO_SEED
   await tx(db, (c) => backfillMissionControl(c, app.cfg.tenantId, app.log)); // Stage 6: instances, delegations and tasks for missions that predate them (idempotent)
 
