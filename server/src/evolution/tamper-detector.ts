@@ -234,7 +234,8 @@ function scriptOperandIndexes(v: string, args: string[]): Set<number> {
   let explicit = false;
   args.forEach((a, i) => {
     if (a === '-e' || a === '--expression' || a === '--regexp') { explicit = true; skip.add(i + 1); }
-    else if (a.startsWith('--expression=') || a.startsWith('--regexp=') || a === '-f' || a === '--file' || a.startsWith('--file=')) explicit = true;
+    else if (a === '--source') { explicit = true; skip.add(i + 1); } // gawk: the next argument is program text
+    else if (a.startsWith('--expression=') || a.startsWith('--regexp=') || a === '-f' || a === '--file' || a.startsWith('--file=') || a.startsWith('--source=') || a === '--exec' || a.startsWith('--exec=') || a === '-E') explicit = true;
     else if (shortCluster(a) && (a.includes('e') || a.includes('f'))) { explicit = true; if (a.endsWith('e')) skip.add(i + 1); }
   });
   if (!explicit) { const f = args.findIndex((a) => !isFlag(a)); if (f >= 0) skip.add(f); }
@@ -248,6 +249,21 @@ function expandBraces(seg: string, budget = 64): string[] | null {
   if (c < 0) return [seg];
   const inner = seg.slice(o + 1, c);
   if (inner.includes('{')) return null;
+  const range = /^(-?\d+|[A-Za-z])\.\.(-?\d+|[A-Za-z])(?:\.\.-?\d+)?$/.exec(inner);
+  if (range !== null) { // {1..3}, {a..c}: expand the sequence (step ignored, which over-approximates), fail closed past the budget
+    const isNum = /\d/.test(range[1]);
+    if (isNum !== /\d/.test(range[2])) return null;
+    const a = isNum ? Number(range[1]) : range[1].charCodeAt(0);
+    const b = isNum ? Number(range[2]) : range[2].charCodeAt(0);
+    if (Math.abs(b - a) + 1 > budget) return null;
+    const items: string[] = [];
+    for (let k = Math.min(a, b); k <= Math.max(a, b); k++) items.push(isNum ? String(k) : String.fromCharCode(k));
+    const tails = expandBraces(seg.slice(c + 1), budget);
+    if (tails === null) return null;
+    const out: string[] = [];
+    for (const it of items) for (const t of tails) { out.push(seg.slice(0, o) + it + t); if (out.length > budget) return null; }
+    return out;
+  }
   if (!inner.includes(',')) { const rest = expandBraces(seg.slice(c + 1), budget); return rest === null ? null : rest.map((r) => seg.slice(0, c + 1) + r); }
   const out: string[] = [];
   const tails = expandBraces(seg.slice(c + 1), budget);
@@ -341,6 +357,7 @@ function analyzeXargs(c: Cmd, step: number, ctx: Ctx, depth: number, add: Add): 
   const rest = [...o.rest];
   stripWrappers(rest);
   if (rest.length === 0) { if (o.inputFile !== null) analyzeCmd({ verb: 'cat', head: 'cat', args: [], redirects: [], inputs: [o.inputFile] }, step, ctx, depth + 1, add, null); return; } // default command is echo
+  if (o.repl !== null && rest[0].includes(o.repl)) add('xargs_unseen_input', step, 'xargs runs a command named by its stdin; what runs is not in the trajectory');
   const inner: Cmd = { verb: baseName(rest[0]), head: rest[0], args: rest.slice(1), redirects: [], inputs: o.inputFile !== null ? [o.inputFile] : [] };
   analyzeCmd(inner, step, ctx, depth + 1, add, { repl: o.repl });
 }
@@ -364,7 +381,11 @@ function analyzeCmd(c: Cmd, step: number, ctx: Ctx, depth: number, add: Add, via
   const scriptArgs = scriptOperandIndexes(v, c.args);
   c.args.forEach((p, i) => { if (!isFlag(p) && !scriptArgs.has(i)) globRead(p, false); });
   for (const p of [...c.inputs, ...c.redirects]) globRead(p, true);
-  if (v === 'xargs') { analyzeXargs(c, step, ctx, depth, add); return; }
+  if (v === 'xargs') {
+    if (c.head.includes('/')) add('script_run', step, `runs a script or program whose content is not recorded: ${c.head}`); // a path-named xargs may be the agent's own program
+    analyzeXargs(c, step, ctx, depth, add);
+    return;
+  }
   if (v === 'cd' || v === 'pushd') {
     const arg = c.args[0] ?? '';
     const next = arg === '' ? '' : arg.startsWith('/') || ctx.cwd === '' ? arg : `${ctx.cwd}/${arg}`;
@@ -377,7 +398,12 @@ function analyzeCmd(c: Cmd, step: number, ctx: Ctx, depth: number, add: Add, via
   if (v === 'source' || v === '.' || c.head.startsWith('./') || c.head.startsWith('../') || (c.head.includes('/') && !known)) { add('script_run', step, `runs a script or program whose content is not recorded: ${c.head}`); }
   if (SHELLS.has(v)) {
     const ci = c.args.findIndex((a) => shortCluster(a) && a.includes('c'));
-    if (ci >= 0 && c.args[ci + 1] !== undefined) { analyzeExec(c.args[ci + 1], step, { cwd: ctx.cwd }, depth + 1, add); return; }
+    if (ci >= 0 && c.args[ci + 1] !== undefined) {
+      // run by xargs: stdin reaches the script as "$@" (no -I) or through the replacement token, and those values are never recorded
+      if (via !== null && (via.repl === null || c.args.slice(ci + 1).some((a) => a.includes(via.repl as string)))) add('xargs_unseen_input', step, `xargs feeds stdin into a ${v} -c script; what it runs on is not in the trajectory`);
+      analyzeExec(c.args[ci + 1], step, { cwd: ctx.cwd }, depth + 1, add);
+      return;
+    }
     add('script_run', step, `${v} runs a script or an interactive shell whose content is not recorded`); // no -c: the content is unseen
   }
   if (INTERPRETERS.has(v) && !c.args.some((a) => shortCluster(a) && ['c', 'e', 'i', 'p', 'r'].some((x) => a.includes(x)))) {
