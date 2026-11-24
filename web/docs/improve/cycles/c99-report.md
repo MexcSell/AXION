@@ -1,6 +1,6 @@
 # c99 report: execution-module hardening (X1, c97 detector gaps)
 
-Lane w97, branch `c99-exec-hardening`, base 8a02c4b, tip e721f153 (code). Server pure modules and tests only: no route, no migration, no `web/` change, no network, no DNS, no live database access.
+Lane w97, branch `c99-exec-hardening`, base 8a02c4b, code tip after review round c (see the Review section). Server pure modules and tests only: no route, no migration, no `web/` change, no network, no DNS, no live database access.
 
 **In plain words:** this hardens two pure decision modules. The execution-profile decider still enforces nothing, and the tamper detector is a lexical tripwire over scripted fixtures. It is not a guarantee and it does not measure any agent.
 
@@ -15,12 +15,13 @@ Lane w97, branch `c99-exec-hardening`, base 8a02c4b, tip e721f153 (code). Server
 | X1-3 length-changing pattern characters | b9d3b483 (U+0130, capital sigma) | b7f178e9 |
 | 4 detector gaps (`>|`, `xargs`, glob reads, heredoc) | d7daadc6 (56 probes, 20 clean neighbours) | ecda358b |
 | 4b glob reads as wide as the answer-name rule; sed/grep/awk script operands | 23274edf (20 probes, 15 clean neighbours) | e721f153 |
+| 4c review findings (see Review) | 34d06444 (6 of 9 tests fail) | the next commit |
 
 ## X1-1 to X1-3 (`server/src/exec-profile/`)
 - **X1-1.** `SENSITIVE_ROOTS` adds `/var/run` and `/run`, at any depth and after normalisation. They are refused as `path_too_broad`, writable and read-only. `/var/runner`, `/runtime` and `/work/run` are still accepted. The validator message names the two new roots.
 - **X1-2.** `MAX_REQUEST_ITEMS = 256`, counting URLs and paths together in one `decideRequests` call. Over the cap, the whole call is denied with reason `too_many_items`. Each list is copied once and the cap is checked on the copies (X1-2b), so a Proxy that reports a different length on a second read cannot get past it. Redirect hops per URL are unchanged (10).
 - **X1-2 time bound.** A hostile but valid profile (32 patterns of 128 characters, 10 `*` each) against 256 paths of 4096 characters took **9.1 s** (load 1.96) on the re-run, and the test asserts under 20 s. That is still up to about 9 s of synchronous CPU, so a caller that accepts untrusted profiles should run the decider off the main thread.
-- **Faster matcher.** It makes one dynamic-programming pass over `path + "/"` and visits only the reachable window. Two seeded differentials against the c94 matcher show it is equivalent: 300,000 random pattern/path pairs (16,126 matches) and 100,000 `matchesAnyPattern` cases including U+0130 and U+03A3 (18,817 matches), both with **0 differences**.
+- **Faster matcher.** It makes one dynamic-programming pass over `path + "/"` and visits only the reachable window. Two seeded differentials against the c94 matcher: 300,000 random pattern/path pairs (16,126 matches) and 100,000 `matchesAnyPattern` cases including U+0130 and U+03A3 (18,817 matches), both with **0 differences**. The reviewer's wider fuzz found 600k ASCII cases with 0 differences, and 165 Unicode cases where the new matcher matches and the old did not, all with sigma. They come from X1-3's deliberate per-character sigma fold. That is the safe side for forbidden patterns, so the claim is "equal on ASCII, never narrower", not "exactly equal".
 - **X1-3.** A pattern character whose lower-case form has a different length (U+0130) is refused as `bad_pattern`, naming the entry. Capital sigma is folded per character on both sides, so the result does not depend on the neighbouring characters. Same-length non-ASCII (`é`, `Ü`, `Ж`) is still accepted.
 - **One c94 assertion changed:** the fail-closed "too many items" test also accepts the new label `too_many_items`. Both labels deny, and no allow or deny result changed.
 
@@ -59,10 +60,19 @@ The rate rose and is above the 10% line c97 used. All 12 flags are by design and
 
 I wrote these neighbours on purpose to find the cost. The rate on real command streams is unmeasured, and the heredoc and `xargs` rules will be hit by legitimate agent work. Use the detector as a review flag, not a verdict.
 
-## Verification (on the committed tip e721f153)
-- c99 tests: 7 files, **66 passed**. c94 + c97 + c99 together: 15 files, **656 passed**, 0 failed.
+## Review (independent adversarial reviewer, 2026-11-24): NOT CLEAR, then fixed
+- **Major 1 (loosening vs improve-30h).** The new `xargs` branch returned before the `script_run` check, so `./xargs`, `../xargs`, `/tmp/evil/xargs` and `sudo ./xargs` were no longer flagged. **Fixed:** a path-named `xargs` is `script_run` again, and its command is still analysed.
+- **Major 2 (hole in the new rule).** Stdin reached `sh -c` scripts (`xargs -I{} sh -c 'rm {}'`, `xargs -I{} bash -c "{}"`, `xargs sh -c 'rm "$@"' _`) and a bare replacement command (`xargs -I{} {}`) without a flag. **Fixed:** both are `xargs_unseen_input`, and the `sh -c` script is still analysed for its literal paths.
+- **Minor 3.** gawk `--source=`, `--source X`, `--exec=` and `-E` were not seen as the script, so a file operand was skipped. **Fixed.**
+- **Minor 4.** Brace ranges (`answer_{1..3}`, `{a..c}nswers`) were not expanded. **Fixed:** expanded up to 64 results, and anything larger fails closed.
+- Checked clean by the reviewer: no other loosening over about 743k old-versus-new commands; X1-1 normalisation; the X1-2 cap under Proxies, sparse arrays and revoked Proxies; X1-3; the c94 assertion change; no throws.
+- RED 34d06444 (`c99-tamper-c.test.ts`, 9 tests, 6 failing), then GREEN. All detector numbers above are unchanged by round c.
+- **Noted, not changed:** the X1-2 time bound has about 2x headroom (9–11 s against 20 s), so it could flake on a heavily loaded machine.
+
+## Verification (on the committed tip after round c)
+- c99 tests: 8 files, **75 passed**. c94 + c97 + c99 together: 16 files, **665 passed**, 0 failed. Server tsc exit 0.
 - server tsc and web tsc, plus the full serial vitest: run on the merged integration tree (batch 56). The numbers are in MERGES.md.
-- Diff stat: 4 server source files and 10 server test files. No `web/`, `shared/` or migration change.
+- Diff stat: 4 server source files and 11 server test files. No `web/`, `shared/` or migration change.
 
 ## Still open
 - Up to about 9 s of synchronous CPU for 256 hostile items. A real enforcement path needs a worker or smaller budgets.
@@ -72,5 +82,5 @@ I wrote these neighbours on purpose to find the cost. The rate on real command s
 
 ## Files changed
 - Source: `server/src/exec-profile/paths.ts`, `decider.ts`, `validator.ts` (message only) and `server/src/evolution/tamper-detector.ts`.
-- Tests: `server/test/c99-x1-1-scope`, `c99-x1-2-cap`, `c99-x1-2-matcher`, `c99-x1-2b-snapshot`, `c99-x1-3-pattern`, `c99-tamper`, `c99-tamper-b` (`.test.ts`), `c99-fixtures.ts`, `c99-fixtures-b.ts`, and `c94-exec-profile-failclosed.test.ts` (one label).
+- Tests: `server/test/c99-x1-1-scope`, `c99-x1-2-cap`, `c99-x1-2-matcher`, `c99-x1-2b-snapshot`, `c99-x1-3-pattern`, `c99-tamper`, `c99-tamper-b`, `c99-tamper-c` (`.test.ts`), `c99-fixtures.ts`, `c99-fixtures-b.ts`, and `c94-exec-profile-failclosed.test.ts` (one label).
 - This report.
