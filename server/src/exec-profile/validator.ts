@@ -153,7 +153,7 @@ function validate(input: unknown): ValidationResult {
           if (r.problem === 'wildcard') return no('path_wildcard', at, 'Scope paths are exact directories: no wildcards.');
           return no('path_not_absolute', at, 'A scope path must be an absolute path without control characters, backslashes or percent-encoding.');
         }
-        if (isSensitiveScope(r.path)) return no('path_too_broad', at, 'The root directory and /etc, /proc, /root, /sys and /dev (with everything under them) cannot be a scope.');
+        if (isSensitiveScope(r.path)) return no('path_too_broad', at, 'The root directory and /etc, /proc, /root, /sys, /dev, /var/run and /run (with everything under them) cannot be a scope.');
         if (matchesAnyPattern(r.path, patterns) || matchesAnyPattern(r.path + '/probe', patterns)) no('path_forbidden', at, 'This directory holds credential files and cannot be a scope.');
       });
     }

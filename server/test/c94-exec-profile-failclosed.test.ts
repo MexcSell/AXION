@@ -23,7 +23,7 @@ describe('fail closed: the request', () => {
     let r: ReturnType<typeof decideRequests> | undefined;
     expect(() => { r = decideRequests(profile, req as never); }).not.toThrow();
     denied(r!);
-    expect(r!.items.length === 0 || r!.items.every((i) => i.reason === 'request_malformed' || i.reason === 'item_malformed')).toBe(true);
+    expect(r!.items.length === 0 || r!.items.every((i) => i.reason === 'request_malformed' || i.reason === 'too_many_items' || i.reason === 'item_malformed')).toBe(true);
   });
 });
 

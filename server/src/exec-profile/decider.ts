@@ -16,7 +16,7 @@ import { BUILTIN_CREDENTIAL_PATTERNS, isUnder, matchesAnyPattern, normaliseAbsol
 import type { ExecProfile } from '../../../shared/contracts/src/exec-profile.ts';
 
 export const DECISION_REASONS = [
-  'allowed', 'profile_invalid', 'request_malformed', 'item_malformed',
+  'allowed', 'profile_invalid', 'request_malformed', 'item_malformed', 'too_many_items',
   'scheme_not_https', 'ip_literal_denied', 'internal_host', 'lookalike_host', 'url_refused', 'origin_not_granted', 'port_mismatch',
   'redirect_internal', 'redirect_not_granted', 'too_many_redirects',
   'path_credential_file', 'path_traversal', 'path_encoded', 'path_not_absolute', 'path_wildcard', 'path_outside_scope', 'path_write_readonly',
@@ -55,7 +55,8 @@ export function urlWithinGrantedOrigins(url: unknown, granted: readonly string[]
   return { ok: false, reason: 'origin_not_granted' };
 }
 
-const MAX_ITEMS = 1000;
+/** c99 X1-2: most items (URLs plus paths) one decideRequests call will look at; one over and the WHOLE call is denied with too_many_items. */
+export const MAX_REQUEST_ITEMS = 256;
 const MAX_URL = 4096;
 
 /** A copy of a plain data object: own enumerable data properties only. Throws on accessors, proxies that throw, and non-plain prototypes, so a hostile object is never trusted. */
@@ -72,11 +73,16 @@ function plain(v: unknown, allowed: readonly string[]): Record<string, unknown> 
   }
   return out;
 }
-function list(v: unknown): unknown[] {
+class TooMany extends Error {}
+/** Copies a list ONCE: `length` is read a single time, then exactly that many data elements are read. A Proxy whose length changes between reads cannot get past the cap. */
+function list(v: unknown, cap = MAX_REQUEST_ITEMS): unknown[] {
   if (v === undefined) return [];
-  if (!Array.isArray(v) || v.length > MAX_ITEMS) throw new Error('not a list');
+  if (!Array.isArray(v)) throw new Error('not a list');
+  const len = v.length;
+  if (typeof len !== 'number' || !Number.isInteger(len) || len < 0) throw new Error('not a list');
+  if (len > cap) throw new TooMany('too many');
   const out: unknown[] = [];
-  for (let i = 0; i < v.length; i++) { const d = Object.getOwnPropertyDescriptor(v, i); if (!d || !('value' in d)) throw new Error('hole or accessor'); out.push(d.value); }
+  for (let i = 0; i < len; i++) { const d = Object.getOwnPropertyDescriptor(v, i); if (!d || !('value' in d)) throw new Error('hole or accessor'); out.push(d.value); }
   return out;
 }
 
@@ -89,7 +95,7 @@ function urlWith(profile: ExecProfile, raw: unknown): ItemDecision {
     const o = plain(raw, ['url', 'redirects']);
     if (typeof o.url !== 'string') throw new Error('url');
     url = o.url;
-    redirects = o.redirects === undefined ? [] : list(o.redirects);
+    redirects = o.redirects === undefined ? [] : list(o.redirects, 1000);
   } catch { return malformed('url', 'item_malformed'); }
   const granted = profile.network.allowedOrigins;
   const main = urlWithinGrantedOrigins(url, granted);
@@ -140,9 +146,13 @@ export function decideRequests(profileInput: unknown, request: unknown): Request
     let urls: unknown[]; let paths: unknown[];
     try {
       const r = plain(request, ['urls', 'paths']);
+      // each list is copied once (its length is read once); the cap is then checked on the COPIES, so nothing the caller does after this point matters
       urls = list(r.urls); paths = list(r.paths);
-      if (urls.length + paths.length > MAX_ITEMS) throw new Error('too many');
-    } catch { return { allowed: false, items: [malformed('request', 'request_malformed')] }; }
+      if (urls.length + paths.length > MAX_REQUEST_ITEMS) throw new TooMany('too many');
+    } catch (e) {
+      if (e instanceof TooMany) return { allowed: false, items: [{ kind: 'request', input: undefined, allow: false, reason: 'too_many_items' }] };
+      return { allowed: false, items: [malformed('request', 'request_malformed')] };
+    }
     const items: ItemDecision[] = [];
     for (const [kind, raws] of [['url', urls], ['path', paths]] as const) {
       for (const raw of raws) {
