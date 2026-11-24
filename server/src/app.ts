@@ -49,6 +49,8 @@ import staffingRetryRoutes from './missions/staffing-retry.ts';
 import { API_CSP, API_SECURITY_HEADERS } from './http-headers.ts';
 import { installWriteLimits } from './ratelimit.ts';
 import failureRoutes from './failures/routes.ts';
+import releaseRoutes from './releases/routes.ts';
+import artifactRoutes from './artifacts/routes.ts';
 import attentionRoutes from './attention/routes.ts';
 
 declare module 'fastify' {
@@ -132,6 +134,8 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   await app.register(policyRoutes, { prefix: '/api/v1' });
   await app.register(grantRoutes, { prefix: '/api/v1' });
   await app.register(failureRoutes, { prefix: '/api/v1' });
+  await app.register(releaseRoutes, { prefix: '/api/v1' });
+  await app.register(artifactRoutes, { prefix: '/api/v1' });
   await app.register(attentionRoutes, { prefix: '/api/v1' });
   await app.register(delegationRoutes, { prefix: '/api/v1' });
   await app.register(staffingRetryRoutes, { prefix: '/api/v1' });

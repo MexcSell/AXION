@@ -42,6 +42,8 @@ export const BASELINE_POLICY_V1: BaselinePolicy = Object.freeze({
     rotate_credential: r('R3', 'infra', 'Rotating a credential can lock services out.'),
     'origin-grant': r('R3', 'infra', 'Granting an origin gives an agent standing access to a site.'),
     // R4 critical: Owner only; some actions are prohibited
+    // c76 (parked): the one kind that can authorise recording a release that touches guardrail paths. Dedicated, so a record never spends an approval meant for a real deploy.
+    'release-record': r('R4', 'critical', 'Recording a release that changes policy, approvals, audit, locks or migrations needs a critical-tier approval bound to that release.'),
     production_deploy: r('R4', 'critical', 'A production deployment is hard to reverse.'),
     irreversible_delete: r('R4', 'critical', 'Irreversible deletion cannot be undone.'),
     security_policy_rewrite: r('R4', 'critical', 'Rewriting the security policy: an agent may never do this.', 'agent'),

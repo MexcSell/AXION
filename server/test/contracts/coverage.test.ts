@@ -15,6 +15,7 @@ import { writeAnchor, rotateAnchor } from '../../src/audit-anchor.ts';
 import { proposeLesson, proposeSkill } from '../../src/agents/playbooks.ts';
 import { recordFixtureOutcome } from '../../src/agents/retirement.ts';
 import { enqueueJob } from '../../src/jobs/store.ts';
+import { releaseDigest } from '../../src/releases/guard.ts';
 import { makeDataset, addRun } from '../eval-fixtures.ts';
 import { recordRegrade } from '../../src/evolution/eval-runs.ts';
 import { check } from './validate.ts';
@@ -417,6 +418,24 @@ describe('API coverage run', () => {
     const gr = (await call(admin, 'POST', '/site-grants', '/site-grants', { status: 201, headers: key(), body: { origin: 'https://example.com', missionId: m1, capabilities: ['read', 'screenshot'], expiresAt: dayIso(2) } })).body.grant;
     await call(admin, 'GET', '/site-grants', '/site-grants');
     await call(admin, 'POST', '/site-grants/:id/revoke', `/site-grants/${gr.id}/revoke`, { body: { reason: 'No longer needed' } });
+    // c76 (parked): release records. A guarded release with its bound R4 approval, a plain one, the pointer and a rollback target. Records only: nothing is released.
+    await call(admin, 'GET', '/releases', '/releases');
+    const relPaths = ['server/src/policy/baseline.ts', 'web/src/pages/About.tsx'];
+    const r4 = await tx(t.app.db, (c) => requestApproval(c, { tenantId: 't-1', missionId: m1, agentId: 'release-01', kind: 'release-record', title: 'Guarded release', detail: 'c76 fixture', payload: { releaseDigest: releaseDigest('t-1', '2.0.0', relPaths) }, expiresInMin: 30 }));
+    const second = await A.member('Second Admin'); // the decider of the R4 must not be the recorder (F1)
+    await t.pool.query(`update users set role='admin' where id=$1`, [second.id]);
+    await call(second.b, 'POST', '/approvals/:id/decision', `/approvals/${r4.id}/decision`, { body: { decision: 'approved', digest: r4.digest, reason: 'ok' } });
+    const relA = (await call(admin, 'POST', '/releases', '/releases', { status: 201, headers: key(), body: { version: '1.9.0', what: 'Copy changes.', changePaths: ['web/src/pages/About.tsx'], fromApprovals: [ap.id] } })).body.release;
+    const relB = (await call(admin, 'POST', '/releases', '/releases', { status: 201, headers: key(), body: { version: '2.0.0', what: 'Policy change.', changePaths: relPaths, guardrailApprovalId: r4.id } })).body.release;
+    await call(admin, 'POST', '/releases/:id/marks', `/releases/${relA.id}/marks`, { status: 201, headers: key(), body: { kind: 'last_good', reason: 'Checks passed.' } });
+    await call(admin, 'POST', '/releases/:id/marks', `/releases/${relB.id}/marks`, { status: 201, headers: key(), body: { kind: 'rollback_target', targetReleaseId: relA.id, reason: 'Known good before the policy change.' } });
+    await call(admin, 'GET', '/releases', '/releases');
+    // c76 (parked): artifact metadata. Records only: no file is stored or served.
+    await call(admin, 'GET', '/artifacts', '/artifacts');
+    const art = (await call(admin, 'POST', '/artifacts', '/artifacts', { status: 201, headers: key(), body: { name: 'Homepage preview', version: { sha256: 'a'.repeat(64), sizeBytes: 2048, mediaType: 'text/html', producer: 'release-01', producerKind: 'agent' } } })).body.artifact;
+    await call(admin, 'POST', '/artifacts/:id/versions', `/artifacts/${art.id}/versions`, { status: 201, headers: key(), body: { sha256: 'b'.repeat(64), sizeBytes: 4096, mediaType: 'text/html', producer: 'release-01', producerKind: 'agent' } });
+    await call(admin, 'GET', '/artifacts', '/artifacts');
+    await call(admin, 'GET', '/artifacts/:id', `/artifacts/${art.id}`);
     await call(admin, 'GET', '/failure-tags', '/failure-tags', { query: '?subjectKind=task&subjectId=T-c50a' });
     const tag = (await call(admin, 'POST', '/failure-tags', '/failure-tags', { status: 201, headers: key(), body: { subjectKind: 'task', subjectId: 'T-c50a', modeId: 'FM-1.1', note: 'It ignored the spec.', attribution: { agentId: 'agent-c60', stepRef: 'step-2' } } })).body.tag;
     await call(admin, 'POST', '/failure-tags/:id/decision', `/failure-tags/${tag.id}/decision`, { body: { decision: 'confirm' } });

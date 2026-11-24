@@ -21,6 +21,8 @@ import {
   type ChangePlan, type PlanGuardrail, type PlanAmendmentDto, type PlanWindow, type PlanWindows, type PlanObservation, type OrgPlanDto, type PlanSetDto,
   TASK_CLASS_IDS, type AgentSkillsDto, type SkillCellDto, type SkillCompareDto, type SkillInterval,
   type ForecastDto, type ForecastBaseline, type ForecastLedgerDto, type ForecastRecordDto, type ForecastRecorded, type CalibrationBin, type ForecastSkill, type ForecastClassRow, type ForecastCounts, FORECAST_QUESTION,
+  type ReleaseDto, type ReleaseMarkDto, type LastGoodDto, type ReleasesDto, RELEASE_MARK_KINDS,
+  type ArtifactDto, type ArtifactVersionDto, type ArtifactsDto, type ArtifactDetailDto, ARTIFACT_PRODUCER_KINDS,
 } from '../../../shared/contracts/src/index.ts';
 
 export const errorEnvelope: V<ErrorEnvelope> = obj<ErrorEnvelope>({ code: oneOf(ERROR_CODES), message: str, correlationId: str, retryable: bool, fieldErrors: opt(dict(str)) });
@@ -511,3 +513,18 @@ export const forecastLedger: V<ForecastLedgerDto> = obj<ForecastLedgerDto>({
   byClass: arr(obj<ForecastClassRow>({ classId: oneOf(TASK_CLASS_IDS), label: str, n: int, meanBrier: nullable(num), meanLogLoss: nullable(num) })),
   forecasts: arr(forecastDto),
 });
+// ---- c76 (parked): release records
+const release: V<ReleaseDto> = obj<ReleaseDto>({ id: str, version: str, what: str, changePaths: arr(str), guardedPaths: arr(str), fromApprovals: arr(str), guardrailApprovalId: nullable(str), releasedBy: str, releasedByName: str, createdAt: iso });
+const releaseMark: V<ReleaseMarkDto> = obj<ReleaseMarkDto>({ id: str, releaseId: str, version: str, kind: oneOf(RELEASE_MARK_KINDS), targetReleaseId: nullable(str), targetVersion: nullable(str), markedBy: str, markedByName: str, reason: nullable(str), createdAt: iso });
+const lastGood: V<LastGoodDto> = obj<LastGoodDto>({ id: str, releaseId: str, version: str, markedBy: str, markedByName: str, reason: nullable(str), createdAt: iso });
+export const releases: V<ReleasesDto> = obj<ReleasesDto>({ releases: arr(release), lastGood: nullable(lastGood), rollbackTargets: arr(releaseMark), marks: arr(releaseMark) });
+export const releaseBody = obj<{ release: ReleaseDto }>({ release });
+export const releaseMarkBody = obj<{ mark: ReleaseMarkDto }>({ mark: releaseMark });
+
+// ---- c76 (parked): artifact metadata
+const artifactVersion: V<ArtifactVersionDto> = obj<ArtifactVersionDto>({ version: int, sha256: str, sizeBytes: int, mediaType: str, producer: str, producerKind: oneOf(ARTIFACT_PRODUCER_KINDS), recordedBy: str, recordedByName: str, createdAt: iso });
+const artifact: V<ArtifactDto> = obj<ArtifactDto>({ id: str, name: str, createdBy: str, createdByName: str, createdAt: iso, versionCount: int, latest: artifactVersion });
+export const artifacts: V<ArtifactsDto> = obj<ArtifactsDto>({ artifacts: arr(artifact) });
+export const artifactDetail: V<ArtifactDetailDto> = obj<ArtifactDetailDto>({ artifact, versions: arr(artifactVersion) });
+export const artifactCreated = obj<{ artifact: ArtifactDto }>({ artifact });
+export const artifactVersionBody = obj<{ version: ArtifactVersionDto }>({ version: artifactVersion });

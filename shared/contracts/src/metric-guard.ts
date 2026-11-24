@@ -147,7 +147,8 @@ export const HELPER_CALLERS: Record<string, readonly string[]> = {
   recordReview: ['tasks/routes.ts'],
   createBrief: ['delegation/routes.ts', 'tasks/routes.ts'],
   requestApproval: ['cli/e2e-attention.ts', 'cli/e2e-extra-approvals.ts', 'seed/demo.ts'],
-  consumeApproval: [],
+  // c76 (parked): a release record that touches a guardrail path spends the bound R4 approval in the same transaction as the record (nothing executes)
+  consumeApproval: ['releases/routes.ts'],
   settleMission: ['approvals/routes.ts'],
   createOrgRevision: ['agents/routes.ts', 'agents/seed.ts', 'organization/proposals.ts'],
   switchVersion: ['agents/versions.ts'],
@@ -168,6 +169,8 @@ export const ROUTE_NO_INPUT: Record<string, string> = {
   'POST /company/metric-audits': 'appends a human audit label (administrators only) to its own table; a row\'s flag reads the labels, but no row\'s value or input does',
   'POST /skills/:sid/retirement-dismiss': 'c59: dismisses a retirement proposal on a skill record; no row reads skills',
   'POST /failure-tags/:id/attributions': 'c60: appends an attribution (which step or mechanism a tag points at) to its own append-only table; no scorecard, KPI or dimension row reads attributions, only the OTel export does',
+  'POST /releases': 'c76 (parked): appends a release record (a claim about what was released, with the guardrail-path denial); nothing executes and no row reads releases', 'POST /releases/:id/marks': 'c76 (parked): appends a last-good or rollback-target mark; nothing executes and no row reads releases',
+  'POST /artifacts': 'c76 (parked): appends artifact metadata (a hash, size, media type and producer claim); no file is stored and no row reads artifacts', 'POST /artifacts/:id/versions': 'c76 (parked): appends one more immutable version of artifact metadata; no file is stored and no row reads artifacts',
   'POST /skills': 'writes a skill record; no row reads skills', 'POST /skills/:sid/approve': 'writes a skill record; no row reads skills', 'POST /skills/:sid/retire': 'writes a skill record; no row reads skills',
   'POST /tasks/:id/forecasts': 'c86: appends a person\'s forecast (a probability, before the first review) to its own append-only table; no scorecard, KPI or dimension row reads forecasts, and the outcome is read from reviews, never written',
   'POST /organization/proposals': ORG, 'POST /organization/proposals/:id/withdraw': ORG, 'POST /organization/revisions/:seq/rollback-proposal': ORG,
