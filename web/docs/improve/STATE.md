@@ -24,7 +24,7 @@ Rewritten 2026-11-24 ~01:05Z by the controller. **Phase 2 is closed.** History i
   2. `npm run db:backup`, then `db:restore-check`.
   3. `migrate`.
   4. `audit:verify`.
-  5. Restart from a clean tree: `node --env-file=.env --import tsx src/main.ts >> data/api.log`, and record the PID.
+  5. Restart from a clean tree, detached: `setsid nohup node --env-file=.env --import tsx src/main.ts >> data/api.log 2>&1 < /dev/null &`, and record the PID (from `ss -ltnpH "sport = :5191"`).
   6. `audit:anchor`, then `audit:verify`.
   7. Health direct and via 5190.
 
