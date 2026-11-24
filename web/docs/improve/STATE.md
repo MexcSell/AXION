@@ -10,7 +10,7 @@ Rewritten 2026-11-24 ~01:05Z by the controller. **Phase 2 is closed.** History i
 - **Report page:** https://claude.ai/artifact/UWyW4kzgxFwMWGmoyA5S9P (private). It was republished on 2026-11-24 with the final numbers. Its source is `axion-report/axion-phase2-report.html` in the close-out session's scratchpad.
 
 ## Branch and live
-- **Integration tree:** `/home/luca/AXION`, branch `improve-30h`, local only. Never push, merge to `main` or move the tag without the owner.
+- **Integration tree:** `/home/luca/AXION`, branch `improve-30h`. On 2026-11-24 the owner approved: `main` was fast-forwarded to it, pushed to `origin`, and tagged `release_1.1.0`. Any further push or tag still needs the owner.
 - **Web dev 5190:** serves the working tree, with a polling watcher. PID 714937, in /tmp/axion-5190.pid.
 - **API 5191:** runs the real `axion` DB.
   - Final live update 2026-11-24 ~01:02Z, to b598113 (batches through 56).
@@ -47,7 +47,6 @@ Every other lane, w19–w97 (c01–c99), is merged. Each cycle's brief, report a
 FINAL-REPORT-PHASE2.md §8–§9 and §12 list:
 - Q1–Q18 and the approval points O1–O5;
 - the parked branches c76 and c77 (Q11). Their migrations 0056/0057 sit below live schema 59, so taking them means a migration on the real DB;
-- what to do with `improve-30h`: push it, merge it to `main`, tag it, or leave it;
 - copying the audit anchor file and key off-host.
 
 ## Ids already taken

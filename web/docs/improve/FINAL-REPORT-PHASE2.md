@@ -18,7 +18,7 @@ Sources: everything is in `web/docs/improve/`.
 
 - **Built:** cycles c01 to c99. c62 was not built. Two branches are parked for you: c76 and c77.
   - Every cycle went through the same steps: a brief, an implementer, an independent reviewer, a fix round, then a merge.
-  - Everything is on the branch `improve-30h`. It is local only; nothing has been pushed and no tag was moved.
+  - Everything is on the branch `improve-30h`. With your approval on 2026-11-24 it was fast-forwarded into `main`, pushed to GitHub (`origin`), and tagged `release_1.1.0`. `release_1.0.0` was not moved.
 - **Live:** every merged batch (through 56) runs on the real `axion` database, at schema version 59. The latest live update was at about 01:02Z on 2026-11-24 (final tree b598113), after a backup and a restore check. The audit chain verifies, and the anchor file has 6 lines.
 - **Quality gates:**
   - **Server tests:** from 219 at the start to **4489 passed**, 0 failed, on the final tree b598113.
@@ -270,7 +270,7 @@ The SCORECARD.md "Final" column is filled from these runs.
 2. Answer Q1 to Q18 (section 9). The loop used the listed defaults meanwhile.
 3. Set the Q15 values, or tell me to keep the guardrails off.
 4. Take or drop the parked branches c76 and c77 (Q11). Decide on c62 (Q12) and R3-3 (Q13).
-5. Decide what to do with `improve-30h`: push it, merge it to `main`, tag it, or leave it. It is local only, and I will do none of these without you.
+5. ~~Decide what to do with `improve-30h`.~~ Done on 2026-11-24 at your request: merged into `main` (fast-forward), pushed, and tagged `release_1.1.0`.
 6. Verify long-thread screen-reader behaviour by hand (Q8).
 
 ## 9. Owner questions Q1 to Q18
