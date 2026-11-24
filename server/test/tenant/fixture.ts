@@ -153,6 +153,10 @@ export async function seedTenant(w: World, t: Tenant): Promise<void> {
   // site grants, failure tags
   ids.grant = must(await admin.req('POST', '/site-grants', { origin: 'https://example.com', missionId: ids.mission, capabilities: ['read'], expiresAt: dayIso(2) }, idem()), 201, 'grant').body.grant.id;
   ids.tag = must(await admin.req('POST', '/failure-tags', { subjectKind: 'task', subjectId: ids.task, modeId: 'FM-1.1', note: 'It ignored the spec ' + mk('tag.note'), attribution: { agentId: 'agent-' + mk('tag.agent').toLowerCase(), stepRef: 'step ' + mk('tag.step') } }, idem()), 201, 'tag').body.tag.id;
+  // c76 (Q11 taken 2026-11-24): an artifact record and a release record with a last-good mark, each with markers (administrator-only routes)
+  ids.artifact = must(await admin.req('POST', '/artifacts', { name: 'Report ' + mk('artifact.name'), version: { sha256: 'a'.repeat(64), sizeBytes: 12, mediaType: 'text/plain', producer: 'Writer ' + mk('artifact.producer'), producerKind: 'user' } }, idem()), 201, 'artifact').body.artifact.id;
+  ids.release = must(await admin.req('POST', '/releases', { version: `1.0.${tag.toLowerCase()}`, what: 'Landing page ' + mk('release.what'), changePaths: ['web/src/landing.ts'] }, idem()), 201, 'release').body.release.id;
+  must(await admin.req('POST', `/releases/${ids.release}/marks`, { kind: 'last_good', reason: 'Checked ' + mk('release.mark') }, idem()), 201, 'last-good mark');
   // a second device with a marker name for the member
   const phone = new Browser(t.app, '127.0.0.2', 'Safari on iPhone');
   await phone.connect(await memberName(t), 'pass1234', { name: 'Phone ' + mk('device.name'), kind: 'phone', browser: 'Safari' });

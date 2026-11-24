@@ -39,6 +39,7 @@ const PARAM: Record<string, (i: Record<string, string>) => string> = {
   'users:id': (i) => i.memberId, 'users:did': (i) => i.device, 'users:action': () => 'block',
   'me:did': (i) => i.device,
   'version-proposals:pid': (i) => i.versionProposal, 'mentoring:pid': (i) => i.plan, 'mentoring:mid': (i) => i.milestone,
+  'artifacts:id': (i) => i.artifact, 'releases:id': (i) => i.release,
   'site-grants:id': (i) => i.grant, 'failure-tags:id': (i) => i.tag, 'approvals:id': (i) => i.approval, 'notifications:id': (i) => i.notification,
 };
 export function urlFor(pattern: string, ids: Record<string, string>): string | undefined {
