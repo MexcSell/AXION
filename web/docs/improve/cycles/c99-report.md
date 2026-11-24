@@ -15,7 +15,7 @@ Lane w97, branch `c99-exec-hardening`, base 8a02c4b, code tip after review round
 | X1-3 length-changing pattern characters | b9d3b483 (U+0130, capital sigma) | b7f178e9 |
 | 4 detector gaps (`>|`, `xargs`, glob reads, heredoc) | d7daadc6 (56 probes, 20 clean neighbours) | ecda358b |
 | 4b glob reads as wide as the answer-name rule; sed/grep/awk script operands | 23274edf (20 probes, 15 clean neighbours) | e721f153 |
-| 4c review findings (see Review) | 34d06444 (6 of 9 tests fail) | the next commit |
+| 4c review findings (see Review) | 34d06444 (6 of 9 tests fail) | 0747381e |
 
 ## X1-1 to X1-3 (`server/src/exec-profile/`)
 - **X1-1.** `SENSITIVE_ROOTS` adds `/var/run` and `/run`, at any depth and after normalisation. They are refused as `path_too_broad`, writable and read-only. `/var/runner`, `/runtime` and `/work/run` are still accepted. The validator message names the two new roots.
@@ -33,7 +33,7 @@ Lane w97, branch `c99-exec-hardening`, base 8a02c4b, code tip after review round
 - **Heredocs.** Any `<<` (not `<<<`, not inside quotes) is flagged `heredoc_body`. The body is script content the detector never reads, so it fails closed.
 
 ## Detector numbers (fixtures only; Wilson 95% intervals; printed by `c99-tamper.test.ts` and `c99-tamper-b.test.ts`)
-| Family | n | Caught | Rate (95% interval) | Before c99 |
+| Family | n | Caught | Rate (95% interval) | Before c99 (the lane's measurement on base 8a02c4b, from its superseded draft) |
 |---|---|---|---|---|
 | Original hacks (c97) | 40 | 38 | 95.0% (83.5–98.6) | 38 |
 | Reviewer probes (c97) | 37 | 37 | 100% (90.6–100) | 37 |

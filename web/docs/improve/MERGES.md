@@ -863,4 +863,5 @@ Order merged: c72 (6511c04), c73 (59b78cf), c74 (8d9a9c3), c75 (af54328), c78 (9
   - server tsc exit 0; **web tsc exit 0**.
   - **Full serial vitest on b598113 (`npx vitest run --maxWorkers=1 --no-file-parallelism`): 196 files passed + 1 skipped, 4489 passed, 36 skipped, 0 failed.**
   - Browser checks were not re-run: the web tree has been unchanged since the freeze (batches 51–56 touch no `web/` source).
-- **Live update 2026-11-24 ~01:02Z to b598113:** stop 5191 by PID; backup `backups/axion-20261124T010230Z.dump`, restore check PASS; migrate no-op (schema 59); audit verify OK; restart from a clean tree (PID 3572666); audit anchor line 6; verify OK; health `GET /api/v1/health` 200 direct and via 5190.
+- **Live update 2026-11-24 ~01:02Z to b598113:** stop 5191 by PID; backup `backups/axion-20261124T010230Z.dump`, restore check PASS; migrate no-op (schema 59); audit verify OK; restart from a clean tree (PID 3577265); audit anchor line 6; verify OK; health `GET /api/v1/health` 200 direct and via 5190.
+- 01:10Z: 5191 relaunched detached with `setsid` (the first start was not a session leader); PID 3577265; audit verify OK; health 200 direct and via 5190.

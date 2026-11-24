@@ -16,7 +16,7 @@ Rewritten 2026-11-24 ~01:05Z by the controller. **Phase 2 is closed.** History i
   - Final live update 2026-11-24 ~01:02Z, to b598113 (batches through 56).
   - Schema 59, no new migration.
   - Backup `backups/axion-20261124T010230Z.dump`; restore check PASS.
-  - PID 3572666, in /tmp/axion-5191.pid.
+  - PID 3577265, in /tmp/axion-5191.pid.
   - Health: `GET /api/v1/health`.
   - Audit anchor: **6 lines** in `server/data/audit-anchors.jsonl` (git-ignored). The owner must copy the file and `AUDIT_ANCHOR_KEY` off-host.
 - **Live-update procedure:**
