@@ -75,6 +75,7 @@ I wrote these neighbours on purpose to find the cost. The rate on real command s
 - Diff stat: 4 server source files and 11 server test files. No `web/`, `shared/` or migration change.
 
 ## Still open
+- From the re-review (CLEAR, 2026-11-24): globs and brace ranges over numbered answer names other than `_1`/`-1` (`answer_2*`, `answer_{2..3}`) are not flagged, because `ANSWER_NAMES_STEM_FIRST` lists only the `1` suffix while `isAnswerSeg` accepts any digits. This gap predates round c.
 - Up to about 9 s of synchronous CPU for 256 hostile items. A real enforcement path needs a worker or smaller budgets.
 - `xargs` readers of answer paths fed from stdin (`xargs cat < list`) are not seen.
 - Quoted globs are treated like unquoted ones (the lexer drops quotes), which over-flags.

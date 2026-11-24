@@ -855,3 +855,12 @@ Order merged: c72 (6511c04), c73 (59b78cf), c74 (8d9a9c3), c75 (af54328), c78 (9
 - **Found by the controller on HEAD:** web tsc failed with `shared/contracts/src/exec-profile.ts(9,28): error TS2591: Cannot find name 'node:crypto'` (the web project typechecks the whole `shared/contracts` folder). My web-tsc pass ran before batch 52 merged and I did not re-run it on the final tree; the production build and api-c14 were unaffected because nothing in the web app imports that file. Lesson: re-run web tsc after every merge, including server-only batches that touch `shared/`.
 - **Fix `7678a3f` (`fix(c94 merge)`):** `execProfileSha256` and the `node:crypto` import moved to `server/src/exec-profile/hash.ts`; `canonicalJson` and the types stay in the contract; the validator and the two c94 tests (schema, validator) import the hash from the server module. Nothing added to `index.ts`. `shared/contracts/src` has no other `node:` import.
 - web tsc exit 0, server tsc exit 0, production build ok; full serial vitest **187 files + 1 skipped, 4409 passed, 36 skipped, 0 failed**.
+
+### Close-out, 2026-11-24 (controller; the loop had stalled after batch 55 at about 13:00Z on 2026-11-23)
+
+- **Batch 55, c98-test-infra (19e0592, merge 960e975):** merged by the controller at 12:55Z on 2026-11-23, no conflicts, test infrastructure plus the `src/db.ts` PoolOpts change (production pool max 10 and the 53300 retry unchanged). It was not recorded here at the time.
+- **Batch 56, c99-exec-hardening (4d99d45, merge b598113):** no conflicts. The diff is server source and tests plus the c99 report only (16 files, +999/−103); no `web/`, `shared/` or migration change.
+  - server tsc exit 0; **web tsc exit 0**.
+  - **Full serial vitest on b598113 (`npx vitest run --maxWorkers=1 --no-file-parallelism`): 196 files passed + 1 skipped, 4489 passed, 36 skipped, 0 failed.**
+  - Browser checks were not re-run: the web tree has been unchanged since the freeze (batches 51–56 touch no `web/` source).
+- **Live update 2026-11-24 ~01:02Z to b598113:** stop 5191 by PID; backup `backups/axion-20261124T010230Z.dump`, restore check PASS; migrate no-op (schema 59); audit verify OK; restart from a clean tree (PID 3572666); audit anchor line 6; verify OK; health `GET /api/v1/health` 200 direct and via 5190.

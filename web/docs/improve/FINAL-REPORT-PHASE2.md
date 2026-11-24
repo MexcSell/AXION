@@ -1,12 +1,12 @@
 # AXION improvement programme: final report
 
-Status: **CHECKPOINT**, 2026-11-23 about 12:50Z.
-- Every lane through c97 is merged or parked, the final checks passed on the frozen web tree, and the live system was updated at 12:22Z.
-- One last small server-only wave (c98, c99) runs until 18:30Z, with a final live update about 19:30Z. This report is updated and republished after that.
+Status: **FINAL**, 2026-11-24 about 01:05Z.
+- Every lane through c99 is merged or parked. The final checks passed on the frozen web tree, and the live system was updated at about 01:02Z on 2026-11-24.
+- **Timing, honestly:** the loop stalled after batch 55 at about 13:00Z on 2026-11-23. c99's review, merge, the final live update and this report's update ran on 2026-11-24, after the window closed, when you asked for the work to be completed.
 
 Periods covered:
 - **30-hour loop:** 2026-11-21 11:36Z to 2026-11-22 17:36Z, cycles c01 to c52. Done.
-- **Phase 2, "evolve for 28 hours":** 2026-11-22 17:45Z to 2026-11-23 21:45Z. Cycles c53 to c97, plus five research rounds (2 to 6).
+- **Phase 2, "evolve for 28 hours":** 2026-11-22 17:45Z to 2026-11-23 21:45Z. Cycles c53 to c99, plus five research rounds (2 to 6). c98 and c99 closed out on 2026-11-24.
 
 Sources: everything is in `web/docs/improve/`.
 - Process and planning: STATE.md, PHASE2.md, LOG.md, QUEUE.md, MERGES.md.
@@ -16,12 +16,12 @@ Sources: everything is in `web/docs/improve/`.
 
 ## 1. Summary
 
-- **Built:** cycles c01 to c97. c62 was not built. Two branches are parked for you: c76 and c77.
+- **Built:** cycles c01 to c99. c62 was not built. Two branches are parked for you: c76 and c77.
   - Every cycle went through the same steps: a brief, an implementer, an independent reviewer, a fix round, then a merge.
   - Everything is on the branch `improve-30h`. It is local only; nothing has been pushed and no tag was moved.
-- **Live:** every merged batch (through 54) runs on the real `axion` database, at schema version 59. The latest live update was at 12:22Z, after a backup and a restore check. The audit chain verifies, and the anchor file has 5 lines.
+- **Live:** every merged batch (through 56) runs on the real `axion` database, at schema version 59. The latest live update was at about 01:02Z on 2026-11-24 (final tree b598113), after a backup and a restore check. The audit chain verifies, and the anchor file has 6 lines.
 - **Quality gates:**
-  - **Server tests:** from 219 at the start to **4409 passed**, 0 failed, on the final tree 98fecbf.
+  - **Server tests:** from 219 at the start to **4489 passed**, 0 failed, on the final tree b598113.
   - **Demo suite:** verify-all passed all 10 steps.
   - **Phone-width run, api mode:** no failures on the frozen tree.
   - **Fit and accessibility:** both fit checks are ALL FIT at both sizes, accessibility shows 0 violations in both modes, and the production build under the strict CSP passes 31/31.
@@ -136,6 +136,10 @@ All rows are merged and live unless marked. Cycle ids are in brackets.
   - 10 toy graders: every reference solution passes and every null solution fails. A validity check catches lenient graders.
   - The lexical tamper detector fails closed. Its realistic strength on held-out probes was 25/30, as an upper bound, and it is a tripwire, not a guarantee.
   - It tests the harness, not any agent.
+- **Execution hardening (c99, 2026-11-24).**
+  - Profiles refuse `/var/run` and `/run` scopes, a decide call over 256 items is denied as a whole, and pattern characters whose lower-case form changes length are refused.
+  - The detector now parses `>|`, inspects `xargs`, and flags globbed answer reads and heredoc bodies. New probe families: 56/56 and 20/20 (author-written). False flags over all 91 clean fixtures: 12 (13.2%), all by design.
+  - The independent review found one loosening (a path-named `xargs`) and fixed it before the merge.
 
 ### Operator UX
 - **"Needs you" queue:** an attention queue on Overview (c68).
@@ -184,7 +188,7 @@ All numbers are code-level. The load average is stated where the log gives it.
 
 | Measure | Baseline (c00, b621fbb) | Now | Source |
 |---|---|---|---|
-| Server tests | 219 in 17 files | **4409 passed**, 36 skipped, 0 failed (187 files, serial), final tree 98fecbf | MERGES.md (final checks) |
+| Server tests | 219 in 17 files | **4489 passed**, 36 skipped, 0 failed (196 files, serial), final tree b598113 | MERGES.md (final checks) |
 | Demo suite (verify-all) | 10 steps | ALL 10 STEPS PASSED on the frozen web tree (after batch 50), run from the integration tree | MERGES.md (final checks) |
 | Phone-width run (api-mobile, api mode) | not recorded | NO FAILURES on the frozen web tree (it now also probes every tab strip, c82); 877 states and 500 dialogs on ebea695 | MERGES.md, LOG.md |
 | Stage 6 suite, api mode | 94/94 | 20 of 20 runs at 94/94 (load 5 to 8) | MERGES.md |
@@ -215,11 +219,12 @@ The SCORECARD.md "Final" column is filled from these runs.
   - The 0.02 replay budget is smaller than the replay noise at n ≤ 40, so a harmless candidate is refused 56 to 74% of the time.
   - Real scores need agents to execute.
 - **c85 and c86 are first slices.** c85 gives counts only and computes no effect. c86 covers human forecasts of one question only. Their screens (c89) are first slices: there is no plan editor in the app yet.
-- **c94–c97 are first slices.**
+- **c94–c99 are first slices.**
   - c94 decides and does not enforce.
   - c95's "zero steps after a halt" assumes the check and the effect are atomic, which a later lane must build.
   - c96 cannot stop harmful in-plan arguments.
-  - c97's detector misses `>|`, xargs, globbed reads and heredoc bodies, and its rates come from the same author's fixtures.
+  - c97's detector gaps (`>|`, xargs, globbed reads, heredoc bodies) were closed in c99, but its rates still come from the same author's fixtures, and the false-flag rate over all clean fixtures rose to 13.2% (12/91, 7.7–21.6%).
+  - c99's decider can still block for about 9 s on 256 hostile items, so a real enforcement path needs a worker.
   - None of these was tested against a real model.
 - **The c66 fixture is circular**, and 6 counter-metrics stay "weak" (c83).
 - **Connection-cap flakes:**
@@ -256,12 +261,12 @@ The SCORECARD.md "Final" column is filled from these runs.
 | c82 | Phone tab strips scroll under an edge fade at 390 px; desktop layouts are unchanged. |
 | c89 | New screens: an admin plan section on proposal cards (approve sends the plan sha), a task forecast control, a Settings > Forecasts tab, and an admin one-person forecast dialog. |
 | c93 | The server retries getting a database connection when PostgreSQL says "too many connections" (bounded, under 3 s). Queries are never retried. |
-| c94–c97 | Nothing visible: pure modules for future execution, not wired in. |
+| c94–c99 | Nothing visible: pure modules for future execution, and test infrastructure, not wired in. |
 | c49 | The live server needs `AUDIT_ANCHOR_KEY`, a domain and a file in `server/.env`. |
 
 ## 8. Your actions
 
-1. **Copy `server/data/audit-anchors.jsonl` off the machine.** It has 5 lines after the final update. Also store a copy of `AUDIT_ANCHOR_KEY` (in `server/.env`) safely off-host. Never paste the key in chat or commit it.
+1. **Copy `server/data/audit-anchors.jsonl` off the machine.** It has 6 lines after the final update. Also store a copy of `AUDIT_ANCHOR_KEY` (in `server/.env`) safely off-host. Never paste the key in chat or commit it.
 2. Answer Q1 to Q18 (section 9). The loop used the listed defaults meanwhile.
 3. Set the Q15 values, or tell me to keep the guardrails off.
 4. Take or drop the parked branches c76 and c77 (Q11). Decide on c62 (Q12) and R3-3 (Q13).
@@ -319,8 +324,8 @@ The SCORECARD.md "Final" column is filled from these runs.
 | Id | Item | Why |
 |---|---|---|
 | U8 rest | Plan editing in the app; a has-plan flag on the proposal list (c89 fetches one plan per card) | c85 and c86 screens are first slices |
-| X1, c96/c97 rest | Profile `/var/run` scope and request caps; label propagation (R6-8 part 2); detector gaps (`>|`, xargs, globbed reads, heredoc bodies) | Listed in the c94, c96 and c97 reports |
-| H14c, E1f, M2c, M2d | c93 fault hook out of src; seed the judge split; scanner edge cases | From today's reviews |
+| c96/c97 rest | Label propagation (R6-8 part 2); detector: `npm run`/`make` content, symlink aliases, numbered answer names other than 1, `printf` into `eval` (X1 and the four listed detector gaps were closed in c99) | Listed in the c96, c97 and c99 reports |
+| E1f, M2d | Seed the judge split; scanner edge cases (H14c and M2c were closed in c98) | From the reviews |
 | E1f | Seed the judge split by item ids or a salt; consistent displayed sensitivity and specificity | c84 review |
 | T1(1) | Tenant-scoped agent ids (composite key) | A second tenant can't get the standard company seed. Large migration. |
 | R4-2 | Audit chain v2 for redaction | Redacting today breaks verification |
@@ -342,6 +347,8 @@ Round 6 asked what it takes to let agents actually run tools, safely and measura
 - **c95:** a run-budget and halt checker.
 - **c96:** a plan-conformance checker.
 - **c97:** outcome graders and a tamper tripwire on toy tasks.
+- **c98:** the c93 fault hook moved out of `src/db.ts` into test setup.
+- **c99:** execution-profile hardening (`/var/run` scopes, a 256-item cap, length-changing patterns) and the tamper detector's `>|`, xargs, glob-read and heredoc gaps.
 
 The roadmap uses phases A to E, so the numbers don't collide with the stage ledger's own stages. Every phase ends in your decision; demotion is automatic and promotion is human. No model call happens before your approval O3.
 
