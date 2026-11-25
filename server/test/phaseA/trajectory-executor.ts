@@ -18,13 +18,13 @@ export const iso = (ms: number) => new Date(Date.parse(RUN_START) + ms).toISOStr
 
 export interface Ran { built: BuiltTrajectory; profile: ReturnType<typeof fixtureProfile> | null; results: Record<number, unknown> }
 
-export function runFixture(f: TrajFixture, o: { tenantId?: string; runId?: string; piiFields?: string[] } = {}): Ran {
+export function runFixture(f: TrajFixture, o: { tenantId?: string; runId?: string; piiFields?: string[]; taskClass?: string; jobRef?: string } = {}): Ran {
   const tenantId = o.tenantId ?? 'a1-tenant';
   const runId = o.runId ?? `RUN-${f.id}`;
   const profile = f.profile ? fixtureProfile() : null;
   const caps: RunCaps | null = f.caps === null ? null : { ...FIXTURE_CAPS, ...f.caps };
-  const breaker: RunClassBreaker = { taskClass: 'web-research', stage: f.stage, maxConsecutiveFailures: f.breaker };
-  const rec = new TrajectoryRecorder({ tenantId, runId, jobRef: `job-${f.id}`, taskClass: 'web-research', startedAt: RUN_START, profileSha256: profile ? execProfileSha256(profile) : null, caps, breaker: { stage: f.stage, maxConsecutiveFailures: f.breaker }, piiFields: o.piiFields });
+  const breaker: RunClassBreaker = { taskClass: o.taskClass ?? 'web-research', stage: f.stage, maxConsecutiveFailures: f.breaker };
+  const rec = new TrajectoryRecorder({ tenantId, runId, jobRef: o.jobRef ?? `job-${f.id}`, taskClass: o.taskClass ?? 'web-research', startedAt: RUN_START, profileSha256: profile ? execProfileSha256(profile) : null, caps, breaker: { stage: f.stage, maxConsecutiveFailures: f.breaker }, piiFields: o.piiFields });
   let counters: RunCounters = newRunCounters(0);
   const results: Record<number, unknown> = {};
   let lastEnd = 0;

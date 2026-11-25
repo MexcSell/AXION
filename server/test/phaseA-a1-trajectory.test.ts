@@ -282,14 +282,16 @@ describe('threshold (d): secrets and flagged personal data never reach the table
 describe('the anchor in the audit log', () => {
   it('one audit row per run: action run.trajectory.recorded, subject the run id, detail holds the head, the run digest and the counts, and the audit chain still verifies', async () => {
     const f = TRAJECTORIES.find((x) => x.id === 't19')!;
-    const built = runFixture(f, { runId: 'RUN-anchor' }).built;
-    await save(built);
-    const rows = (await q(`select actor, subject, result, detail from audit_events where tenant_id=$1 and action='run.trajectory.recorded' and subject='RUN-anchor'`, [TENANT])).rows;
+    const AT = 'a1-anchor'; // its own tenant: the tamper tests above delete an audit row of TENANT on purpose
+    const built = runFixture(f, { runId: 'RUN-anchor', tenantId: AT }).built;
+    await save(built, AT);
+    const rows = (await q(`select actor, subject, result, detail from audit_events where tenant_id=$1 and action='run.trajectory.recorded' and subject='RUN-anchor'`, [AT])).rows;
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ actor: 'executor-fake', result: 'ok' });
     expect(rows[0].detail).toMatchObject({ head: built.run.headHash, runDigest: built.run.runDigest, steps: 2, costStatus: 'unknown', costMicros: null, claim: 'success', claimLabel: 'verified' });
     expect(rows[0].detail.head).toMatch(/^[0-9a-f]{64}$/); // redact() drops keys that look like hashes; the anchor must not use one
-    expect((await verifyChain(s.pool, TENANT)).ok).toBe(true);
+    expect((await verifyChain(s.pool, AT)).ok).toBe(true);
+    expect(await verifyStoredTrajectory(s.pool, AT, 'RUN-anchor')).toMatchObject({ ok: true, status: 'verified', anchor: 'ok' });
   });
   it('a run id cannot be recorded twice in one tenant, and the same id may exist in another tenant', async () => {
     const f = TRAJECTORIES.find((x) => x.id === 't01')!;

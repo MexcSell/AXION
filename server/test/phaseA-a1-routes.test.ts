@@ -34,7 +34,7 @@ describe('GET /runs/trajectories', () => {
     expect(ids).toEqual(['RUN-r-stopped', 'RUN-r-unknown', 'RUN-r-known']);
     const byId = Object.fromEntries(r.body.runs.map((x: any) => [x.id, x]));
     expect(byId['RUN-r-known']).toMatchObject({ steps: 3, executedSteps: 3, cost: { status: 'known', micros: 600, text: '600 micro-units' }, claim: { label: 'verified', text: 'verified' }, tokens: 60 });
-    expect(byId['RUN-r-unknown'].cost).toMatchObject({ status: 'unknown', micros: null, lowerBoundMicros: 100, missingSteps: 1, text: 'unknown' });
+    expect(byId['RUN-r-unknown'].cost).toMatchObject({ status: 'unknown', micros: null, knownSumMicros: 100, missingSteps: 1, text: 'unknown' });
     expect(byId['RUN-r-unknown'].tokens).toBeNull();
     expect(byId['RUN-r-stopped']).toMatchObject({ steps: 3, executedSteps: 2, finalClaim: 'failure', claim: { label: 'no_success_claimed' } });
     expect(JSON.stringify(r.body)).not.toContain('RUN-r-other-tenant');
@@ -51,7 +51,7 @@ describe('GET /runs/trajectories/:id', () => {
   it('returns the steps, the chain status, the cost and the claim', async () => {
     const r = await A.admin.req('GET', '/runs/trajectories/RUN-r-known');
     expect(r.status).toBe(200);
-    expect(r.body.chain).toEqual({ status: 'verified', checked: 3, firstBadSeq: null, reason: null, anchor: 'ok' });
+    expect(r.body.chain).toEqual({ ok: true, status: 'verified', checked: 3, firstBadSeq: null, reason: null, anchor: 'ok' });
     expect(r.body.run).toMatchObject({ id: 'RUN-r-known', taskClass: 'web-research', headHash: expect.stringMatching(/^[0-9a-f]{64}$/) });
     expect(r.body.steps.map((s: any) => s.seq)).toEqual([1, 2, 3]);
     expect(r.body.steps[0]).toMatchObject({ tool: 'browse', executed: true, ok: true, toolCostMicros: 100, tokens: 10, decision: { profile: { allowed: true, reason: 'allowed' }, caps: { action: 'continue', reason: null } } });
@@ -75,7 +75,7 @@ describe('GET /runs/trajectories/:id', () => {
     } finally { c.release(); }
     const r = await A.admin.req('GET', '/runs/trajectories/RUN-r-tampered');
     expect(r.status).toBe(200);
-    expect(r.body.chain).toMatchObject({ status: 'broken', reason: 'step_hash_mismatch', firstBadSeq: 1, anchor: 'ok' });
+    expect(r.body.chain).toMatchObject({ status: 'broken', reason: 'step_hash_mismatch', firstBadSeq: 1, anchor: 'unchecked' });
   });
   it('arguments are served redacted: a seeded secret never leaves the server', async () => {
     const f = { ...fx('t18'), steps: [{ ...fx('t18').steps[0], args: { text: 'use password=Tr0ub4dor&3 and mail ann@mail.test', api_key: 'AbCdEf0123456789xyz' } }] };

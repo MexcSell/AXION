@@ -1,3 +1,6 @@
+import { saveTrajectory } from '../../src/trajectory/recorder.ts';
+import { TRAJECTORIES } from '../phaseA/trajectory-fixtures.ts';
+import { runFixture } from '../phaseA/trajectory-executor.ts';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -157,6 +160,9 @@ export async function seedTenant(w: World, t: Tenant): Promise<void> {
   ids.artifact = must(await admin.req('POST', '/artifacts', { name: 'Report ' + mk('artifact.name'), version: { sha256: 'a'.repeat(64), sizeBytes: 12, mediaType: 'text/plain', producer: 'Writer ' + mk('artifact.producer'), producerKind: 'user' } }, idem()), 201, 'artifact').body.artifact.id;
   ids.release = must(await admin.req('POST', '/releases', { version: `1.0.${tag.toLowerCase()}`, what: 'Landing page ' + mk('release.what'), changePaths: ['web/src/landing.ts'] }, idem()), 201, 'release').body.release.id;
   must(await admin.req('POST', `/releases/${ids.release}/marks`, { kind: 'last_good', reason: 'Checked ' + mk('release.mark') }, idem()), 201, 'last-good mark');
+  // Phase A (A1): a run trajectory (no write route exists: the test-only fake executor writes it through the recorder), with markers in the job reference and the task class
+  ids.trajectory = `RUN-${tag.toLowerCase()}`;
+  await tx(t.app.db, (c) => saveTrajectory(c, t.tenantId, runFixture(TRAJECTORIES.find((x) => x.id === 't02')!, { runId: ids.trajectory, tenantId: t.tenantId, jobRef: mk('trajectory.job'), taskClass: mk('trajectory.class') }).built, 'executor-fake'));
   // a second device with a marker name for the member
   const phone = new Browser(t.app, '127.0.0.2', 'Safari on iPhone');
   await phone.connect(await memberName(t), 'pass1234', { name: 'Phone ' + mk('device.name'), kind: 'phone', browser: 'Safari' });

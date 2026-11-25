@@ -89,6 +89,8 @@ export const ROUTES: Record<string, RouteEntry> = {
   'GET /skills/retirement-proposals': { v: C.retirementProposalsBody, admin: true },
   'GET /tasks/:id': { v: C.taskBody },
   'GET /tasks/:id/reviews': { v: C.taskReviews },
+  'GET /runs/trajectories': { v: C.trajectoryList, admin: true },
+  'GET /runs/trajectories/:id': { v: C.trajectoryDetail, admin: true },
   'GET /threads/:id/messages': { v: C.messagePage },
   'GET /uploads/:id': { exclude: 'Streams the stored file bytes with its own content type, not JSON. The flow downloads an upload and checks the bytes.' },
   'GET /users': { v: C.usersBody, admin: true },

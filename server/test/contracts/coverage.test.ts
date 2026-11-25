@@ -31,6 +31,9 @@ import { UNEXERCISED_ALLOWED } from './exercised.ts';
 import { lenientMutations, unexercised } from './walk.ts';
 import { valueOrderProblems } from './value-order.ts';
 import { insertMissionRefs } from '../c83-refs.ts';
+import { saveTrajectory } from '../../src/trajectory/recorder.ts';
+import { TRAJECTORIES } from '../phaseA/trajectory-fixtures.ts';
+import { runFixture } from '../phaseA/trajectory-executor.ts';
 const ST = { baseline: 'No change: keep the current chart as it is.', expectedCost: 'No added cost is expected in this test.' }; // c64: every proposal states a baseline and its expected cost
 
 /**
@@ -571,6 +574,21 @@ describe('API coverage run', () => {
     await call(admin, 'POST', '/operations/halts', '/operations/halts', { status: 201, headers: key(), body: { scope: 'class', target: 'web-research', halted: true, reason: 'Phase A class' } });
     await call(admin, 'POST', '/operations/halts', '/operations/halts', { status: 201, headers: key(), body: { scope: 'class', target: 'web-research', halted: false, reason: 'Phase A lift' } });
     await call(admin, 'GET', '/operations/halts', '/operations/halts');
+    // ---- Phase A (A1): run trajectories (written by the test-only fake executor through the server's recorder). Every nullable field gets a filled and an empty example:
+    // t01 without an environment record (a flagged claim, with approval, credential, caps, profile and job filled), t02 verified, t19 with an unknown cost, t09 stopped, and a tampered copy of t02 (a broken chain)
+    {
+      const fx = (id: string) => TRAJECTORIES.find((x) => x.id === id)!;
+      const put = (id: string, runId: string, over: Record<string, unknown> = {}) => tx(t.app.db, (c) => saveTrajectory(c, tenant, runFixture({ ...fx(id), ...over } as never, { runId, tenantId: tenant }).built, 'executor-fake'));
+      await put('t01', 'RUN-cov-1', { env: null });
+      await put('t02', 'RUN-cov-2');
+      await put('t19', 'RUN-cov-3');
+      await put('t09', 'RUN-cov-4');
+      await put('t02', 'RUN-cov-5');
+      const cl = await t.pool.connect();
+      try { await cl.query('alter table trajectory_steps disable trigger user'); try { await cl.query(`update trajectory_steps set tool_cost_micros = 1 where run_id='RUN-cov-5' and seq=2`); } finally { await cl.query('alter table trajectory_steps enable trigger user'); } } finally { cl.release(); }
+      await call(admin, 'GET', '/runs/trajectories', '/runs/trajectories');
+      for (const id of ['RUN-cov-1', 'RUN-cov-2', 'RUN-cov-3', 'RUN-cov-4', 'RUN-cov-5']) await call(admin, 'GET', '/runs/trajectories/:id', `/runs/trajectories/${id}`);
+    }
     await call(admin, 'GET', '/policy/baseline', '/policy/baseline');
     await call(admin, 'GET', '/audit/verify', '/audit/verify');
 

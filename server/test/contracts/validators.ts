@@ -1,4 +1,4 @@
-import { nul, str, num, int, bool, iso, rec, lit, oneOf, nullable, opt, arr, either, obj, openObj, dict, type V } from './validate.ts';
+import { unknownV, nul, str, num, int, bool, iso, rec, lit, oneOf, nullable, opt, arr, either, obj, openObj, dict, type V } from './validate.ts';
 import {
   ERROR_CODES, ORIGIN_CHANNELS, ORIGIN_CLASSES, MISSION_STATUSES, SCORECARD_WINDOWS, REVIEW_VERDICTS, RUBRIC_RESULTS, EVIDENCE_KINDS, FAILURE_SUBJECT_KINDS, DETECTION_CHANNELS, FAILURE_MECHANISMS, FAILURE_CONTROLS, STEP_STATUSES, STALL_POLICY,
   type AccountDto, type PhaseDto, type StaffingDto, type AgentDto, type AgentVersionDto, type ApprovalDto, type RuleOfTwoDto, type DecisionRecordDto, type ApprovalDecideAuditDetail, type QualityCellDto, type ApprovalQualityDto, type ApproverQualityDto, type ApproverQualityBody, type AttachmentDto, type AuditVerifyDto, type AvatarDto, type BriefTier, type ChannelDto,
@@ -14,6 +14,7 @@ import {
   type UploadDto, type VersionConfig, type VersionDiff, type VersionProposalDto, type AgentReliability, type QueueSummaryDto, type AnchorStatusDto, type AnchorTenantDto, ANCHOR_STATUS_NAMES, JOB_STATUS_NAMES,
   type ContributionDto, type RetirementProposalsDto, type RetirementProposalDto, CONTRIBUTION_ACTIONS,
   type HaltDto, type HaltsDto, type HaltRecordDto, HALT_SCOPES,
+  type TrajectoryListDto, type TrajectoryDetailDto, type TrajectoryRunDto, type TrajectoryStepDto, type TrajectoryCostDto, type ChainCheck, FINAL_CLAIMS, CLAIM_LABELS, CLAIM_REASONS, CHAIN_STATUSES, CHAIN_REASONS, ANCHOR_STATES, COST_STATUSES, type StepDecision,
   type AttentionDto, type AttentionRowDto, type AttentionMemberDto, type AttentionEvidence, type AttentionFact, type AttentionAction, ATTENTION_REASON_CODES, ATTENTION_KINDS, ATTENTION_ICONS,
   type ProposalEvaluationDto, type EvalRefusalDto, type GradingDto, type DatasetValidityDto, type CompanyDimensionsDto, type DimensionRowDto, type DimensionCell, DIMENSION_KEYS, DIMENSION_WINDOWS,
   type CapacityCellDto, type CapacityDeptDto, type CapacityPersonDto, type CapacityPeopleBody, type ReviewCapacityDto, type LittleLawDto, type SpanDto, type SpanRowDto,
@@ -548,3 +549,23 @@ export const cloudCompletion: V<CloudCompletionDto> = obj<CloudCompletionDto>({ 
 const haltDto: V<HaltDto> = obj<HaltDto>({ id: int, scope: oneOf(HALT_SCOPES), target: str, halted: bool, reason: str, createdBy: str, createdByName: nullable(str), createdAt: iso });
 export const haltsBody: V<HaltsDto> = obj<HaltsDto>({ active: arr(haltDto), recent: arr(haltDto) });
 export const haltRecord: V<HaltRecordDto> = obj<HaltRecordDto>({ halt: haltDto });
+
+// ---- Phase A (A1): run trajectories
+const capsV: V<NonNullable<TrajectoryRunDto['caps']>> = obj({ maxSteps: int, maxWallMs: int, maxToolCallsPerMinute: int, maxDistinctOrigins: int, reservedMoneyMicros: int, reservedTokens: int });
+const trajCost: V<TrajectoryCostDto> = obj<TrajectoryCostDto>({ status: oneOf(COST_STATUSES), micros: nullable(int), knownSumMicros: int, missingSteps: int, text: str });
+const trajRun: V<TrajectoryRunDto> = obj<TrajectoryRunDto>({
+  id: str, jobRef: nullable(str), taskClass: str, startedAt: iso, endedAt: iso, finalClaim: oneOf(FINAL_CLAIMS),
+  claim: obj<TrajectoryRunDto['claim']>({ label: oneOf(CLAIM_LABELS), reason: nullable(oneOf(CLAIM_REASONS)), text: str }),
+  steps: int, executedSteps: int, tokens: nullable(int), cost: trajCost, profileSha256: nullable(str), caps: nullable(capsV), headHash: str, recordedAt: iso,
+});
+const stepDecision: V<StepDecision> = obj<StepDecision>({
+  profile: nullable(obj<NonNullable<StepDecision['profile']>>({ allowed: bool, reason: str })),
+  caps: obj<StepDecision['caps']>({ action: oneOf(['continue', 'stop'] as const), reason: nullable(str) }),
+});
+const trajStep: V<TrajectoryStepDto> = obj<TrajectoryStepDto>({
+  seq: int, modelRequestHash: nullable(str), tool: str, args: unknownV, redactions: int, decision: stepDecision, policyDecisionId: str, executed: bool, ok: nullable(bool), resultHash: nullable(str),
+  approvalId: nullable(str), credentialHandleId: nullable(str), startedAt: iso, endedAt: iso, tokens: nullable(int), toolCostMicros: nullable(int), stepHash: str,
+});
+const chainCheck: V<ChainCheck> = obj<ChainCheck>({ ok: bool, status: oneOf(CHAIN_STATUSES), checked: int, firstBadSeq: nullable(int), reason: nullable(oneOf(CHAIN_REASONS)), anchor: oneOf(ANCHOR_STATES) });
+export const trajectoryList: V<TrajectoryListDto> = obj<TrajectoryListDto>({ runs: arr(trajRun) });
+export const trajectoryDetail: V<TrajectoryDetailDto> = obj<TrajectoryDetailDto>({ run: trajRun, envCheck: unknownV, steps: arr(trajStep), chain: chainCheck });
