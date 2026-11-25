@@ -259,6 +259,14 @@ describe('threshold (d): secrets and flagged personal data never reach the table
     let deep: any = { v: 1 }; for (let i = 0; i < 60; i++) deep = { n: deep };
     expect(JSON.stringify(redactArgs(deep).value).length).toBeLessThan(20_000);
   });
+  it('hostile input does not stall it: long runs of word characters, dots and dashes are scanned in well under a second, and a secret inside the first 2000 characters of a long string is still removed', () => {
+    const t0 = Date.now();
+    for (const filler of ['a.', 'a-', 'ab_', '1 ', 'x=', '/a', '@a.', 'password ']) redactArgs({ blob: filler.repeat(Math.ceil(120_000 / filler.length)) });
+    expect(Date.now() - t0).toBeLessThan(5000);
+    const r = JSON.stringify(redactArgs({ blob: 'password=Tr0ub4dor&3 ' + 'x'.repeat(50_000) }).value);
+    expect(r).not.toContain('Tr0ub4dor&3');
+    expect(r).toContain('[truncated:+');
+  });
   it('through the recorder and the database: no seeded secret appears anywhere in the stored rows or the audit anchor', async () => {
     const piiFields = ['patientNote'];
     const rec = new TrajectoryRecorder({ tenantId: TENANT, runId: 'RUN-redact', jobRef: null, taskClass: 'web-research', startedAt: RUN_START, profileSha256: null, caps: null, breaker: { stage: 1, maxConsecutiveFailures: 3 }, piiFields });

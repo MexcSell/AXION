@@ -14,7 +14,7 @@
  */
 const SECRET = '[redacted:secret]';
 const PII = '[redacted:pii]';
-const MAX_DEPTH = 8, MAX_ITEMS = 100, MAX_STR = 2000, MAX_KEY = 200, MAX_TOTAL = 16_000;
+const MAX_DEPTH = 8, MAX_ITEMS = 100, MAX_STR = 2000, MAX_SCAN = 8000, MAX_KEY = 200, MAX_TOTAL = 16_000;
 
 const norm = (k: string) => k.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
 const segs = (k: string) => norm(k).split(/[^a-z0-9]+/).filter(Boolean);
@@ -76,7 +76,12 @@ export function redactArgs(input: unknown, opts: RedactOptions = {}): Redacted {
   const flagged = new Set((opts.piiFields ?? []).map((k) => norm(k).replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')));
   const walk = (v: unknown, depth: number): unknown => {
     if (v === null || v === undefined) return null;
-    if (typeof v === 'string') { const r = scrubString(v, hit); return r.length > MAX_STR ? `${r.slice(0, MAX_STR)}[truncated:+${r.length - MAX_STR} chars]` : r; }
+    if (typeof v === 'string') {
+      // only the first MAX_SCAN characters are scanned (the patterns are not linear on hostile input) and only MAX_STR are kept, so nothing past the scan is ever stored
+      const r = scrubString(v.length > MAX_SCAN ? v.slice(0, MAX_SCAN) : v, hit);
+      const more = v.length - Math.min(v.length, MAX_STR);
+      return r.length > MAX_STR || v.length > MAX_STR ? `${r.slice(0, MAX_STR)}[truncated:+${more} chars]` : r;
+    }
     if (typeof v === 'number') return Number.isFinite(v) ? v : null;
     if (typeof v === 'boolean') return v;
     if (typeof v === 'bigint') return v.toString();
@@ -92,7 +97,7 @@ export function redactArgs(input: unknown, opts: RedactOptions = {}): Redacted {
     let n = 0;
     for (const [rawKey, val] of Object.entries(v as Record<string, unknown>)) {
       if (n++ >= MAX_ITEMS) { out['[truncated]'] = `+${Object.keys(v as object).length - MAX_ITEMS} keys`; break; }
-      const key = scrubString(rawKey, hit).slice(0, MAX_KEY);
+      const key = scrubString(rawKey.slice(0, MAX_KEY * 4), hit).slice(0, MAX_KEY);
       if (val === undefined) continue;
       if (isSecretKey(rawKey)) { out[key] = SECRET; hit(); }
       else if (isPiiKey(rawKey, flagged)) { out[key] = PII; hit(); }
