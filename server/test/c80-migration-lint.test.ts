@@ -24,6 +24,13 @@ const BAD: [string, string, string | null, LintFinding['rule']][] = [
   ['drops an append-only table, schema-qualified and quoted', 'DROP TABLE IF EXISTS "public"."Events" CASCADE;', DOWN, 'drop-append-only'],
   ['drops a column of an append-only table', 'alter table events drop column detail;', DOWN, 'drop-append-only'],
   ['drops a constraint of an append-only table among other changes', 'alter table task_reviews add column z int, drop constraint task_reviews_pkey;', DOWN, 'drop-append-only'],
+  ['drops a CHECK and never re-adds it', 'alter table approval_requests drop constraint approval_requests_digest_version_check;', DOWN, 'drop-append-only'],
+  ['drops a CHECK and re-adds it under another name', 'alter table approval_requests drop constraint a_check; alter table approval_requests add constraint b_check check (x in (1,2,3));', DOWN, 'drop-append-only'],
+  ['drops a CHECK and re-adds the name as UNIQUE, not CHECK', 'alter table approval_requests drop constraint a_check; alter table approval_requests add constraint a_check unique (x);', DOWN, 'drop-append-only'],
+  ['re-adds the CHECK before dropping it (the drop wins)', 'alter table approval_requests add constraint a_check check (x > 0); alter table approval_requests drop constraint a_check;', DOWN, 'drop-append-only'],
+  ['re-adds the CHECK on another table', 'alter table approval_requests drop constraint a_check; alter table events add constraint a_check check (x > 0);', DOWN, 'drop-append-only'],
+  ['swaps a primary key for a CHECK of the same name', 'alter table messages drop constraint messages_pkey; alter table messages add constraint messages_pkey check (id is not null);', DOWN, 'drop-append-only'],
+  ['widens a CHECK but also drops a column in the same statement', 'alter table approval_requests drop constraint a_check, drop column payload; alter table approval_requests add constraint a_check check (x in (1,2,3));', DOWN, 'drop-append-only'],
   ['drops a guard trigger and does not recreate it', 'drop trigger events_no_update on events;', DOWN, 'drop-append-only'],
   ['disables a guard trigger and never re-enables it', 'alter table audit_events disable trigger audit_events_no_update; alter table audit_events add column x int;', DOWN, 'guard-disabled'],
   ['disables ALL triggers', 'alter table messages disable trigger all;', DOWN, 'guard-disabled'],
@@ -55,6 +62,7 @@ const GOOD: [string, string][] = [
   ['drop, update and delete on tables that are not append-only', 'drop table notifications; alter table users drop column x; update users set a = 1; delete from sessions;'],
   ['a comment or string that mentions the forbidden statements', "-- drop table messages;\n/* delete from events; */ insert into notes(t) values ('update messages set x = 1; drop table events;');"],
   ['an upsert on an append-only table (ON CONFLICT DO UPDATE is not an UPDATE statement)', "insert into messages(id) values ('a') on conflict (id) do update set id = excluded.id;"],
+  ['widens a CHECK: drop it and re-add one with the same name later in the file (owner-approved exception, 0064)', 'alter table approval_requests drop constraint approval_requests_digest_version_check;\nalter table approval_requests add constraint approval_requests_digest_version_check check (digest_version in (1,2,3));'],
   ['an alter of a non-chain column of an append-only table', 'alter table audit_events add column memo text, alter column memo set default 0;'],
 ];
 
