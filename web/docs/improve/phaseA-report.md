@@ -69,4 +69,8 @@ Choices to know about: (1) with v3 on and nothing supplied, a request binds expl
 - **O1b**: approve the approval-digest version change (v3). Built, tested, off. Turn on by starting the server with `APPROVAL_DIGEST_VERSION=3` once O1 is settled and a first run is about to exist. Also decide how to handle the c80 lint exception above.
 
 ## Verification
-See the last section, written after the full run.
+- `cd server && npm run -s typecheck`: clean. `cd web && npx tsc --noEmit -p .`: clean.
+- Phase A tests: 5 new files, 198 tests, all pass (A1 trajectory 104, A1 routes 9, A2 halts 57, A3 digest 20, O1 profile 8). The c95 tests (94) and the execution guard in `approvals.test.ts` are green and unchanged.
+- Full server suite, once, `npx vitest run --maxWorkers=2`, after the last code change: 209 files (207 passed, 1 failed, 1 skipped); 4850 tests (**4813 passed, 1 failed, 36 skipped**). No connection-cap (53300) flake in this run.
+- The one failure: `test/c80-migration-lint.test.ts > c80: migration lint (the real migrations) > every migration outside the baseline passes the lint`. First error line: `AssertionError: expected [ Array(1) ] to deeply equal []`, whose one element is `0064_approval_digest_v3: drop-append-only approval_requests ALTER TABLE approval_requests ... DROP`. Cause and the proposed fix are in "Needs a reviewed decision" above. It is caused by this branch (migration 0064), not by the base tree. The earlier full run (before the redaction hardening and the replay `redactedSteps` change) had the same single failure: 4811 passed, 1 failed, 36 skipped.
+- Not run: the live server, anything on ports 5190/5191, the database `axion`; nothing was pushed.
