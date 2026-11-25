@@ -148,6 +148,8 @@ export interface Message {
   attachments?: Attachment[];
   status?: 'sent' | 'delivered' | 'acknowledged' | 'queued';
   replyTo?: string;
+  /** a GM chat reply's mission draft (owner 2026-11-25) */
+  draft?: import('@contracts').MissionDraftDto;
   /** api mode (Stage 6): server order within the thread, DEMO simulation flag, author display name */
   seq?: number;
   simulated?: boolean;

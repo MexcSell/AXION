@@ -60,7 +60,7 @@ let streamEvents: { event: string; data: any }[] = [];
 describe('API coverage run', () => {
   beforeAll(async () => {
     // owner 2026-11-24: a FAKE cloud model, so the cloud routes answer 2xx without any network
-    const cloudModels = [1, 2].map((n) => ({ id: `claude-${n}`, label: `Claude ${n}`, tokenVar: `CLAUDE_CODE_OAUTH_TOKEN${n}`, model: 'claude-opus-5-5', complete: async () => ({ text: '{"ok":true}', durationMs: 5, usage: { input: 4, output: 2 } }) }));
+    const cloudModels = [1, 2].map((n) => ({ id: `claude-${n}`, label: `Claude ${n}`, tokenVar: `CLAUDE_CODE_OAUTH_TOKEN${n}`, model: 'claude-opus-5-5', refresh: async () => ({ status: 'limited', checkedAt: new Date().toISOString(), account: 'tester@example.com', resetsAt: new Date().toISOString(), windows: [{ label: 'Weekly limit', percent: 100, resetsAt: new Date().toISOString() }] }), complete: async () => ({ text: '{"ok":true}', durationMs: 5, usage: { input: 4, output: 2 } }) }));
     t = await makeTestApp({ staffingStepMs: 30, conversationSimMs: 80, writeLimits: { proposals: { max: 1000, windowMs: 60_000 } }, configure: recordServed, auditAnchor: anchorCfg, cloudModels });
     await t.app.listen({ host: '127.0.0.1', port: 0 });
     base = `http://127.0.0.1:${(t.app.server.address() as { port: number }).port}`;
@@ -209,6 +209,7 @@ describe('API coverage run', () => {
     await call(admin, 'GET', '/threads/:id/messages', `/threads/${threadId}/messages`);
     await call(admin, 'GET', '/missions/:id/threads', `/missions/${m1}/threads`);
     await call(admin, 'POST', '/channels/:key/messages', '/channels/gm/messages', { status: 201, body: { kind: 'command', text: 'Plan my week' }, headers: key() });
+    await t.app.chatResponder.idle(); // owner 2026-11-25: the fake Claude 2 answers as the GM after the post commits
     await call(admin, 'GET', '/channels/:key/messages', '/channels/gm/messages');
     await call(admin, 'GET', '/channels/:key/messages', '/channels/gm/messages', { query: '?limit=1' });
     await call(admin, 'POST', '/channels/:key/messages', '/channels/agent:coder-01/messages', { status: 201, body: { kind: 'command', text: 'Hello coder' }, headers: key() });
@@ -216,8 +217,15 @@ describe('API coverage run', () => {
     await call(admin, 'GET', '/channels/admin/:userId/messages', `/channels/admin/${minaId}/messages`);
     await call(admin, 'POST', '/channels/admin/:userId/messages', `/channels/admin/${minaId}/messages`, { status: 201, body: { kind: 'reply', text: 'Done.' }, headers: key() });
     await call(admin, 'GET', '/channels', '/channels');
+    await call(admin, 'POST', '/cloud-models/:id/manage', '/cloud-models/claude-1/manage', { body: { action: 'refresh' } });
     await call(admin, 'POST', '/cloud-models/:id/complete', '/cloud-models/claude-1/complete', { body: { prompt: 'Say ok as JSON.', format: 'json' } });
     await call(admin, 'GET', '/cloud-models', '/cloud-models');
+    // owner 2026-11-25: the chat model route (the refresh above found claude-1 limited, so it cools down and claude-2 answers)
+    await call(admin, 'POST', '/cloud-models/:id/manage', '/cloud-models/claude-1/manage', { body: { action: 'refresh' } }); // limited again: cooling
+    await call(admin, 'PUT', '/chat-model', '/chat-model', { body: { models: ['claude-1', 'claude-2'] } });
+    await call(mina, 'GET', '/chat-model', '/chat-model');
+    await t.app.chatResponder.idle();
+    await call(admin, 'GET', '/chat-model/usage', '/chat-model/usage', { query: '?days=7' });
     await call(mina, 'GET', '/channels', '/channels');
 
     // ---- approvals and notifications

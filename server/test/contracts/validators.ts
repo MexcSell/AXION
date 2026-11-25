@@ -23,8 +23,7 @@ import {
   type ForecastDto, type ForecastBaseline, type ForecastLedgerDto, type ForecastRecordDto, type ForecastRecorded, type CalibrationBin, type ForecastSkill, type ForecastClassRow, type ForecastCounts, FORECAST_QUESTION,
   type ReleaseDto, type ReleaseMarkDto, type LastGoodDto, type ReleasesDto, RELEASE_MARK_KINDS,
   type ArtifactDto, type ArtifactVersionDto, type ArtifactsDto, type ArtifactDetailDto, ARTIFACT_PRODUCER_KINDS,
-  type CloudModelCheck, type CloudUsageWindow, type CloudModelStatusDto, type CloudModelsDto, type CloudCompletionDto,
-} from '../../../shared/contracts/src/index.ts';
+  type CloudModelCheck, type CloudUsageWindow, type CloudModelStatusDto, type CloudModelsDto, type CloudCompletionDto, ChatRouteEntryDto, ChatModelRouteDto, ChatUsageDto } from '../../../shared/contracts/src/index.ts';
 
 export const errorEnvelope: V<ErrorEnvelope> = obj<ErrorEnvelope>({ code: oneOf(ERROR_CODES), message: str, correlationId: str, retryable: bool, fieldErrors: opt(dict(str)) });
 export const okBody: V<{ ok: boolean }> = obj({ ok: lit(true) });
@@ -201,6 +200,7 @@ export const message: V<MessageDto> = obj<MessageDto>({
   text: str, agoMin: num, ts: num, taskId: opt(str), replyTo: opt(str), attachments: opt(arr(attachment)),
   status: opt(oneOf(['sent', 'delivered', 'acknowledged', 'queued'] as const)), simulated: bool,
   author: obj({ kind: oneOf(['human', 'agent', 'system'] as const), id: str, name: str, instanceId: opt(str) }),
+  draft: opt(obj({ title: str, text: str, criteria: arr(str) })),
 });
 export const messageBody = obj<{ message: MessageDto }>({ message });
 export const messagePage: V<MessagePageDto> = obj<MessagePageDto>({ messages: arr(message), hasMore: bool, nextBefore: nullable(int) });
@@ -536,5 +536,9 @@ const cloudModelStatus: V<CloudModelStatusDto> = obj<CloudModelStatusDto>({ id: 
     account: nullable(str), resetsAt: nullable(iso), windows: arr(obj<CloudUsageWindow>({ label: str, percent: num, resetsAt: nullable(iso) })) })),
   lastCall: nullable(obj<NonNullable<CloudModelStatusDto['lastCall']>>({ at: iso, ok: bool, durationMs: int })) });
 export const cloudModels: V<CloudModelsDto> = obj<CloudModelsDto>({ models: arr(cloudModelStatus), maxInFlight: int, canPrompt: bool });
+const chatRouteEntry = obj<ChatRouteEntryDto>({ id: str, label: str, model: str, configured: bool, enabled: bool, usable: bool, reason: nullable(str), until: nullable(str) });
+export const chatModelRoute: V<ChatModelRouteDto> = obj<ChatModelRouteDto>({ models: arr(str), custom: bool, entries: arr(chatRouteEntry), active: nullable(str), updatedAt: nullable(str), updatedBy: nullable(str), canEdit: bool });
+export const chatUsage: V<ChatUsageDto> = obj<ChatUsageDto>({ days: int, fallbacks: int,
+  rows: arr(obj<ChatUsageDto['rows'][number]>({ day: str, modelId: str, calls: int, errors: int, answered: int, inputTokens: int, outputTokens: int })) });
 export const cloudCompletion: V<CloudCompletionDto> = obj<CloudCompletionDto>({ id: str, model: str, text: str, truncated: bool, format: oneOf(['text', 'json'] as const), validJson: nullable(bool), durationMs: int,
   usage: obj<CloudCompletionDto['usage']>({ input: int, output: int }) });

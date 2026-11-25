@@ -20,7 +20,7 @@ export const EVENT_VALIDATORS: { [K in EventType]: V<EventPayloads[K]> } = {
   'approval.consumed': obj({ approvalId: str, kind: str, tier: str, by: str }),
   'notification.created': obj({ id: str, title: str, severity }),
   'conversation.messageCreated': obj({ threadId: str, messageId: str, seq: int, kind: str, simulated: bool, message, channel: opt(obj({ kind: str, userId: str, agentId: opt(str) })) }),
-  'conversation.receipt': obj({ threadId: str, messageId: str, state: oneOf(['queued', 'delivered', 'acknowledged'] as const), simulated: bool }),
+  'conversation.receipt': obj({ threadId: str, messageId: str, state: oneOf(['queued', 'delivered', 'acknowledged'] as const), simulated: bool, channel: opt(obj({ kind: str, userId: str, agentId: opt(str) })) }),
   'instance.created': obj({ instanceId: str, agentId: str, simulated: bool, managerInstanceId: opt(str) }),
   'instance.stateChanged': obj({ instanceId: str, state: instanceState }),
   'task.delegated': obj({ taskId: opt(str), fromInstance: str, toInstance: str, kind: lit('delegated' as const), simulated: opt(bool), by: opt(str) }),

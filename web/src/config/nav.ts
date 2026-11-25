@@ -40,7 +40,7 @@ export const ROUTE_TABS: Record<string, string[]> = {
   results: ['Library', 'Releases'],
   models: ['Providers', 'Playground'],
   notifications: ['Inbox', 'Pending', 'Resolved'],
-  settings: ['General', 'Users', 'Forecasts', 'Navigation', 'Appearance', 'Avatars & Faces', 'Accessibility', 'Browser'],
+  settings: ['General', 'Users', 'AI Chat', 'Forecasts', 'Navigation', 'Appearance', 'Avatars & Faces', 'Accessibility', 'Browser'],
   operations: ['Services', 'Agents', 'Models', 'Queues'],
   help: ['New Features', 'Guides', 'Context Help', 'Shortcuts', 'Troubleshooting', 'Glossary'],
 };

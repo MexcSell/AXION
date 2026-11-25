@@ -26,7 +26,11 @@ export interface MessageDto {
   status?: 'sent' | 'delivered' | 'acknowledged' | 'queued';
   simulated: boolean;
   author: { kind: 'human' | 'agent' | 'system'; id: string; name: string; instanceId?: string };
+  /** owner 2026-11-25: a GM chat reply may carry a mission draft the person creates with one click (nothing executes) */
+  draft?: MissionDraftDto;
 }
+export interface MissionDraftDto { title: string; text: string; criteria: string[] }
+export const DRAFT_TITLE_MAX = 120, DRAFT_TEXT_MAX = 4000, DRAFT_CRITERIA_MAX = 8, DRAFT_CRITERION_MAX = 300;
 export interface ThreadDto {
   id: string; missionId: string | null; kind: string;
   a: string; b: string;              // instance ids, or 'human'

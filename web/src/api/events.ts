@@ -16,7 +16,7 @@ import { bumpAttention } from './attention';
 import { bumpScorecard, clearScorecard } from './scorecard';
 import { bumpTaskReviews } from './taskReviews';
 import { bumpDepartments, clearDepartments } from './departments';
-import { onChannelEvent, refreshLoadedChannels, clearChannels, setChatUser } from './chat';
+import { onChannelEvent, onChannelReceipt, refreshLoadedChannels, clearChannels, setChatUser } from './chat';
 import { onMissionControlEvent, refreshLoadedMissionControl, clearMissionControl, setMcUser } from './missionControl';
 
 /**
@@ -111,6 +111,7 @@ export function startSync(): () => void {
     if (/^(instance|task|org|agent|mission)\./.test(type)) departments('d');
     if (/^(instance|task|mission)\./.test(type)) instances('i'); // Agents pages: Live Instances and each profile's missions
     if (type === 'conversation.messageCreated' && onChannelEvent(e)) return; // a direct channel (GM, administrators, one agent), not a mission thread
+    if (type === 'conversation.receipt' && onChannelReceipt(e)) return; // owner 2026-11-25: the chat model took (delivered) or answered (acknowledged) my message
     if (type.startsWith('conversation.') || type.startsWith('instance.') || type.startsWith('task.')) onMissionControlEvent(type, e);
   };
 

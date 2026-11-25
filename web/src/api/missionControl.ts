@@ -59,7 +59,7 @@ const msgOf = (e: unknown) => (e instanceof ApiFailure ? e.message : 'Something 
 export const toMsg = (d: MessageDto): Message => ({
   id: d.id, from: d.from, to: d.to, kind: d.kind, text: d.text, agoMin: d.agoMin, ts: d.ts, seq: d.seq, simulated: d.simulated, authorName: d.author?.name,
   ...(d.taskId ? { taskId: d.taskId } : {}), ...(d.replyTo ? { replyTo: d.replyTo } : {}), ...(d.status ? { status: d.status } : {}),
-  ...(d.attachments?.length ? { attachments: d.attachments } : {}),
+  ...(d.attachments?.length ? { attachments: d.attachments } : {}), ...(d.draft ? { draft: d.draft } : {}),
 });
 const RANK: Record<string, number> = { sent: 0, queued: 1, delivered: 2, acknowledged: 3 };
 /** Receipts only move forward (an event may arrive after a fresher page). */

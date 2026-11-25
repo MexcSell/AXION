@@ -19,6 +19,8 @@ const NOT_REACHED: Record<string, string> = {
   'GET /operations/anchors': 'audit anchors, not mission data',
   'GET /artifacts': 'administrator-only (the member gets 403); artifact records (c76) carry no mission data',
   'GET /releases': 'administrator-only (the member gets 403); release records (c76) carry no mission data',
+  'GET /chat-model': 'the chat model order and model states (owner 2026-11-25): model ids and labels, no mission data',
+  'GET /chat-model/usage': 'administrator-only (the member gets 403); chat call counts per day and model from the audit log, no mission data',
   'GET /cloud-models': 'the live cloud models (owner 2026-11-24): ids, model names, token variable names and call counters, no mission data',
 };
 /** Routes that serve a fixed record or the caller's own session and carry no mission data at all. */

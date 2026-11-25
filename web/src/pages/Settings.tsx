@@ -23,6 +23,7 @@ import '@/theme/pages/settings-nav.css';
 import { NavigationSettings } from '@/features/settings/NavigationSettings';
 import { UsersSettings } from '@/features/settings/UsersSettings';
 import { MyForecasts } from '@/features/settings/MyForecasts';
+import { ChatModelSettings } from '@/features/settings/ChatModelSettings';
 import { SiteGrants } from '@/features/settings/SiteGrants';
 import { isAdmin, useMe } from '@/store/auth';
 import '@/theme/pages/users-settings.css';
@@ -48,6 +49,7 @@ export default function SettingsPage() {
       <FrameBody tab={tab} panel={false}>
         {tab === 'General' && <General setDirty={setDirty} />}
         {tab === 'Users' && <UsersSettings />}
+        {tab === 'AI Chat' && <ChatModelSettings admin={admin} />}
         {tab === 'Forecasts' && <MyForecasts />}
         {tab === 'Navigation' && <NavigationSettings />}
         {tab === 'Appearance' && <Appearance />}

@@ -34,6 +34,7 @@ async function resolve(c: Tx | Db, ctx: Ctx, rawKey: string, userId?: string): P
 }
 
 export default async function directRoutes(app: FastifyInstance) {
+  const responder = app.chatResponder; // owner 2026-11-25: gm and agent channels are answered live (conversations/responder.ts)
   app.get('/channels', async (req) => ({ channels: await listChannels(app.db, await requireUser(req)) }));
 
   const read = async (req: any, rawKey: string, userId?: string) => {
@@ -49,6 +50,7 @@ export default async function directRoutes(app: FastifyInstance) {
     const ctx = await requireUser(req);
     const b = parsePost(req.body, { withTo: false });
     const text = b.text;
+    let answer: string | null = null; // the thread to answer once this post has committed (never on a replayed key)
     const out = await idempotent(app.db, req, ctx, async (c) => {
       const r = await resolve(c, ctx, rawKey, userId);
       const th = await ensureDirectThread(c, ctx.tenantId, r.ownerId, r.key);
@@ -56,12 +58,14 @@ export default async function directRoutes(app: FastifyInstance) {
       const atts = await loadAttachments(c, ctx, b.uploadIds);
       const toOwner = r.ownerId !== ctx.user.id; // an administrator answering in a user's admin line
       const recipient = r.key.kind === 'gm' ? 'gm' : r.key.kind === 'agent' ? r.key.agentId! : toOwner ? `human:${r.ownerId}` : 'admins';
-      const real = r.key.kind === 'admin'; // people talk to people: no queue, no note. gm and agent channels: nothing answers yet (E6)
+      const real = r.key.kind === 'admin'; // people talk to people: no queue, no note. gm and agent channels: the chat model answers (responder.ts), else the honest note (E6)
       const msg = await appendMessage(c, { thread: th, authorKind: 'human', authorId: ctx.user.id, recipient, kind: b.kind, body: text, replyTo: b.replyTo ?? null,
         simulated: false, attachments: atts, correlationId: ctx.correlationId, status: real ? undefined : 'queued' });
       if (!real) {
         await addReceipt(c, th, msg.id, 'queued', { correlationId: ctx.correlationId });
-        await ensureHonestNote(c, th, r.key.kind === 'gm' ? HONEST_NOTE_GM : honestNoteAgent(r.agentName!));
+        // the owner's own channel and the chat model on: answered after commit. Otherwise (no model, or disabled): the honest note.
+        if (r.ownerId === ctx.user.id && await responder.enabled(c, ctx.tenantId)) answer = th.id;
+        else await ensureHonestNote(c, th, r.key.kind === 'gm' ? HONEST_NOTE_GM : honestNoteAgent(r.agentName!));
       } else if (toOwner) {
         await createNotification(c, { tenantId: ctx.tenantId, userId: r.ownerId, ownerOnly: true, severity: 'info', category: 'system', title: 'An administrator answered you',
           body: text.length > 140 ? text.slice(0, 139) + '…' : text || '(attachment)', route: '/?chat=admin' });
@@ -69,6 +73,7 @@ export default async function directRoutes(app: FastifyInstance) {
       await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'conversation.message', subject: th.id, result: 'ok', correlationId: ctx.correlationId, detail: { messageId: msg.id, kind: b.kind, channel: r.key.kind, owner: r.ownerId, attachments: atts.length } });
       return { status: 201, body: { message: msg } };
     }, async (c) => { await resolve(c, ctx, rawKey, userId); });
+    if (answer) responder.schedule(answer);
     return reply.status(out.status).send(out.body);
   };
   app.post('/channels/:key/messages', async (req, reply) => write(req, reply, (req.params as { key: string }).key));

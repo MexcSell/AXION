@@ -32,6 +32,8 @@ export default async function cloudModelRoutes(app: FastifyInstance) {
   const ids = adapters.map((a) => a.id);
   if (new Set(ids).size !== ids.length) throw new Error('two cloud models share an id: ' + ids.join(', '));
   const slots = new Map<string, Slot>(adapters.map((a) => [a.id, { adapter: a, inFlight: 0, lastCall: null, check: a.previousCheck ?? null, refreshing: false }]));
+  // the chat model router learns from every check and call here (owner 2026-11-25); a limit saved before a restart still counts until its reset
+  for (const s of slots.values()) if (s.check?.status === 'limited' && s.check.resetsAt && Date.parse(s.check.resetsAt) > Date.now()) app.modelRouter.noteCheck(s.adapter.id, s.check);
   app.log.info({ cloudModels: adapters.map((a) => `${a.id}=${a.model} (${a.tokenVar})`) }, adapters.length ? `${adapters.length} cloud model(s) configured (claude CLI, tools off)` : 'no cloud model configured (no CLAUDE_CODE_OAUTH_TOKEN<n>)');
 
   async function settings(tenantId: string) {
@@ -87,6 +89,7 @@ export default async function cloudModelRoutes(app: FastifyInstance) {
         slot.inFlight--;
       }
       slot.lastCall = { at: slot.check.checkedAt, ok: slot.check.status === 'available', durationMs: Date.now() - started };
+      app.modelRouter.noteCheck(id, slot.check);
       await audit(app.db, { ...entry, result: slot.lastCall.ok ? 'ok' : 'error', detail: { status: slot.check.status } });
     } else {
       const state = { enable: 'enabled', disable: 'disabled', remove: 'removed' }[action];
@@ -116,6 +119,7 @@ export default async function cloudModelRoutes(app: FastifyInstance) {
       let validJson: boolean | null = null;
       if (format === 'json') { try { JSON.parse(stripFence(r.text)); validJson = true; } catch { validJson = false; } }
       slot.lastCall = { at: new Date().toISOString(), ok: true, durationMs: r.durationMs };
+      app.modelRouter.report(adapter.id, { ok: true });
       // the answer is already paid for: an audit write that fails is logged, never turned into a failed call
       await audit(app.db, { ...base, result: 'ok', detail: { format, promptChars: prompt.length, answerChars: r.text.length, usageIn: r.usage.input, usageOut: r.usage.output, durationMs: r.durationMs } })
         .catch((err) => req.log.error({ err }, 'cloud model call audit could not be saved'));
@@ -124,6 +128,7 @@ export default async function cloudModelRoutes(app: FastifyInstance) {
       const durationMs = Date.now() - started;
       slot.lastCall = { at: new Date().toISOString(), ok: false, durationMs };
       const kind = e instanceof CloudCallError ? e.kind : 'failed';
+      app.modelRouter.report(adapter.id, { ok: false, kind, resetsAt: slot.check?.resetsAt ?? null });
       req.log.warn({ model: adapter.id, kind, why: e instanceof CloudCallError ? e.message : 'unexpected error' }, 'cloud model call failed');
       await audit(app.db, { ...base, result: 'error', detail: { format, promptChars: prompt.length, durationMs, kind } }).catch(() => { /* the call's own error is the one reported */ });
       if (kind === 'limited') {

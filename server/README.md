@@ -9,13 +9,13 @@ The one exception is the **live cloud models** (owner requests 2026-11-24, below
 
 ```bash
 cd server && npm install
-npm run dev            # API on 127.0.0.1:5191 (migrates on start)
-cd ../web && npm run dev   # web on 127.0.0.1:5190, proxies /api to 5191
+npm start              # API on 127.0.0.1:5191 (migrates on start)
+# In another terminal, from the repository root
+cd web && npm ci && npm run build && npm start
 ```
 
 From your computer: `ssh -L 5190:127.0.0.1:5190 <vps>`, then open http://127.0.0.1:5190.
-The first name that connects becomes the administrator. With `DEMO_SEED=1` (in `.env`) the prototype's sample missions are
-loaded at that moment, owned by the administrator and marked DEMO.
+The first name that connects becomes the administrator. New installations start with an empty mission list.
 
 ## Configuration (`server/.env`, mode 600, never committed)
 
@@ -25,11 +25,11 @@ loaded at that moment, owned by the administrator and marked DEMO.
 | `TEST_DATABASE_URL` | `axion_test`: each test file gets its own schema |
 | `E2E_DATABASE_URL` | `axion_e2e`: browser checks (`web/scripts/api-e2e.sh`), emptied on every start |
 | `RESTORE_DATABASE_URL` | `axion_restore_check`: target of the restore test |
-| `DEMO_SEED` | `1` = load the DEMO missions when the first administrator registers |
 | `COOKIE_SECURE` | `1` once the app is served over HTTPS |
 | `HOST`/`PORT` | always 127.0.0.1; 5191 |
 | `CLAUDE_CODE_OAUTH_TOKEN1`, `…TOKEN2`, … | one live cloud model per token ("Claude 1", "Claude 2", ids `claude-1`, `claude-2`; an unnumbered `CLAUDE_CODE_OAUTH_TOKEN` is "Claude"). They live in the **repository root** `.env` (mode 600, never committed); `npm run dev`/`start` load it with `--env-file-if-exists=../.env`. None set = no cloud model |
 | `CLOUD_MODEL1`, `CLOUD_MODEL2`, … (`CLOUD_MODEL` for all) | model id per token, default `claude-opus-5-5` (must look like `claude-<name>`) |
+| `CHAT_MODEL` | the first chat model of the default order (default `claude-2`); administrators override the order in Settings › AI Chat. No chat model usable = the chats get the honest "can't answer yet" note |
 | `CLOUD_MODEL_TIMEOUT_MS` | per-prompt limit, default 120000 (5000..600000) |
 | `CLAUDE_BIN` / `CLOUD_MODEL_HOME` | path of the `claude` CLI (default: first on PATH, else `~/.local/bin/claude`) and the root of the private HOMEs, one per model (default `server/data/cloud-home/<id>`) |
 
@@ -38,8 +38,9 @@ server (`myapp`, `agentapp`, `ajp`, `ajp_test`, `postgres`) are never read or ch
 
 ## Live cloud models (owner requests 2026-11-24)
 
-- `GET /cloud-models` (everyone signed in): `{models: [{id, label, provider, transport, tokenVar, model, inFlight, lastCall}], maxInFlight, canPrompt}`.
+- `GET /cloud-models` (everyone signed in): `{models: [{id, label, provider, transport, tokenVar, model, enabled, inFlight, lastCall, check}], maxInFlight, canPrompt}`.
   `tokenVar` is the variable's NAME; no token ever leaves the server.
+- Administrators use `POST /cloud-models/:id/manage` with an `action` of `refresh`, `enable`, `disable` or `remove`. Refresh sends a short connection test and reads the CLI's account and quota windows. The server keeps the most recent check in the model’s private CLI directory across restarts and shows the account email only to administrators. Disable and Remove persist per tenant. Remove retires that environment slot in AXION.
 - `POST /cloud-models/:id/complete {prompt (1..8000 chars), format?: 'text'|'json'}` (administrators only, X-CSRF): the real answer
   `{id, model, text, truncated, format, validJson, durationMs, usage}`. Errors: 400 `VALIDATION`, 404 (no such id), 503 `MODEL_NOT_CONFIGURED`
   (no model at all), 429 `MODEL_BUSY` (2 at once per model) or `RATE_LIMITED` (bucket `cloud`, 10 a minute per session across all models),
@@ -48,8 +49,31 @@ server (`myapp`, `agentapp`, `ajp`, `ajp_test`, `postgres`) are never read or ch
 - How it runs: each token is a Claude Code credential; a direct Messages API probe on 2026-11-24 was refused (one 429), so `src/cloud/claude-cli.ts` runs
   `claude -p` locked down: no tools, no setting sources, MCP servers, slash commands or saved sessions, a HOME of its own per model, a child
   environment with only PATH, HOME and that model's token (no `DATABASE_URL`), the prompt on stdin, and a hard timeout. That file is the only server file allowed to
-  start a process (`test/approvals.test.ts`), and only `cloud/routes.ts` and `config.ts` may import it.
-- Each token is one of the owner's own subscriptions: that is why only administrators may prompt. Tests never use it (fake adapter, fake CLI).
+  start a process (`test/approvals.test.ts`), and only `cloud/routes.ts`, `config.ts` and `conversations/responder.ts` may import it.
+- Each token is one of the owner's own subscriptions: that is why only administrators may prompt here. Tests never use it (fake adapter, fake CLI).
+
+## Live chat answers (owner 2026-11-25)
+
+- Every message to the General Manager or an agent in the Chat dock (`POST /channels/gm|agent:<id>/messages`, the sender's own channel) is answered by the
+  tenant's chat model route, for every approved user, with no rate bucket and no in-flight cap (owner: no restrictions). Mission threads never call a model.
+- The route (Settings › AI Chat, migration 0062 `chat_model_routes`): administrators order the cloud models; no row = the default order (`CHAT_MODEL`,
+  default claude-2, then every other configured model). `GET /chat-model` (everyone), `PUT /chat-model {models: [ids] | null}` (administrators, audited
+  `model.chat.route`), `GET /chat-model/usage?days=1..90` (administrators).
+- `src/cloud/router.ts`, the model router: a model Disabled or Removed on Models is never tried; a provider limit keeps a model out until its reported reset
+  (else 15 min); a timeout or failure keeps it out 1, 2, 4 … min (at most 30); a success or an "available" check clears it. One answer tries the usable models
+  in order, then the cooling ones (soonest back first); a system note appears only when every model failed. The router learns from the chats, the
+  Playground calls and the provider checks; its health is in memory.
+- The agent answers as itself: its definition, active version (model, skills, tools) and current playbook go into the prompt (`<about_you>`).
+- GM mission drafts: when asked for work, the GM may end its reply with a `<mission_draft>{title, text, criteria}</mission_draft>` block. The server
+  validates it, removes it from the text and stores it in `messages.draft`; the web shows a "Create mission" card that creates a private mission with
+  that title and criteria. Nothing executes.
+- `src/conversations/responder.ts`: after the post commits, one worker per thread marks the waiting messages `delivered`, sends the company data and the
+  conversation on stdin, and posts the reply as the agent (`author_kind` agent, `author_id` gm or the agent id, kind `reply`) with the answered messages
+  `acknowledged`. Receipts reach the owner live (`conversation.receipt` with `payload.channel`). A failure posts a system note; the waiting messages are
+  answered with the next message, or by the sweep at the next server start. Audit `model.cloud.chat`: sizes, tokens and timing only.
+- `src/conversations/company-context.ts`: the data the model sees, read-only and tenant-scoped: the app's pages, agents and reporting lines, the missions
+  (with tasks and pending approvals) the asker may see, their visible notifications, the people list for administrators only, and the cloud model names.
+  Never other people's chats, passwords, sessions, audit rows, uploads, tokens or the environment.
 
 ## Commands
 
@@ -59,7 +83,7 @@ server (`myapp`, `agentapp`, `ajp`, `ajp_test`, `postgres`) are never read or ch
 | `npm run typecheck` | TypeScript |
 | `npm run migrate [-- down <n>]` | migrations up (default) or down to version n (`down 0` empties the schema) |
 | `npm run admin:approve-device -- <name>` | recovery: approves that user's newest waiting device (e.g. the only admin lost their cookies) |
-| `npm run demo:seed` / `npm run demo:clear` | add / remove the DEMO missions (`demo=true` rows only) |
+| `npm run demo:clear` | clean up legacy sample missions |
 | `npm run db:backup` | `pg_dump -Fc axion` on one snapshot → `../backups/axion-<UTC>.dump` + `.json` manifest of row counts (+ uploads archive), keeps 14 |
 | `npm run db:restore-check` | restores the newest dump into `axion_restore_check` and compares row counts with its manifest |
 | `npm run e2e:serve` | API on 5192 with `axion_e2e` (used by the browser checks) |
@@ -82,8 +106,7 @@ server (`myapp`, `agentapp`, `ajp`, `ajp_test`, `postgres`) are never read or ch
 - Notifications: `GET /notifications`, `POST /notifications/:id/ack`, `POST /notifications/ack-all {ids}`.
 - Agents (Stage 6): `GET /agents`, `GET /agents/:id` (with versions), `POST /agents` (admin, Idempotency-Key; 409
   `ROLE_TAKEN`/`DUTY_TAKEN`), `PATCH /agents/:id` (admin, If-Match; a model/skills/tools change adds an immutable version),
-  `GET /organization/graph`, `GET /organization/revisions`. 24 agents and org revision 1 are seeded on every start (idempotent,
-  independent of `DEMO_SEED`; `demo:clear` never removes them).
+  `GET /organization/graph`, `GET /organization/revisions`. The server ensures that the initial 24 role definitions and first organization revision exist at startup.
 - Organisation proposals (improvement cycle 1): `GET /organization/proposals` (everyone; `{proposals, activeRevision}`),
   `POST /organization/proposals {title, why, baseRevision, edges}` (admin, Idempotency-Key; `?dryRun=1` returns the dry run and
   stores nothing; 409 `ORG_CHANGED`/`DUPLICATE_PROPOSAL`), `POST /organization/proposals/:id/decision {decision, note?, sha}` (admin,
@@ -231,7 +254,7 @@ Not taken: axor's single-connection SQLite→Postgres shim, ad hoc migrations an
 
 ## Rollback
 
-1. Web: `?data=demo` (or `VITE_DATA_MODE=demo`) brings back the browser-only prototype.
+1. Web: rebuild and serve the previously deployed frontend and matching API revision.
 2. Data: `npm run migrate -- down 14` removes the agent version proposals (0015; versions they promoted stay, as ordinary versions); `npm run migrate -- down 12` removes the org proposals (0013); `down 5` removes Stage 6 (migrations 0006–0013) and keeps Stage 5 data; `down 0` empties the
    schema; or restore a dump (`backups/axion-20261121T110311Z.dump` was taken right before the Stage 6 migration).
 3. Remove everything: `dropdb` `axion`, `axion_test`, `axion_e2e`, `axion_restore_check`; `drop role axion`.

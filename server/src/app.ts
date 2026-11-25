@@ -34,6 +34,9 @@ import instanceRoutes from './instances/routes.ts';
 import taskRoutes from './tasks/routes.ts';
 import conversationRoutes from './conversations/routes.ts';
 import directRoutes from './conversations/direct.ts';
+import { chatResponder, type ChatResponder } from './conversations/responder.ts';
+import { ModelRouter } from './cloud/router.ts';
+import chatModelRoutes from './cloud/chat-model-routes.ts';
 import { startConversationSim } from './conversations/sim.ts';
 import { backfillMissionControl } from './instances/backfill.ts';
 import companyRoutes from './company/routes.ts';
@@ -55,7 +58,7 @@ import attentionRoutes from './attention/routes.ts';
 import cloudModelRoutes from './cloud/routes.ts';
 
 declare module 'fastify' {
-  interface FastifyInstance { routeTable: { method: string; url: string; bodyLimit?: number }[]; db: Db; cfg: Required<Pick<Config, 'tenantId'>> & Config; onFirstAdmin?: (userId: string) => Promise<void> }
+  interface FastifyInstance { routeTable: { method: string; url: string; bodyLimit?: number }[]; db: Db; cfg: Required<Pick<Config, 'tenantId'>> & Config; onFirstAdmin?: (userId: string) => Promise<void>; chatResponder: ChatResponder; modelRouter: ModelRouter }
 }
 
 export async function buildApp(cfg: Config): Promise<FastifyInstance> {
@@ -69,6 +72,14 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   app.decorate('db', db);
   app.decorate('cfg', { tenantId: DEFAULT_TENANT, ...cfg });
   app.addHook('onClose', async () => { await db.end(); });
+  // owner 2026-11-25: the GM and agent chats are answered by the chat model (Claude 2 unless CHAT_MODEL names another cloud model)
+  // owner 2026-11-25: administrators order the chat models in Settings › AI Chat; the router replaces an unusable model with the next one
+  const router = new ModelRouter(cfg.cloudModels ?? [], cfg.chatModelId ?? 'claude-2');
+  app.decorate('modelRouter', router);
+  const responder = chatResponder(app, router);
+  app.decorate('chatResponder', responder);
+  app.addHook('onReady', async () => { await responder.sweep().catch((err) => app.log.error({ err }, 'chat responder sweep failed')); });
+  app.addHook('preClose', async () => { await responder.close(); });
   // every route as registered (tests check that each write route keeps the CSRF, Origin and body-limit rules)
   const routeTable: { method: string; url: string; bodyLimit?: number }[] = [];
   app.decorate('routeTable', routeTable);
@@ -141,6 +152,7 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   await app.register(delegationRoutes, { prefix: '/api/v1' });
   await app.register(staffingRetryRoutes, { prefix: '/api/v1' });
   await app.register(cloudModelRoutes, { prefix: '/api/v1' }); // owner 2026-11-24: the live cloud model (admin prompts only)
+  await app.register(chatModelRoutes, { prefix: '/api/v1' }); // owner 2026-11-25: Settings › AI Chat (chat model order, usage)
   await tx(db, (c) => seedCompany(c, app.cfg.tenantId)); // decision E1: company data, idempotent, independent of DEMO_SEED
   await tx(db, (c) => backfillMissionControl(c, app.cfg.tenantId, app.log)); // Stage 6: instances, delegations and tasks for missions that predate them (idempotent)
 
@@ -151,7 +163,7 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   });
 
   startStaffingSim(app, cfg.staffingStepMs ?? 1500);
-  startConversationSim(app, cfg.conversationSimMs ?? 1200);
+  if (cfg.demoSeed || cfg.conversationSimMs !== undefined) startConversationSim(app, cfg.conversationSimMs ?? 1200);
   // review I4: expired approvals are settled every minute, even when nobody opens the approvals list
   const sweep = setInterval(() => { void tx(db, (c) => sweepExpired(c)).then((ids) => ids.forEach((id) => app.onMissionChanged?.(id, 'running'))).catch(() => {}); }, 60_000);
   sweep.unref();

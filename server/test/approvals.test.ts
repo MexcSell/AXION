@@ -115,8 +115,16 @@ describe('execution guard (Stage 5: nothing executes)', () => {
     const hits = files.filter((f) => f !== CLOUD && banned.test(readFileSync(f, 'utf8')));
     expect(hits).toEqual([]);
     expect(files.length).toBeGreaterThan(15);
-    // and only the cloud routes and the config may load it: no mission, task, routing or job code reaches the model
+    // and only the cloud routes, the config and the chat responder may load it: no mission, task, routing or job code reaches the model
+    // (owner 2026-11-25: the GM and agent direct chats are answered by Claude 2; mission threads are not)
     const importers = files.filter((f) => f !== CLOUD && /claude-cli\.ts/.test(readFileSync(f, 'utf8'))).map((f) => f.split('/src/')[1]).sort();
-    expect(importers).toEqual(['cloud/routes.ts', 'config.ts']);
+    expect(importers).toEqual(['cloud/router.ts', 'cloud/routes.ts', 'config.ts', 'conversations/responder.ts']);
+    // the chat model router (owner 2026-11-25) only names the adapter types; it never starts or calls anything itself
+    expect(readFileSync(join(import.meta.dirname, '..', 'src', 'cloud', 'router.ts'), 'utf8')).toMatch(/import type \{ CloudAdapter, CloudFailure \} from '\.\/claude-cli\.ts'/);
+    // the responder is built in app.ts only, and only the direct-channel routes use it (app.chatResponder)
+    const responderImporters = files.filter((f) => /from ['"][^'"]*responder\.ts['"]/.test(readFileSync(f, 'utf8'))).map((f) => f.split('/src/')[1]).sort();
+    expect(responderImporters).toEqual(['app.ts']);
+    const responderUsers = files.filter((f) => /\.chatResponder\b/.test(readFileSync(f, 'utf8'))).map((f) => f.split('/src/')[1]).sort();
+    expect(responderUsers).toEqual(['conversations/direct.ts']);
   });
 });

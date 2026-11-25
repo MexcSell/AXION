@@ -2,7 +2,7 @@ import type { Tx, Db } from '../db.ts';
 import { emit } from '../events/hooks.ts';
 import { ApiError, notFound } from '../errors.ts';
 import { VISIBLE_SQL } from '../missions/visibility.ts';
-import type { AttachmentDto, ChannelDto, MessageDto, ThreadDto } from '../../../shared/contracts/src/conversations.ts';
+import type { AttachmentDto, ChannelDto, MessageDto, MissionDraftDto, ThreadDto } from '../../../shared/contracts/src/conversations.ts';
 
 type Ctx = { tenantId: string; user: { id: string; name?: string; role: string } };
 export interface ThreadRow { id: string; tenant_id: string; scope: string; mission_id: string | null; kind: string; a: string; b: string; owner_user_id: string | null; created_at: Date; demo?: boolean }
@@ -14,7 +14,7 @@ const KB = (n: number) => (n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : `
 export const uiAttachmentKind = (k: string): AttachmentDto['kind'] => (k === 'image' || k === 'audio' || k === 'video' ? k : k === 'pdf' || k === 'doc' || k === 'txt' ? 'doc' : 'file');
 export const sizeLabel = KB;
 
-const SELECT_MESSAGE = `select m.*, c.mission_id, ai.agent_id as author_agent, ri.agent_id as recipient_agent, u.name as user_name, ad.name as agent_name,
+const SELECT_MESSAGE = `select m.*, c.mission_id, ai.agent_id as author_agent, ri.agent_id as recipient_agent, u.name as user_name, coalesce(ad.name, dd.name) as agent_name,
     (select r.state from message_receipts r where r.message_id=m.id order by r.id desc limit 1) as status,
     coalesce((select jsonb_agg(jsonb_build_object('id', coalesce(a.upload_id, 'att-' || a.id), 'name', a.name, 'kind', a.kind, 'size', a.size, 'upload', a.upload_id) order by a.id)
               from message_attachments a where a.message_id=m.id), '[]'::jsonb) as atts
@@ -22,7 +22,8 @@ const SELECT_MESSAGE = `select m.*, c.mission_id, ai.agent_id as author_agent, r
   left join agent_instances ai on ai.id=m.author_id and m.author_kind='agent'
   left join agent_instances ri on ri.id=m.recipient
   left join users u on u.id=m.author_id and m.author_kind='human'
-  left join agent_definitions ad on ad.id=ai.agent_id`;
+  left join agent_definitions ad on ad.id=ai.agent_id
+  left join agent_definitions dd on dd.id=m.author_id and m.author_kind='agent' and ai.id is null and dd.tenant_id=c.tenant_id`; // a direct-channel reply: author_id is the agent id (gm, coder-01)
 
 export function messageDto(r: any, now = Date.now()): MessageDto {
   const t = new Date(r.created_at).getTime();
@@ -32,7 +33,7 @@ export function messageDto(r: any, now = Date.now()): MessageDto {
   const atts: AttachmentDto[] = (r.atts as any[]).map((a) => ({ id: a.id, name: a.name, kind: uiAttachmentKind(a.kind), ...(a.size ? { size: a.size } : {}), ...(a.upload ? { url: `/api/v1/uploads/${a.upload}` } : {}) }));
   return {
     id: String(r.id), seq: r.seq, threadId: r.thread_id, from, to, kind: r.kind, text: r.body, agoMin: Math.max(0, Math.floor((now - t) / 60_000)), ts: t,
-    ...(r.task_id ? { taskId: r.task_id } : {}), ...(r.reply_to ? { replyTo: r.reply_to } : {}), ...(atts.length ? { attachments: atts } : {}),
+    ...(r.task_id ? { taskId: r.task_id } : {}), ...(r.reply_to ? { replyTo: r.reply_to } : {}), ...(atts.length ? { attachments: atts } : {}), ...(r.draft ? { draft: r.draft } : {}),
     ...(r.status ? { status: r.status } : human ? { status: 'sent' as const } : {}),
     simulated: r.simulated,
     author: { kind: r.author_kind, id: from, name: human ? (r.user_name ?? 'Owner') : agent ? (r.agent_name ?? r.author_id) : 'System', ...(agent ? { instanceId: r.author_id } : {}) },
@@ -62,15 +63,21 @@ export interface NewMessage {
   taskId?: string | null; replyTo?: string | null; simulated: boolean; createdAt?: Date; agoMin?: number; seq?: number;
   attachments?: { uploadId?: string | null; name: string; kind: string; size: string }[];
   actor?: { kind: 'human' | 'agent' | 'system'; id: string }; correlationId?: string; quiet?: boolean; status?: MessageDto['status'];
+  /** a GM chat reply's mission draft (owner 2026-11-25) */
+  draft?: MissionDraftDto | null;
 }
+
+type ChannelThread = { kind?: string; a?: string; b?: string; owner_user_id?: string | null };
+/** The `payload.channel` of a direct thread's events: which of the web's chat channels it belongs to. */
+const channelOf = (t: ChannelThread) => ({ kind: t.kind === 'agent-direct' ? 'agent' : t.kind!, userId: t.owner_user_id!, ...(t.kind === 'agent-direct' ? { agentId: t.a === 'human' ? t.b! : t.a! } : t.kind === 'gm' ? { agentId: 'gm' } : {}) });
 
 /** Append one message (the caller holds the thread lock when concurrent writers are possible) and emit conversation.messageCreated. */
 export async function appendMessage(c: Tx, m: NewMessage): Promise<MessageDto> {
   const seq = m.seq ?? Number((await c.query('select coalesce(max(seq), 0) + 1 as s from messages where thread_id=$1', [m.thread.id])).rows[0].s);
   const id = (await c.query(
-    `insert into messages(thread_id, seq, author_kind, author_id, recipient, kind, body, task_id, reply_to, simulated, created_at)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, coalesce($11::timestamptz, now()) - make_interval(mins => coalesce($12::int, 0))) returning id`,
-    [m.thread.id, seq, m.authorKind, m.authorId, m.recipient, m.kind, m.body, m.taskId ?? null, m.replyTo ?? null, m.simulated, m.createdAt ?? null, m.agoMin ?? null])).rows[0].id;
+    `insert into messages(thread_id, seq, author_kind, author_id, recipient, kind, body, task_id, reply_to, simulated, created_at, draft)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, coalesce($11::timestamptz, now()) - make_interval(mins => coalesce($12::int, 0)), $13) returning id`,
+    [m.thread.id, seq, m.authorKind, m.authorId, m.recipient, m.kind, m.body, m.taskId ?? null, m.replyTo ?? null, m.simulated, m.createdAt ?? null, m.agoMin ?? null, m.draft ? JSON.stringify(m.draft) : null])).rows[0].id;
   for (const a of m.attachments ?? []) await c.query('insert into message_attachments(message_id, upload_id, name, kind, size) values ($1,$2,$3,$4,$5)', [id, a.uploadId ?? null, a.name, a.kind, a.size]);
   const dto = (await messagesWhere(c, 'm.id=$1', [id]))[0];
   if (m.status) dto.status = m.status; // the state the receipt written right after will give, so the event and the response agree
@@ -82,7 +89,7 @@ export async function appendMessage(c: Tx, m: NewMessage): Promise<MessageDto> {
   else if (m.thread.scope === 'direct' && m.thread.owner_user_id && !m.quiet) {
     // Stage 6 E6: gm and agent channels are private to their owner ('owner' never reaches an administrator); the admin line is the owner plus every administrator ('user')
     const t = m.thread;
-    const channel = { kind: t.kind === 'agent-direct' ? 'agent' : t.kind, userId: t.owner_user_id, ...(t.kind === 'agent-direct' ? { agentId: t.a === 'human' ? t.b : t.a } : t.kind === 'gm' ? { agentId: 'gm' } : {}) };
+    const channel = channelOf(t);
     await emit(c, { tenantId: t.tenant_id, type: 'conversation.messageCreated', subjectKind: 'thread', subject: t.id, audience: t.kind === 'admin' ? 'user' : 'owner', audienceUser: t.owner_user_id ?? undefined,
       actor: m.actor?.id ?? (m.authorKind === 'system' ? 'system' : m.authorId), actorKind: m.actor?.kind ?? m.authorKind, correlationId: m.correlationId,
       payload: { threadId: t.id, messageId: dto.id, seq, kind: m.kind, simulated: m.simulated, channel, message: dto } });
@@ -118,11 +125,15 @@ export async function readPage(c: Tx | Db, threadId: string | null, userId: stri
   return { messages: page, hasMore: rows.length > limit, nextBefore: rows.length > limit ? page[page.length - 1].seq : null };
 }
 
-export async function addReceipt(c: Tx, thread: { id: string; tenant_id: string; mission_id: string | null }, messageId: string, state: 'queued' | 'delivered' | 'acknowledged', opts: { at?: Date; quiet?: boolean; simulated?: boolean; correlationId?: string } = {}) {
+/** `channelEvent`: a receipt of a gm or agent direct channel is sent to its owner live (the chat responder; the sender's own 'queued' needs no event). */
+export async function addReceipt(c: Tx, thread: { id: string; tenant_id: string; mission_id: string | null } & ChannelThread, messageId: string, state: 'queued' | 'delivered' | 'acknowledged', opts: { at?: Date; quiet?: boolean; simulated?: boolean; correlationId?: string; channelEvent?: boolean } = {}) {
   await c.query(`insert into message_receipts(message_id, state, at) values ($1,$2, coalesce($3::timestamptz, now()))`, [messageId, state, opts.at ?? null]);
   if (thread.mission_id && !opts.quiet) {
     await emit(c, { tenantId: thread.tenant_id, type: 'conversation.receipt', subjectKind: 'thread', subject: thread.id, missionId: thread.mission_id, correlationId: opts.correlationId,
       payload: { threadId: thread.id, messageId, state, simulated: !!opts.simulated } });
+  } else if (opts.channelEvent && !opts.quiet && thread.owner_user_id && (thread.kind === 'gm' || thread.kind === 'agent-direct')) {
+    await emit(c, { tenantId: thread.tenant_id, type: 'conversation.receipt', subjectKind: 'thread', subject: thread.id, audience: 'owner', audienceUser: thread.owner_user_id,
+      actor: 'system', actorKind: 'system', correlationId: opts.correlationId, payload: { threadId: thread.id, messageId, state, simulated: false, channel: channelOf(thread) } });
   }
 }
 

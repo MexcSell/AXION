@@ -18,7 +18,7 @@ export async function createNotification(c: Tx, n: NoticeInput) {
 }
 
 /** Which notifications a caller may see ($1 tenant, $2 is admin, $3 user id); the list and both acknowledge routes use this one predicate (c81). */
-const VISIBLE = `n.tenant_id=$1 and (
+export const VISIBLE_NOTICE_SQL = `n.tenant_id=$1 and (
           n.audience='all' or (n.audience='admins' and $2::boolean) or (n.audience='user' and (n.audience_user=$3 or $2::boolean)) or (n.audience='owner' and n.audience_user=$3)
           or (n.audience='mission' and m.deleted_at is null and ($2::boolean or m.owner_id=$3 or m.shared)))`;
 const NOTICE_ID = /^[A-Za-z0-9-]{1,40}$/;
@@ -29,7 +29,7 @@ export default async function notificationRoutes(app: FastifyInstance) {
     const admin = ctx.user.role === 'admin';
     const rows = (await app.db.query(
       `select n.* from notifications n left join missions m on m.id = n.mission_id
-        where ${VISIBLE}
+        where ${VISIBLE_NOTICE_SQL}
         order by n.created_at desc limit 200`, [ctx.tenantId, admin, ctx.user.id])).rows;
     const read = (await app.db.query('select notice_id from notification_reads where tenant_id=$1 and user_id=$2', [ctx.tenantId, ctx.user.id])).rows.map((r) => r.notice_id);
     const now = Date.now();
@@ -42,7 +42,7 @@ export default async function notificationRoutes(app: FastifyInstance) {
   /** Marks as read only the given ids the caller can see; returns how many of them were visible. Nothing is stored for any other id. */
   const ack = async (tenantId: string, admin: boolean, userId: string, ids: string[]): Promise<number> => {
     if (!ids.length) return 0;
-    const seen = (await app.db.query(`select n.id from notifications n left join missions m on m.id = n.mission_id where ${VISIBLE} and n.id = any($4::text[])`, [tenantId, admin, userId, ids])).rows.map((r) => r.id as string);
+    const seen = (await app.db.query(`select n.id from notifications n left join missions m on m.id = n.mission_id where ${VISIBLE_NOTICE_SQL} and n.id = any($4::text[])`, [tenantId, admin, userId, ids])).rows.map((r) => r.id as string);
     if (seen.length) await app.db.query(`insert into notification_reads(tenant_id, user_id, notice_id) select $1, $2, unnest($3::text[]) on conflict do nothing`, [tenantId, userId, seen]);
     return seen.length;
   };

@@ -4,7 +4,6 @@ import type { ChannelDto, DomainEvent, MessageDto } from '@contracts';
 import type { Attachment, Message } from '@/data/types';
 import { parseChannel } from '@/store/chat';
 import { api, ApiFailure, newKey } from './client';
-import { isApi } from './mode';
 import { laterStatus, toMsg, upsert } from './missionControl';
 
 /**
@@ -12,14 +11,14 @@ import { laterStatus, toMsg, upsert } from './missionControl';
  * Channel ids stay the web's (gm:<uid>, admin:<uid>, agent:<agentId>:<uid>); the server paths are /channels/gm, /channels/admin
  * (an administrator reaches another user's line with /channels/admin/<userId>) and /channels/agent:<agentId>.
  * The list (last message, unread) and the open channels' messages are kept current by conversation.messageCreated events that carry
- * `payload.channel`. Nothing is invented: gm and agent channels get the server's honest note instead of a reply.
+ * `payload.channel`. Nothing is invented: gm and agent channels are answered by the server's chat model (owner 2026-11-25: Claude 2,
+ * server/src/conversations/responder.ts), or get the server's honest note when no chat model is on.
  * Loading failures show an error with a Retry button (backed-off retry, and again after every reconnect), never an empty chat.
- * Plug-in channels are not here: they stay in the local DEMO store.
  */
 const PAGE = 50;
 
 export const channelIdOf = (c: Pick<ChannelDto, 'kind' | 'userId' | 'agentId'>) => (c.kind === 'agent' ? `agent:${c.agentId}:${c.userId}` : `${c.kind}:${c.userId}`);
-/** The server path of a channel as the signed-in user uses it; null for channels that are not on the server (plug-ins). */
+/** The server path of a channel as the signed-in user uses it; null for channels that are not on the server. */
 export function channelPath(id: string, meId: string): string | null {
   const c = parseChannel(id);
   if (c.kind === 'gm') return '/channels/gm';
@@ -77,11 +76,11 @@ export async function loadChannels() {
 }
 export const retryChannels = () => { listFailures = 0; void loadChannels(); };
 
-/** Subscribe the component to the list (loads it once). Demo mode: nothing happens. */
+/** Subscribe the component to the list and load it once. */
 export function useChannelList() {
   const list = useChannels((s) => s.list);
   const listError = useChannels((s) => s.listError);
-  useEffect(() => { if (isApi() && !wantList) void loadChannels(); }, []);
+  useEffect(() => { if (!wantList) void loadChannels(); }, []);
   return { list, listError };
 }
 
@@ -211,6 +210,20 @@ export function onChannelEvent(e: DomainEvent): boolean {
     if (mineMsg && x.messages.some((m) => m.pending) && !x.messages.some((m) => m.id === msg.id)) return { ...x, mine: [...(x.mine ?? []), msg] };
     return { ...x, messages: upsert(x.messages, [msg]) };
   });
+  return true;
+}
+
+/**
+ * conversation.receipt of a gm or agent channel (owner 2026-11-25: Claude 2 answers them): 'delivered' = the model is writing,
+ * 'acknowledged' = answered. Receipts only move forward. Returns false when the event is not a channel event.
+ */
+export function onChannelReceipt(e: DomainEvent): boolean {
+  const p = e.payload as { channel?: { kind: ChannelDto['kind']; userId: string; agentId?: string }; messageId?: string; state?: Message['status'] };
+  if (!p.channel || !p.messageId || !p.state) return false;
+  const id = channelIdOf(p.channel);
+  const bump = (m: Message) => (m.id === p.messageId ? { ...m, status: laterStatus(m.status, p.state) } : m);
+  patchCh(id, (x) => ({ ...x, ...(x.messages ? { messages: x.messages.map(bump) } : {}), ...(x.mine ? { mine: x.mine.map(bump) } : {}) }));
+  useChannels.setState((s) => (s.list?.some((c) => c.id === id && c.last?.id === p.messageId) ? { list: s.list.map((c) => (c.id === id && c.last ? { ...c, last: bump(c.last) } : c)) } : s));
   return true;
 }
 

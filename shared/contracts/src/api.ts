@@ -203,7 +203,7 @@ export interface EventPayloads {
   'approval.consumed': { approvalId: string; kind: string; tier: string; by: string };
   'notification.created': { id: string; title: string; severity: NoticeDto['severity'] };
   'conversation.messageCreated': { threadId: string; messageId: string; seq: number; kind: string; simulated: boolean; message: MessageDto; channel?: { kind: string; userId: string; agentId?: string } };
-  'conversation.receipt': { threadId: string; messageId: string; state: 'queued' | 'delivered' | 'acknowledged'; simulated: boolean };
+  'conversation.receipt': { threadId: string; messageId: string; state: 'queued' | 'delivered' | 'acknowledged'; simulated: boolean; channel?: { kind: string; userId: string; agentId?: string } };
   'instance.created': { instanceId: string; agentId: string; simulated: boolean; managerInstanceId?: string };
   'instance.stateChanged': { instanceId: string; state: InstanceState };
   /** one payload shape for both subjects: a staffing join has no taskId and carries `simulated`; a person's reassignment names the task and who did it */

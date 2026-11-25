@@ -34,6 +34,8 @@ export interface Config {
   playbookActiveCap?: number;
   /** the live cloud models (owner 2026-11-24): one per CLAUDE_CODE_OAUTH_TOKEN<n>, built by configFromEnv; tests pass fakes; empty = none configured */
   cloudModels?: import('./cloud/claude-cli.ts').CloudAdapter[];
+  /** owner 2026-11-25: the cloud model that answers the GM and agent chats (a cloudModels id; default claude-2, env CHAT_MODEL) */
+  chatModelId?: string;
 }
 
 export interface OrgGuardrailSettings {
@@ -65,10 +67,10 @@ export function configFromEnv(): Config {
     schema: process.env.DATABASE_SCHEMA || undefined,
     logger: process.env.LOG !== '0',
     uploadDir: process.env.UPLOAD_DIR || undefined,
-    demoSeed: process.env.DEMO_SEED === '1',
     orgGuardrails: { cooldownHours: envInt('ORG_COOLDOWN_HOURS'), churnBudget: envInt('ORG_CHURN_BUDGET'), churnWindowHours: envInt('ORG_CHURN_WINDOW_HOURS'), maxEscalationLevels: envInt('ORG_MAX_ESCALATION_LEVELS') },
     allowedOrigins: (process.env.ALLOWED_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean),
     playbookActiveCap: process.env.PLAYBOOK_ACTIVE_CAP ? Number(process.env.PLAYBOOK_ACTIVE_CAP) : undefined,
+    chatModelId: (process.env.CHAT_MODEL ?? '').trim() || undefined,
     cloudModels: cloudAdaptersFromEnv(process.env, process.env.CLOUD_MODEL_HOME || join(dirname(fileURLToPath(import.meta.url)), '..', 'data', 'cloud-home')),
   };
 }

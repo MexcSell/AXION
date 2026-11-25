@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { Send, Paperclip, Image as ImageIcon, AtSign, X, CheckCheck, Check, Clock, ArrowDown, Info, FileText, ShieldAlert, Map as MapIcon, Rows3, Rows2, Music, Film, Loader2 } from 'lucide-react';
 import { RobotAvatar } from '@/components/art/RobotAvatar';
@@ -16,8 +16,8 @@ import { openDialog } from '@/store/ui';
 import { clock, cx } from '@/lib/format';
 import { layoutRows, learn, mapRows, newEstimate, rangeFor, relearn, type RowGeo } from './threadWindow';
 import { fileKind } from '@/features/mission/staffing';
-import { EvidenceThumb } from '@/features/mission/EvidenceThumb';
 import { ThreadMinimap } from '@/features/mission/ThreadMinimap';
+import { DraftCard } from './DraftCard';
 import '@/theme/pages/mission-control.css';
 import '@/theme/pages/chat.css';
 
@@ -44,8 +44,11 @@ function useAuthor(id: string, fallback?: string) {
   if (id.startsWith('human:')) return { kind: 'human' as const, name: acc?.name ?? fallback ?? (id === 'human:owner' ? 'Owner' : 'User'), account: acc };
   const ag = AGENT_BY_ID[id];
   if (ag) return { kind: 'agent' as const, name: ag.name, agent: ag };
-  return { kind: 'system' as const, name: id === 'system' ? 'System' : id };
+  return { kind: 'system' as const, name: id === 'system' ? 'System' : fallback ?? id }; // e.g. a GM reply before the agent catalog has loaded
 }
+
+/** How a channel names an 'acknowledged' receipt: direct GM and agent chats say "answered" (owner 2026-11-25); mission threads keep "acknowledged". */
+export const AckLabel = createContext('acknowledged');
 
 /** Tag on content the server simulated for a DEMO mission (Stage 6, decision E5): no agent acted. */
 export function SimTag() {
@@ -58,6 +61,7 @@ export function SimTag() {
  */
 export const ChatBubble = memo(function ChatBubble({ m, right, compact, missionId, label, enter = true }: { m: Message; right: boolean; compact?: boolean; missionId?: string; label?: string; /** false: no entrance animation (a row scrolled back into a virtualised thread) */ enter?: boolean }) {
   const au = useAuthor(m.from, m.authorName);
+  const ackLabel = useContext(AckLabel);
   const human = au.kind === 'human';
   // system notes (Stage 6: the honest "agents don't act yet" note) are a centred line, not anyone's speech bubble
   if (m.kind === 'system' && m.from === 'system' && m.seq !== undefined) return (
@@ -78,11 +82,12 @@ export const ChatBubble = memo(function ChatBubble({ m, right, compact, missionI
           <button className="bubble-more" aria-label="Message details" onClick={() => openDialog('message-details', { message: m })}><Info size={12} /></button>
         </div>
         <div className="bubble-text">{m.text}</div>
+        {m.draft && !human && <DraftCard draft={m.draft} messageId={m.id} />}
         {m.attachments && m.attachments.length > 0 && (
           <div className="bubble-atts">
             {m.attachments.map((at) => (
               <button key={at.id} className="att" onClick={() => openDialog('attachment-preview', { attachment: at })} aria-label={`Open ${at.name}`}>
-                {at.url && at.kind === 'image' ? <img src={at.url} alt={at.name} /> : at.kind === 'image' ? <EvidenceThumb seed={at.name} /> : at.kind === 'audio' ? <Music size={20} /> : at.kind === 'video' ? <Film size={20} /> : <FileText size={20} />}
+                {at.url && at.kind === 'image' ? <img src={at.url} alt={at.name} /> : at.kind === 'image' ? <ImageIcon size={20} /> : at.kind === 'audio' ? <Music size={20} /> : at.kind === 'video' ? <Film size={20} /> : <FileText size={20} />}
                 <span className="ellipsis">{at.name}</span>
               </button>
             ))}
@@ -90,7 +95,7 @@ export const ChatBubble = memo(function ChatBubble({ m, right, compact, missionI
         )}
         {human && right && (
           <div className="bubble-status" aria-label={`Status: ${m.status ?? 'sent'}`}>
-            {m.pending ? <><Loader2 size={12} className="spin" /> sending</> : m.status === 'acknowledged' ? <><CheckCheck size={13} className="good" /> acknowledged</> : m.status === 'delivered' ? <><CheckCheck size={13} /> delivered</> : m.status === 'queued' ? <><Clock size={12} /> queued</> : <><Check size={13} /> sent</>}
+            {m.pending ? <><Loader2 size={12} className="spin" /> sending</> : m.status === 'acknowledged' ? <><CheckCheck size={13} className="good" /> {ackLabel}</> : m.status === 'delivered' ? <><CheckCheck size={13} /> delivered</> : m.status === 'queued' ? <><Clock size={12} /> queued</> : <><Check size={13} /> sent</>}
           </div>
         )}
         {m.kind === 'question' && missionId && (

@@ -85,8 +85,8 @@ export interface ChatRouteEntryDto {
   until: string | null;
 }
 export interface ChatModelRouteDto {
-  /** the preference order (ids); the models after it in `entries` are not used for chat */
-  order: string[];
+  /** the chat models in preference order (ids); the models after them in `entries` are not used for chat */
+  models: string[];
   /** false = the default order (CHAT_MODEL, else claude-2, first) */
   custom: boolean;
   entries: ChatRouteEntryDto[];

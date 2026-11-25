@@ -85,6 +85,18 @@ const CORE: Record<string, HelpEntry> = {
     title: 'Model route',
     what: 'A route picks which available model handles a task. Compatibility, load and permissions are checked before use; the Model Loader agent picks the model that fits each agent.',
   },
+  'settings.chatModel': {
+    title: 'Chat model',
+    what: 'The cloud models that answer the General Manager and agent chats, in order of preference. The first usable one answers.',
+    how: 'When a model is disabled or removed on Models, reaches a usage limit, times out or fails, the model router moves to the next one at once. A model that hit a limit stays out until its reset time; one that failed stays out for 1, 2, 4… minutes (at most 30). If every model is cooling down, the router still tries them, soonest back first.',
+    permission: 'Everyone can see the order; only administrators can change it. The answers use the owner\'s subscriptions without limits (owner decision 2026-11-25).',
+  },
+  'settings.chatUsage': {
+    title: 'Chat usage',
+    what: 'Model calls made by the General Manager and agent chats per day and model, counted from the audit log: calls, failures, messages answered and tokens.',
+    why: 'Chat answers have no limit, so this shows what they spend.',
+    permission: 'Administrators only.',
+  },
   'settings.faces': {
     title: 'Avatars & faces',
     what: 'These settings change how the synthetic agent avatars look. They have nothing to do with personal identity or face recognition.',
