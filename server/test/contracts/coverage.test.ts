@@ -566,6 +566,11 @@ describe('API coverage run', () => {
     expect(rotated).toMatchObject({ configured: true, ok: true });
     expect(rotated.restartedAt).toMatch(/^\d{4}-\d\d-\d\dT/);
     expect(JSON.stringify([none, anchored, rotated])).not.toContain(anchorCfg.key);
+    // ---- Phase A (A2): halt records. A global set, a class set and a class lift, so `active` and `recent` hold rows with every field filled
+    await call(admin, 'POST', '/operations/halts', '/operations/halts', { status: 201, headers: key(), body: { scope: 'global', halted: true, reason: 'Phase A coverage' } });
+    await call(admin, 'POST', '/operations/halts', '/operations/halts', { status: 201, headers: key(), body: { scope: 'class', target: 'web-research', halted: true, reason: 'Phase A class' } });
+    await call(admin, 'POST', '/operations/halts', '/operations/halts', { status: 201, headers: key(), body: { scope: 'class', target: 'web-research', halted: false, reason: 'Phase A lift' } });
+    await call(admin, 'GET', '/operations/halts', '/operations/halts');
     await call(admin, 'GET', '/policy/baseline', '/policy/baseline');
     await call(admin, 'GET', '/audit/verify', '/audit/verify');
 

@@ -16,6 +16,7 @@ import notificationRoutes from './notifications/routes.ts';
 import { startStaffingSim } from './missions/staffing-sim.ts';
 import { seedDemo } from './seed/demo.ts';
 import opsRoutes from './ops/routes.ts';
+import haltRoutes from './ops/halts.ts';
 import auditRoutes from './audit-routes.ts';
 import { sweepExpired } from './approvals/service.ts';
 import { tx } from './db.ts';
@@ -123,6 +124,7 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   await app.register(capacityRoutes, { prefix: '/api/v1' });
   await app.register(notificationRoutes, { prefix: '/api/v1' });
   await app.register(opsRoutes, { prefix: '/api/v1' });
+  await app.register(haltRoutes, { prefix: '/api/v1' }); // Phase A (A2): halt records (administrators; nothing executes)
   await app.register(auditRoutes, { prefix: '/api/v1' });
   await app.register(agentRoutes, { prefix: '/api/v1' });
   await app.register(proposalRoutes, { prefix: '/api/v1' });

@@ -13,6 +13,7 @@ import {
   type SkillStep, type SourceRef, type TaskBody, type TaskDto, type TaskReviewDto, type TaskReviewsDto, type ThreadDto, type ThreadPartnerDto, type ThroughputDto,
   type UploadDto, type VersionConfig, type VersionDiff, type VersionProposalDto, type AgentReliability, type QueueSummaryDto, type AnchorStatusDto, type AnchorTenantDto, ANCHOR_STATUS_NAMES, JOB_STATUS_NAMES,
   type ContributionDto, type RetirementProposalsDto, type RetirementProposalDto, CONTRIBUTION_ACTIONS,
+  type HaltDto, type HaltsDto, type HaltRecordDto, HALT_SCOPES,
   type AttentionDto, type AttentionRowDto, type AttentionMemberDto, type AttentionEvidence, type AttentionFact, type AttentionAction, ATTENTION_REASON_CODES, ATTENTION_KINDS, ATTENTION_ICONS,
   type ProposalEvaluationDto, type EvalRefusalDto, type GradingDto, type DatasetValidityDto, type CompanyDimensionsDto, type DimensionRowDto, type DimensionCell, DIMENSION_KEYS, DIMENSION_WINDOWS,
   type CapacityCellDto, type CapacityDeptDto, type CapacityPersonDto, type CapacityPeopleBody, type ReviewCapacityDto, type LittleLawDto, type SpanDto, type SpanRowDto,
@@ -542,3 +543,8 @@ export const chatUsage: V<ChatUsageDto> = obj<ChatUsageDto>({ days: int, fallbac
   rows: arr(obj<ChatUsageDto['rows'][number]>({ day: str, modelId: str, calls: int, errors: int, answered: int, inputTokens: int, outputTokens: int })) });
 export const cloudCompletion: V<CloudCompletionDto> = obj<CloudCompletionDto>({ id: str, model: str, text: str, truncated: bool, format: oneOf(['text', 'json'] as const), validJson: nullable(bool), durationMs: int,
   usage: obj<CloudCompletionDto['usage']>({ input: int, output: int }) });
+
+// ---- Phase A (A2): halt records
+const haltDto: V<HaltDto> = obj<HaltDto>({ id: int, scope: oneOf(HALT_SCOPES), target: str, halted: bool, reason: str, createdBy: str, createdByName: nullable(str), createdAt: iso });
+export const haltsBody: V<HaltsDto> = obj<HaltsDto>({ active: arr(haltDto), recent: arr(haltDto) });
+export const haltRecord: V<HaltRecordDto> = obj<HaltRecordDto>({ halt: haltDto });
