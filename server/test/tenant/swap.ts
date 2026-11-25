@@ -72,6 +72,7 @@ export const NOID_CASES: Record<string, SwapCase> = {
     const moved = g.edges.map((e: any) => (e.subordinateId === 'tester-01' ? { ...e, supervisorId: 'coder-01' } : e));
     return { url: '/organization/proposals', body: { baseline: 'No change: keep the current chart as it is.', expectedCost: 'No added cost is expected in this test.', title: newName('Swap'), why: 'Shorter path', baseRevision: g.revision.seq, edges: moved, triggers: ['coverage_gap'] }, headers: idem() };
   }),
+  'POST /operations/halts': jsonCase('POST', () => ({ url: '/operations/halts', body: { scope: 'run', target: `swap-run-${n++}`, halted: true, reason: 'swap' }, headers: idem() })),
   'POST /site-grants': jsonCase('POST', (t) => ({ url: '/site-grants', body: { origin: `https://swap${n++}.example.com`, missionId: t.ids.mission, capabilities: ['read'], expiresAt: dayIso(2) }, headers: idem() })),
   'POST /skills': jsonCase('POST', () => ({ url: '/skills', body: { name: newName('Swap skill'), description: 'Do it', steps: [{ kind: 'observe', detail: 'Read it' }], preconditions: [], sources: [{ kind: 'review', id: 'REV-1', note: 'x' }] }, headers: idem() })),
   'POST /uploads': {

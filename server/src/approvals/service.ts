@@ -7,6 +7,7 @@ import { CURRENT_BASELINE, approverFor } from '../policy/baseline.ts';
 import { isTier, tierRank, type RiskTier } from '../policy/types.ts';
 import { audit } from '../audit.ts';
 import { allThree, deriveFlags, loadConfigProfile, type DerivedFlags } from '../policy/rule-of-two.ts';
+import { RUN_CAP_FIELDS, type RunCaps } from '../../../shared/contracts/src/index.ts';
 
 export type { RiskTier };
 export const RISK_UI: Record<RiskTier, 'low' | 'medium' | 'high' | 'critical'> = { R0: 'low', R1: 'low', R2: 'medium', R3: 'high', R4: 'critical' };
@@ -23,25 +24,75 @@ export const digestOf = (missionId: string, kind: string, payload: unknown) => c
  * The one action an approval authorises (binding v2, spec invariant 7). Every field is part of the digest, so changing any
  * of them is a different action. Optional fields count as null when absent (an empty string is normalised to absent when the request is made).
  */
-export interface BoundAction { tenantId: string; missionId: string; taskId?: string; kind: string; origin?: string; target?: string; payload: Record<string, unknown>; tier: RiskTier; requestedBy: string; expiresAt: string }
+export interface BoundAction {
+  tenantId: string; missionId: string; taskId?: string; kind: string; origin?: string; target?: string; payload: Record<string, unknown>; tier: RiskTier; requestedBy: string; expiresAt: string;
+  /** digest v3 only (Phase A, A3): the sha256 of the execution profile (c94) this action runs under; absent counts as null */
+  execProfileSha256?: string | null;
+  /** digest v3 only: the run caps (c95), all six fields or null; absent counts as null */
+  runCaps?: RunCaps | null;
+}
 export const digestV2 = (a: BoundAction) => createHash('sha256').update(canonical({
   v: 2, tenantId: a.tenantId, missionId: a.missionId, taskId: a.taskId ?? null, kind: a.kind, origin: a.origin ?? null, target: a.target ?? null,
   payload: JSON.parse(JSON.stringify(a.payload)), tier: a.tier, requestedBy: a.requestedBy, expiresAt: a.expiresAt,
 })).digest('hex');
 
+const HEX64 = /^[0-9a-f]{64}$/;
+/** v3 (Phase A, A3): the profile hash and caps as they enter the digest. Throws on anything that is not exactly 64 lower-case hex / null, or all six caps as safe integers / null.
+ *  Partial caps would count as "no caps" in the c95 checker, so they are refused here, never hashed. */
+function v3Binding(a: Pick<BoundAction, 'execProfileSha256' | 'runCaps'>): { execProfileSha256: string | null; runCaps: RunCaps | null } {
+  const p = a.execProfileSha256 ?? null;
+  if (p !== null && !(typeof p === 'string' && HEX64.test(p))) throw new Error('the execution profile hash must be 64 lower-case hex characters or null');
+  const c = a.runCaps ?? null;
+  if (c === null) return { execProfileSha256: p, runCaps: null };
+  if (typeof c !== 'object' || Array.isArray(c) || Object.keys(c).length !== RUN_CAP_FIELDS.length) throw new Error('run caps must be exactly the six cap fields, or null');
+  const out: Record<string, number> = {};
+  for (const f of RUN_CAP_FIELDS) {
+    const v = Object.prototype.hasOwnProperty.call(c, f) ? (c as unknown as Record<string, unknown>)[f] : undefined;
+    if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < 0) throw new Error(`run cap ${f} must be a safe non-negative integer`);
+    out[f] = v;
+  }
+  return { execProfileSha256: p, runCaps: out as unknown as RunCaps };
+}
+/** Binding v3: v2's bound action plus the execution profile hash and the run caps. A change to either after approval is a different digest (the stored one is stale). */
+export const digestV3 = (a: BoundAction) => createHash('sha256').update(canonical({
+  v: 3, tenantId: a.tenantId, missionId: a.missionId, taskId: a.taskId ?? null, kind: a.kind, origin: a.origin ?? null, target: a.target ?? null,
+  payload: JSON.parse(JSON.stringify(a.payload)), tier: a.tier, requestedBy: a.requestedBy, expiresAt: a.expiresAt, ...v3Binding(a),
+})).digest('hex');
+
+/**
+ * The digest version new requests use. v3 is OFF by default; it turns on only when the server is started with APPROVAL_DIGEST_VERSION=3 (exactly that
+ * text; any other value, including a typo, leaves v2). Read at call time. Owner decision O1b is what turns it on.
+ */
+export const currentDigestVersion = (env: Record<string, string | undefined> = process.env): 2 | 3 => (env.APPROVAL_DIGEST_VERSION === '3' ? 3 : 2);
+
 /** The bound action as stored. Executors build theirs from what they are about to run; this is for tests and display. */
 export function boundActionOf(r: any): BoundAction {
-  return { tenantId: r.tenant_id, missionId: r.mission_id, ...(r.task_id ? { taskId: r.task_id } : {}), kind: r.kind, ...(r.origin ? { origin: r.origin } : {}), ...(r.target ? { target: r.target } : {}), payload: r.payload, tier: r.risk, requestedBy: r.requested_by ?? r.agent_id, expiresAt: new Date(r.expires_at).toISOString() };
+  return { tenantId: r.tenant_id, missionId: r.mission_id, ...(r.task_id ? { taskId: r.task_id } : {}), kind: r.kind, ...(r.origin ? { origin: r.origin } : {}), ...(r.target ? { target: r.target } : {}), payload: r.payload, tier: r.risk, requestedBy: r.requested_by ?? r.agent_id, expiresAt: new Date(r.expires_at).toISOString(),
+    ...(r.digest_version === 3 ? { execProfileSha256: r.exec_profile_sha256 ?? null, runCaps: r.run_caps ?? null } : {}) };
+}
+/**
+ * Explicit version dispatch, failing closed: 1, 2 and 3 only. An unknown version, or a v3 row whose profile hash or caps cannot be hashed, gives a value that is
+ * not a hex digest, so it never equals a stored digest (the row reads as stale).
+ */
+function digestByVersion(version: unknown, a: { v1: () => string; v2: () => string; v3: () => string }): string {
+  try {
+    if (version === 1) return a.v1();
+    if (version === 2) return a.v2();
+    if (version === 3) return a.v3();
+  } catch (e) { return `unverifiable:${(e as Error).message}`; }
+  return `unsupported-digest-version:${String(version)}`;
 }
 /** Always recomputed here from the stored row, by the row's own digest version. A digest from a client is never an input. */
-export const rowDigest = (r: any): string => (r.digest_version ?? 1) === 2 ? digestV2(boundActionOf(r)) : digestOf(r.mission_id, r.kind, r.payload);
+export const rowDigest = (r: any): string => digestByVersion(r.digest_version ?? 1, { v1: () => digestOf(r.mission_id, r.kind, r.payload), v2: () => digestV2(boundActionOf(r)), v3: () => digestV3(boundActionOf(r)) });
 export async function loadBoundAction(c: Tx, tenantId: string, approvalId: string): Promise<BoundAction> {
   const r = (await c.query('select * from approval_requests where id=$1 and tenant_id=$2', [approvalId, tenantId])).rows[0];
   if (!r) throw notFound('No such approval.');
   return boundActionOf(r);
 }
 
-export interface ApprovalInput { tenantId: string; missionId: string; agentId: string; kind: string; title: string; detail: string; payload: Record<string, unknown>; expiresInMin: number; id?: string; demo?: boolean; createdAgoMin?: number; taskId?: string; origin?: string; target?: string; requestedBy?: string }
+export interface ApprovalInput { tenantId: string; missionId: string; agentId: string; kind: string; title: string; detail: string; payload: Record<string, unknown>; expiresInMin: number; id?: string; demo?: boolean; createdAgoMin?: number; taskId?: string; origin?: string; target?: string; requestedBy?: string;
+  /** Phase A (A3): bound only when digest v3 is on (APPROVAL_DIGEST_VERSION=3). Passing either while v3 is off is refused, never silently dropped. */
+  execProfileSha256?: string | null; runCaps?: RunCaps | null }
 
 /**
  * Server-side producer (Stage 5: only the demo seed; real agents arrive in Stage 7).
@@ -57,6 +108,11 @@ export async function requestApproval(c: Tx, a: ApprovalInput) {
   const payload = JSON.parse(JSON.stringify(a.payload)) as Record<string, unknown>;
   const taskId = a.taskId || undefined, origin = a.origin || undefined, target = a.target || undefined;
   a = { ...a, payload, taskId, origin, target };
+  // Phase A (A3): digest v3 binds the execution profile hash and the run caps; with v3 off, nothing can be bound, so a caller that passes them is told
+  const version = currentDigestVersion();
+  let binding: ReturnType<typeof v3Binding> = { execProfileSha256: null, runCaps: null };
+  if (version === 3) { try { binding = v3Binding(a); } catch (e) { throw new ApiError('VALIDATION', 400, (e as Error).message); } }
+  else if ((a.execProfileSha256 ?? null) !== null || (a.runCaps ?? null) !== null) throw new ApiError('VALIDATION', 400, 'A profile hash or run caps can only be bound when approval digest v3 is on.');
   // Rule of Two (c58): the flags are derived here from the agent's configuration (briefs, grants, content origins) and this action's kind.
   // Nothing in `a.payload`, `a.title` or `a.detail` is read for them, so the requester cannot set or clear one.
   const flags = deriveFlags(await loadConfigProfile(c, { tenantId: a.tenantId, missionId: a.missionId, agentId: a.agentId, action: { kind: a.kind, origin: a.origin } }));
@@ -67,12 +123,13 @@ export async function requestApproval(c: Tx, a: ApprovalInput) {
   // timestamps are fixed here (millisecond precision) so the expiry the digest binds is exactly the stored one
   const createdAt = new Date(stamp.created);
   const expiresAt = new Date(stamp.expires);
-  const digest = digestV2({ tenantId: a.tenantId, missionId: a.missionId, taskId: a.taskId, kind: a.kind, origin: a.origin, target: a.target, payload: a.payload, tier: risk, requestedBy, expiresAt: expiresAt.toISOString() });
+  const bound = { tenantId: a.tenantId, missionId: a.missionId, taskId: a.taskId, kind: a.kind, origin: a.origin, target: a.target, payload: a.payload, tier: risk, requestedBy, expiresAt: expiresAt.toISOString() };
+  const digest = version === 3 ? digestV3({ ...bound, ...binding }) : digestV2(bound);
   const sealed = sealEvidence(id, digest, ruleRecord(flags, d.policyVersion));
   await c.query(
-    `insert into approval_requests(id, tenant_id, mission_id, agent_id, kind, title, detail, risk, payload, action_digest, digest_version, task_id, origin, target, requested_by, demo, created_at, expires_at, rule_of_two)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,2,$11,$12,$13,$14,$15,$16,$17,$18)`,
-    [id, a.tenantId, a.missionId, a.agentId, a.kind, a.title, a.detail, risk, JSON.stringify(a.payload), digest, a.taskId ?? null, a.origin ?? null, a.target ?? null, requestedBy, a.demo ?? false, createdAt, expiresAt, JSON.stringify(sealed)]);
+    `insert into approval_requests(id, tenant_id, mission_id, agent_id, kind, title, detail, risk, payload, action_digest, digest_version, task_id, origin, target, requested_by, demo, created_at, expires_at, rule_of_two, exec_profile_sha256, run_caps)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$19,$11,$12,$13,$14,$15,$16,$17,$18,$20,$21)`,
+    [id, a.tenantId, a.missionId, a.agentId, a.kind, a.title, a.detail, risk, JSON.stringify(a.payload), digest, a.taskId ?? null, a.origin ?? null, a.target ?? null, requestedBy, a.demo ?? false, createdAt, expiresAt, JSON.stringify(sealed), version, binding.execProfileSha256, binding.runCaps === null ? null : JSON.stringify(binding.runCaps)]);
   await emit(c, { tenantId: a.tenantId, type: 'approval.requested', subject: a.missionId, missionId: a.missionId, actor: a.agentId, actorKind: 'agent', payload: { approvalId: id, kind: a.kind, risk, policyVersion: d.policyVersion, reasons: d.reasons } });
   // c75: the evidence digest also goes into the chained audit log at request time, so stripping or rewriting it on the row later is caught against the original
   await audit(c, { tenantId: a.tenantId, actor: requestedBy, action: 'approval.request', subject: id, result: 'ok', correlationId: '', detail: { mission: a.missionId, kind: a.kind, fired: sealed.fired, rule: sealed.rule, evidenceDigest: sealed.evidenceDigest } });
@@ -227,8 +284,9 @@ export async function consumeApproval(c: Tx, i: ConsumeInput): Promise<{ approva
   if (r.consumed_at) throw new ApiError('APPROVAL_ALREADY_CONSUMED', 409, 'This approval was already used. The agent must ask again.');
   if (r.state !== 'approved') throw new ApiError('APPROVAL_NOT_APPROVED', 409, 'This request is not approved.');
   if (i.now !== undefined ? new Date(r.expires_at).getTime() <= i.now : r.db_expired) throw new ApiError('APPROVAL_EXPIRED', 409, 'This approval expired. The agent must ask again.');
-  const presented = (r.digest_version ?? 1) === 2 ? digestV2(i.action) : digestOf(i.action.missionId, i.action.kind, i.action.payload);
-  if (presented !== rowDigest(r) || presented !== r.action_digest) throw new ApiError('APPROVAL_DIGEST_MISMATCH', 409, 'The action differs from the one that was approved.');
+  // the presented action is hashed by the ROW's version, so a v3 row is never verified as v2 or v1; a presented profile hash or caps that cannot be hashed is a mismatch
+  const presented = digestByVersion(r.digest_version ?? 1, { v1: () => digestOf(i.action.missionId, i.action.kind, i.action.payload), v2: () => digestV2(i.action), v3: () => digestV3(i.action) });
+  if (!HEX64.test(presented) || presented !== rowDigest(r) || presented !== r.action_digest) throw new ApiError('APPROVAL_DIGEST_MISMATCH', 409, 'The action differs from the one that was approved.');
   await assertEvidence(c, r);
   const u = await c.query(`update approval_requests set consumed_at=now(), consumed_by=$2 where id=$1 and consumed_at is null and state='approved' returning consumed_at`, [i.approvalId, i.by]);
   if (!u.rowCount) throw new ApiError('APPROVAL_ALREADY_CONSUMED', 409, 'This approval was already used. The agent must ask again.');

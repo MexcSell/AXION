@@ -4,6 +4,10 @@
  *
  * Rules (up file; a down file legitimately drops what its up file created, so only its presence is checked):
  *  - drop-append-only  DROP TABLE / ALTER TABLE ... DROP on an append-only table; DROP TRIGGER on one that the file does not recreate.
+ *                      One reviewed exception (owner 2026-11-25, Phase A migration 0064): DROP CONSTRAINT x is allowed when a LATER statement of
+ *                      the same file adds a CHECK constraint named x on the same table (a CHECK being widened, e.g. digest_version in (1,2,3)).
+ *                      Names that Postgres gives keys (…_pkey, …_key, …_fkey, …_excl) never qualify, so a key cannot be swapped for a CHECK.
+ *                      The text cannot prove what kind the dropped constraint was; the generated guard test and review cover the rest.
  *  - guard-disabled    ALTER TABLE ... DISABLE TRIGGER (or session_replication_role = replica) with no matching re-enable later in the same file.
  *  - rewrite-rows      UPDATE of an append-only table; DELETE or TRUNCATE of one outside the axion.purge_demo exception (flag set before, not 'off').
  *  - chain-column      ALTER COLUMN / RENAME COLUMN on the audit_events columns that feed the chain hash (the canonical row, prev_hash, row_hash).
@@ -77,12 +81,17 @@ export function lintMigration(m: LintInput, appendOnly: ReadonlySet<string>): Li
   const stmts = expand(split(m.up)).filter((s) => !/^\s*create\s+(or\s+replace\s+)?(function|procedure)\b/i.test(s.masked));
   const createdTriggers = new Set<string>(); // "trigger|table"
   for (const s of stmts) { const x = new RegExp(String.raw`^\s*create\s+(?:or\s+replace\s+)?trigger\s+"?(\w+)"?[\s\S]*?\bon\s+` + ID, 'i').exec(s.masked); if (x) createdTriggers.add(norm(x[1]) + '|' + norm(x[2])); }
+  const ALTER = new RegExp(String.raw`^\s*alter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?` + ID + String.raw`([\s\S]*)`, 'i');
+  const addedChecks = new Map<string, number>(); // "table|constraint" -> index of the last statement that adds it as a CHECK
+  stmts.forEach((s, i) => { const a = ALTER.exec(s.masked); if (a) for (const c of a[2].matchAll(/\badd\s+constraint\s+"?(\w+)"?\s+check\s*\(/gi)) addedChecks.set(norm(a[1]) + '|' + norm(c[1]), i); });
+  const KEY_NAME = /_(pkey|key|fkey|excl)$/i;
+  const widenedCheck = (t: string, name: string, at: number) => !KEY_NAME.test(name) && (addedChecks.get(t + '|' + norm(name)) ?? -1) > at;
 
   let purge = false; // the transaction-local flag, set earlier in this file
   const disabled = new Map<string, string>(); // "table|trigger" -> detail; removed again by a matching ENABLE
   let replicaOff = false;
 
-  for (const s of stmts) {
+  for (const [idx, s] of stmts.entries()) {
     const q = s.masked;
     let x: RegExpExecArray | null;
 
@@ -105,7 +114,8 @@ export function lintMigration(m: LintInput, appendOnly: ReadonlySet<string>): Li
     // ALTER TABLE
     if ((x = new RegExp(String.raw`^\s*alter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?` + ID + String.raw`([\s\S]*)`, 'i').exec(q))) {
       const t = norm(x[1]), rest = x[2];
-      if (ao(t) && /\bdrop\b/i.test(rest)) add('drop-append-only', `ALTER TABLE ${t} ... DROP`, t);
+      const restNoWidened = rest.replace(/\bdrop\s+constraint\s+(?:if\s+exists\s+)?"?(\w+)"?/gi, (all, n: string) => (widenedCheck(t, n, idx) ? '' : all));
+      if (ao(t) && /\bdrop\b/i.test(restNoWidened)) add('drop-append-only', `ALTER TABLE ${t} ... DROP`, t);
       const dis = new RegExp(String.raw`\bdisable\s+trigger\s+(?:"?(\w+)"?)`, 'i').exec(rest);
       if (dis) disabled.set(t + '|' + norm(dis[1]), `ALTER TABLE ${t} DISABLE TRIGGER ${dis[1]}`);
       const ena = new RegExp(String.raw`\benable\s+(?:always\s+|replica\s+)?trigger\s+(?:"?(\w+)"?)`, 'i').exec(rest);

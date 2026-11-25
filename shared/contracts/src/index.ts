@@ -29,3 +29,5 @@ export * from './forecasts.ts';
 export * from './org-plan.ts';
 export * from './exec-plan.ts';
 export * from './cloud-model.ts';
+export * from './run-halts.ts';
+export * from './trajectory.ts';

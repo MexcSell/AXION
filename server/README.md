@@ -30,6 +30,7 @@ The first name that connects becomes the administrator. New installations start 
 | `CLAUDE_CODE_OAUTH_TOKEN1`, `…TOKEN2`, … | one live cloud model per token ("Claude 1", "Claude 2", ids `claude-1`, `claude-2`; an unnumbered `CLAUDE_CODE_OAUTH_TOKEN` is "Claude"). They live in the **repository root** `.env` (mode 600, never committed); `npm run dev`/`start` load it with `--env-file-if-exists=../.env`. None set = no cloud model |
 | `CLOUD_MODEL1`, `CLOUD_MODEL2`, … (`CLOUD_MODEL` for all) | model id per token, default `claude-opus-5-5` (must look like `claude-<name>`) |
 | `CHAT_MODEL` | the first chat model of the default order (default `claude-2`); administrators override the order in Settings › AI Chat. No chat model usable = the chats get the honest "can't answer yet" note |
+| `APPROVAL_DIGEST_VERSION` | `3` turns on approval digest v3 (v2 plus the execution profile hash and the run caps) for NEW approvals; anything else, or unset (the default), keeps v2. Phase A, owner decision O1b: leave unset until the owner approves. Old rows always verify with their own version |
 | `CLOUD_MODEL_TIMEOUT_MS` | per-prompt limit, default 120000 (5000..600000) |
 | `CLAUDE_BIN` / `CLOUD_MODEL_HOME` | path of the `claude` CLI (default: first on PATH, else `~/.local/bin/claude`) and the root of the private HOMEs, one per model (default `server/data/cloud-home/<id>`) |
 

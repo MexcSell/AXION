@@ -17,6 +17,8 @@ const NOT_REACHED: Record<string, string> = {
   'GET /policy/baseline': 'a constant',
   'GET /operations/queues': 'administrator-only (the member gets 403)',
   'GET /operations/anchors': 'audit anchors, not mission data',
+  'GET /runs/trajectories': 'administrator-only (the member gets 403); run trajectory records (Phase A) carry no mission data',
+  'GET /operations/halts': 'administrator-only (the member gets 403); halt records (Phase A) carry no mission data',
   'GET /artifacts': 'administrator-only (the member gets 403); artifact records (c76) carry no mission data',
   'GET /releases': 'administrator-only (the member gets 403); release records (c76) carry no mission data',
   'GET /chat-model': 'the chat model order and model states (owner 2026-11-25): model ids and labels, no mission data',

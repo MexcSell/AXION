@@ -1,0 +1,13 @@
+{
+  "taskClass": "web-read-only",
+  "stage": 1,
+  "maxConsecutiveFailures": 3,
+  "caps": {
+    "maxSteps": 40,
+    "maxWallMs": 600000,
+    "maxToolCallsPerMinute": 20,
+    "maxDistinctOrigins": 3,
+    "reservedMoneyMicros": 0,
+    "reservedTokens": 0
+  }
+}

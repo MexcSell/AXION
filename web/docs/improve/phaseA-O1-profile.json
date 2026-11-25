@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "name": "web-read-only",
+  "taskClass": "web-read-only",
+  "untrustedContent": true,
+  "tier": "container",
+  "filesystem": {
+    "writablePaths": ["/work/scratch"],
+    "readOnlyPaths": ["/work/in"],
+    "forbiddenPatterns": ["**/.env", "**/.env.*", "**/.aws/credentials", "**/.ssh/**", "**/.netrc", "**/.npmrc", "**/*.pem", "**/id_rsa*"]
+  },
+  "network": {
+    "default": "deny",
+    "allowedOrigins": [],
+    "blockedRanges": ["127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "0.0.0.0/8", "::1/128", "fe80::/10", "fc00::/7"]
+  },
+  "limits": { "memoryMb": 1024, "cpuMillis": 2000, "pids": 256, "wallTimeSec": 600 }
+}
