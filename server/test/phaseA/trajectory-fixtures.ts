@@ -90,7 +90,7 @@ export const TRAJECTORIES: TrajFixture[] = [
       { tool: 'browse', args: { url: `${GOOD}/b?page=2` }, ...allow(300, 30), expect: A },
     ], expect: { steps: 3, executed: 3, cost: known(600), tokens: 60, label: 'verified' } }),
   T({ id: 't03', why: 'a browse to an origin that was never granted is denied and does not run: no executed step, so no cost data',
-    steps: [{ tool: 'browse', args: { url: 'https://evil.test/x' }, expect: { profile: 'origin_not_granted', caps: 'continue', executed: false } }],
+    steps: [{ tool: 'browse', args: { url: 'https://evil.com/x' }, expect: { profile: 'origin_not_granted', caps: 'continue', executed: false } }],
     expect: { steps: 1, executed: 0, cost: none, tokens: null, label: 'verified' } }),
   T({ id: 't04', why: 'a known cost of zero is zero, not unknown: a read and a write that both cost 0',
     steps: [
