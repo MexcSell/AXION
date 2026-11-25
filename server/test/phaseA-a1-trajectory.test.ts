@@ -105,6 +105,29 @@ describe('threshold (a): replay reproduces every recorded policy decision (read 
     }
     expect(flagged).toBe(cases.length);
   });
+  it('LIMIT, pinned: when redaction or bounding changes an argument the decision depended on, replay fails closed and says where to look (the executor decided on the raw argument)', () => {
+    const one = (id: string, tool: string, args: Record<string, unknown>) => runFixture({
+      id, why: id, profile: true, caps: {}, stage: 2, breaker: 3, claim: 'none', env: null,
+      steps: [{ tool, args, cost: 1, tokens: 1, expect: { profile: null, caps: 'continue', executed: false } }],
+      expect: { steps: 1, executed: 0, cost: { status: 'unknown', micros: null, lowerBound: 0, missing: 0 }, tokens: null, label: 'no_success_claimed' },
+    });
+    const replay = (r: ReturnType<typeof one>) => replayTrajectory({ run: r.built.run, steps: r.built.steps, profile: r.profile });
+    // redaction does not change the decision: replays
+    for (const args of [{ url: 'https://user:pass@good.com/a' }, { url: 'https://good.com/a?token=Zm9vYmFyMTIzNDU2&page=2' }, { url: 'https://good.com/a?page=2' }]) {
+      const r = replay(one('ok', 'browse', args));
+      expect(r.ok, JSON.stringify(args)).toBe(true);
+      expect(r.redactedSteps).toEqual([]);
+    }
+    // redaction (or the length bound) changes the decision: does not replay, flagged as redacted
+    for (const [tool, args] of [['read_file', { path: '/work/in/Xk39Fj28Qp71Lm04Zr56Vb92Nc13Hd87' }], ['read_file', { path: '/work/in/ann@mail.test.txt' }], ['browse', { url: 'https://good.com/' + 'a'.repeat(3000) }]] as const) {
+      const ran = one('hazard', tool, args);
+      expect(ran.built.steps[0].executed, 'the executor allowed it on the raw argument').toBe(true);
+      const r = replay(ran);
+      expect(r.ok, JSON.stringify(args).slice(0, 60)).toBe(false);
+      expect(r.reproduced).toBe(0);
+      expect(r.redactedSteps).toEqual([1]);
+    }
+  });
   it('recorded tool results fed back must hash to the recorded result hash', () => {
     const ran = runFixture(TRAJECTORIES.find((x) => x.id === 't02')!);
     expect(replayTrajectory({ run: ran.built.run, steps: ran.built.steps, profile: ran.profile, results: ran.results }).resultMismatches).toEqual([]);

@@ -27,6 +27,11 @@ export interface ReplayResult {
   resultMismatches: { seq: number; recorded: string | null; replayed: string }[];
   /** the profile given is not the one the run recorded (different hash), or one is missing */
   profileMismatch: boolean;
+  /**
+   * Steps that did not reproduce AND had arguments changed by redaction or bounding (redactions > 0, or a truncation marker). The executor decided on the raw arguments; replay
+   * only has the stored ones, so for these the mismatch may be the redaction, not a wrong decision. They still count as failures (replay fails closed); this only says where to look.
+   */
+  redactedSteps: number[];
 }
 
 export function replayTrajectory(i: ReplayInput): ReplayResult {
@@ -55,5 +60,7 @@ export function replayTrajectory(i: ReplayInput): ReplayResult {
     const h = resultHashOf(r);
     if (h !== s.resultHash) resultMismatches.push({ seq: s.seq, recorded: s.resultHash, replayed: h });
   }
-  return { ok: mismatches.length === 0 && resultMismatches.length === 0 && !profileMismatch, steps: steps.length, reproduced: steps.length - bad.size, mismatches, resultMismatches, profileMismatch };
+  const changed = (s: StoredStep) => s.redactions > 0 || JSON.stringify(s.args ?? null).includes('[truncated');
+  const redactedSteps = steps.filter((s) => bad.has(s.seq) && changed(s)).map((s) => s.seq);
+  return { ok: mismatches.length === 0 && resultMismatches.length === 0 && !profileMismatch, steps: steps.length, reproduced: steps.length - bad.size, mismatches, resultMismatches, profileMismatch, redactedSteps };
 }
