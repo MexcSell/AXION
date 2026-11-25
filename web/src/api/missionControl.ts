@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { create } from 'zustand';
 import type { DomainEvent, MessageDto, ThreadDto } from '@contracts';
-import { fixtureMissionControl, setMissionControlProvider, threadKey, type MissionControlData } from '@/data/missions';
+import { setMissionControlProvider, threadKey, type MissionControlData } from '@/data/missionControl';
 import type { Approval, Artifact, Attachment, Message, Mission, MissionEdge, MissionNode, Task, TimelineEvent } from '@/data/types';
 import { useData, confirmMissionGone } from '@/store/data';
 import { api, ApiFailure, newKey } from './client';
@@ -11,9 +11,8 @@ import { isApi } from './mode';
  * Mission Control from the server (Stage 6). In api mode the hierarchy, tasks and conversation threads of a mission come
  * from GET /missions/:id/hierarchy|tasks|threads (fetched by the useMissionControl hook, per part) and are kept current
  * by the event stream (instance.*, task.*, conversation.*). Thread messages load a page at a time (newest 50 first).
- * getMissionControl(m) keeps its signature: data/missions.ts asks the provider registered here.
- * Approvals come from the Stage 5 approvals store; artifacts and the timeline stay the DEMO fixture for demo missions
- * and are empty for real ones (Stage 8).
+ * getMissionControl(m) keeps its signature: data/missionControl.ts asks the provider registered here.
+ * Approvals come from the server-backed approvals store. Artifact and timeline collections are empty here.
  * Failures are never shown as "empty": each part and each thread carries a loading / error state, retries with backoff,
  * again on every stream reconnect, and on the views' Retry buttons.
  */
@@ -491,13 +490,12 @@ function provide(m: Mission): MissionControlData {
   const ap = useData.getState().approvals;
   const c = memo.get(m.id);
   if (c && c.e === e && c.m === m && c.ap === ap) return c.out;
-  const fx = m.demo ? fixtureMissionControl(m) : null;
   const prev = c?.out;
   const approvals = ap.filter((a) => a.missionId === m.id);
   const out: MissionControlData = {
     nodes: e?.nodes ?? NO_NODES, edges: e?.edges ?? NO_EDGES, tasks: e?.tasks ?? NO_TASKS, threads: threadMap(e?.threads),
     approvals: prev && prev.approvals.length === approvals.length && prev.approvals.every((a, i) => a === approvals[i]) ? prev.approvals : approvals,
-    artifacts: fx?.artifacts ?? NO_ARTIFACTS, timeline: fx?.timeline ?? NO_TIMELINE,
+    artifacts: NO_ARTIFACTS, timeline: NO_TIMELINE,
   };
   memo.set(m.id, { e, m, ap, out });
   return out;

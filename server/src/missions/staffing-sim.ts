@@ -58,7 +58,11 @@ export function startStaffingSim(app: FastifyInstance, stepMs = 1500) {
         }
         const team = (await c.query('select agent_id from agent_instances where mission_id=$1 order by seq', [id])).rows.map((x) => x.agent_id as string);
         const view = { ...p, id, status: toUiStatus(r.status), agentIds: team, progress: p.progress ?? 0 };
-        const patch = advance(view as never, now) as Record<string, any> | null;
+        const next = p.staffing.plan[p.staffing.joined];
+        const nameIds = [p.executorId, next?.agentId, next?.managerId].filter(Boolean);
+        const names = await c.query<{ id: string; name: string }>(
+          'select id, name from agent_definitions where tenant_id=$1 and id=any($2::text[])', [r.tenant_id, nameIds]);
+        const patch = advance(view as never, now, new Map(names.rows.map(a => [a.id, a.name]))) as Record<string, any> | null;
         if (!patch) return false;
         const { status: nextStatus, lastEventAgoMin: _l, summaryAgoMin: _s, agentIds: _a, ...rest } = patch;
         void _l; void _s; void _a; // agentIds is derived from instances, never written to presentation

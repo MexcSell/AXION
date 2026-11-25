@@ -1,5 +1,9 @@
 import type { Approval, Artifact, Message, Mission, MissionEdge, MissionNode, MissionPhase, Task, TimelineEvent } from './types';
-import { AGENT_BY_ID, seeded } from './agents';
+import { COMPANY_AGENT_BY_ID } from '../../../shared/company/agents';
+import { seeded } from './agents';
+import { threadKey, type MissionControlData } from './missionControl';
+
+export { threadKey, type MissionControlData } from './missionControl';
 
 const phases = (active: number, blockedAt = -1): MissionPhase[] => {
   const keys: [string, string][] = [['plan', 'Plan'], ['design', 'Design'], ['build', 'Build'], ['verify', 'Verify'], ['deliver', 'Deliver'], ['learn', 'Learn']];
@@ -218,18 +222,6 @@ const LINES = {
 
 const fill = (s: string, task: string) => s.replace('{task}', task);
 
-export interface MissionControlData {
-  nodes: MissionNode[];
-  edges: MissionEdge[];
-  threads: Record<string, Message[]>; // key = sorted pair "a|b"
-  tasks: Task[];
-  artifacts: Artifact[];
-  approvals: Approval[];
-  timeline: TimelineEvent[];
-}
-
-export const threadKey = (a: string, b: string) => [a, b].sort().join('|');
-
 const STATE_CYCLE: MissionNode['state'][] = ['working', 'working', 'verifying', 'waiting', 'reporting', 'idle'];
 
 function demoRuleOfTwo(kind: string): NonNullable<Approval['ruleOfTwo']> {
@@ -265,10 +257,10 @@ export function buildMissionControl(m: Mission): MissionControlData {
   }
   // lateral consult between first two specialists, verifier edge for qa agents
   if (specialists.length > 1) edges.push({ from: inst(specialists[0]), to: inst(specialists[1]), kind: 'consults' });
-  const qa = m.agentIds.find((a) => AGENT_BY_ID[a]?.role === 'qa' || AGENT_BY_ID[a]?.role === 'security');
+  const qa = m.agentIds.find((a) => COMPANY_AGENT_BY_ID[a]?.role === 'qa' || COMPANY_AGENT_BY_ID[a]?.role === 'security');
   const verifyTarget = specialists.find((a) => a !== qa);
   if (qa && verifyTarget) edges.push({ from: inst(qa), to: inst(verifyTarget), kind: 'verifies' });
-  const mentor = m.agentIds.find((a) => AGENT_BY_ID[a]?.role === 'mentor');
+  const mentor = m.agentIds.find((a) => COMPANY_AGENT_BY_ID[a]?.role === 'mentor');
   if (mentor) for (const s of specialists.filter((a) => a !== mentor).slice(0, 2)) edges.push({ from: inst(mentor), to: inst(s), kind: 'mentors' });
 
   // threads
@@ -361,7 +353,7 @@ export function buildMissionControl(m: Mission): MissionControlData {
   const timeline: TimelineEvent[] = Array.from({ length: 16 }, (_, i) => {
     const type = evTypes[i % evTypes.length];
     const actor = i === 0 ? 'human:owner' : m.agentIds[i % m.agentIds.length];
-    const nm = AGENT_BY_ID[actor]?.name ?? 'Luca (Owner)';
+    const nm = COMPANY_AGENT_BY_ID[actor]?.name ?? 'Luca (Owner)';
     const text: Record<TimelineEvent['type'], string> = {
       create: `Mission ${m.id} created (revision ${m.revision})`, delegate: `${nm} delegated "${titles[i % titles.length]}"`,
       browser: `${nm} navigated to granted origin · screenshot captured`, model: `${nm} model call · 2.1k tokens`,
@@ -375,7 +367,7 @@ export function buildMissionControl(m: Mission): MissionControlData {
 }
 
 const cache = new Map<string, MissionControlData>();
-/** The prototype's generated Mission Control data (demo mode; DEMO artifacts and timeline in api mode). */
+/** Deterministic mission control data for seeding and server tests. */
 export function fixtureMissionControl(m: Mission) {
   // keyed by the team too: agents join a mission while it runs (owner update u1)
   const key = `${m.id}|${m.leadId}|${m.agentIds.join(',')}`;
@@ -383,15 +375,4 @@ export function fixtureMissionControl(m: Mission) {
   return cache.get(key)!;
 }
 
-/**
- * api mode (Stage 6): web/src/api/missionControl.ts registers a provider that answers from the server's data.
- * It returns null when it does not apply (demo mode), and the fixture is used. Kept as a plain hook point because
- * the server imports this file too (seeding, backfill) and must not pull in browser modules.
- */
-type Provider = (m: Mission) => MissionControlData | null;
-let provider: Provider | null = null;
-export function setMissionControlProvider(p: Provider | null) { provider = p; }
-
-export function getMissionControl(m: Mission): MissionControlData {
-  return provider?.(m) ?? fixtureMissionControl(m);
-}
+export { fixtureMissionControl as getMissionControl };

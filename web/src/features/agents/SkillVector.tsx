@@ -4,11 +4,8 @@ import { BarChart3, ClipboardCheck, Code2, Globe, ListChecks, MessageSquare, Pen
 import { SKILL_MIN_N, SKILL_LEVEL_MIN_N, SKILL_HEADLINE_MIN_LEVELS, type AgentSkillsDto, type SkillCellDto, type SkillCompareDto, type TaskClassId } from '@contracts';
 import { Panel } from '@/components/ui/Panel';
 import { Tip } from '@/components/ui/Tip';
-import { DemoTag } from '@/components/ui/Chips';
 import { AGENTS } from '@/data/agents';
-import { demoSkills, demoCompare } from '@/data/skillDemo';
 import { useAgentSkills, useSkillCompare } from '@/api/agentSkills';
-import { isApi } from '@/api/mode';
 import { cx } from '@/lib/format';
 import '@/theme/pages/c72-skills.css';
 
@@ -75,14 +72,11 @@ function VerdictChip({ v }: { v?: SkillCompareDto['classes'][number] }) {
 }
 
 export function SkillVector({ agentId, agentName }: { agentId: string; agentName: string }) {
-  const api_ = isApi();
   const srv = useAgentSkills(agentId);
   const [withId, setWithId] = useState('');
   const srvCmp = useSkillCompare(agentId, withId || null);
-  const demo = useMemo(() => (api_ ? null : demoSkills(agentId)), [api_, agentId]);
-  const demoCmp = useMemo(() => (api_ || !withId ? null : demoCompare(agentId, withId)), [api_, agentId, withId]);
-  const data: AgentSkillsDto | null = api_ ? srv.data : demo;
-  const cmp: SkillCompareDto | null = api_ ? srvCmp.data : demoCmp;
+  const data: AgentSkillsDto | null = srv.data;
+  const cmp: SkillCompareDto | null = srvCmp.data;
   const others = useMemo(() => AGENTS.filter((a) => a.id !== agentId && a.id !== 'gm').sort((x, y) => x.name.localeCompare(y.name)), [agentId]); // listed by name
   const rated = data ? data.classes.filter((c) => c.state === 'ok').length : 0;
   return (
@@ -95,7 +89,7 @@ export function SkillVector({ agentId, agentName }: { agentId: string; agentName
             {others.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
         </label>
-        {api_ ? <span className="demo-tag measured" title="Counted on the server from finished tasks">measured</span> : <DemoTag />}
+        <span className="demo-tag measured" title="Counted on the server from finished tasks">measured</span>
       </div>}>
       {!data ? <div className="dim" style={{ fontSize: 13 }}>{srv.error ?? 'Loading the skill ratings…'}</div> : (
         <>

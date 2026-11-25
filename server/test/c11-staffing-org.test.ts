@@ -5,7 +5,7 @@ import { buildApp } from '../src/app.ts';
 import { seedDemo } from '../src/seed/demo.ts';
 import { hierarchy } from '../src/instances/service.ts';
 import { loadRow, missionDto } from '../src/missions/service.ts';
-import { AGENTS, AGENT_BY_ID } from '../../web/src/data/agents.ts';
+import { COMPANY_AGENTS, COMPANY_AGENT_BY_ID } from '../../shared/company/agents.ts';
 import { staffingPlan, executorFor } from '../../web/src/features/mission/staffing-plan.ts';
 import { KIND_DEPT, kindDeptText, departmentHead, departmentHeads, orgStaffing, FORMER_EXECUTOR_WHY, type OrgView } from '../../web/src/features/mission/staffing-org.ts';
 const ST = { baseline: 'No change: keep the current chart as it is.', expectedCost: 'No added cost is expected in this test.' }; // c64: every proposal states a baseline and its expected cost
@@ -19,8 +19,8 @@ const key = () => ({ 'idempotency-key': 'c11-' + n++ });
 /** The seeded organisation (revision 1): the fixture agents and their managerId lines. */
 const seedOrg = (): OrgView => ({
   revision: 1,
-  agents: AGENTS.map((a) => ({ id: a.id, dept: a.dept, active: true })),
-  edges: AGENTS.filter((a) => a.managerId).map((a) => ({ supervisorId: a.managerId!, subordinateId: a.id })),
+  agents: COMPANY_AGENTS.map((a) => ({ id: a.id, dept: a.dept, active: true })),
+  edges: COMPANY_AGENTS.filter((a) => a.managerId).map((a) => ({ supervisorId: a.managerId!, subordinateId: a.id })),
 });
 const move = (org: OrgView, moves: Record<string, string>): OrgView => ({
   ...org, edges: org.edges.map((e) => (moves[e.subordinateId] ? { ...e, supervisorId: moves[e.subordinateId] } : e)),
@@ -39,7 +39,7 @@ describe('kind → department, heads and the staffing plan (pure)', () => {
   });
 
   it('KIND_DEPT is the department of the fixture executor of every kind', () => {
-    for (const k of KINDS) expect(KIND_DEPT[k], k).toBe(AGENT_BY_ID[executorFor(k)].dept);
+    for (const k of KINDS) expect(KIND_DEPT[k], k).toBe(COMPANY_AGENT_BY_ID[executorFor(k)].dept);
     expect(Object.keys(KIND_DEPT).sort()).toEqual([...KINDS].sort());
   });
 

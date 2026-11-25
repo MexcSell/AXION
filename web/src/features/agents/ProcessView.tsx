@@ -28,7 +28,7 @@ export function fmtProc(c: Pick<ProcessCell, 'value' | 'unit'>): string {
 }
 const p90Text = (c: ProcessCell) => (c.p90 === null ? null : c.unit === 'h' ? `p90 ${fmtProc({ value: c.p90, unit: 'h' })}` : `p90 ${c.p90}`);
 
-function Card({ c, w, i, g, demo }: { c: ProcessCell; w: ProcessWindow; i: number; g?: MetricGuardRow; demo: boolean }) {
+function Card({ c, w, i, g }: { c: ProcessCell; w: ProcessWindow; i: number; g?: MetricGuardRow }) {
   const key = short(c.key);
   const Icon = ICON[key] ?? Hourglass;
   const T = c.trend ? TREND[c.trend] : null;
@@ -48,20 +48,20 @@ function Card({ c, w, i, g, demo }: { c: ProcessCell; w: ProcessWindow; i: numbe
         ? <Tip label={c.evidence}><div className="proc-cv" tabIndex={0} role="group" aria-label={`${c.label}: ${c.evidence}`}><b className="tnum">{fmtProc(c)}</b><span className="proc-n tnum">n = {c.n}</span>{p90 && <span className="proc-p90 tnum" title="90th percentile, nearest rank">{p90}</span>}
             {T && <small className="proc-tr" title={`previous window: ${prev} (n = ${c.previous.n})`}><T size={12} aria-hidden />{prev}</small>}</div></Tip>
         : <div className="proc-cv proc-none">{c.state === 'unmeasured' && <Hourglass size={12} aria-hidden />}{c.state === 'none' ? `not enough evidence (n = ${c.n})` : c.evidence}</div>}
-      <div className="proc-meta tnum">{demo ? 'SAMPLE · ' : ''}{c.state === 'unmeasured' ? 'no source' : WIN[w]}{c.state === 'none' && c.minN ? ` · needs ${c.minN}` : ''}</div>
+      <div className="proc-meta tnum">{c.state === 'unmeasured' ? 'no source' : WIN[w]}{c.state === 'none' && c.minN ? ` · needs ${c.minN}` : ''}</div>
       {c.open && <div className={cx('proc-open', c.open.n === 0 && 'zero')} data-open-line={c.open.n}><b className="tnum">{c.open.n} open</b> · {c.open.what}; not in the rate</div>}
       {c.breakdown.length > 0 && <ul className="proc-causes" aria-label="Failure tags on the returned tasks, with n" data-causes={c.breakdown.length}><li className="proc-cause-h" aria-hidden>failure tags:</li>{c.breakdown.map((b) => <li key={b.label} data-cause={b.label}>{b.label}<b className="tnum">{b.n}</b></li>)}</ul>}
     </motion.article>
   );
 }
 
-export function ProcessView({ data, error, w, byId, demo }: { data: ProcessDto | null; error: string | null; w: ProcessWindow; byId: (id: string, label?: string) => MetricGuardRow | undefined; demo: boolean }) {
+export function ProcessView({ data, error, w, byId }: { data: ProcessDto | null; error: string | null; w: ProcessWindow; byId: (id: string, label?: string) => MetricGuardRow | undefined }) {
   if (!data) return error ? <LiveStatus kind="error" className="dim">{error}</LiveStatus> : <LiveStatus className="dim">Reading the process figures…</LiveStatus>;
   const measured = data.cells.filter((c) => c.state !== 'unmeasured');
   const blank = data.cells.filter((c) => c.state === 'unmeasured');
   return (
     <div className="proc-wrap" data-process="ready" data-window={w} data-department={data.department ?? ''}>
-      <div className="proc-grid" role="list" aria-label="Process figures">{measured.map((c, i) => <div role="listitem" key={c.key} className="proc-li"><Card c={c} w={w} i={i} g={byId(c.key, c.label)} demo={demo} /></div>)}</div>
+      <div className="proc-grid" role="list" aria-label="Process figures">{measured.map((c, i) => <div role="listitem" key={c.key} className="proc-li"><Card c={c} w={w} i={i} g={byId(c.key, c.label)} /></div>)}</div>
       {blank.length > 0 && <div className="proc-blank" data-unmeasured={blank.map((c) => c.key).join(',')}>
         {blank.map((c) => <div key={c.key} className="proc-bl" data-pcell={c.key} data-state="unmeasured"><Hourglass size={13} aria-hidden /><b>{c.label}</b><Tip label={c.evidence}><span tabIndex={0} role="note" aria-label={c.evidence}>{c.evidence.split(':')[0]}</span></Tip><GuardTrigger g={byId(c.key, c.label)} compact /><HelpTrigger k={c.key} /></div>)}
       </div>}

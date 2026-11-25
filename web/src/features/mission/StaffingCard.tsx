@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { isApi } from '@/api/mode';
 import { useMe, isAdmin } from '@/store/auth';
 import { retryStaffing } from '@/api/missionControl';
-import { toast } from '@/store/ui';
+import { openDialog, toast } from '@/store/ui';
 import '@/theme/pages/c42-delegation.css';
 import { RobotAvatar } from '@/components/art/RobotAvatar';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
@@ -91,9 +91,9 @@ export function MissionContent({ m }: { m: Mission }) {
       {files.length > 0 && (
         <div className="mc-content-files">
           {files.map((f) => { const M = FILE_META[f.kind]; return (
-            <span key={f.id} className="mc-file" style={{ ['--h' as string]: M.hue }} title={f.name}>
+            <button type="button" key={f.id} className="mc-file" style={{ ['--h' as string]: M.hue }} title={f.name} onClick={() => openDialog('attachment-preview', { attachment: { ...f, size: `${f.size.toLocaleString()} bytes` } })}>
               {f.kind === 'image' && f.url ? <img src={f.url} alt="" /> : <M.icon size={14} />}<span className="ellipsis">{f.name}</span>
-            </span>
+            </button>
           ); })}
         </div>
       )}

@@ -25,7 +25,7 @@ const SELECT = `select d.*, v.id as v_id, v.label as v_label, v.model as v_model
 export type AgentBase = AgentStoredDto;
 
 function dto(r: any, manager: string | undefined): AgentBase {
-  const profile = (r.profile ?? {}) as Record<string, unknown>;
+  const profile = (r.profile?.provenance?.source === 'demo-fixture' ? {} : r.profile ?? {}) as Record<string, unknown>;
   const provenance: Provenance = (profile.provenance as Provenance | undefined) ?? { source: 'measured', sample: 0, window: '90d' };
   return {
     ...profile,

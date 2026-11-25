@@ -16,7 +16,6 @@ import { MissionStatusChip, Chip, Dot } from '@/components/ui/Chips';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { CountUp } from '@/components/ui/CountUp';
 import { useData, allApprovals, useVisibleMissions } from '@/store/data';
-import { DemoTag } from '@/components/ui/Chips';
 import { useAuth, useMe, isAdmin } from '@/store/auth';
 import { UserAvatar } from '@/components/ui/UserAvatar';
 import { executorOf } from '@/features/mission/staffing';
@@ -25,11 +24,9 @@ import { openDialog, toast } from '@/store/ui';
 import { useTab } from '@/hooks/useTab';
 import { Splitter, usePaneWidth } from '@/components/ui/Splitter';
 import { MISSION_FILTERS, slug } from '@/config/nav';
-import { missionTotals, fmtTokens, fmtMin } from '@/data/activity';
 import { AGENT_BY_ID } from '@/data/agents';
-import { getMissionControl } from '@/data/missions';
+import { getMissionControl } from '@/data/missionControl';
 import { useMissionNodes } from '@/api/missionControl';
-import { hasDemoActivity, isApi } from '@/api/mode';
 import { useScorecard, rowOf } from '@/api/scorecard';
 import { MISSION_STATUS, TONE_VAR } from '@/data/roles';
 import type { Mission } from '@/data/types';
@@ -39,7 +36,6 @@ import { HierarchyGraph } from '@/features/mission/HierarchyGraph';
 import { Messenger } from '@/features/mission/Messenger';
 import { MissionAgents } from '@/features/mission/MissionAgents';
 import { TaskFlow } from '@/features/mission/TaskFlow';
-import { BrowserMini } from '@/features/mission/BrowserMini';
 import { LedgerTab } from '@/features/mission/LedgerTab';
 import { OverviewTab, ResultsTab, ApprovalsTab, ReportsTab, TimelineTab } from '@/features/mission/WorkspaceTabs';
 import '@/theme/pages/missions.css';
@@ -168,7 +164,7 @@ export default function MissionsPage() {
                 <AnimatePresence mode="wait">
                   <motion.div key={m.id + tab} className="fit-scroll" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: .2 }} role="tabpanel" aria-label={tab} style={{ height: '100%' }}>
                     {tab === 'Overview' && <OverviewTab m={m} onSelectAgent={openChat} />}
-                    {tab === 'Activity' && <ActivityTab m={m} onOpenChat={openChat} />}
+                    {tab === 'Activity' && <ActivityTab m={m} />}
                     {tab === 'Hierarchy' && (
                       <div className="pane-split hier-split">
                         <div className="hier-graph-pane"><HierarchyGraph mission={m} selected={agentId} onSelect={selectAgent} onOpenChat={openChat} /></div>
@@ -183,7 +179,6 @@ export default function MissionsPage() {
                       </div>
                     )}
                     {tab === 'Task Flow' && <TaskFlow mission={m} />}
-                    {tab === 'Browser' && <BrowserMini mission={m} />}
                     {tab === 'Conversations' && (
                       <div className="pane-split conv-split">
                         <aside className="conv-agents" style={{ ['--pane-w' as string]: `${agentsW}px` }} aria-label="Mission agents">
@@ -284,7 +279,7 @@ function MissionList({ missions, list, selected, onSelect, filter, setFilter, q,
         <span className="page-header-icon mw-head-icon"><Target size={20} /></span>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div className="row" style={{ gap: 6 }}><h1 className="mw-title">Missions</h1><HelpTrigger k="missions.list" /></div>
-          <div className="dim ellipsis" style={{ fontSize: 11.5 }}>{counts.All} open{isApi() ? <ListSuccess /> : <> · <span className="warn">96.4%</span> success rate</>}</div>
+          <div className="dim ellipsis" style={{ fontSize: 11.5 }}>{counts.All} open<ListSuccess /></div>
         </div>
         <IconButton icon={LayoutTemplate} label="Mission templates" variant="bordered" size="sm" onClick={() => openDialog('mission-templates')} />
         <IconButton icon={Plus} label="Add mission" variant="active" size="sm" onClick={() => openDialog('mission-create')} />
@@ -374,7 +369,6 @@ function MissionRow({ m, selected, pinned, onSelect, index }: {
           <div className="mission-row-body">
             <div className="mission-title-line">
               <span className="mission-title ellipsis" title={m.title}>{m.title}</span>
-              {m.demo && <DemoTag title="Sample mission from the prototype (DEMO). npm run demo:clear removes them." />}
               <Tip label="Edit mission">
                 <button className="icon-btn xs edit-btn" aria-label={`Edit ${m.title}`} onClick={(e) => { e.stopPropagation(); openDialog('mission-edit', { missionId: m.id }); }}><Pencil size={13} /></button>
               </Tip>
@@ -470,9 +464,6 @@ function MissionHeader({ m }: { m: Mission }) {
   const [min, setMinState] = useState(readHeadMin);
   const setMin = (v: boolean) => { setMinState(v); writeHeadMin(v); };
   const tone = m.status === 'failed' ? 'var(--bad)' : 'var(--accent-2)';
-  const tot = missionTotals(m);
-  // E8: activity is DEMO data; a real mission (api mode) is "not measured yet" and shows no invented numbers
-  const demoAct = hasDemoActivity(m);
   const NOT_MEASURED = 'Activity is not measured yet: tokens, time, CPU and RAM are recorded once agents execute (Stage 9/10).';
   // Review Focus 3: the version the lead's instance is pinned to, not the agent's current version
   useMissionNodes(m.id, ['hierarchy']);
@@ -487,13 +478,7 @@ function MissionHeader({ m }: { m: Mission }) {
       {staffing && <Chip hue={38} size="sm">staffing {staffing.joined}/{staffing.plan.length}</Chip>}
       <span className="spacer" />
       {shareBtn}
-      {demoAct ? (
-        <Tip label={`${fmtTokens(tot.tokens)} tokens · ${m.agentIds.length} agents · avg CPU ${tot.cpu}%`}>
-          <span className="row nowrap mw-min-budget muted" style={{ gap: 4 }}><Cpu size={13} /><b className="tnum">{fmtTokens(tot.tokens)}</b></span>
-        </Tip>
-      ) : (
-        <Tip label={NOT_MEASURED}><span className="row nowrap mw-min-budget muted" style={{ gap: 4 }} data-activity="not-measured"><Cpu size={13} /><b className="tnum">—</b></span></Tip>
-      )}
+      <Tip label={NOT_MEASURED}><span className="row nowrap mw-min-budget muted" style={{ gap: 4 }} data-activity="not-measured"><Cpu size={13} /><b className="tnum">—</b></span></Tip>
       <Tip label={`${m.progress}% verified progress`}><span><ProgressRing value={m.progress} size={30} stroke={3.5} tone={tone} /></span></Tip>
       {fold}
     </motion.section>
@@ -518,19 +503,11 @@ function MissionHeader({ m }: { m: Mission }) {
           <Tip label="Policy: prepare + gated execute — consequential actions need your approval"><span className="row good" style={{ gap: 4 }}><ShieldCheck size={13} />gated</span></Tip>
         </div>
       </div>
-      {demoAct ? (
-        <div className="mc-budget">
-          <div className="row" style={{ justifyContent: 'space-between', fontSize: 12 }}><span className="row muted nowrap" style={{ gap: 5 }}><Cpu size={13} />Activity<HelpTrigger k="mission.activity" /></span><b className="tnum">{fmtTokens(tot.tokens)} tok</b></div>
-          <div className="bar info" style={{ marginTop: 6 }}><motion.i initial={{ width: 0 }} animate={{ width: `${Math.min(100, tot.cpu)}%` }} transition={{ duration: 1 }} /></div>
-          <div className="dim" style={{ fontSize: 11, marginTop: 4 }}>{m.agentIds.length} agents · {fmtMin(tot.activeMin)} active · CPU {tot.cpu}%</div>
-        </div>
-      ) : (
-        <div className="mc-budget" data-activity="not-measured" title={NOT_MEASURED}>
-          <div className="row" style={{ justifyContent: 'space-between', fontSize: 12 }}><span className="row muted nowrap" style={{ gap: 5 }}><Cpu size={13} />Activity<HelpTrigger k="mission.activity" /></span><span className="demo-tag" style={{ letterSpacing: '.04em' }}>NOT MEASURED YET</span></div>
-          <div className="bar info" style={{ marginTop: 6 }}><i style={{ width: 0 }} /></div>
-          <div className="dim" style={{ fontSize: 11, marginTop: 4 }}>{m.agentIds.length} agents · measured once agents execute</div>
-        </div>
-      )}
+      <div className="mc-budget" data-activity="not-measured" title={NOT_MEASURED}>
+        <div className="row" style={{ justifyContent: 'space-between', fontSize: 12 }}><span className="row muted nowrap" style={{ gap: 5 }}><Cpu size={13} />Activity<HelpTrigger k="mission.activity" /></span><span className="demo-tag" style={{ letterSpacing: '.04em' }}>NOT MEASURED YET</span></div>
+        <div className="bar info" style={{ marginTop: 6 }}><i style={{ width: 0 }} /></div>
+        <div className="dim" style={{ fontSize: 11, marginTop: 4 }}>{m.agentIds.length} agents · measured once agents execute</div>
+      </div>
       <div className="col" style={{ alignItems: 'center', gap: 2 }}>
         <ProgressRing value={m.progress} size={56} stroke={6} tone={tone} />
         <span className="row dim" style={{ gap: 3, fontSize: 10.5 }}>verified<HelpTrigger k="mission.progress.verified" /></span>

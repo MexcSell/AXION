@@ -4,7 +4,7 @@ import { migrate } from '../src/migrate.ts';
 import { seedCompany } from '../src/agents/seed.ts';
 import { createOrgRevision } from '../src/agents/org.ts';
 import { tx } from '../src/db.ts';
-import { AGENTS } from '../../web/src/data/agents.ts';
+import { COMPANY_AGENTS } from '../../shared/company/agents.ts';
 
 let t: TestApp;
 let admin: Browser;
@@ -24,28 +24,29 @@ const count = async (sql: string) => (await t.pool.query(sql)).rows[0].n as numb
 
 describe('seeding', () => {
   it('is idempotent: every fixture agent, one version each, one org revision', async () => {
-    expect(AGENTS.length).toBe(24); // 18 base agents + 6 derived (u1)
+    expect(COMPANY_AGENTS.length).toBe(24); // 18 base agents + 6 derived (u1)
     await tx(t.app.db, (c) => seedCompany(c, 't-1'));
     await tx(t.app.db, (c) => seedCompany(c, 't-1'));
-    expect(await count('select count(*)::int n from agent_definitions')).toBe(AGENTS.length);
-    expect(await count('select count(*)::int n from agent_versions')).toBe(AGENTS.length);
+    expect(await count('select count(*)::int n from agent_definitions')).toBe(COMPANY_AGENTS.length);
+    expect(await count('select count(*)::int n from agent_versions')).toBe(COMPANY_AGENTS.length);
     expect(await count('select count(*)::int n from org_revisions')).toBe(1);
-    expect(await count('select count(*)::int n from org_edges')).toBe(AGENTS.length - 1); // every agent but GM has a manager
+    expect(await count('select count(*)::int n from org_edges')).toBe(COMPANY_AGENTS.length - 1); // every agent but GM has a manager
   });
 
-  it('GET /agents returns the UI shape with demo-fixture provenance', async () => {
+  it('GET /agents returns company definitions without synthetic performance scores', async () => {
     const r = await member.req('GET', '/agents');
     expect(r.status).toBe(200);
-    expect(r.body.agents.length).toBe(AGENTS.length);
+    expect(r.body.agents.length).toBe(COMPANY_AGENTS.length);
     const coder = r.body.agents.find((a: any) => a.id === 'coder-01');
-    const fx = AGENTS.find((a) => a.id === 'coder-01')!;
-    expect(coder.provenance).toEqual({ source: 'demo-fixture', sample: null, window: '90d' });
+    const fx = COMPANY_AGENTS.find((a) => a.id === 'coder-01')!;
+    expect(coder.provenance).toEqual({ source: 'measured', sample: 0, window: '90d' });
     expect(coder.versionLabel).toBe(fx.version);
     expect(coder.version).toBe(fx.version);
     expect(coder.versionId).toBeTruthy();
     expect(coder.skills).toEqual(fx.skills);
     expect(coder.model).toBe(fx.model);
-    expect(coder.metrics).toEqual(fx.metrics);
+    expect(coder.metrics).toBeUndefined();
+    expect(coder.success).toBeUndefined();
     expect(coder.managerId).toBe('gm');
     expect(coder.duty).toBe(fx.duty);
     const site = r.body.agents.find((a: any) => a.id === 'site-upwork');

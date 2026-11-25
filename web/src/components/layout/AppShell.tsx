@@ -1,10 +1,7 @@
 import { AnimatePresence, MotionConfig, motion } from 'motion/react';
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { useData } from '@/store/data';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useMe } from '@/store/auth';
 import { channelId } from '@/store/chat';
-import { useStaffingDriver } from '@/features/mission/staffing';
-import { isApi } from '@/api/mode';
 import { useServerSync } from '@/api/events';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { TopBar } from './TopBar';
@@ -21,10 +18,9 @@ import { ChevronsDown } from 'lucide-react';
 import { Tip } from '@/components/ui/Tip';
 
 // The command palette and the chat window are not part of the first screen: their chunks load when first wanted
-// (and are fetched when idle, see App's preloader), then stay mounted so their exit animations still play.
+// and stay mounted so their exit animations can finish.
 const loadPalette = () => import('./CommandPalette').then((m) => ({ default: m.CommandPalette }));
 const loadChat = () => import('@/features/chat/ChatDock').then((m) => ({ default: m.ChatDock }));
-export const lazyShellParts = [loadPalette, loadChat];
 const CommandPalette = lazy(loadPalette);
 const ChatDock = lazy(loadChat);
 /** True from the first moment `on` is true, for the rest of the component's life. */
@@ -48,25 +44,10 @@ function useGlobalShortcuts() {
   }, [setPalette, set, nav]);
 }
 
-const freshMission = (id: string) => useData.getState().missions.find((m) => m.id === id);
-
-/** Moves every newly added mission through GM → executor → agents (owner update u1). */
-function StaffingDriver() {
-  const missions = useData((s) => s.missions);
-  const update = useData((s) => s.updateMission);
-  const me = useMe();
-  // Only the owner's tab advances its missions: with several tabs open (several users), each step happens once.
-  const staffing = useMemo(() => missions.filter((m) => m.staffing && m.staffing.stage !== 'working' && m.ownerId === me?.id), [missions, me?.id]);
-  useStaffingDriver(staffing, update, freshMission);
-  return null;
-}
-
-/** api mode: the server runs staffing; this tab follows its events (Stage 5). */
-function ServerSync() { useServerSync(); return null; }
-
 export function AppShell() {
   const motionEff = useMotionEff();
   useGlobalShortcuts();
+  useServerSync();
   const loc = useLocation();
   const me = useMe();
   const nav = useNavigate();
@@ -150,7 +131,6 @@ export function AppShell() {
         <ToastStack />
         <DialogHost />
         {showPalette && <Suspense fallback={null}><CommandPalette /></Suspense>}
-        {isApi() ? <ServerSync /> : <StaffingDriver />}
         {showChat && <Suspense fallback={null}><ChatDock /></Suspense>}
       </div>
     </MotionConfig>

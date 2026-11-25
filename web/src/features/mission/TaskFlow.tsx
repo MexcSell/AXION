@@ -7,7 +7,7 @@ import { Segmented } from '@/components/ui/Form';
 import { TaskStateChip } from '@/components/ui/Chips';
 import { AGENT_BY_ID } from '@/data/agents';
 import { TASK_STATE, TONE_VAR } from '@/data/roles';
-import { getMissionControl } from '@/data/missions';
+import { getMissionControl } from '@/data/missionControl';
 import type { Mission, Task } from '@/data/types';
 import { openDialog } from '@/store/ui';
 import { cx } from '@/lib/format';

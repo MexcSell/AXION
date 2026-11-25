@@ -9,15 +9,19 @@ import './theme/shell.css';
 import './theme/pages.css';
 import './theme/touch.css';
 import App from './App';
-import { useUI } from './store/ui';
-import { loadHelp } from './help/load';
-import { loadDialogs } from './dialogs/DialogHost';
-import { useData } from './store/data';
-import './api/missionControl'; // api mode: getMissionControl answers from the server (Stage 6)
-
-// Test hook for scripts/*.mjs. Always on in dev; in production builds only when localStorage 'axion.testhook' = '1'.
+// Test-only controls are loaded only in development or when a browser test enables them.
 const hookOn = (() => { try { return import.meta.env.DEV || localStorage.getItem('axion.testhook') === '1'; } catch { return import.meta.env.DEV; } })();
-if (hookOn) (window as unknown as { __axion: unknown }).__axion = { openDialog: useUI.getState().openDialog, closeAll: () => useUI.setState({ dialogs: [] }), helpKeys: async () => Object.keys((await loadHelp()).HELP), dialogIds: async () => Object.keys(await loadDialogs()), data: useData };
+if (hookOn) {
+  void Promise.all([import('./store/ui'), import('./store/data')]).then(([{ useUI }, { useData }]) => {
+    (window as unknown as { __axion: unknown }).__axion = {
+      openDialog: useUI.getState().openDialog,
+      closeAll: () => useUI.setState({ dialogs: [] }),
+      helpKeys: async () => Object.keys((await (await import('./help/load')).loadHelp()).HELP),
+      dialogIds: async () => Object.keys(await (await import('./dialogs/DialogHost')).loadDialogs()),
+      data: useData,
+    };
+  });
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

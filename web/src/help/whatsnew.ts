@@ -162,7 +162,7 @@ export const WHATS_NEW: WhatsNewItem[] = [
   {
     key: 'departmentfacts', group: 'Improvement loop', title: 'Department facts', status: 'real',
     line: 'Real numbers on department cards',
-    does: 'Each department card shows what the server records: its members, its head, how many of its agents are staffed on active missions, open tasks by state, task outcomes with the sample size, and when the org chart last changed there. A 7, 30 or 90 day window and an "include DEMO" switch are on the panel.',
+    does: 'Each department card shows what the server records: its members, its head, how many of its agents are staffed on active missions, open tasks by state, task outcomes with the sample size, and when the org chart last changed there. A 7, 30 or 90 day window is available on the panel.',
     where: 'System Operations, Agents, Departments.',
     real: 'Every number is counted from recorded data, only on missions you can see. Below 5 finished tasks the card says "too few to rate" and shows no percentage.',
     demo: 'The old sample capacity ring, skill coverage and KPI changes are hidden in the server version. In the offline demo (?data=demo) they still show as sample data.',
@@ -176,5 +176,5 @@ export const WHATS_NEW_BY_KEY: Record<string, WhatsNewItem> = Object.fromEntries
 
 /** The same pages as ? entries, so the Context Help index and search find them too. */
 export const whatsNewHelp = (): Record<string, HelpEntry> => Object.fromEntries(WHATS_NEW.map((i) => [`whatsnew.${i.key}`, {
-  title: i.title, what: i.does, how: `Where: ${i.where}`, why: `Real: ${i.real}`, permission: `DEMO: ${i.demo}${i.limits ? ' ' + i.limits : ''}`, route: i.route,
+  title: i.title, what: i.does, how: `Where: ${i.where}`, why: `Real: ${i.real}`, permission: i.limits, route: i.route,
 }]));

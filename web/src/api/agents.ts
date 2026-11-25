@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
 import type { AgentDto, AgentVersionDto, OrgEdgeDto, OrgRevisionDto } from '@contracts';
-import { applyAgentCatalog, AGENTS } from '@/data/agents';
+import { applyAgentCatalog } from '@/data/agents';
 import type { Agent, AgentMetrics, RoleKey } from '@/data/types';
-import { rebuildDepts } from '@/data/orgdemo';
 import { api, ApiFailure, newKey } from './client';
 import { isApi } from './mode';
 
@@ -44,25 +43,25 @@ export function loadAgents(): Promise<void> {
     const r = await api<{ agents: AgentDto[] }>('GET', '/agents');
     if (mine !== gen) return latest === run ? undefined : latest; // a newer load started meanwhile: wait for it instead of returning with nothing applied
     applyAgentCatalog(r.agents.map(toAgent));
-    rebuildDepts(); // departments are derived from the catalog: agents created later belong to them too
     useAgentsVersion.setState((s) => ({ v: s.v + 1, loaded: true, failed: false }));
   })();
   latest = run;
   return run;
 }
 
-/** First load after sign-in. On failure the shell still opens with the built-in catalog (and says so). */
 /** Signed out: the next sign-in in this tab loads the catalog again (it may be another user, or the server changed). */
-export function resetAgentsCatalog() { gen++; useAgentsVersion.setState({ loaded: false, failed: false }); }
+export function resetAgentsCatalog() {
+  gen++;
+  applyAgentCatalog([]);
+  useAgentsVersion.setState(s => ({ loaded: false, failed: false, v: s.v + 1 }));
+}
 
 export async function loadAgentsOnce() {
   if (useAgentsVersion.getState().loaded) return;
-  try { await loadAgents(); }
-  catch {
-    useAgentsVersion.setState({ loaded: true, failed: true });
-    const { toast } = await import('@/store/ui');
-    toast({ tone: 'warning', title: 'Agent list not loaded', body: `Showing the built-in list of ${AGENTS.length} agents until the server answers.` });
-  }
+  const request = loadAgents();
+  const mine = gen;
+  try { await request; }
+  catch { if (mine === gen) useAgentsVersion.setState({ loaded: false, failed: true }); }
 }
 
 /* ------------------------------------------------------------------ writes (administrators) */

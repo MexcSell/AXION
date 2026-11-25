@@ -8,7 +8,7 @@ import { IconButton } from '@/components/ui/IconButton';
 import { Tip } from '@/components/ui/Tip';
 import { InstanceStateChip } from '@/components/ui/Chips';
 import { AGENT_BY_ID } from '@/data/agents';
-import { getMissionControl } from '@/data/missions';
+import { getMissionControl } from '@/data/missionControl';
 import { INSTANCE_STATE } from '@/data/roles';
 import type { InstanceState, Mission, MissionNode } from '@/data/types';
 import { cx } from '@/lib/format';

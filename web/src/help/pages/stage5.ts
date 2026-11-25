@@ -9,9 +9,9 @@ const entries: Record<string, HelpEntry> = {
     why: 'Missions, approvals and users are shared by everyone, so every screen must show the same truth.',
   },
   'app.dataMode': {
-    title: 'Server or demo data',
-    what: 'Missions, approvals, notifications and users come from the AXION server. Conversations, agents, models, VMs, results and Job Search are still DEMO data until later stages.',
-    how: 'Open any page with ?data=demo to use the offline prototype in this tab; ?data=api switches back.',
+    title: 'Server connection',
+    what: 'AXION reads workspace records from the server after you sign in.',
+    how: 'Check the connection indicator in the header. AXION reconnects automatically after a service interruption.',
   },
   'settings.users.password': { title: 'Password change', what: 'Change the password you connect with. You need the current one; the new one needs at least 8 characters.', permission: 'The server keeps only an argon2id hash. Changing it signs out your other devices.' },
   'settings.users.devices': { title: 'My devices', what: 'Every browser you connected from. A new browser waits until an administrator approves it.', how: 'Remove a device to force a new approval next time.' },

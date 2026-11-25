@@ -7,6 +7,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit -p . && vite build",
     "typecheck": "tsc --noEmit -p .",
+    "start": "vite preview --host 127.0.0.1 --port 5190 --strictPort",
     "preview": "vite preview --host 127.0.0.1",
     "crawl": "node scripts/crawl.mjs"
   },

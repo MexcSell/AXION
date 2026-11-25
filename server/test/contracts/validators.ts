@@ -23,7 +23,7 @@ import {
   type ForecastDto, type ForecastBaseline, type ForecastLedgerDto, type ForecastRecordDto, type ForecastRecorded, type CalibrationBin, type ForecastSkill, type ForecastClassRow, type ForecastCounts, FORECAST_QUESTION,
   type ReleaseDto, type ReleaseMarkDto, type LastGoodDto, type ReleasesDto, RELEASE_MARK_KINDS,
   type ArtifactDto, type ArtifactVersionDto, type ArtifactsDto, type ArtifactDetailDto, ARTIFACT_PRODUCER_KINDS,
-  type CloudModelStatusDto, type CloudModelsDto, type CloudCompletionDto,
+  type CloudModelCheck, type CloudUsageWindow, type CloudModelStatusDto, type CloudModelsDto, type CloudCompletionDto,
 } from '../../../shared/contracts/src/index.ts';
 
 export const errorEnvelope: V<ErrorEnvelope> = obj<ErrorEnvelope>({ code: oneOf(ERROR_CODES), message: str, correlationId: str, retryable: bool, fieldErrors: opt(dict(str)) });
@@ -532,6 +532,8 @@ export const artifactVersionBody = obj<{ version: ArtifactVersionDto }>({ versio
 
 // owner 2026-11-24: the live cloud models
 const cloudModelStatus: V<CloudModelStatusDto> = obj<CloudModelStatusDto>({ id: str, label: str, provider: lit('anthropic'), transport: lit('claude-code-cli'), tokenVar: str, model: str, inFlight: int,
+  enabled: bool, check: nullable(obj<CloudModelCheck>({ checkedAt: iso, status: oneOf(['available', 'unavailable', 'limited', 'timeout'] as const),
+    account: nullable(str), resetsAt: nullable(iso), windows: arr(obj<CloudUsageWindow>({ label: str, percent: num, resetsAt: nullable(iso) })) })),
   lastCall: nullable(obj<NonNullable<CloudModelStatusDto['lastCall']>>({ at: iso, ok: bool, durationMs: int })) });
 export const cloudModels: V<CloudModelsDto> = obj<CloudModelsDto>({ models: arr(cloudModelStatus), maxInFlight: int, canPrompt: bool });
 export const cloudCompletion: V<CloudCompletionDto> = obj<CloudCompletionDto>({ id: str, model: str, text: str, truncated: bool, format: oneOf(['text', 'json'] as const), validJson: nullable(bool), durationMs: int,

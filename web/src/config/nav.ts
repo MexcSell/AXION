@@ -19,11 +19,11 @@ export interface NavItem {
  */
 export const NAV: NavItem[] = [
   { key: 'missions', label: 'Missions', path: '/missions', icon: Target, shown: true, note: 'Add missions and follow their agents live' },
-  { key: 'notifications', label: 'Notifications', path: '/notifications', icon: Bell, shown: true, badge: 'notifications', note: 'Inbox, news and pending decisions' },
+  { key: 'notifications', label: 'Notifications', path: '/notifications', icon: Bell, shown: true, badge: 'notifications', note: 'Inbox, pending decisions and resolved notifications' },
   { key: 'settings', label: 'Settings', path: '/settings', icon: Settings, shown: true, badge: 'users', note: 'Users, navigation, appearance and system preferences' },
   { key: 'overview', label: 'Overview', path: '/overview', icon: Home, shown: false, note: 'Company pulse, portfolio and health at a glance' },
   { key: 'results', label: 'Results & Versions', path: '/results', icon: Package, shown: false, note: 'Verified outputs and their versions' },
-  { key: 'operations', label: 'System Operations', path: '/operations', icon: Activity, shown: false, also: ['/agents', '/models'], note: 'Services, VMs, agents, models and recovery' },
+  { key: 'operations', label: 'System Operations', path: '/operations', icon: Activity, shown: false, also: ['/agents', '/models'], note: 'Server health, agents, models and queues' },
   { key: 'help', label: 'Help Center', path: '/help', icon: LifeBuoy, shown: false, note: 'Guides, context help and shortcuts' },
 ];
 
@@ -31,17 +31,17 @@ export const NAV: NavItem[] = [
 export const ROUTE_TABS: Record<string, string[]> = {
   overview: ['Pulse', 'Needs you', 'Portfolio', 'Activity', 'Health'],
   /** Missions = list + Mission Control workspace merged into one page: these are the workspace tabs (?tab=). */
-  missions: ['Overview', 'Activity', 'Hierarchy', 'Task Flow', 'Browser', 'Conversations', 'Results', 'Approvals', 'Reports', 'Timeline', 'Ledger'],
+  missions: ['Overview', 'Activity', 'Hierarchy', 'Task Flow', 'Conversations', 'Results', 'Approvals', 'Reports', 'Timeline', 'Ledger'],
   /** Agents + former Organization page merged (owner 2026-11-20). Directory has List / Cards / Hierarchy views (?view=). */
-  agents: ['Directory', 'Development', 'Lineage', 'Live Instances', 'Departments', 'Assignments', 'Policies', 'Proposals', 'Dimensions'],
-  agentProfile: ['Profile', 'Capabilities', 'Tools', 'Instances', 'Conversations', 'Memory', 'Performance', 'Mentoring', 'Evolution', 'Audit'],
-  /** plug-in: Job Search (replaces Browser Studio) */
+  agents: ['Directory', 'Development', 'Lineage', 'Live Instances', 'Departments', 'Policies', 'Proposals', 'Dimensions'],
+  agentProfile: ['Profile', 'Tools', 'Instances', 'Conversations', 'Performance', 'Mentoring', 'Evolution'],
+  /** Legacy route retained for older links. */
   jobSearch: ['Investigate', 'Jobs', 'Profile'],
-  results: ['Summary', 'Library', 'Previews', 'Timeline', 'Branch Graph', 'Comparisons', 'Downloads', 'Releases'],
-  models: ['Manager', 'Providers', 'Routing', 'Playground', 'Usage', 'Health'],
-  notifications: ['Inbox', 'News', 'Pending', 'Resolved', 'Rules'],
-  settings: ['General', 'Users', 'Forecasts', 'Navigation', 'Appearance', 'Avatars & Faces', 'Accessibility', 'Browser', 'Integrations', 'Storage', 'Security', 'Backups'],
-  operations: ['Services', 'VMs', 'Agents', 'Models', 'Workers', 'Queues', 'Storage', 'Logs', 'Recovery'],
+  results: ['Library', 'Releases'],
+  models: ['Providers', 'Playground'],
+  notifications: ['Inbox', 'Pending', 'Resolved'],
+  settings: ['General', 'Users', 'Forecasts', 'Navigation', 'Appearance', 'Avatars & Faces', 'Accessibility', 'Browser'],
+  operations: ['Services', 'Agents', 'Models', 'Queues'],
   help: ['New Features', 'Guides', 'Context Help', 'Shortcuts', 'Troubleshooting', 'Glossary'],
 };
 

@@ -2,7 +2,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Crown, ShieldCheck, MessagesSquare, X, Minus, Maximize2, Plus, Target, Puzzle, ChevronLeft } from 'lucide-react';
+import { Crown, ShieldCheck, MessagesSquare, X, Minus, Maximize2, Plus, Target, ChevronLeft } from 'lucide-react';
 import { RobotAvatar } from '@/components/art/RobotAvatar';
 import { UserAvatar } from '@/components/ui/UserAvatar';
 import { IconButton } from '@/components/ui/IconButton';
@@ -14,7 +14,7 @@ import { useUI } from '@/store/ui';
 import { useVisibleMissions } from '@/store/data';
 import { ChannelChat } from './ChannelChat';
 import { cx } from '@/lib/format';
-import { useMyChannels } from './chatHooks';
+import { channelPath, retryChannels, useChannelList } from '@/api/chat';
 
 export function ChatDock() {
   const open = useUI((s) => s.chat.open);
@@ -22,7 +22,8 @@ export function ChatDock() {
   const openChat = useUI((s) => s.openChat);
   const closeChat = useUI((s) => s.closeChat);
   const me = useMe();
-  const list = useMyChannels(me);
+  const { list: channels, listError } = useChannelList();
+  const list = channels ?? [];
   const accounts = useAuth((s) => s.accounts);
   const missions = useVisibleMissions();
   const nav = useNavigate();
@@ -30,22 +31,21 @@ export function ChatDock() {
   const [showList, setShowList] = useState(false);
   const [pick, setPick] = useState('');
   if (!me) return null;
-  const cur = channel ?? channelId.gm(me.id);
-  const company = list.filter((c) => (c.info.kind === 'gm' || c.info.kind === 'admin') && c.info.userId === me.id);
-  const fromUsers = list.filter((c) => c.info.kind === 'admin' && c.info.userId !== me.id);
-  const agents = list.filter((c) => c.info.kind === 'agent');
-  const plugins = list.filter((c) => c.info.kind === 'plugin');
+  const cur = channel && channelPath(channel, me.id) ? channel : channelId.gm(me.id);
+  const company = list.filter((c) => (c.kind === 'gm' || c.kind === 'admin') && c.userId === me.id);
+  const fromUsers = list.filter((c) => c.kind === 'admin' && c.userId !== me.id);
+  const agents = list.filter((c) => c.kind === 'agent');
   const asks = missions.filter((m) => m.pendingApprovals > 0 && m.status !== 'archived').slice(0, 3);
 
   const Item = ({ c }: { c: (typeof list)[number] }) => {
-    const ag = c.info.agentId ? AGENT_BY_ID[c.info.agentId] : undefined;
-    const user = accounts.find((a) => a.id === c.info.userId);
-    const ttl = c.info.kind === 'gm' ? 'General Manager' : c.info.kind === 'admin' ? (c.info.userId === me.id ? 'Administrators' : user?.name ?? c.userName ?? 'User') : ag?.name ?? 'Agent';
-    const sub = c.last ? c.last.text : c.info.kind === 'gm' ? 'Ask, plan or check missions' : c.info.kind === 'admin' ? (c.info.userId === me.id ? 'Access, devices, problems' : 'wrote to the administrators') : ag?.description ?? '';
+    const ag = c.agentId ? AGENT_BY_ID[c.agentId] : undefined;
+    const user = accounts.find((a) => a.id === c.userId);
+    const ttl = c.kind === 'gm' ? 'General Manager' : c.kind === 'admin' ? (c.userId === me.id ? 'Administrators' : user?.name ?? c.userName ?? 'User') : ag?.name ?? 'Agent';
+    const sub = c.last ? c.last.text : c.kind === 'gm' ? 'General Manager conversation' : c.kind === 'admin' ? (c.userId === me.id ? 'Access, devices, problems' : 'wrote to the administrators') : ag?.description ?? '';
     return (
       <button className={cx('chat-ch', cur === c.id && 'on')} onClick={() => { openChat(c.id); setShowList(false); }} aria-current={cur === c.id || undefined}>
-        {c.info.kind === 'admin' ? (c.info.userId === me.id ? <span className="nav-set-ico" style={{ width: 30, height: 30 }}><ShieldCheck size={16} /></span> : <UserAvatar account={user} size={30} />) : <RobotAvatar role={ag?.role ?? 'manager'} size={32} />}
-        <span className="col" style={{ minWidth: 0, flex: 1 }}><span className="ttl ellipsis">{ttl}{c.info.kind === 'gm' && <Crown size={11} className="warn" style={{ marginLeft: 4, display: 'inline' }} />}</span><span className="sub ellipsis">{sub}</span></span>
+        {c.kind === 'admin' ? (c.userId === me.id ? <span className="nav-set-ico" style={{ width: 30, height: 30 }}><ShieldCheck size={16} /></span> : <UserAvatar account={user} size={30} />) : <RobotAvatar role={ag?.role ?? 'manager'} size={32} />}
+        <span className="col" style={{ minWidth: 0, flex: 1 }}><span className="ttl ellipsis">{ttl}{c.kind === 'gm' && <Crown size={11} className="warn" style={{ marginLeft: 4, display: 'inline' }} />}</span><span className="sub ellipsis">{sub}</span></span>
         {c.unread > 0 && <span className="badge">{c.unread}</span>}
       </button>
     );
@@ -61,13 +61,13 @@ export function ChatDock() {
             <aside className="chat-dock-list" aria-label="Conversations">
               <div className="chat-dock-head"><MessagesSquare size={17} className="info" />Chat<HelpTrigger k="chat.dock" /></div>
               <div className="chat-dock-items">
+                {listError && <div role="alert">{listError} <button className="btn sm" onClick={retryChannels}>Retry</button></div>}
                 <div className="chat-dock-sec">Company</div>
                 {company.map((c) => <Item key={c.id} c={c} />)}
                 {fromUsers.length > 0 && <><div className="chat-dock-sec">Users → administrators</div>{fromUsers.map((c) => <Item key={c.id} c={c} />)}</>}
                 <div className="chat-dock-sec">Agents</div>
                 {agents.length === 0 && <div className="dim" style={{ fontSize: 11.5, padding: '2px 8px' }}>Start a chat with any agent below.</div>}
                 {agents.map((c) => <Item key={c.id} c={c} />)}
-                {plugins.length > 0 && <><div className="chat-dock-sec"><Puzzle size={10} style={{ display: 'inline' }} /> Plug-ins</div>{plugins.map((c) => <Item key={c.id} c={c} />)}</>}
                 {asks.length > 0 && <><div className="chat-dock-sec">Missions waiting for you</div>{asks.map((m) => (
                   <button key={m.id} className="chat-ch" onClick={() => { nav(`/missions/${m.id}?tab=conversations`); }}>
                     <span className="nav-set-ico" style={{ width: 30, height: 30 }}><Target size={15} /></span>

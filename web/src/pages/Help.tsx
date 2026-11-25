@@ -40,7 +40,7 @@ export default function HelpPage() {
 
 const STATUS: Record<WhatsNewStatus, { label: string; hue: number }> = {
   real: { label: 'Real', hue: 148 },
-  mixed: { label: 'Real + DEMO parts', hue: 38 },
+  mixed: { label: 'Available with limits', hue: 38 },
   later: { label: 'Coming when merged', hue: 225 },
 };
 
@@ -51,11 +51,10 @@ function WhatsNew() {
   const pick = (k: string) => setSp((prev) => { const n = new URLSearchParams(prev); n.set('f', k); return n; }, { replace: true });
   const groups = Array.from(new Set(WHATS_NEW.map((i) => i.group)));
   const st = STATUS[sel.status];
-  const rows: [string, string, string?][] = [['What it does', sel.does], ['Where to find it', sel.where], ['What is real', sel.real], ['What is still DEMO', sel.demo]];
+  const rows: [string, string, string?][] = [['What it does', sel.does], ['Where to find it', sel.where], ['What is real', sel.real]];
   return (
     <div className="grid ctx-grid" data-whatsnew>
       <Panel icon={Sparkles} title="What is new" help="help.whatsnew" delay={.05} sub={`${WHATS_NEW.length} features since Stage 5`}>
-        <div className="dim" style={{ fontSize: 11.5, marginBottom: 6 }} data-wn-note>This describes the server version. The offline demo (?data=demo) shows sample data.</div>
         <div className="ctx-list wn-list" role="listbox" aria-label="Features">
           {groups.map((g) => (
             <div key={g} className="col" style={{ gap: 4 }}>
@@ -85,9 +84,9 @@ function WhatsNew() {
 
 const GUIDES = [
   { k: 'mission', icon: Rocket, hue: 268, title: 'Run your first mission', time: '4 min', route: '/missions', steps: ['Open Missions and press New Mission', 'Write what you want, attach files if useful', 'The GM appoints an executor, who brings the agents', 'Watch verified progress and each agent\'s activity'] },
-  { k: 'chat', icon: MessagesSquare, hue: 195, title: 'Talk to an agent', time: '2 min', route: '/missions', steps: ['Open a mission in Missions', 'Select an agent in the hierarchy', 'Type a command and press Ctrl + Enter', 'Read the reply and its attached evidence'] },
-  { k: 'grants', icon: Globe, hue: 148, title: 'Search jobs with agents', time: '3 min', route: '/plugins/job-search', steps: ['Open Job Search in the rail\'s plug-in section', 'Add a job site address', 'Fill in Profile: headline, text and documents', 'Watch the agents investigate and bid; instruct or teach them in the chat'] },
-  { k: 'results', icon: GitCompareArrows, hue: 38, title: 'Read versioned results', time: '3 min', route: '/results', steps: ['Open Results and pick a deliverable', 'Compare versions side by side', 'Check the evidence and verification state', 'Promote or request changes'] },
+  { k: 'chat', icon: MessagesSquare, hue: 195, title: 'Talk to an agent', time: '2 min', route: '/missions', steps: ['Open a mission in Missions', 'Select an agent in the hierarchy', 'Type a command and press Ctrl + Enter', 'Check the stored message in the thread'] },
+  { k: 'providers', icon: Globe, hue: 148, title: 'Check a model connection', time: '1 min', route: '/operations?tab=models&sub=providers', steps: ['Open System Operations, then Models and Providers', 'Select Enable if the model is disabled', 'Select Refresh to check the connection and usage', 'Open Playground to send a prompt'] },
+  { k: 'results', icon: GitCompareArrows, hue: 38, title: 'Read versioned results', time: '1 min', route: '/results', steps: ['Open Results as an administrator', 'Select an artifact in the Library', 'Inspect its recorded versions, checksums and producers'] },
 ];
 
 function Guides() {
@@ -183,12 +182,9 @@ function Shortcuts() {
 }
 
 const ISSUES = [
-  { code: 'AX-101', sym: 'A mission does not start', cause: 'An assigned agent is still learning on an older pinned version, or its VM is out of memory.', fix: 'Open Start Mission, read the policy review and swap the agent, or free a VM in System Operations.', perm: 'Mission owner' },
-  { code: 'AX-204', sym: 'Browser agent stops at a new website', cause: 'The origin has no grant. New sites always need separate permission.', fix: 'Approve a grant in Browser Studio, Grants. Pick the shortest duration that works.', perm: 'Approver' },
-  { code: 'AX-312', sym: 'Progress seems stuck at 76%', cause: 'Remaining tasks wait for verification. Unverified work is not counted.', fix: 'Open the mission in Missions › Task Flow, and look for tasks in Verifying or Rejected.', perm: 'Anyone' },
-  { code: 'AX-408', sym: 'Model call fails or is slow', cause: 'The primary model timed out and a fallback route is used.', fix: 'Check Models, Routing. If a provider is down, the fallback keeps work going.', perm: 'Admin to change routes' },
-  { code: 'AX-503', sym: 'A service shows a warning in System Operations', cause: 'High memory or a recent restart by the watchdog.', fix: 'Request a restart in Operations, Services. An Admin approves it after the impact preview.', perm: 'Admin' },
-  { code: 'AX-611', sym: 'Restore request is blocked', cause: 'The restore dry-run is older than 7 days.', fix: 'Run a restore dry-run in Operations, Recovery, then request again.', perm: 'Owner' },
+  { code: 'AX-204', sym: 'A website has no grant', cause: 'The mission has no current grant for this exact origin.', fix: 'Review site grants in Settings, Browser.', perm: 'Administrator' },
+  { code: 'AX-312', sym: 'Verified progress has stopped changing', cause: 'Remaining tasks may be waiting for verification.', fix: 'Open Task Flow in the mission and inspect its outstanding tasks.', perm: 'Mission viewer' },
+  { code: 'AX-408', sym: 'A model call fails', cause: 'The provider may be unavailable, disabled, or at its usage limit.', fix: 'Open System Operations, Models, Providers. Enable the model if needed and select Refresh to check its connection and limits.', perm: 'Administrator' },
 ];
 function Trouble() {
   const [q, setQ] = useState('');

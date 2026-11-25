@@ -31,6 +31,7 @@ export const ROUTES: Record<string, RouteEntry> = {
   'GET /auth/wait': { v: C.connectResult },
   'GET /channels': { v: C.channelsBody },
   'GET /cloud-models': { v: C.cloudModels },
+  'POST /cloud-models/:id/manage': { v: C.cloudModels, admin: true },
   'POST /cloud-models/:id/complete': { v: C.cloudCompletion, admin: true },
   'GET /channels/:key/messages': { v: C.messagePage },
   'GET /channels/admin/:userId/messages': { v: C.messagePage },

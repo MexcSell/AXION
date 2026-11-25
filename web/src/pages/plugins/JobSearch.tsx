@@ -234,12 +234,7 @@ function AgentsPane({ site }: { site: JobSite }) {
         ); })}
       </div>
       <div className="js-mate-task dim">{team.find((t) => t.id === cur)?.task}</div>
-      {me && <ChannelChat key={cur} channel={channelId.plugin('jobs', cur, me.id)} compact className="js-chat"
-        modes={[
-          { key: 'instruct', label: 'Instruct', help: 'jobs.chat', placeholder: `Tell ${AGENT_BY_ID[cur]?.name} what to do on ${site.domain}…` },
-          { key: 'teach', label: 'Teach', help: 'jobs.chat', placeholder: `Teach ${AGENT_BY_ID[cur]?.name} something to remember (e.g. never bid below…)` },
-          { key: 'control', label: 'Control', help: 'jobs.chat', placeholder: 'Pause, resume, skip this job, only remote jobs…' },
-        ]} />}
+      {me && <ChannelChat key={cur} channel={channelId.agent(cur, me.id)} compact className="js-chat" />}
     </div>
   );
 }

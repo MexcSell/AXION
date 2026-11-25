@@ -14,7 +14,7 @@ import { advisoryXactLock } from '../locks.ts';
 export async function backfillMissionControl(c: Tx, tenantId: string, log?: { info: (o: object, m: string) => void; error: (o: object, m: string) => void }) {
   await advisoryXactLock(c, 'instance-backfill:' + tenantId);
   const rows = (await c.query(`select m.id, m.demo, m.presentation, (select id from mission_runs where mission_id=m.id order by id desc limit 1) as run_id
-      from missions m where m.tenant_id=$1 and not exists (select 1 from agent_instances i where i.mission_id=m.id) order by m.created_at, m.id`, [tenantId])).rows;
+      from missions m where m.tenant_id=$1 and m.deleted_at is null and not exists (select 1 from agent_instances i where i.mission_id=m.id) order by m.created_at, m.id`, [tenantId])).rows;
   const done = { missions: 0, instances: 0, delegations: 0, tasks: 0, skipped: 0 };
   for (const m of rows) {
     const part = { instances: 0, delegations: 0, tasks: 0 };
@@ -80,7 +80,7 @@ export async function backfillMissionControl(c: Tx, tenantId: string, log?: { in
 
 /** Demo missions get the fixture builder's threads (simulated=true); created_at is spread so the newest message is `agoMin` old. */
 export async function backfillThreads(c: Tx, tenantId: string, log?: { error: (o: object, m: string) => void }) {
-  const rows = (await c.query(`select m.id from missions m where m.tenant_id=$1 and m.demo and not exists (select 1 from conversation_threads t where t.mission_id=m.id)
+  const rows = (await c.query(`select m.id from missions m where m.tenant_id=$1 and m.deleted_at is null and m.demo and not exists (select 1 from conversation_threads t where t.mission_id=m.id)
       and exists (select 1 from agent_instances i where i.mission_id=m.id) order by m.created_at, m.id`, [tenantId])).rows;
   const done = { threadMissions: 0, threads: 0, messages: 0, threadsSkipped: 0 };
   for (const m of rows) {

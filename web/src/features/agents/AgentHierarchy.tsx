@@ -1,6 +1,5 @@
 import { motion } from 'motion/react';
 import { useAgentsCatalog, useOrgGraph } from '@/api/agents';
-import { isApi } from '@/api/mode';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ZoomIn, ZoomOut, Maximize2, Crown, Move, RotateCcw } from 'lucide-react';
@@ -8,11 +7,11 @@ import { RobotAvatar } from '@/components/art/RobotAvatar';
 import { IconButton } from '@/components/ui/IconButton';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { AGENTS } from '@/data/agents';
-import { AGENT_STATUS, ROLES } from '@/data/roles';
-import { DEPTS } from '@/data/orgdemo';
+import { ROLES } from '@/data/roles';
+import { catalogDepartments } from '@/data/departments';
 import type { Agent } from '@/data/types';
 import { cx } from '@/lib/format';
-import { GrowthBadge, LevelPips, EvoTrack, GROWTH } from './Growth';
+import { ReliabilityChip } from '@/components/agents/Reliability';
 
 /* ------------------------------------------------------------------ */
 /* ZoomCanvas — wheel zooms toward the cursor, drag pans, buttons fit.  */
@@ -130,20 +129,22 @@ export function AgentHierarchy({ agents = AGENTS, highlight }: { agents?: Agent[
   const nav = useNavigate();
   const catalog = useAgentsCatalog(); // api mode: the server's catalog, live (Stage 6)
   const org = useOrgGraph(); // api mode: the active organization revision (reporting lines)
-  const gm = agents.find((a) => a.id === 'gm') ?? AGENTS[0];
-  const edges = isApi() ? org.data?.edges : undefined;
+  const gm = agents.find((a) => a.id === 'gm');
+  const edges = org.data?.edges;
   const managerOf = (id: string) => edges?.find((e) => e.subordinateId === id)?.supervisorId;
-  const depts = useMemo(() => DEPTS.filter((d) => d.name !== 'Executive').map((d) => ({
-    d, members: AGENTS.filter((a) => a.id !== 'gm' && a.dept === d.name).sort((a, b) => (a.id === d.managerId ? -1 : b.id === d.managerId ? 1 : a.name.localeCompare(b.name))), // c72: the manager first, siblings by name (not by success)
+  const depts = useMemo(() => catalogDepartments(agents).map((d) => ({
+    d, members: agents.filter((a) => a.id !== 'gm' && a.dept === d.name).sort((a, b) => (a.id === d.managerId ? -1 : b.id === d.managerId ? 1 : a.name.localeCompare(b.name))), // c72: the manager first, siblings by name (not by success)
   })).filter((x) => x.members.length > 0).map((x) => {
     // api mode: the department head is who reports from outside the department (the active revision's reporting lines)
     if (!edges) return x;
     const ids = new Set(x.members.map((m) => m.id));
-    const head = x.members.find((m) => { const sup = managerOf(m.id); return !sup || !ids.has(sup); });
+    const head = x.members.find((m) => { const sup = managerOf(m.id); return sup && !ids.has(sup); });
     return head ? { ...x, d: { ...x.d, managerId: head.id }, members: [head, ...x.members.filter((m) => m !== head)] } : x;
-  }), [catalog, edges]); // eslint-disable-line react-hooks/exhaustive-deps
-  const W = depts.length * COL + (depts.length - 1) * GAP;
-  const maxN = Math.max(...depts.map((x) => x.members.length));
+  }), [catalog, edges, agents]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!org.data) return <div role={org.error ? 'alert' : 'status'}>{org.error ?? 'Loading reporting lines…'}</div>;
+  if (!gm) return <div className="dim">No General Manager is registered.</div>;
+  const W = Math.max(280, depts.length * COL + (depts.length - 1) * GAP);
+  const maxN = Math.max(0, ...depts.map((x) => x.members.length));
   const H = AG_Y + maxN * (NODE_H + NODE_GAP) + 10;
   const gx = W / 2;
   const colX = (i: number) => i * (COL + GAP) + COL / 2;
@@ -167,7 +168,7 @@ export function AgentHierarchy({ agents = AGENTS, highlight }: { agents?: Agent[
   }) : [];
 
   return (
-    <ZoomCanvas width={W} height={H} label="Agent hierarchy" note={isApi() && (org.data?.revision ? <span data-org-revision={org.data.revision.seq} title={org.data.revision.note}>Org revision {org.data.revision.seq} · {org.data.revision.note || 'active'}</span> : org.error ? <span role="alert">Reporting lines not loaded</span> : null)}>
+    <ZoomCanvas width={W} height={H} label="Agent hierarchy" note={org.data?.revision ? <span data-org-revision={org.data.revision.seq} title={org.data.revision.note}>Org revision {org.data.revision.seq} · {org.data.revision.note || 'active'}</span> : org.error ? <span role="alert">Reporting lines not loaded</span> : null}>
       <svg className="ah-links" width={W} height={H} aria-hidden>
         <defs>
           <filter id="ah-glow"><feGaussianBlur stdDeviation="2.4" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
@@ -204,7 +205,7 @@ export function AgentHierarchy({ agents = AGENTS, highlight }: { agents?: Agent[
         <div style={{ textAlign: 'left', minWidth: 0 }}>
           <div className="row" style={{ gap: 6 }}><Crown size={14} className="warn" /><b className="display" style={{ fontSize: 18 }}>GM</b><span className="mono dim" style={{ fontSize: 11 }}>{gm.version}</span></div>
           <div className="dim" style={{ fontSize: 11.5 }}>General Manager · {AGENTS.length} agents</div>
-          <div style={{ marginTop: 5 }}><LevelPips level={gm.level} xp={gm.xp} /></div>
+          <div style={{ marginTop: 5 }}><ReliabilityChip agent={gm} /></div>
         </div>
       </motion.button>
 
@@ -216,30 +217,29 @@ export function AgentHierarchy({ agents = AGENTS, highlight }: { agents?: Agent[
             <motion.div className="ah-dept" style={{ left: x, top: DEPT_Y, width: COL, height: DEPT_H, ['--h' as string]: d.hue }}
               initial={{ opacity: 0, y: -10, scale: .85 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ delay: .25 + i * .05, type: 'spring', stiffness: 260, damping: 20 }}>
               <span className="ah-hex"><R.icon size={20} strokeWidth={1.8} /></span>
-              <div style={{ minWidth: 0 }}><b>{d.name}</b><div className="dim" style={{ fontSize: 11.5 }}>{members.length} {members.length === 1 ? 'agent' : 'agents'} · {d.capacity}% load</div></div>
+              <div style={{ minWidth: 0 }}><b>{d.name}</b><div className="dim" style={{ fontSize: 11.5 }}>{members.length} {members.length === 1 ? 'agent' : 'agents'}</div></div>
             </motion.div>
             {members.map((a, k) => {
-              const st = AGENT_STATUS[a.status];
               return (
-                <motion.button key={a.id} className={cx('ah-node', a.growth, dim(a) && 'dim')} onClick={() => nav(`/agents/${a.id}`)}
-                  style={{ left: x + 30, top: AG_Y + k * (NODE_H + NODE_GAP), width: COL - 30, height: NODE_H, ['--rh' as string]: ROLES[a.role].hue, ['--gh' as string]: GROWTH[a.growth].hue }}
+                <motion.button key={a.id} className={cx('ah-node', dim(a) && 'dim')} onClick={() => nav(`/agents/${a.id}`)}
+                  style={{ left: x + 30, top: AG_Y + k * (NODE_H + NODE_GAP), width: COL - 30, height: NODE_H, ['--rh' as string]: ROLES[a.role].hue }}
                   initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: .55 + i * .04 + k * .05 }}
-                  aria-label={`${a.name}, ${ROLES[a.role].label}, ${st.label}, ${GROWTH[a.growth].label}. Open profile`} data-agent={a.id} data-manager={managerOf(a.id)} title={managerOf(a.id) ? `Reports to ${AGENTS.find((x) => x.id === managerOf(a.id))?.name ?? managerOf(a.id)}` : undefined}>
+                  aria-label={`${a.name}, ${ROLES[a.role].label}. Open profile`} data-agent={a.id} data-manager={managerOf(a.id)} title={managerOf(a.id) ? `Reports to ${AGENTS.find((x) => x.id === managerOf(a.id))?.name ?? managerOf(a.id)}` : undefined}>
                   <div className="row" style={{ gap: 8, minWidth: 0 }}>
-                    <RobotAvatar role={a.role} size={42} animated={a.growth === 'evolving'} status={st.tone === 'violet' ? 'violet' : st.tone === 'neutral' ? 'muted' : 'good'} />
+                    <RobotAvatar role={a.role} size={42} />
                     <div style={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
                       <div className="row" style={{ gap: 5 }}>
                         <b className="ellipsis" style={{ fontSize: 13.5 }}>{a.name}</b>
                         {a.id === d.managerId && <Crown size={12} className="warn" aria-label="Department head" />}
                       </div>
-                      <div className="dim ellipsis" style={{ fontSize: 11 }}>{ROLES[a.role].label} · {st.label}</div>
+                      <div className="dim ellipsis" style={{ fontSize: 11 }}>{ROLES[a.role].label}</div>
                     </div>
                   </div>
                   <div className="row" style={{ justifyContent: 'space-between', gap: 6 }}>
-                    <GrowthBadge agent={a} size="sm" />
-                    <EvoTrack agent={a} compact />
+                    <span className="mono dim">{a.version}</span>
+                    <ReliabilityChip agent={a} />
                   </div>
-                  <LevelPips level={a.level} xp={a.xp} />
+                  <span className="dim ellipsis">{a.duty}</span>
                 </motion.button>
               );
             })}

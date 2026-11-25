@@ -9,13 +9,11 @@ import { OriginChip, CapChip, ContribLog, RetirementStrip } from './OriginRecord
 import type { LessonCandidateDto, PlaybookItem, PlaybookVersionRow, SkillDto, SkillStatus, SkillStep, SourceKind, SourceRef } from '@contracts';
 import { Panel } from '@/components/ui/Panel';
 import { Segmented } from '@/components/ui/Form';
-import { Chip, DemoTag } from '@/components/ui/Chips';
+import { Chip } from '@/components/ui/Chips';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useAgentsCatalog } from '@/api/agents';
-import { isApi } from '@/api/mode';
-import { usePlaybook, useLessons, useSkills, usePlaybookDiff, approveSkill, retireSkill, type Read } from '@/api/playbooks';
-import { DEMO_LESSONS, DEMO_PLAYBOOK, DEMO_SKILLS, DEMO_VERSIONS } from '@/data/playbooksDemo';
+import { usePlaybook, useLessons, useSkills, usePlaybookDiff, approveSkill, retireSkill } from '@/api/playbooks';
 import { AGENTS, AGENT_BY_ID } from '@/data/agents';
 import { isAdmin, useMe } from '@/store/auth';
 import { openDialog, toast } from '@/store/ui';
@@ -24,13 +22,12 @@ import '@/theme/pages/overview-org-agent.css';
 
 /* Improvement cycle 41: reviewed playbooks and the skill library (records only: nothing executes, no agent reads these yet).
    One panel: the current playbook of an agent role, the candidate lessons waiting for a person, the version history with
-   diff and rollback, and the skill library. In demo mode the same panel shows DEMO samples, read only. */
+   diff and rollback, and the skill library. */
 
 const SRC_ICON: Record<SourceKind, typeof Target> = { mission: Target, failure_tag: Tag, review: ClipboardCheck, task: ListChecks, note: StickyNote, lesson: BookMarked, skill: Wand2 };
 export const SRC_LABEL: Record<SourceKind, string> = { mission: 'mission', failure_tag: 'failure tag', review: 'review', task: 'task', note: 'note', lesson: 'lesson', skill: 'skill' };
 const since = (iso: string) => ago((Date.now() - new Date(iso).getTime()) / 60_000);
 const fmtDate = (d: string) => new Date(d + 'T12:00:00Z').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
-export const DEMO_WHY = 'DEMO samples are read only. Playbooks are stored on the server.';
 
 export function SourceChips({ sources }: { sources: SourceRef[] }) {
   return (
@@ -69,9 +66,9 @@ function ItemRow({ it, n, index }: { it: PlaybookItem; n: number; index: number 
   );
 }
 
-function CandidateCard({ l, admin, index, api_, baseVersion, atCap }: { l: LessonCandidateDto; admin: boolean; index: number; api_: boolean; baseVersion: number; atCap: boolean }) {
-  const why = !api_ ? DEMO_WHY : l.cannotDecideWhy;
-  const can = api_ && l.canDecide;
+function CandidateCard({ l, admin, index, baseVersion, atCap }: { l: LessonCandidateDto; admin: boolean; index: number; baseVersion: number; atCap: boolean }) {
+  const why = l.cannotDecideWhy;
+  const can = l.canDecide;
   const canAccept = can && !atCap; // the server refuses past the cap too (ACTIVE_CAP_REACHED); this only says so before you click
   return (
     <motion.li layout className="subpanel glass-card" style={{ padding: '10px 12px', listStyle: 'none' }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: Math.min(index, 8) * .04 }}
@@ -101,15 +98,14 @@ function CandidateCard({ l, admin, index, api_, baseVersion, atCap }: { l: Lesso
         )}
       </div>
       <div style={{ marginTop: 4 }}><ContribLog kind="lessons" id={l.id} label={`lesson ${l.id}`} /></div>
-      {admin && !can && why && api_ && <div className="dim row" style={{ gap: 6, fontSize: 11.5, marginTop: 6 }} data-cannot-decide><Lock size={12} aria-hidden />{why}</div>}
+      {admin && !can && why && <div className="dim row" style={{ gap: 6, fontSize: 11.5, marginTop: 6 }} data-cannot-decide><Lock size={12} aria-hidden />{why}</div>}
     </motion.li>
   );
 }
 
 function DiffInline({ agentId, from, to }: { agentId: string; from: number; to: number }) {
-  const { data, error } = usePlaybookDiff(agentId, isApi() ? from : null, isApi() ? to : null);
-  const demo = !isApi() ? { from, to, added: from < to ? DEMO_PLAYBOOK(agentId, '', '').items.filter((i) => i.addedInVersion > from && i.addedInVersion <= to) : [], removed: [], kept: from } : null;
-  const d = data ?? demo;
+  const { data, error } = usePlaybookDiff(agentId, from, to);
+  const d = data;
   if (error) return <div className="oa-banner" role="alert"><AlertOctagon size={15} /><span>Diff not loaded: {error}</span></div>;
   if (!d) return <LiveStatus className="dim" style={{ fontSize: 12 }}>Loading the diff…</LiveStatus>;
   return (
@@ -121,9 +117,9 @@ function DiffInline({ agentId, from, to }: { agentId: string; from: number; to: 
   );
 }
 
-function VersionRow({ v, current, agentId, admin, api_, index }: { v: PlaybookVersionRow; current: boolean; agentId: string; admin: boolean; api_: boolean; index: number }) {
+function VersionRow({ v, current, agentId, admin, index }: { v: PlaybookVersionRow; current: boolean; agentId: string; admin: boolean; index: number }) {
   const [open, setOpen] = useState(false);
-  const canRoll = admin && api_ && !current;
+  const canRoll = admin && !current;
   return (
     <motion.li layout className="subpanel glass-card" style={{ padding: '8px 12px', listStyle: 'none' }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index, 8) * .04 }} data-playbook-version={v.version} data-kind={v.kind}>
       <div className="row" style={{ gap: 8 }}>
@@ -133,7 +129,7 @@ function VersionRow({ v, current, agentId, admin, api_, index }: { v: PlaybookVe
         {v.note && <span className="dim ellipsis" style={{ fontSize: 12, flex: 1, minWidth: 0 }}>“{v.note}”</span>}
         <span className="spacer" />
         <button className="btn sm ghost" aria-expanded={open} aria-label={`${open ? 'Hide' : 'Show'} diff of version ${v.version}`} onClick={() => setOpen((o) => !o)}><Layers size={13} />Diff</button>
-        <button className="btn sm" disabled={!canRoll} aria-label={`Roll back to version ${v.version}`} title={!api_ ? DEMO_WHY : current ? 'This is the current version' : !admin ? 'Only administrators roll back' : 'Create a new version equal to this one'}
+        <button className="btn sm" disabled={!canRoll} aria-label={`Roll back to version ${v.version}`} title={current ? 'This is the current version' : !admin ? 'Only administrators roll back' : 'Create a new version equal to this one'}
           onClick={() => openDialog('playbook-rollback', { agentId, toVersion: v.version })}><Undo2 size={13} />Roll back</button>
       </div>
       {open && <DiffInline agentId={agentId} from={v.version - 1} to={v.version} />}
@@ -154,7 +150,7 @@ function StepLine({ st }: { st: SkillStep }) {
 const SK_STATUS: Record<SkillStatus, { label: string; hue: number; icon: typeof Check }> = {
   draft: { label: 'Draft', hue: 38, icon: Wand2 }, approved: { label: 'Approved', hue: 145, icon: CheckCircle2 }, retired: { label: 'Retired', hue: 225, icon: Archive },
 };
-function SkillRow({ s, admin, api_, index }: { s: SkillDto; admin: boolean; api_: boolean; index: number }) {
+function SkillRow({ s, admin, index }: { s: SkillDto; admin: boolean; index: number }) {
   const [busy, setBusy] = useState(false);
   const [retiring, setRetiring] = useState(false);
   const [note, setNote] = useState('');
@@ -169,7 +165,7 @@ function SkillRow({ s, admin, api_, index }: { s: SkillDto; admin: boolean; api_
     setRetiring(false); setNote('');
     toast({ tone: 'success', title: done });
   };
-  const why = !api_ ? DEMO_WHY : s.cannotDecideWhy;
+  const why = s.cannotDecideWhy;
   return (
     <motion.li layout className="subpanel glass-card" style={{ padding: '9px 12px', listStyle: 'none' }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index, 8) * .04 }} data-skill={s.id} data-status={s.status}>
       <div className="row" style={{ gap: 8 }}>
@@ -178,10 +174,10 @@ function SkillRow({ s, admin, api_, index }: { s: SkillDto; admin: boolean; api_
         <span className="dim" style={{ fontSize: 12 }}>{s.steps.length} steps · by {s.proposedByName} · {since(s.createdAt)}{s.approvedByName ? ` · approved by ${s.approvedByName}` : ''}</span>
         <span className="spacer" />
         {admin && s.status === 'draft' && <>
-          <button className="btn sm primary" disabled={!api_ || !s.canDecide || busy} title={s.canDecide && api_ ? 'Approve this skill' : why ?? undefined} aria-label={`Approve skill ${s.name}`} onClick={() => run(() => approveSkill(s.id), `${s.name} approved`)}><Check size={13} />Approve</button>
+          <button className="btn sm primary" disabled={!s.canDecide || busy} title={s.canDecide ? 'Approve this skill' : why ?? undefined} aria-label={`Approve skill ${s.name}`} onClick={() => run(() => approveSkill(s.id), `${s.name} approved`)}><Check size={13} />Approve</button>
           {!s.canDecide && <HelpTrigger k="playbook.decider" />}
         </>}
-        {admin && s.status !== 'retired' && !retiring && <button className="btn sm ghost" disabled={!api_} title={!api_ ? DEMO_WHY : 'Retire: stays in the library'} aria-label={`Retire skill ${s.name}`} onClick={() => setRetiring(true)}><Archive size={13} />Retire</button>}
+        {admin && s.status !== 'retired' && !retiring && <button className="btn sm ghost" title="Retire this skill" aria-label={`Retire skill ${s.name}`} onClick={() => setRetiring(true)}><Archive size={13} />Retire</button>}
       </div>
       <div className="dim" style={{ fontSize: 12.5, margin: '4px 0' }}>{s.description}</div>
       <ol className="col" style={{ gap: 2, margin: '2px 0 4px', paddingLeft: 18, fontSize: 12.5 }} aria-label={`Steps of ${s.name}`}>{s.steps.map((st, i) => <li key={i} data-step-kind={st.kind}><StepLine st={st} /></li>)}</ol>
@@ -192,7 +188,7 @@ function SkillRow({ s, admin, api_, index }: { s: SkillDto; admin: boolean; api_
         <ContribLog kind="skills" id={s.id} label={`skill ${s.name}`} />
         {s.status === 'retired' && <span className="dim" style={{ fontSize: 12 }}>retired{s.retireNote ? ` · “${s.retireNote}”` : ''}</span>}
       </div>
-      {s.status === 'draft' && admin && !s.canDecide && api_ && s.cannotDecideWhy && <div className="dim row" style={{ gap: 6, fontSize: 11.5, marginTop: 6 }}><Lock size={12} aria-hidden />{s.cannotDecideWhy}</div>}
+      {s.status === 'draft' && admin && !s.canDecide && s.cannotDecideWhy && <div className="dim row" style={{ gap: 6, fontSize: 11.5, marginTop: 6 }}><Lock size={12} aria-hidden />{s.cannotDecideWhy}</div>}
       {err && <div className="oa-banner" role="alert" style={{ marginTop: 6 }}><AlertOctagon size={15} /><span>{err}</span></div>}
       {retiring && (
         <div className="row" style={{ gap: 8, marginTop: 8 }}>
@@ -206,20 +202,16 @@ function SkillRow({ s, admin, api_, index }: { s: SkillDto; admin: boolean; api_
 }
 
 type View = 'playbook' | 'candidates' | 'history' | 'skills';
-const demoRead = <T,>(data: T): Read<T> => ({ data, error: null, retry: () => undefined });
 
 /** Agents › Development: playbook, candidate lessons, version history and the skill library, in one panel. */
 export function PlaybookPanel() {
   useAgentsCatalog();
-  const api_ = isApi();
   const admin = isAdmin(useMe());
-  const [agentId, setAgentId] = useState('coder-01');
+  const [selectedId, setAgentId] = useState('coder-01');
+  const agentId = AGENT_BY_ID[selectedId]?.id ?? AGENTS[0]?.id ?? '';
   const [view, setView] = useState<View>('playbook');
   const agent = AGENT_BY_ID[agentId] ?? AGENTS[0];
-  const pbR = usePlaybook(agentId), lsR = useLessons(agentId), skR = useSkills();
-  const pb = api_ ? pbR : demoRead({ playbook: DEMO_PLAYBOOK(agent.id, agent.name, agent.role), versions: DEMO_VERSIONS });
-  const ls = api_ ? lsR : demoRead(DEMO_LESSONS(agent.id, agent.name));
-  const sk = api_ ? skR : demoRead(DEMO_SKILLS);
+  const pb = usePlaybook(agentId), ls = useLessons(agentId), sk = useSkills();
   const version = pb.data?.playbook.version ?? 0;
   const activeCount = pb.data?.playbook.items.length ?? 0, activeCap = pb.data?.playbook.activeCap ?? 25, atCap = pb.data !== null && activeCount >= activeCap;
   const waiting = (ls.data ?? []).filter((l) => l.status === 'proposed');
@@ -232,15 +224,15 @@ export function PlaybookPanel() {
     { key: 'history' as const, label: <><History size={13} />History ({pb.data?.versions.length ?? 0})</> },
     { key: 'skills' as const, label: <><Wand2 size={13} />Skills ({(sk.data ?? []).filter((s) => s.status === 'approved').length})</> },
   ], [pb.data, version, waiting.length, sk.data]);
+  if (!agent) return <div>No agents in the catalog.</div>;
   const loading = view === 'skills' ? !sk.data : view === 'candidates' ? !ls.data : !pb.data;
   return (
     <Panel icon={BookMarked} titleSize="lg" title="Playbooks and skills" help="playbook.panel" delay={.15} data-dev-playbooks={loading && !err ? 'loading' : err ? 'error' : 'ready'}
       sub="Reviewed lessons per agent role, with their evidence. Records only: no agent reads them yet."
       actions={<div className="row" style={{ gap: 6 }}>
-        {!api_ && <span className="row" style={{ gap: 4 }} data-demo-tag><DemoTag title="DEMO samples: invented to show the layout" /><HelpTrigger k="playbook.demo" /></span>}
         {view === 'skills'
-          ? <button className="btn primary" disabled={!api_} title={!api_ ? DEMO_WHY : undefined} onClick={() => openDialog('skill-propose')}><Plus size={15} />Propose a skill</button>
-          : <button className="btn primary" disabled={!api_} title={!api_ ? DEMO_WHY : undefined} onClick={() => openDialog('lesson-propose', { agentId })}><Plus size={15} />Propose a lesson</button>}
+          ? <button className="btn primary" onClick={() => openDialog('skill-propose')}><Plus size={15} />Propose a skill</button>
+          : <button className="btn primary" onClick={() => openDialog('lesson-propose', { agentId })}><Plus size={15} />Propose a lesson</button>}
         <HelpTrigger k={view === 'skills' ? 'skills.panel' : 'playbook.propose'} />
       </div>}>
       <div className="col" style={{ gap: 10 }}>
@@ -256,7 +248,7 @@ export function PlaybookPanel() {
           )}
           <span className="spacer" />
           {view !== 'skills' && pb.data && <CapChip count={activeCount} cap={activeCap} />}
-          {!admin && api_ && <Chip hue={225} icon={Lock} size="sm" title="Anyone can propose; only administrators decide">Propose only</Chip>}
+          {!admin && <Chip hue={225} icon={Lock} size="sm" title="Anyone can propose; only administrators decide">Propose only</Chip>}
           <HelpTrigger k={view === 'playbook' ? 'playbook.current' : view === 'candidates' ? 'playbook.candidates' : view === 'history' ? 'playbook.history' : 'skills.panel'} />
         </div>
         {err && <div className="oa-banner" role="alert"><AlertOctagon size={15} /><span>Not loaded: {err}</span><button className="btn sm" onClick={retry}>Retry</button></div>}
@@ -267,7 +259,7 @@ export function PlaybookPanel() {
         {!loading && view === 'candidates' && ls.data && (waiting.length === 0 && decided.length === 0
           ? <EmptyState icon={ListChecks} title={`No candidate lessons for ${agent.name}`} body="Lessons wait here until a person other than the proposer accepts or rejects them." />
           : <ol className="col" style={{ gap: 8, margin: 0, padding: 0 }} aria-label="Candidate lessons"><AnimatePresence>
-            {waiting.map((l, i) => <CandidateCard key={l.id} l={l} admin={admin} index={i} api_={api_} baseVersion={version} atCap={atCap} />)}
+            {waiting.map((l, i) => <CandidateCard key={l.id} l={l} admin={admin} index={i} baseVersion={version} atCap={atCap} />)}
             {decided.slice(0, 4).map((l) => (
               <li key={l.id} className="row dim" style={{ gap: 8, fontSize: 12, listStyle: 'none', padding: '2px 4px' }} data-lesson={l.id} data-status={l.status}>
                 {l.status === 'accepted' ? <CheckCircle2 size={14} style={{ color: 'var(--good)' }} aria-label="accepted" /> : <XCircle size={14} aria-label={l.status} />}
@@ -276,11 +268,11 @@ export function PlaybookPanel() {
           </AnimatePresence></ol>)}
         {!loading && view === 'history' && pb.data && (pb.data.versions.length === 0
           ? <EmptyState icon={History} title="No versions yet" body="Every accepted lesson and every rollback adds a version. None is ever edited or deleted." />
-          : <ol className="col" style={{ gap: 8, margin: 0, padding: 0 }} aria-label="Playbook versions">{pb.data.versions.map((v, i) => <VersionRow key={v.version} v={v} current={v.version === version} agentId={agentId} admin={admin} api_={api_} index={i} />)}</ol>)}
+          : <ol className="col" style={{ gap: 8, margin: 0, padding: 0 }} aria-label="Playbook versions">{pb.data.versions.map((v, i) => <VersionRow key={v.version} v={v} current={v.version === version} agentId={agentId} admin={admin} index={i} />)}</ol>)}
         {view === 'skills' && <RetirementStrip admin={admin} />}
         {!loading && view === 'skills' && sk.data && (sk.data.length === 0
           ? <EmptyState icon={Wand2} title="No skills yet" body="A skill is a named list of plain steps with its sources. Propose one; another administrator approves it." />
-          : <ol className="col" style={{ gap: 8, margin: 0, padding: 0 }} aria-label="Skill library"><AnimatePresence>{sk.data.map((s, i) => <SkillRow key={s.id} s={s} admin={admin} api_={api_} index={i} />)}</AnimatePresence></ol>)}
+          : <ol className="col" style={{ gap: 8, margin: 0, padding: 0 }} aria-label="Skill library"><AnimatePresence>{sk.data.map((s, i) => <SkillRow key={s.id} s={s} admin={admin} index={i} />)}</AnimatePresence></ol>)}
       </div>
     </Panel>
   );

@@ -1,4 +1,4 @@
-import { Briefcase, type LucideIcon } from 'lucide-react';
+import { type LucideIcon } from 'lucide-react';
 
 /**
  * Plug-in apps: the bottom section of the rail (owner update 2026-11-20 u1).
@@ -19,10 +19,4 @@ export interface PluginDef {
   tabs: string[];
 }
 
-export const PLUGINS: PluginDef[] = [
-  {
-    key: 'job-search', label: 'Job Search', path: '/plugins/job-search', icon: Briefcase, version: 'v2.0.0', origin: { kind: 'built-in' },
-    description: 'Add job sites; agents investigate them live, research jobs and bid with your profile tailored to each job. Built on the former Browser Studio.',
-    tabs: ['Investigate', 'Jobs', 'Profile'],
-  },
-];
+export const PLUGINS: PluginDef[] = [];

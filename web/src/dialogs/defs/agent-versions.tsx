@@ -1,3 +1,4 @@
+import { ModelRouteField } from '@/features/agents/ModelRouteField';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { GitBranchPlus, RotateCcw, Plus, X, Info, ShieldAlert, Loader2, ArrowRight } from 'lucide-react';
@@ -17,7 +18,7 @@ import { toast } from '@/store/ui';
 import type { DialogComponentProps } from '@/dialogs/DialogHost';
 import '@/theme/pages/overview-org-agent.css';
 
-const MODELS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'local/llama-4-70b'];
+
 
 /** Chips with a remove button, plus an input that adds one on Enter or with the + button. */
 function ListEditor({ label, items, onChange, help }: { label: string; items: string[]; onChange: (xs: string[]) => void; help: string }) {
@@ -98,7 +99,7 @@ function AgentVersionPropose({ close, props }: DialogComponentProps<{ agentId?: 
           {detail.error && <div className="oa-banner" role="alert"><ShieldAlert size={15} /><span>The active version could not be read: {detail.error}</span><button className="btn sm" onClick={detail.retry}>Retry</button></div>}
           {moved && <div className="oa-banner" role="alert"><ShieldAlert size={15} /><span>{a.name} changed while this was open ({base!.label} is active now). Submitting will be refused: close and start again.</span></div>}
           {cand && <>
-            <Field label="Model route" help="models.route"><select className="select" aria-label="Model route" value={cand.model} onChange={(e) => set({ model: e.target.value })}>{Array.from(new Set([base?.model ?? cand.model, ...MODELS])).map((m) => <option key={m}>{m}</option>)}</select></Field>
+            <ModelRouteField value={cand.model} onChange={model => set({ model })} required />
             <ListEditor label="Skills" items={cand.skills} onChange={(skills) => set({ skills })} help="agent.version.skills" />
             <ListEditor label="Tools" items={cand.tools} onChange={(tools) => set({ tools })} help="agent.version.tools" />
           </>}

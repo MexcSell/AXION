@@ -10,15 +10,13 @@ import { Chip, InstanceStateChip } from '@/components/ui/Chips';
 import { Splitter, usePaneWidth } from '@/components/ui/Splitter';
 import { AGENT_BY_ID } from '@/data/agents';
 import { ROLES } from '@/data/roles';
-import { getMissionControl, threadKey } from '@/data/missions';
+import { getMissionControl, threadKey } from '@/data/missionControl';
 import type { Attachment, Mission } from '@/data/types';
-import { useData } from '@/store/data';
 import { openDialog, toast } from '@/store/ui';
 import { isApi } from '@/api/mode';
 import { HUMAN, useMissionControl, findThread, openThread, loadOlder, sendMissionMessage, partState, retryPart } from '@/api/missionControl';
 import { useLive } from './live';
 import { clock, cx } from '@/lib/format';
-import { EvidenceThumb } from './EvidenceThumb';
 import { ChatThreadView, ChatComposer } from '@/features/chat/ChatView';
 import { useMe } from '@/store/auth';
 
@@ -112,9 +110,7 @@ export function Messenger({ mission, agentId, layout = 'narrow', onCounterpartCh
 }
 
 function CounterpartItem({ mission, me, c, selected, onClick, index, compact }: { mission: Mission; me: string; c: Counterpart; selected: boolean; onClick: () => void; index: number; compact: boolean }) {
-  const extra = useData((s) => s.extraMessages);
-  const base = getMissionControl(mission).threads[threadKey(me, c.id)] ?? [];
-  const msgs = isApi() ? base : [...base, ...(extra[`${mission.id}::${threadKey(me, c.id)}`] ?? [])];
+  const msgs = getMissionControl(mission).threads[threadKey(me, c.id)] ?? [];
   const last = msgs[msgs.length - 1];
   const other = AGENT_BY_ID[c.id];
   const R = REL_META[c.relation];
@@ -139,22 +135,14 @@ function CounterpartItem({ mission, me, c, selected, onClick, index, compact }: 
 
 /* ------------------------------------------------------------------ */
 function Thread({ mission, me, other, relation, onRedirect }: { mission: Mission; me: string; other: string; relation: Relation; onRedirect?: (id: string) => void }) {
-  const extra = useData((s) => s.extraMessages);
-  const send = useData((s) => s.sendMessage);
-  const patch = useData((s) => s.patchMessage);
-  const emit = useLive((s) => s.emit);
   const log = useLive((s) => s.log);
   const user = useMe();
-  const [typing, setTyping] = useState(false);
-  const api = isApi();
   const entry = useMissionControl(mission.id);
-  const th = api ? findThread(entry, threadKey(me, other)) : undefined;
+  const th = findThread(entry, threadKey(me, other));
   // a failed load is not retried here (that was a tight loop): openThread retries with backoff, on reconnect, and on Retry
   useEffect(() => { if (th && !th.messages && !th.loading && !th.error) void openThread(mission.id, th.id); }, [mission.id, th?.id, th?.messages, th?.loading, th?.error]); // eslint-disable-line react-hooks/exhaustive-deps
-  const partners = api ? partState(entry, 'threads') : 'ready';
-  const mc = getMissionControl(mission);
-  const base = mc.threads[threadKey(me, other)] ?? [];
-  const msgs = useMemo(() => (api ? th?.messages ?? [] : [...base, ...(extra[`${mission.id}::${threadKey(me, other)}`] ?? [])]), [api, th?.messages, base, extra, mission.id, me, other]);
+  const partners = partState(entry, 'threads');
+  const msgs = th?.messages ?? [];
   const a = AGENT_BY_ID[me];
   const o = AGENT_BY_ID[other];
   const pendingQ = [...msgs].reverse().find((m) => m.kind === 'question' && m.from === me);
@@ -186,38 +174,14 @@ function Thread({ mission, me, other, relation, onRedirect }: { mission: Mission
 
   const onSend = (text: string, modeKey: string, attachments: Attachment[]) => {
     const mode = modeKey as 'command' | 'reply';
-    if (api) return apiSend(text, mode, attachments);
-    // the thread stays keyed to the human side (HUMAN); the author is the signed-in user
-    const msg = send(mission.id, me, other, { from: user ? `human:${user.id}` : HUMAN, to: me, kind: mode, text, attachments, replyTo: mode === 'reply' ? pendingQ?.replyTo ?? pendingQ?.id : undefined });
-    log(mission.id, `${who} sent a ${mode} to ${a.name}`, 'command');
-    window.setTimeout(() => patch(mission.id, me, other, msg.id, { status: 'delivered' }), 600);
-    window.setTimeout(() => setTyping(true), 1100);
-    window.setTimeout(() => {
-      setTyping(false);
-      patch(mission.id, me, other, msg.id, { status: 'acknowledged' });
-      const node = mc.nodes.find((n) => n.agentId === me);
-      const supNode = node?.parent ? mc.nodes.find((n) => n.instanceId === node.parent) : undefined;
-      const sup = supNode ? AGENT_BY_ID[supNode.agentId] : undefined;
-      send(mission.id, me, other, { from: me, to: msg.from, kind: 'ack', text: mode === 'reply'
-        ? `Thanks — reply received${pendingQ ? ` for ${pendingQ.replyTo ?? pendingQ.id}` : ''}. I will proceed exactly as you said and not assume any other permission.`
-        : `Acknowledged: “${text.slice(0, 70)}${text.length > 70 ? '…' : ''}”. Starting now; I will report to ${sup?.name ?? 'you'} when done.` });
-      log(mission.id, `${a.name} acknowledged the ${mode}`, 'ack');
-      // report upward after "execution"
-      if (supNode && sup) {
-        window.setTimeout(() => {
-          send(mission.id, me, sup.id, { from: me, to: sup.id, kind: 'report', text: `Report: executed ${who}'s ${mode} “${text.slice(0, 60)}${text.length > 60 ? '…' : ''}”. Evidence attached; ready for verification.`, attachments: [{ id: 'ev-' + Date.now(), name: 'execution-evidence.png', kind: 'image', size: '388 KB' }] });
-          emit(mission.id, node!.instanceId, supNode.instanceId, 'reports', `${a.name} reported to ${sup.name} (${who}'s ${mode})`);
-          toast({ tone: 'info', title: `${a.name} reported to ${sup.name}`, body: 'Open the superior thread to see the report.' });
-        }, 4200);
-      }
-    }, 2300);
+    return apiSend(text, mode, attachments);
   };
 
   return (
     <ChatThreadView
       title={<><b className="ellipsis">{a?.name} ↔ {o?.name ?? 'You'}</b><span className="thread-rel"><Chip hue={REL_META[relation].hue} size="sm">{REL_META[relation].label}</Chip></span></>}
       messages={msgs} isRight={(m) => m.from.startsWith('human:') || m.from === me} mmMe={me}
-      typing={typing ? { name: a.name, role: a.role } : null} missionId={mission.id}
+      missionId={mission.id}
       compactFilter={(m) => ['delegation', 'report', 'result', 'command', 'question'].includes(m.kind)}
       emptyState={th?.error || (!th && partners === 'error') ? 'error' : th?.loading || (!th && partners === 'loading') ? 'loading' : undefined}
       emptyTitle={th?.error || (!th && partners === 'error') ? 'Could not load this conversation' : th?.loading || (!th && partners === 'loading') ? 'Loading the conversation…' : undefined}
@@ -236,5 +200,3 @@ function Thread({ mission, me, other, relation, onRedirect }: { mission: Mission
     />
   );
 }
-
-export { EvidenceThumb };

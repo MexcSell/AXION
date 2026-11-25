@@ -3,7 +3,7 @@ import { CheckCircle2, Gavel } from 'lucide-react';
 import { ApprovalFacts, GateNote, useGate } from '@/features/approvals/ApprovalBinding';
 import { Chip } from '@/components/ui/Chips';
 import { useData, allApprovals, useVisibleMissions } from '@/store/data';
-import { openDialog, toast } from '@/store/ui';
+import { openDialog } from '@/store/ui';
 import { AGENT_BY_ID } from '@/data/agents';
 import { cx } from '@/lib/format';
 import { GitBranch, Globe2, Cpu, MessageSquare, Upload, BadgeCheck, Send, Hand, XCircle, Rocket, Flag } from 'lucide-react';
@@ -36,8 +36,8 @@ export function ApprovalMini({ id }: { id: string }) {
       {!resolved ? (
         <div className="row" style={{ gap: 6, marginLeft: 24 }}>
           {gate.blocked && <GateNote id={gate.id} text={gate.text} />}
-          <button type="button" {...gate.bind(() => { decide(a.id, 'approved'); toast({ tone: 'success', title: 'Approved once', body: `${a.title} — bound to ${a.id}.` }); }, 'btn sm good')}>Approve once</button>
-          <button type="button" {...gate.bind(() => { decide(a.id, 'denied'); toast({ tone: 'warning', title: 'Denied', body: `${a.title}. The agent will propose an alternative.` }); }, 'btn sm danger')}>Deny</button>
+          <button type="button" {...gate.bind(() => { void decide(a.id, 'approved'); }, 'btn sm good')}>Approve once</button>
+          <button type="button" {...gate.bind(() => { openDialog('approval-decision', { approvalId: a.id }); }, 'btn sm danger')}>Deny</button>
           <button className="btn sm ghost" onClick={() => openDialog('approval-decision', { approvalId: a.id })}>Review details…</button>
         </div>
       ) : <div className="row" style={{ marginLeft: 24, gap: 6, fontSize: 12.5 }}>{a.status === 'approved' ? <CheckCircle2 size={14} className="good" /> : <XCircle size={14} className="bad" />}Resolved: {a.status}</div>}

@@ -1,5 +1,5 @@
 import type { Tx } from '../../src/db.ts';
-import { AGENTS } from '../../../web/src/data/agents.ts';
+import { COMPANY_AGENTS } from '../../../shared/company/agents.ts';
 import { addVersion } from '../../src/agents/service.ts';
 
 /**
@@ -11,7 +11,7 @@ export const prefixOf = (tenantId: string) => (tenantId === 't-b' ? 'b-' : '');
 export async function seedPrefixedCompany(c: Tx, tenantId: string) {
   const p = prefixOf(tenantId);
   const have = new Set((await c.query('select id from agent_definitions where tenant_id=$1', [tenantId])).rows.map((r) => r.id));
-  for (const a of AGENTS) {
+  for (const a of COMPANY_AGENTS) {
     const id = p + a.id;
     if (have.has(id)) continue;
     const { name, role, dept, duty, parentId, site, description, model, skills, version, managerId: _m, id: _i, ...profile } = a as any;
@@ -21,5 +21,5 @@ export async function seedPrefixedCompany(c: Tx, tenantId: string) {
     await addVersion(c, { agentId: id, model, skills, tools: [], createdBy: 'system', label: version });
   }
   // No org revision for a second tenant: the chart validator requires the agent with the literal id 'gm' as root, and 'gm' is already tenant t-1's row.
-  return { agents: AGENTS.length, revision: false };
+  return { agents: COMPANY_AGENTS.length, revision: false };
 }

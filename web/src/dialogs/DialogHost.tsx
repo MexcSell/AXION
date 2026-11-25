@@ -28,11 +28,6 @@ export function DialogHost() {
   const dialogs = useUI((s) => s.dialogs);
   const close = useUI((s) => s.closeDialog);
   const [reg, setReg] = useState(registry);
-  useEffect(() => {
-    // warm up after first paint so the first click opens instantly
-    const t = window.setTimeout(() => { loadDialogs().then(setReg); }, 600);
-    return () => window.clearTimeout(t);
-  }, []);
   useEffect(() => { if (dialogs.length && !reg) loadDialogs().then(setReg); }, [dialogs.length, reg]);
   return (
     <AnimatePresence>

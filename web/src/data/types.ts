@@ -193,6 +193,7 @@ export interface Artifact {
 }
 
 export interface Approval {
+  digest?: string;
   id: string;
   missionId: string;
   agentId: string;

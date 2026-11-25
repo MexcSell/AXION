@@ -3,7 +3,7 @@ import type { HelpEntry } from './registry';
 
 /**
  * The help registry (all ? texts, ~75 kB of prose) is not needed for the first screen. It loads in its own chunk:
- * after the first paint (App's idle preloader), or earlier when a "?" is hovered, focused or opened.
+ * when help is opened or a "?" is hovered or focused.
  * Until then a "?" shows a neutral label; the text never appears wrong, it just arrives a moment later.
  */
 type Registry = typeof import('./registry');

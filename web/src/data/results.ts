@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { getMissionControl } from './missions';
+import { getMissionControl } from './missionControl';
 import { seeded } from './agents';
 import { useData } from '@/store/data';
 import type { Artifact, ArtifactVersion, Mission } from './types';

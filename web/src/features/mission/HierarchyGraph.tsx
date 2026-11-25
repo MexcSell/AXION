@@ -1,17 +1,16 @@
 import { motion, useReducedMotion } from 'motion/react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ZoomIn, ZoomOut, Maximize2, Network, List, Radio, MessageSquare, Move } from 'lucide-react';
+import { ZoomIn, ZoomOut, Maximize2, Network, List, MessageSquare, Move } from 'lucide-react';
 import { RobotAvatar } from '@/components/art/RobotAvatar';
 import { IconButton } from '@/components/ui/IconButton';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
-import { Segmented, Switch } from '@/components/ui/Form';
-import { DemoTag, InstanceStateChip } from '@/components/ui/Chips';
+import { Segmented } from '@/components/ui/Form';
+import { InstanceStateChip } from '@/components/ui/Chips';
 import { AGENT_BY_ID } from '@/data/agents';
 import { ROLES } from '@/data/roles';
 import type { EdgeKind, Mission, MissionEdge, MissionNode } from '@/data/types';
-import { getMissionControl } from '@/data/missions';
+import { getMissionControl } from '@/data/missionControl';
 import { useLive } from './live';
-import { isApi } from '@/api/mode';
 import { useMissionControl } from '@/api/missionControl';
 import { usePartStatus } from './PartStatus';
 import { cx, clock } from '@/lib/format';
@@ -98,9 +97,6 @@ function HierarchyGraphView({ mission, selected, onSelect, onOpenChat }: GraphPr
   const drag = useRef<{ x: number; y: number; vx: number; vy: number } | null>(null);
   const reduce = useReducedMotion();
   const pulses = useLive((s) => s.pulses);
-  const simulate = useLive((s) => s.simulate);
-  const setSimulate = useLive((s) => s.setSimulate);
-  const emit = useLive((s) => s.emit);
   const lines = useLive((s) => s.lines).filter((l) => l.missionId === mission.id).slice(0, 3);
 
   const fit = () => {
@@ -110,23 +106,6 @@ function HierarchyGraphView({ mission, selected, onSelect, onOpenChat }: GraphPr
   };
   useLayoutEffect(fit, [vw, vh, mode]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { const ro = new ResizeObserver(fit); if (wrap.current) ro.observe(wrap.current); return () => ro.disconnect(); }, [vw, vh]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // DEMO live simulation: emit a real-direction pulse every few seconds
-  // api mode: only DEMO missions get the invented pulses; a real mission shows only what the server reports
-  const active = !['completed', 'archived', 'paused', 'draft', 'failed'].includes(mission.status) && (!isApi() || !!mission.demo);
-  useEffect(() => {
-    if (!simulate || !active || mc.edges.length === 0) return;
-    const name = (inst: string) => AGENT_BY_ID[mc.nodes.find((n) => n.instanceId === inst)?.agentId ?? '']?.name ?? '?';
-    let i = 0;
-    const t = window.setInterval(() => {
-      if (document.hidden) return;
-      const e = mc.edges[(i * 7 + 3) % mc.edges.length];
-      i++;
-      const verb = { delegated: 'delegated a subtask to', reports: 'reported progress to', consults: 'consulted', verifies: 'verified evidence from', mentors: 'coached' }[e.kind];
-      emit(mission.id, e.from, e.to, e.kind, `${name(e.from)} ${verb} ${name(e.to)}`);
-    }, 3200);
-    return () => window.clearInterval(t);
-  }, [simulate, active, mission.id, mc.edges, mc.nodes, emit]);
 
   /* zoom by factor f toward a point in canvas coordinates (default: center) */
   const zoomAt = (f: number, px?: number, py?: number) => setView((v) => {
@@ -161,10 +140,6 @@ function HierarchyGraphView({ mission, selected, onSelect, onOpenChat }: GraphPr
         <span className="dim hg-count" style={{ fontSize: 12 }}>{mc.nodes.length} agent instances · {mc.edges.length} links</span>
         <HelpTrigger k="hierarchy.delegation" />
         <span className="spacer" />
-        <label className="row" style={{ gap: 6, fontSize: 12 }} title="Simulated events for this prototype">
-          <Radio size={14} className={simulate && active ? 'good' : 'dim'} /> Live events <DemoTag />
-          <Switch checked={simulate} onChange={setSimulate} label="Simulate live events" />
-        </label>
         <Segmented ariaLabel="Graph or list" size="sm" value={mode} onChange={setMode} options={[{ key: 'graph', label: <><Network size={13} />Graph</> }, { key: 'list', label: <><List size={13} />List</> }]} />
         {mode === 'graph' && <>
           <IconButton icon={ZoomOut} label="Zoom out" size="sm" onClick={() => zoom(1 / 1.2)} />

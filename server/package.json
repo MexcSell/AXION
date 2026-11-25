@@ -13,7 +13,6 @@
     "audit:anchor": "tsx --env-file=.env src/cli/audit-anchor.ts",
     "export:otlp": "tsx --env-file=.env src/cli/otlp-export.ts",
     "admin:approve-device": "tsx --env-file=.env src/cli/approve-device.ts",
-    "demo:seed": "tsx --env-file=.env src/cli/demo.ts seed",
     "demo:clear": "tsx --env-file=.env src/cli/demo.ts clear",
     "e2e:serve": "tsx --env-file=.env src/cli/e2e-serve.ts",
     "db:backup": "bash scripts/db-backup.sh",

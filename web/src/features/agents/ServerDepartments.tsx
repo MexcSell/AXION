@@ -1,11 +1,10 @@
-import { AnimatePresence, motion } from 'motion/react';
+import { motion } from 'motion/react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Layers, Building2, Plus, AlertTriangle, Crown, Briefcase, CheckCircle2, XCircle, RotateCcw, GitCommitHorizontal, Loader, Hourglass } from 'lucide-react';
+import { Layers, Building2, AlertTriangle, Crown, Briefcase, CheckCircle2, XCircle, RotateCcw, GitCommitHorizontal, Loader, Hourglass } from 'lucide-react';
 import { DEPT_MIN_SAMPLE, type DepartmentFacts, type ScorecardWindow } from '@contracts';
 import { Panel } from '@/components/ui/Panel';
-import { Segmented, Switch } from '@/components/ui/Form';
-import { DemoTag } from '@/components/ui/Chips';
+import { Segmented } from '@/components/ui/Form';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { Tip } from '@/components/ui/Tip';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -14,57 +13,46 @@ import { useCanEditAgents } from '@/hooks/useCanEditAgents';
 import { useAgentsCatalog } from '@/api/agents';
 import { useDepartments } from '@/api/departments';
 import { AGENT_BY_ID } from '@/data/agents';
-import { DEPTS, DEPT_BY_NAME } from '@/data/orgdemo';
+import { departmentStyle, departmentOrder } from '@/data/departments';
 import { ROLES } from '@/data/roles';
-import { openDialog, toast } from '@/store/ui';
 import { agoFromTs, cx } from '@/lib/format';
 import '@/theme/pages/c06-departments.css';
 
-/**
- * Agents › Departments in api mode (improvement cycle 6): every number on a card is a count the server recorded for the
- * missions you can see (GET /departments), each with its sample and window. The prototype capacity ring, skill coverage
- * and KPI deltas are not shown here (they stay in demo mode). Re-read live on instance/task/org/agent/mission events.
- */
+
 const WINDOW_LABEL: Record<ScorecardWindow, string> = { '7d': 'last 7 days', '30d': 'last 30 days', '90d': 'last 90 days' };
 const MAX_AVATARS = 6;
 
 export function ServerDepartments() {
-  useAgentsCatalog(); // names and roles of members (and DEPTS for hue and charter)
+  useAgentsCatalog();
   const canEdit = useCanEditAgents();
   const nav = useNavigate();
   const [win, setWin] = useState<ScorecardWindow>('30d');
-  const [demo, setDemo] = useState(false);
-  const { data, error } = useDepartments(win, demo);
-  const shown = data && data.window === win && data.includeDemo === demo ? data : null;
-  const order = (n: string) => { const i = DEPTS.findIndex((d) => d.name === n); return i < 0 ? DEPTS.length : i; };
-  const list = shown ? [...shown.departments].sort((a, b) => order(a.name) - order(b.name) || (a.name < b.name ? -1 : 1)) : [];
+  const { data, error } = useDepartments(win, false);
+  const shown = data && data.window === win && !data.includeDemo ? data : null;
+  const list = shown ? [...shown.departments].sort((a, b) => departmentOrder(a.name) - departmentOrder(b.name) || (a.name < b.name ? -1 : 1)) : [];
   return (
     <Panel icon={Building2} titleSize="lg" title="Departments" help="dept.api" delay={.05}
       sub="Members, head, staffing and task outcomes, counted by the server from missions you can see."
-      actions={<div className="row dpa-actions" data-departments={shown ? 'ready' : error ? 'error' : 'loading'} data-window={win} data-demo={demo ? '1' : '0'}>
-        <AnimatePresence>{demo && <motion.span key="demo" initial={{ opacity: 0, scale: .8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: .8 }}><DemoTag title="DEMO missions and simulated tasks are included in these counts" /></motion.span>}</AnimatePresence>
-        <label className="row sc-demo"><span>include DEMO</span><Switch checked={demo} onChange={setDemo} label="Include DEMO missions" /></label>
+      actions={<div className="row dpa-actions" data-departments={shown ? 'ready' : error ? 'error' : 'loading'} data-window={win} data-demo="0">
         <button className="btn sm" data-six-dimensions onClick={() => nav('/operations?tab=agents&sub=dimensions')}><Layers size={14} />Six dimensions</button>
         <Segmented size="sm" ariaLabel="Outcome window" value={win} onChange={setWin} options={(['7d', '30d', '90d'] as const).map((k) => ({ key: k, label: k, title: WINDOW_LABEL[k] }))} />
-        {canEdit && <button className="btn primary" onClick={() => openDialog('department-create')}><Plus size={15} />New department</button>}
       </div>}>
       {!shown ? <div className="dim dpa-empty" data-state={error ? 'error' : 'loading'}>{error ?? 'Counting department facts…'}</div>
         : list.length === 0 ? <EmptyState icon={Building2} title="No departments" body="Departments come from the agents' catalog department." />
-          : <div className="oa-dept-grid">{list.map((d, i) => <DeptCard key={d.name} d={d} i={i} win={win} demo={demo} canEdit={canEdit} />)}</div>}
+          : <div className="oa-dept-grid">{list.map((d, i) => <DeptCard key={d.name} d={d} i={i} win={win} canEdit={canEdit} />)}</div>}
     </Panel>
   );
 }
 
-function DeptCard({ d, i, win, demo, canEdit }: { d: DepartmentFacts; i: number; win: ScorecardWindow; demo: boolean; canEdit: boolean }) {
+function DeptCard({ d, i, win, canEdit }: { d: DepartmentFacts; i: number; win: ScorecardWindow; canEdit: boolean }) {
   const nav = useNavigate();
-  const meta = DEPT_BY_NAME[d.name];
-  const hue = meta?.hue ?? 210;
-  const R = ROLES[meta?.role ?? 'manager'] ?? ROLES.manager;
+  const { hue, role } = departmentStyle(d.name);
+  const R = ROLES[role];
   const head = d.headAgentId ? AGENT_BY_ID[d.headAgentId] : undefined;
   const members = d.memberIds.length;
   const o = d.outcomes;
   const few = o.n < DEPT_MIN_SAMPLE;
-  const scope = `${WINDOW_LABEL[win]} · missions you can see${demo ? ' · DEMO included' : ''}`;
+  const scope = `${WINDOW_LABEL[win]} · missions you can see`;
   return (
     <motion.article className="subpanel glass-card hoverable oa-dcard dpa-card" style={{ ['--h' as string]: hue }} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * .05 }}
       data-dept={d.name} data-staffed={d.staffedAgents} data-missions={d.activeMissions} data-members={members} data-head={d.headAgentId ?? ''}
@@ -133,8 +121,7 @@ function DeptCard({ d, i, win, demo, canEdit }: { d: DepartmentFacts; i: number;
         </Tip>
         <HelpTrigger k="dept.lastOrgChange" />
         <span className="dpa-btns">
-          {canEdit && <button className="btn sm" onClick={() => openDialog('department-create', { dept: d.name })}>Edit draft</button>}
-          <button className="btn sm ghost" onClick={() => toast({ tone: 'info', title: `Assign manager for ${d.name} (demo)`, body: 'Manager changes are proposals: they appear in Proposals for review.' })}>Assign manager</button>
+          {canEdit && <button className="btn sm ghost" onClick={() => nav('/operations?tab=agents&sub=proposals')}>Manage reporting lines</button>}
         </span>
       </div>
     </motion.article>

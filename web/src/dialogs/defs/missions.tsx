@@ -4,18 +4,18 @@ import { useMe, isAdmin } from '@/store/auth';
 import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Pencil, Trash2, Play, Pause, Square, RotateCcw, LayoutTemplate, Paperclip, Sparkles, Bot, GitBranch, ListChecks, Info,
+  Pencil, Trash2, Play, Pause, Square, RotateCcw, LayoutTemplate, Paperclip, Bot, GitBranch, ListChecks, Info,
   Image as ImageIcon, FileText, X, Check, ChevronRight, ShieldCheck, Users, AlertTriangle, Archive, Upload, MessageSquare, Send, Copy, Tags, Layers } from 'lucide-react';
 import type { DialogComponentProps } from '@/dialogs/DialogHost';
 import { Modal } from '@/components/ui/Modal';
-import { Field, Segmented, SwitchRow } from '@/components/ui/Form';
+import { Field, Segmented } from '@/components/ui/Form';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { Chip, MissionStatusChip, InstanceStateChip, TaskStateChip, RoleChip } from '@/components/ui/Chips';
 import { RobotAvatar } from '@/components/art/RobotAvatar';
-import { useData, useMission } from '@/store/data';
+import { useData, useMission, attachMissionFiles } from '@/store/data';
 import { toast, openDialog } from '@/store/ui';
 import { AGENTS, AGENT_BY_ID } from '@/data/agents';
-import { getMissionControl } from '@/data/missions';
+import { getMissionControl } from '@/data/missionControl';
 import { useMissionControl, sendMissionMessage, taskAction } from '@/api/missionControl';
 import { useFailureTags } from '@/api/failures';
 import { useTaskReviews } from '@/api/taskReviews';
@@ -26,7 +26,6 @@ import type { Mission, Attachment } from '@/data/types';
 import { KIND_META } from '@/features/mission/MissionBits';
 import { ago, clock, cx } from '@/lib/format';
 import '@/theme/pages/missions.css';
-import { EvidenceThumb } from '@/features/mission/EvidenceThumb';
 import { Messenger } from '@/features/mission/Messenger';
 import '@/theme/pages/c72-skills.css';
 import { DelegationBriefCard, NoBrief, TIER_HUE } from '@/features/mission/DelegationBriefCard';
@@ -56,7 +55,7 @@ export function DropZone({ files, setFiles, compact }: { files: LocalFile[]; set
         onClick={() => input.current?.click()}
       >
         <Upload size={compact ? 18 : 26} className="info" />
-        <div><b>Drop images, documents or data</b><div className="dim" style={{ fontSize: 12 }}>or click to browse · paste a screenshot (Ctrl V) · image text can be extracted (OCR opt-in)</div></div>
+        <div><b>Drop images, documents or data</b><div className="dim" style={{ fontSize: 12 }}>or click to browse · paste a screenshot (Ctrl V)</div></div>
         <input ref={input} type="file" multiple hidden onChange={(e) => { if (e.target.files) setFiles([...files, ...filesFrom(e.target.files)]); e.target.value = ''; }} />
       </div>
       <AnimatePresence>
@@ -142,7 +141,7 @@ function MissionDelete({ close, props }: DialogComponentProps<{ missionId: strin
   const versions = mc.artifacts.reduce((s, a) => s + a.versions.length, 0);
   const ok = mode === 'archive' || typed.trim() === m.id;
   const run = () => {
-    if (mode === 'archive') { archive(m.id); toast({ tone: 'success', title: `${m.id} archived`, body: isApi() && !['completed', 'canceled', 'failed'].includes(m.status) ? 'It was canceled first, then archived. Restore brings it back as canceled.' : 'Recoverable from the Archived tab until 2027-05-20.', action: { label: 'Undo', run: () => useData.getState().restoreMission(m.id) } }); }
+    if (mode === 'archive') { archive(m.id); toast({ tone: 'success', title: `${m.id} archived`, body: isApi() && !['completed', 'canceled', 'failed'].includes(m.status) ? 'It was canceled first, then archived. Restore brings it back as canceled.' : 'Restore it from the Archived tab.', action: { label: 'Undo', run: () => useData.getState().restoreMission(m.id) } }); }
     else { purge(m.id); toast({ tone: 'warning', title: isApi() ? `${m.id} deleted` : `Purge requested for ${m.id}`, body: isApi() ? 'Removed for everyone. The server keeps the record and its audit trail.' : 'DEMO: removed from this session. In production this needs Owner re-auth and a retention check.' }); }
     close();
   };
@@ -250,33 +249,45 @@ function TemplatePicker({ close }: DialogComponentProps) {
   );
 }
 
-function AttachDialog({ close, props }: DialogComponentProps<{ onAttach?: (a: Attachment[]) => void }>) {
+function AttachDialog({ close, props }: DialogComponentProps<{ missionId: string }>) {
+  const m = useMission(props.missionId);
   const [files, setFiles] = useState<LocalFile[]>([]);
-  const [ocr, setOcr] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  if (!m) return <Missing close={close} />;
+  const tooMany = m.content.files.length + files.length > 10;
+  const attach = async () => {
+    if (busy || tooMany || !files.length || m.rowVersion === undefined) return;
+    setBusy(true);
+    setError('');
+    try {
+      await attachMissionFiles(m.id, files, m.rowVersion);
+      toast({ tone: 'success', title: `Added ${files.length} file(s) to ${m.id}` });
+      close();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not attach the selected files.');
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
-    <Modal title="Attach source, image or file" icon={Paperclip} dialogId="DL-09" onClose={close}
-      footer={<><button className="btn" onClick={close}>Cancel</button><button className="btn primary" disabled={!files.length} onClick={() => { props.onAttach?.(files.map((f) => ({ id: f.id, name: f.name, kind: f.type.startsWith('image/') ? 'image' : 'file', size: `${(f.size / 1024).toFixed(0)} KB`, url: f.url }))); toast({ tone: 'success', title: `${files.length} file(s) attached` }); close(); }}>Attach</button></>}>
-      <DropZone files={files} setFiles={setFiles} />
-      <SwitchRow label="Extract text from images (OCR)" desc="Opt-in. Extracted text is shown to you before agents can use it." checked={ocr} onChange={setOcr} />
+    <Modal title="Attach source, image or file" icon={Paperclip} dialogId="DL-09" onClose={busy ? () => undefined : close}
+      footer={<><button className="btn" onClick={close} disabled={busy}>Cancel</button><button className="btn primary" disabled={busy || !files.length || tooMany} onClick={attach}>{busy ? 'Attaching…' : 'Attach'}</button></>}>
+      <fieldset disabled={busy} style={{ margin: 0, padding: 0, border: 0 }}><DropZone files={files} setFiles={setFiles} /></fieldset>
+      {(error || tooMany) && <p className="bad" role="alert">{error || 'A mission can have up to 10 attached files.'}</p>}
     </Modal>
   );
 }
 
-function AiSummary({ close, props }: DialogComponentProps<{ missionId: string }>) {
+function MissionSummary({ close, props }: DialogComponentProps<{ missionId: string }>) {
   const m = useMission(props.missionId);
-  useMissionControl(props.missionId); // api mode: fetch and follow this mission's server data
-  const [regen, setRegen] = useState(false);
   if (!m) return <Missing close={close} />;
-  const ev = getMissionControl(m).timeline.slice(0, 6);
   return (
-    <Modal title="AI summary — sources" icon={Sparkles} help="mission.aiSummary" dialogId="DL-10" size="lg" onClose={close} sub={`${m.id} · generated by claude-sonnet-5-5 · ${ago(m.summaryAgoMin)}`}
-      footer={<><button className="btn" onClick={close}>Close</button><button className="btn primary" onClick={() => { setRegen(true); window.setTimeout(() => { setRegen(false); toast({ tone: 'info', title: 'Draft regenerated (demo)', body: 'Drafts are not published until you accept them.' }); }, 1400); }} disabled={regen}><Sparkles size={15} />{regen ? 'Regenerating…' : 'Regenerate Draft'}</button></>}>
-      <div className="ai-summary"><p style={{ lineHeight: 1.6 }}>{m.summary}</p></div>
-      <div className="section-label">Supporting events</div>
-      <div className="col" style={{ gap: 4 }}>
-        {ev.map((e) => <div key={e.id} className="event-row" style={{ background: 'var(--panel-2)' }}><span className="mono dim">{clock(e.agoMin)}</span><span className="grow ellipsis">{e.text}</span><span className="mono dim" style={{ fontSize: 11 }}>{e.trace}</span></div>)}
-      </div>
-      <div className="dim" style={{ fontSize: 12 }}>Summaries can omit details. Human edits are recorded separately and never overwrite the event log.</div>
+    <Modal title="Mission summary" icon={FileText} help="mission.aiSummary" dialogId="DL-10" onClose={close} sub={m.id}
+      footer={<button className="btn" onClick={close}>Close</button>}>
+      <p style={{ lineHeight: 1.6 }}>{m.summary || 'No summary has been recorded.'}</p>
+      <dl className="kv"><dt>Status</dt><dd><MissionStatusChip status={m.status} /></dd><dt>Revision</dt><dd>{m.revision}</dd>
+        <dt>Last event</dt><dd>{m.lastEvent || 'No events recorded.'}{m.lastEvent && ` · ${ago(m.lastEventAgoMin)}`}</dd></dl>
     </Modal>
   );
 }
@@ -465,7 +476,6 @@ function SendCommand({ close, props }: DialogComponentProps<{ missionId: string;
   const m = useMission(props.missionId);
   useMissionControl(props.missionId);
   const me = useMe();
-  const send = useData((s) => s.sendMessage);
   const [text, setText] = useState('');
   const [files, setFiles] = useState<LocalFile[]>([]);
   const [busy, setBusy] = useState(false);
@@ -476,28 +486,20 @@ function SendCommand({ close, props }: DialogComponentProps<{ missionId: string;
   if (!m || !a) return <Missing close={close} />;
   const go = () => {
     const attachments = files.map((f) => ({ id: f.id, name: f.name, kind: f.type.startsWith('image/') ? 'image' as const : 'file' as const, url: f.url, size: `${(f.size / 1024).toFixed(0)} KB`, blob: f.blob }));
-    if (isApi()) {
-      // Stage 6: the server stores it in the human↔agent thread; on real missions it is queued (agents don't act yet).
-      // The dialog waits for the answer: success closes it, a failure keeps it open with the reason (nothing typed is lost).
-      if (!me || busy) return;
-      setBusy(true); setError('');
-      void sendMissionMessage(m, a.id, { kind: isReply ? 'reply' : 'command', text: text.trim() || '(attachment)', replyTo: props.replyTo, attachments }, me).then((r) => {
-        setBusy(false);
-        if (r.ok) {
-          toast({ tone: 'success', title: isReply ? 'Reply submitted' : 'Command sent', body: m.demo ? `${a.name} will acknowledge receipt (simulated on this DEMO mission).` : 'Stored on the server and queued: agents do not act yet.' });
-          close();
-        } else if (r.gone) close();
-        else setError(r.message);
-      });
-      return;
-    }
-    send(m.id, 'human:owner', a.id, { from: 'human:owner', to: a.id, kind: isReply ? 'reply' : 'command', text, replyTo: props.replyTo, attachments: attachments.map(({ blob: _b, ...x }) => { void _b; return x; }) });
-    toast({ tone: 'success', title: isReply ? 'Reply submitted' : 'Command sent', body: `${a.name} will acknowledge receipt.` });
-    close();
+    if (!me || busy) return;
+    setBusy(true); setError('');
+    void sendMissionMessage(m, a.id, { kind: isReply ? 'reply' : 'command', text: text.trim() || '(attachment)', replyTo: props.replyTo, attachments }, me).then((r) => {
+      setBusy(false);
+      if (r.ok) {
+        toast({ tone: 'success', title: isReply ? 'Reply submitted' : 'Command sent', body: 'Saved to the mission conversation.' });
+        close();
+      } else if (r.gone) close();
+      else setError(r.message);
+    });
   };
   return (
     <Modal title={isReply ? 'Reply to agent question' : 'Send command'} icon={isReply ? MessageSquare : Send} dialogId={isReply ? 'DL-18' : 'DL-17'} help={isReply ? 'conversation.reply' : 'conversation.command'} onClose={close} sub={`To ${a.name} · ${m.id}`}
-      footer={<><button className="btn" onClick={close}>{isReply ? 'Save Draft' : 'Edit'}</button><button className="btn primary" disabled={busy || (!text.trim() && !files.length)} onClick={go}><Send size={15} />{busy ? 'Sending…' : isReply ? 'Submit Reply' : 'Send Command'}</button></>}>
+      footer={<><button className="btn" onClick={close}>Cancel</button><button className="btn primary" disabled={busy || (!text.trim() && !files.length)} onClick={go}><Send size={15} />{busy ? 'Sending…' : isReply ? 'Submit Reply' : 'Send Command'}</button></>}>
       {error && <div className="callout bad" role="alert"><AlertTriangle size={16} /><div><b>Not sent.</b> {error}</div></div>}
       {isReply && props.question && <div className="callout warn"><MessageSquare size={16} /><div><b>Question {props.replyTo}</b><div>{props.question}</div></div></div>}
       <Field label={isReply ? 'Your reply' : 'Instruction'} required><textarea className="textarea" rows={4} data-autofocus value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && text.trim()) go(); }} placeholder={isReply ? 'Answer the question…' : `Tell ${a.name} what to do…`} /></Field>
@@ -509,13 +511,18 @@ function SendCommand({ close, props }: DialogComponentProps<{ missionId: string;
 
 function AttachmentPreview({ close, props }: DialogComponentProps<{ attachment: Attachment }>) {
   const at = props.attachment;
+  const [failed, setFailed] = useState(false);
+  const url = at.url;
+  const media = { src: url, onError: () => setFailed(true), style: { maxWidth: '100%', maxHeight: 460 } };
   return (
-    <Modal title={at?.name ?? 'Attachment'} icon={ImageIcon} dialogId="DL-26b" size="lg" onClose={close} sub={`${at?.kind ?? ''} · ${at?.size ?? ''} · immutable evidence`}
-      footer={<><button className="btn" onClick={close}>Close</button>{at?.url && <a className="btn primary" href={at.url} download={at.name}>Download</a>}</>}>
-      <div className="center" style={{ minHeight: 260, borderRadius: 12, background: 'var(--panel-2)', border: '1px solid var(--border-soft)', overflow: 'hidden' }}>
-        {at?.url ? <img src={at.url} alt={at.name} style={{ maxWidth: '100%', maxHeight: 460 }} /> : at?.kind === 'image' ? <EvidenceThumb seed={at.name} w={560} h={350} /> : <FileText size={48} className="info" />}
+    <Modal title={at.name} icon={ImageIcon} dialogId="DL-26b" size="lg" onClose={close} sub={[at.kind, at.size].filter(Boolean).join(' · ')}
+      footer={<><button className="btn" onClick={close}>Close</button>{url && <a className="btn primary" href={url} download={at.name}>Download</a>}</>}>
+      <div className="center" style={{ minHeight: 160, overflow: 'hidden' }}>
+        {!failed && url && at.kind === 'image' ? <img {...media} alt={at.name} /> :
+          !failed && url && at.kind === 'video' ? <video {...media} controls aria-label={at.name} /> :
+          !failed && url && at.kind === 'audio' ? <audio {...media} controls aria-label={at.name} /> :
+          <p className="dim">{failed ? 'The preview could not be loaded.' : url ? 'Download this file to open it.' : 'File contents are unavailable.'}</p>}
       </div>
-      <div className="dim" style={{ fontSize: 12 }}>DEMO fixture evidence. Real screenshots are redacted server-side before display (credentials, payment data and secrets are masked).</div>
     </Modal>
   );
 }
@@ -575,7 +582,7 @@ export const dialogs = {
   'mission-policy': MissionPolicy,
   'mission-templates': TemplatePicker,
   'attach-files': AttachDialog,
-  'ai-summary': AiSummary,
+  'ai-summary': MissionSummary,
   'agent-inspector': AgentInspector,
   'task-reassign': TaskReassign,
   'task-criteria': TaskCriteria,

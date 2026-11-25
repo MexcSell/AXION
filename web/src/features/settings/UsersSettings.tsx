@@ -1,9 +1,8 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { isApi } from '@/api/mode';
 import { useMemo, useRef, useState } from 'react';
 import {
   UserRound, KeyRound, MonitorSmartphone, ShieldCheck, Users as UsersIcon, Check, X, Trash2, Ban, Monitor, Laptop, Smartphone, Tablet,
-  ImagePlus, Bot, Type, Crown, Plus, CheckCircle2, Eye, EyeOff, Save, UserCheck, Power, Crosshair,
+  ImagePlus, Bot, Type, Crown, CheckCircle2, Eye, EyeOff, Save, UserCheck, Power, Crosshair,
 } from 'lucide-react';
 import { Panel } from '@/components/ui/Panel';
 import { Field, Segmented } from '@/components/ui/Form';
@@ -173,10 +172,9 @@ function DeviceRow({ d, current, onRemove, children, i = 0 }: { d: Device; curre
 
 function DevicesPanel({ me }: { me: Account }) {
   const session = useSession();
-  const { removeDevice, simulateNewDevice } = useAuth();
+  const removeDevice = useAuth(s => s.removeDevice);
   return (
-    <Panel icon={MonitorSmartphone} title="My devices" help="settings.users.devices" delay={.12}
-      actions={isApi() ? undefined : <Tip label="Demo: pretend you signed in from another device. It waits for an administrator."><button className="btn ghost sm" onClick={() => { const d = simulateNewDevice(me.id); toast({ tone: 'info', title: `${d.name} is waiting for approval`, body: isAdmin(me) ? 'Approve it in the Approvals queue.' : 'An administrator must approve it.' }); }}><Plus size={14} />New device</button></Tip>}>
+    <Panel icon={MonitorSmartphone} title="My devices" help="settings.users.devices" delay={.12}>
       <div className="col" style={{ gap: 6 }}>
         <AnimatePresence initial={false}>
           {me.devices.map((d, i) => <DeviceRow key={d.id} d={d} i={i} current={d.id === session?.deviceId} onRemove={() => { removeDevice(me.id, d.id); toast({ tone: 'success', title: `${d.name} removed`, body: 'It must be approved again to connect.' }); }} />)}
@@ -255,7 +253,7 @@ function AllUsersPanel({ me }: { me: Account }) {
                   {a.role === 'admin' ? <Crown size={13} /> : <UserRound size={13} />}{a.role === 'admin' ? 'Admin' : 'Member'}
                 </button>
               </Tip>
-              {isApi() && a.status === 'approved' && <IconButton size="xs" icon={Crosshair} label={`Forecasts of ${a.name}`} data-user-forecasts={a.id} onClick={() => openDialog('user-forecasts', { userId: a.id, name: a.name })} />}
+              {a.status === 'approved' && <IconButton size="xs" icon={Crosshair} label={`Forecasts of ${a.name}`} data-user-forecasts={a.id} onClick={() => openDialog('user-forecasts', { userId: a.id, name: a.name })} />}
               {a.id !== me.id && (a.status === 'approved' || a.status === 'disabled') && (
                 <IconButton size="xs" icon={a.status === 'disabled' ? UserCheck : Power} label={a.status === 'disabled' ? `Enable ${a.name}` : `Disable ${a.name}`}
                   onClick={() => { setStatus(a.id, a.status === 'disabled' ? 'approved' : 'disabled'); toast({ tone: 'info', title: `${a.name} ${a.status === 'disabled' ? 'enabled' : 'disabled'}` }); }} />

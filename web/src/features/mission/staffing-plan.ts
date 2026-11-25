@@ -1,4 +1,3 @@
-import { AGENT_BY_ID } from '../../data/agents';
 import type { Mission, MissionFile, MissionFileKind } from '../../data/types';
 
 /**
@@ -80,7 +79,7 @@ export function staffingPlan(kind: Mission['kind'], text: string): { executorId:
   const executorId = EXECUTOR[kind];
   const seen = new Set([executorId, 'gm']);
   const plan: { agentId: string; why: string }[] = [];
-  for (const [id, why] of RECRUITS[kind]) if (!seen.has(id) && AGENT_BY_ID[id]) { seen.add(id); plan.push({ agentId: id, why }); }
+  for (const [id, why] of RECRUITS[kind]) if (!seen.has(id)) { seen.add(id); plan.push({ agentId: id, why }); }
   // The Model Loader joins when the content mentions models, voice or heavy media.
   if (/\b(model|voice|audio|video|speech|llm)\b/i.test(text) && !seen.has('loader-01')) plan.push({ agentId: 'loader-01', why: 'picks the right model for each agent' });
   return { executorId, plan };
@@ -94,10 +93,10 @@ export function executorOf(m: Mission): string | undefined {
 }
 
 /** One step forward: reading → appointing → recruiting (one agent per tick) → working. */
-export function advance(m: Mission, now: number): Partial<Mission> | null {
+export function advance(m: Mission, now: number, names: ReadonlyMap<string, string> = new Map()): Partial<Mission> | null {
   const s = m.staffing;
   if (!s || s.stage === 'working' || m.status === 'paused' || m.status === 'archived') return null;
-  const name = (id?: string) => (id ? AGENT_BY_ID[id]?.name ?? id : '');
+  const name = (id?: string) => (id ? names.get(id) ?? id : '');
   if (s.stage === 'reading') {
     const ex = m.executorId!;
     return {

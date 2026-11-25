@@ -41,7 +41,7 @@ export async function buildWorld(opts: { configureA?: (app: FastifyInstance) => 
   const dirs: string[] = [];
   const mkApp = async (tenantId: string, configure?: (app: FastifyInstance) => void, step = 25) => {
     const uploadDir = mkdtempSync(join(tmpdir(), 'axion-c79-')); dirs.push(uploadDir);
-    return buildApp({ databaseUrl: TEST_DB(), schema: s.schema, logger: false, uploadDir, tenantId, staffingStepMs: step, conversationSimMs: 100_000_000, writeLimits: { proposals: { max: 10000, windowMs: 60_000 } }, configure });
+    return buildApp({ databaseUrl: TEST_DB(), schema: s.schema, logger: false, uploadDir, tenantId, staffingStepMs: step, conversationSimMs: 100_000_000, writeLimits: { proposals: { max: 10000, windowMs: 60_000 }, cloud: { max: 50, windowMs: 60_000 } }, configure });
   };
   await s.pool.query(`insert into tenants(id, name) values ('t-b', 'Bravo') on conflict do nothing`);
   const appA = await mkApp('t-1', opts.configureA);

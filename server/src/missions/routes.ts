@@ -18,6 +18,7 @@ const PatchIn = z.object({
   kind: z.enum(['website', 'training', 'research', 'structure', 'self-update', 'data', 'automation']).optional(),
   priority: z.enum(['low', 'normal', 'high', 'critical']).optional(),
   text: z.string().max(20_000).optional(),
+  addFiles: z.array(z.string().max(40)).min(1).max(10).optional(),
   criteria: z.array(z.object({ text: z.string().max(400), done: z.boolean() })).max(50).optional(),
 }).strict();
 
@@ -74,14 +75,20 @@ export default async function missionRoutes(app: FastifyInstance) {
       const r = await getVisibleRow(c, ctx, id, true);
       if (r.content_version !== expected) throw conflict();
       if (r.status === 'archived') throw new ApiError('ILLEGAL_TRANSITION', 409, 'Restore the mission before editing it.');
+      const files = [...r.files];
+      if (b.addFiles) {
+        const added = await filesFor(c, ctx, [...new Set(b.addFiles)]);
+        files.push(...added.filter(file => !files.some(existing => existing.id === file.id)));
+        if (files.length > 10) throw new ApiError('VALIDATION', 400, 'A mission can have up to 10 attached files.');
+      }
       const next = { title: b.title ?? r.title, kind: b.kind ?? r.kind, priority: b.priority ?? r.priority, text: b.text ?? r.text, criteria: JSON.stringify(b.criteria ?? r.criteria) };
       let rev = r.current_revision;
       if (r.status === 'draft') {
-        await c.query('update mission_revisions set title=$3, kind=$4, priority=$5, text=$6, criteria=$7 where mission_id=$1 and revision=$2', [id, rev, next.title, next.kind, next.priority, next.text, next.criteria]);
+        await c.query('update mission_revisions set title=$3, kind=$4, priority=$5, text=$6, criteria=$7, files=$8 where mission_id=$1 and revision=$2', [id, rev, next.title, next.kind, next.priority, next.text, next.criteria, JSON.stringify(files)]);
       } else {
         rev += 1;
         await c.query(`insert into mission_revisions(mission_id, revision, title, kind, priority, text, files, criteria, created_by) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-          [id, rev, next.title, next.kind, next.priority, next.text, JSON.stringify(r.files), next.criteria, ctx.user.id]);
+          [id, rev, next.title, next.kind, next.priority, next.text, JSON.stringify(files), next.criteria, ctx.user.id]);
       }
       const u = await c.query(`update missions set current_revision=$2, row_version=row_version+1, content_version=content_version+1, updated_at=now(),
           presentation = presentation || jsonb_build_object('lastEvent', $4::text, 'lastEventAt', $5::bigint) where id=$1 and content_version=$3 returning id`,

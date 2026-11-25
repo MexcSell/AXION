@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { makeTestApp, withAdmin, type TestApp, type Browser } from './helpers.ts';
 import { orgCoverage, coverageChanges, ROLE_CATALOG, type CoverageAgent } from '../src/organization/coverage.ts';
-import { AGENTS } from '../../web/src/data/agents.ts';
+import { COMPANY_AGENTS } from '../../shared/company/agents.ts';
 const ST = { baseline: 'No change: keep the current chart as it is.', expectedCost: 'No added cost is expected in this test.' }; // c64: every proposal states a baseline and its expected cost
 
 // Improvement cycle 20 (theme A5): org coverage facts (brief c20-brief.md). Pure facts first, then the routes.
@@ -19,7 +19,7 @@ const R = ['manager', 'dev', 'qa', 'ops', 'security'];
 describe('orgCoverage (pure)', () => {
   it('the catalog is the 18 built-in roles and covers every seeded agent role', () => {
     expect(ROLE_CATALOG).toHaveLength(18);
-    for (const a of AGENTS) expect(ROLE_CATALOG as readonly string[]).toContain(a.role);
+    for (const a of COMPANY_AGENTS) expect(ROLE_CATALOG as readonly string[]).toContain(a.role);
   });
   it('role coverage: a placed active agent covers; a retired one does not; the rest is missing', () => {
     const c = orgCoverage(BASE, AG, R);

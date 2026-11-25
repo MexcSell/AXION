@@ -5,19 +5,15 @@ import { Layers, Workflow, Brain, Wrench, Globe2, Users, BookOpen, Dna, ArrowUp,
 import { DIMENSION_KEYS, type DimensionCell, type DimensionKey, type DimensionWindow } from '@contracts';
 import { Panel } from '@/components/ui/Panel';
 import { Segmented } from '@/components/ui/Form';
-import { DemoTag } from '@/components/ui/Chips';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { Tip } from '@/components/ui/Tip';
 import { LiveStatus } from '@/components/ui/LiveStatus';
-import { isApi } from '@/api/mode';
 import { useDimensions } from '@/api/dimensions';
 import { useProcess } from '@/api/process';
 import { ProcessView } from './ProcessView';
 import { useMetricGuard } from '@/api/metricGuard';
 import { GuardCue, GuardTrigger, guardWord } from '@/components/ui/MetricGuard';
 import type { MetricGuardRow } from '@contracts';
-import { demoDimensions } from '@/data/dimensionsDemo';
-import { demoProcess } from '@/data/processDemo';
 import { cx } from '@/lib/format';
 import '@/theme/pages/c46-dimensions.css';
 
@@ -36,9 +32,7 @@ export function fmtCell(c: Pick<DimensionCell, 'value' | 'unit'>): string {
 const windowText = (c: DimensionCell, w: DimensionWindow) => (c.basis === 'none' ? 'not measured' : c.basis === 'snapshot' ? 'as of now' : w);
 /** Below this n a value is drawn small and plain: it is a handful of rows, not a grade. */
 export const LOW_N = 10;
-export const scopeText = (c: Pick<DimensionCell, 'scope'>, demo: boolean) => demo ? 'SAMPLE data: invented, nothing here was measured'
-  : c.scope === 'missions' ? 'missions you can see · simulated and DEMO rows are never counted'
-    : 'recorded company-wide, not limited to missions · these records carry no simulated or DEMO flag';
+const scopeText = (c: Pick<DimensionCell, 'scope'>) => c.scope === 'missions' ? 'missions you can see' : 'company-wide records';
 const faceText = (c: DimensionCell) => c.state === 'none' ? `not enough evidence (n = ${c.n})` : c.state === 'hidden' ? 'hidden for your role' : c.evidence;
 
 function Cell({ c, w, i, selected, onSelect, g }: { c: DimensionCell; w: DimensionWindow; i: number; selected: boolean; onSelect: () => void; g?: MetricGuardRow }) {
@@ -64,7 +58,6 @@ function Cell({ c, w, i, selected, onSelect, g }: { c: DimensionCell; w: Dimensi
 }
 
 export function Dimensions() {
-  const api_ = isApi();
   const [w, setW] = useState<DimensionWindow>('30d');
   const [dept, setDept] = useState<string | null>(null);
   const [sel, setSel] = useState<string | null>(null);
@@ -75,9 +68,8 @@ export function Dimensions() {
   const live = useDimensions(w, dept);
   const mg = useMetricGuard();
   const procLive = useProcess(w, dept);
-  const procShown = api_ ? (procLive.data && procLive.data.window === w && procLive.data.department === dept ? procLive.data : null) : demoProcess(w, dept);
-  const demoData = !api_ ? demoDimensions(w, dept) : null;
-  const shown = api_ ? (live.data && live.data.window === w && live.data.department === dept ? live.data : null) : demoData;
+  const procShown = procLive.data && procLive.data.window === w && procLive.data.department === dept ? procLive.data : null;
+  const shown = live.data && live.data.window === w && live.data.department === dept ? live.data : null;
   const departments = shown?.departments ?? [];
   return (
     <Panel icon={view === 'process' ? Workflow : Layers} tight title={view === 'process' ? 'Process' : 'Six dimensions'} help={view === 'process' ? 'process.row' : 'dimensions.panel'} delay={.05}
@@ -97,10 +89,9 @@ export function Dimensions() {
             <Segmented size="sm" ariaLabel="Window" value={w} onChange={setW} options={(['7d', '30d', '90d'] as const).map((k) => ({ key: k, label: k, title: WIN[k] }))} />
             <HelpTrigger k="dimensions.window" />
           </span>
-          {!api_ && <DemoTag title="SAMPLE cells: invented numbers that only show the layout. Switch to the server version for measured ones." />}
           {view === 'outcomes' && <span className="dim-ctl dim" style={{ fontSize: 12 }} title="Reading a cell"><HelpTrigger k="dimensions.cell" /></span>}
       </div>}>
-      {view === 'process' ? <ProcessView data={procShown} error={procLive.error} w={w} byId={mg.byId} demo={!api_} /> : (
+      {view === 'process' ? <ProcessView data={procShown} error={procLive.error} w={w} byId={mg.byId} /> : (
       <div className="dim-wrap" data-dimensions={shown ? 'ready' : live.error ? 'error' : 'loading'} data-window={w} data-department={dept ?? ''}>
         {!shown ? (live.error ? <LiveStatus kind="error" className="dim">{live.error}</LiveStatus> : <LiveStatus className="dim">Reading the six dimensions…</LiveStatus>) : (
           <div className="dim-rows" role="list" aria-label="Six dimensions">
@@ -118,7 +109,7 @@ export function Dimensions() {
         )}
         {(() => { const c = shown?.dimensions.flatMap((d) => d.cells).find((x) => x.key === sel);
           return <div className="dim dim-note" data-evidence={c ? c.key : ''} aria-live="polite">{c
-            ? <><b>{c.label}</b><span className="dim-guard-note"><GuardTrigger g={mg.byId(`dimension.${c.key}`, c.label)} />{mg.byId(`dimension.${c.key}`, c.label)?.gameable && <i className="gm-word">gameable</i>}</span>: {c.evidence}. <span className="dim">{c.basis === 'none' ? 'No window' : `${WIN[w]}, ${new Date(c.from ?? shown!.from).toLocaleDateString()} to ${new Date(c.to ?? shown!.to).toLocaleDateString()}`} · {scopeText(c, !api_)}.</span></>
+            ? <><b>{c.label}</b><span className="dim-guard-note"><GuardTrigger g={mg.byId(`dimension.${c.key}`, c.label)} />{mg.byId(`dimension.${c.key}`, c.label)?.gameable && <i className="gm-word">gameable</i>}</span>: {c.evidence}. <span className="dim">{c.basis === 'none' ? 'No window' : `${WIN[w]}, ${new Date(c.from ?? shown!.from).toLocaleDateString()} to ${new Date(c.to ?? shown!.to).toLocaleDateString()}`} · {scopeText(c)}.</span></>
             : shown ? `Tap or press a cell to read how it was counted. ${shown.department ?? 'Whole company'} · ${new Date(shown.from).toLocaleDateString()} to ${new Date(shown.to).toLocaleDateString()}.` : ' '}</div>; })()}
       </div>)}
     </Panel>

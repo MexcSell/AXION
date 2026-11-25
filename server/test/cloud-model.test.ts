@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync, readFileSync, chmodSync, rmSync, existsSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { makeTestApp, withAdmin, type TestApp, type Browser } from './helpers.ts';
+import { providerCheck } from '../src/cloud/provider-check.ts';
 import { claudeCliAdapter, cloudAdaptersFromEnv, cliArgs, CloudCallError, type CloudAdapter } from '../src/cloud/claude-cli.ts';
 
 /** Owner requests 2026-11-24: the live cloud models, one per CLAUDE_CODE_OAUTH_TOKEN<n>. Routes run against FAKE adapters; the CLI runner runs a FAKE `claude` script. No test reaches the network. */
@@ -11,6 +12,8 @@ const SECRET = 'sk-ant-oat01-TEST-SECRET-never-shown';
 function fakeAdapter(n: number, behave: (prompt: string, system: string) => Promise<{ text: string }> | { text: string }): CloudAdapter & { calls: { prompt: string; system: string }[] } {
   const calls: { prompt: string; system: string }[] = [];
   return { id: `claude-${n}`, label: `Claude ${n}`, tokenVar: `CLAUDE_CODE_OAUTH_TOKEN${n}`, model: n === 1 ? 'claude-opus-5-5' : 'claude-sonnet-5-5', calls,
+    refresh: async () => ({ checkedAt: new Date().toISOString(), status: 'limited', account: 'provider@example.com', resetsAt: '2026-11-25T03:00:00.000Z',
+      windows: [{ label: 'Weekly limit', percent: 100, resetsAt: '2026-11-25T03:00:00.000Z' }] }),
     complete: async (i) => { calls.push(i); const r = await behave(i.prompt, i.system); return { text: r.text, durationMs: 12, usage: { input: 7, output: 3 } }; } };
 }
 const C1 = '/cloud-models/claude-1/complete', C2 = '/cloud-models/claude-2/complete';
@@ -38,8 +41,8 @@ describe('cloud model routes (two fake adapters)', () => {
     const a = await admin.req('GET', '/cloud-models');
     expect(a.status).toBe(200);
     expect(a.body).toEqual({ maxInFlight: 2, canPrompt: true, models: [
-      { id: 'claude-1', label: 'Claude 1', provider: 'anthropic', transport: 'claude-code-cli', tokenVar: 'CLAUDE_CODE_OAUTH_TOKEN1', model: 'claude-opus-5-5', inFlight: 0, lastCall: null },
-      { id: 'claude-2', label: 'Claude 2', provider: 'anthropic', transport: 'claude-code-cli', tokenVar: 'CLAUDE_CODE_OAUTH_TOKEN2', model: 'claude-sonnet-5-5', inFlight: 0, lastCall: null },
+      { id: 'claude-1', label: 'Claude 1', provider: 'anthropic', transport: 'claude-code-cli', tokenVar: 'CLAUDE_CODE_OAUTH_TOKEN1', model: 'claude-opus-5-5', enabled: true, check: null, inFlight: 0, lastCall: null },
+      { id: 'claude-2', label: 'Claude 2', provider: 'anthropic', transport: 'claude-code-cli', tokenVar: 'CLAUDE_CODE_OAUTH_TOKEN2', model: 'claude-sonnet-5-5', enabled: true, check: null, inFlight: 0, lastCall: null },
     ] });
     const m = await mina.req('GET', '/cloud-models');
     expect(m.body.canPrompt).toBe(false);
@@ -120,6 +123,30 @@ describe('cloud model routes (two fake adapters)', () => {
     expect((await p1).status).toBe(200); expect((await p2).status).toBe(200);
     expect((await status(admin)).inFlight).toBe(0);
   });
+  it('refreshes the selected account, enforces disable and removal on calls, and keeps the other model usable', async () => {
+    const url = '/cloud-models/claude-1/manage';
+    const manage = (action: string) => admin.req('POST', url, { action });
+    for (const action of ['refresh', 'disable', 'enable', 'remove']) {
+      expect((await mina.req('POST', url, { action })).status).toBe(403);
+    }
+    expect((await manage('refresh')).status).toBe(200);
+    expect((await status(admin)).check).toMatchObject({ status: 'limited', account: 'provider@example.com', windows: [{ percent: 100 }] });
+    expect((await status(mina)).check.account).toBeNull();
+    expect((await status(admin, 'claude-2')).check).toBeNull();
+    expect((await manage('disable')).status).toBe(200);
+    expect((await status(admin)).enabled).toBe(false);
+    expect((await admin.req('POST', C1, { prompt: 'blocked' })).status).toBe(409);
+    expect((await manage('refresh')).status).toBe(409);
+    expect((await manage('enable')).status).toBe(200);
+    mode = 'ok';
+    expect((await admin.req('POST', C1, { prompt: 'enabled' })).status).toBe(200);
+    expect((await manage('remove')).status).toBe(200);
+    expect(await status(admin)).toBeUndefined();
+    expect((await admin.req('POST', C1, { prompt: 'removed' })).status).toBe(404);
+    expect((await manage('enable')).status).toBe(404);
+    expect((await admin.req('POST', C2, { prompt: 'still enabled' })).status).toBe(200);
+  });
+
 });
 
 describe('cloud model routes without a token, and the per-session limit', () => {
@@ -138,6 +165,26 @@ describe('cloud model routes without a token, and the per-session limit', () => 
   });
 });
 
+describe('provider refresh from CLI rate-limit events', () => {
+  const reset = Date.parse('2026-11-25T03:00:00Z') / 1000;
+  it('reads fractional utilization when the account usage request has no plan data', () => {
+    const event = { type: 'rate_limit_event', rate_limit_info: {
+      status: 'rejected', resetsAt: reset, unifiedWindows: {
+        five_hour: { utilization: .01, resetsAt: reset }, seven_day: { utilization: 1, resetsAt: reset },
+        seven_day_overage_included: { utilization: .37, resetsAt: reset },
+      },
+    } };
+    const check = providerCheck(JSON.stringify(event), 1);
+    expect(check).toMatchObject({ status: 'limited', resetsAt: '2026-11-25T03:00:00.000Z', account: null });
+    expect(check.windows.map(w => w.percent)).toEqual([1, 100, 37]);
+  });
+
+  it('reports the connection result even when the CLI provides no quota windows', () => {
+    expect(providerCheck('{"type":"result","is_error":false}', 0)).toMatchObject({ status: 'available', windows: [] });
+    expect(providerCheck('{"type":"result","is_error":true}', 1)).toMatchObject({ status: 'unavailable', windows: [] });
+  });
+});
+
 describe('claude CLI runner (fake claude script, no network)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'axion-cloud-'));
   const home = join(dir, 'home');
@@ -149,8 +196,22 @@ const fs = require('fs');
 let input = '';
 process.stdin.on('data', (d) => input += d).on('end', () => {
   fs.writeFileSync(${JSON.stringify(log)}, JSON.stringify({ argv: process.argv.slice(2), env: process.env, cwd: process.cwd(), input }));
+  if (process.argv.includes('--input-format')) {
+    const requests = input.trim().split('\\n').map(JSON.parse);
+    const reset = '2026-11-25T03:00:00.000Z';
+    const emit = (obj) => console.log(JSON.stringify(obj));
+    for (const m of requests) {
+      if (m.type === 'control_request') emit({ type: 'control_response', response: { subtype: 'success', request_id: m.request_id, response: m.request.subtype === 'initialize'
+        ? { account: { email: 'provider@example.com' } }
+        : { rate_limits: { five_hour: { utilization: 1, resets_at: reset }, seven_day: { utilization: 100, resets_at: reset }, model_scoped: [{ display_name: 'Fable', utilization: 37, resets_at: reset }] } } } });
+      else emit({ type: 'result', is_error: true, result: 'private provider error' });
+    }
+    process.exitCode = 1;
+    return;
+  }
   if (input.startsWith('SLEEP')) return setTimeout(() => {}, 60000);
   if (input.startsWith('EXIT')) { process.stderr.write('boom ' + process.env.CLAUDE_CODE_OAUTH_TOKEN); process.exit(3); }
+  if (input.startsWith('LIMIT')) { process.stdout.write(JSON.stringify({ is_error: true, api_error_status: 429, result: 'Usage limit reached' })); return; }
   if (input.startsWith('APIERR')) { process.stdout.write(JSON.stringify({ type: 'result', is_error: true, subtype: 'success', api_error_status: 401, result: 'bad token ' + process.env.CLAUDE_CODE_OAUTH_TOKEN })); return; }
   process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'pong', usage: { input_tokens: 11, output_tokens: 2 } }));
 });
@@ -175,12 +236,25 @@ process.stdin.on('data', (d) => input += d).on('end', () => {
     delete process.env.DATABASE_URL_PROBE;
   });
 
+  it('reads all three usage windows and the account even when the connection test hits the weekly limit', async () => {
+    const adapter = claudeCliAdapter({ token: SECRET, model: 'claude-opus-5-5', bin, home, timeoutMs: 5000 });
+    const check = await adapter.refresh();
+    expect(check).toMatchObject({ status: 'limited', account: 'provider@example.com', resetsAt: '2026-11-25T03:00:00.000Z' });
+    expect(check.windows.map(w => [w.label, w.percent])).toEqual([['5-hour session', 1], ['Weekly limit', 100], ['Weekly limit · Fable', 37]]);
+    expect(JSON.stringify(check)).not.toMatch(/private provider|sk-ant/);
+    const options = { token: SECRET, model: 'claude-opus-5-5', bin, home, timeoutMs: 5000 };
+    expect(claudeCliAdapter(options).previousCheck).toEqual(check);
+    expect(claudeCliAdapter({ ...options, token: SECRET + '-rotated' }).previousCheck).toBeNull();
+    expect(claudeCliAdapter({ ...options, model: 'claude-sonnet-5-5' }).previousCheck).toBeNull();
+  });
+
   it('a CLI error, an API error and a timeout are typed failures with the token scrubbed', async () => {
     const e1 = await run('EXIT').catch((e) => e);
     expect(e1).toBeInstanceOf(CloudCallError); expect(e1.kind).toBe('failed');
     expect(e1.message).toMatch(/exit 3/); expect(e1.message).not.toContain(SECRET);
     const e2 = await run('APIERR').catch((e) => e);
     expect(e2.kind).toBe('failed'); expect(e2.message).toMatch(/401/); expect(e2.message).toContain('<token>'); expect(e2.message).not.toContain(SECRET);
+    expect((await run('LIMIT').catch(e => e)).kind).toBe('limited');
     const e3 = await run('SLEEP', 400).catch((e) => e);
     expect(e3.kind).toBe('timeout');
   });

@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from 'motion/react';
+import { motion } from 'motion/react';
 import { LiveStatus } from '@/components/ui/LiveStatus';
 import { useAgentsCatalog, useAgentInstances } from '@/api/agents';
 import { useNavigate } from 'react-router-dom';
@@ -13,8 +13,7 @@ import { RingGauge } from '@/components/viz/Charts';
 import { cx } from '@/lib/format';
 import { useData, allApprovals, useVisibleMissions } from '@/store/data';
 import { AGENTS } from '@/data/agents';
-import { DemoTag } from '@/components/ui/Chips';
-import { Segmented, Switch } from '@/components/ui/Form';
+import { Segmented } from '@/components/ui/Form';
 import { isApi } from '@/api/mode';
 import { useScorecard, rowOf, fmtRow, trendOf } from '@/api/scorecard';
 import { useThroughput } from '@/api/throughput';
@@ -86,19 +85,17 @@ const range = (d: { from: string; to: string }) => `${day(d.from)} – ${day(d.t
 export function CompanyScorecard() {
   const nav = useNavigate();
   const [win, setWin] = useState<ScorecardWindow>('30d');
-  const [demo, setDemo] = useState(false);
-  const { data, error } = useScorecard(win, demo);
-  const tput = useThroughput(8, demo).data;
+  const { data, error } = useScorecard(win, false);
+  const tput = useThroughput(8, false).data;
   const mg = useMetricGuard();
-  const shown = data && data.window === win && data.includeDemo === demo ? data : null;
+  const shown = data && data.window === win && !data.includeDemo ? data : null;
   return (
     <motion.section className="panel cc-health cc-score" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .4, delay: .08 }}
-      aria-label="Company scorecard" data-scorecard={shown ? 'ready' : error ? 'error' : 'loading'} data-window={win} data-demo={demo ? '1' : '0'}>
+      aria-label="Company scorecard" data-scorecard={shown ? 'ready' : error ? 'error' : 'loading'} data-window={win} data-demo="0">
       <header className="panel-head sc-head">
         <Scale size={18} className="ph-icon" aria-hidden />
         <h2 className="panel-title">Company Scorecard</h2>
         <HelpTrigger k="company.scorecard" />
-        <AnimatePresence>{demo && <motion.span key="demo" initial={{ opacity: 0, scale: .8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: .8 }}><DemoTag title="DEMO missions are included in these numbers" /></motion.span>}</AnimatePresence>
         <span className="spacer" />
         <IconButton icon={Layers} size="sm" variant="bordered" label="Six dimensions" data-six-dimensions onClick={() => nav('/operations?tab=agents&sub=dimensions')} />
         <Segmented size="sm" ariaLabel="Scorecard window" value={win} onChange={setWin}
@@ -108,7 +105,7 @@ export function CompanyScorecard() {
         {(shown?.rows ?? []).map((r, i) => {
           const Icon = ROW_ICON[r.key];
           return (
-            <Tip key={r.key} side="left" label={<span>{r.evidence}<br /><span className="dim">{WINDOW_LABEL[win]} ({range(shown!)}) · missions you can see{demo ? ' · DEMO included' : ''}</span></span>}>
+            <Tip key={r.key} side="left" label={<span>{r.evidence}<br /><span className="dim">{WINDOW_LABEL[win]} ({range(shown!)}) · missions you can see</span></span>}>
               <motion.div className={cx('sc-row', r.state === 'none' && 'none')} role="row" tabIndex={0} data-row={r.key} data-state={r.state} data-value={r.value ?? ''} data-n={r.n}
                 initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: .15 + i * .04 }}>
                 <Icon size={14} className="sc-ico" aria-hidden />
@@ -135,7 +132,6 @@ export function CompanyScorecard() {
       <footer className="sc-foot">
         <span className="dim ellipsis">{shown ? range(shown) : WINDOW_LABEL[win]} · visible missions</span>
         <span className="spacer" />
-        <label className="row sc-demo"><span>include DEMO missions</span><Switch checked={demo} onChange={setDemo} label="Include DEMO missions" /></label>
       </footer>
     </motion.section>
   );

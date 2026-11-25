@@ -7,7 +7,6 @@ import { UserAvatar } from '@/components/ui/UserAvatar';
 import { BRAND } from '@/config/brand';
 import { useApplyPreferences } from '@/components/layout/usePreferences';
 import { useAuth, useGate, useAuthPoll, type Gate } from '@/store/auth';
-import { isApi, switchMode } from '@/api/mode';
 import { useAgentsVersion, loadAgentsOnce, resetAgentsCatalog } from '@/api/agents';
 import { WifiOff } from 'lucide-react';
 import { cx } from '@/lib/format';
@@ -25,7 +24,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   useEffect(() => { void boot(); }, [boot]);
   // offline: retry every 3 s until the server answers
   useEffect(() => {
-    if (!isApi() || server.phase !== 'offline') return;
+    if (server.phase !== 'offline') return;
     const t = window.setInterval(() => { void boot(); }, 3000);
     return () => window.clearInterval(t);
   }, [server.phase, boot]);
@@ -41,34 +40,33 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   // Stage 6: in api mode the agent catalog comes from the server; the shell opens once it is loaded
   const catalog = useAgentsVersion((s) => s.loaded);
-  useEffect(() => { if (isApi() && server.phase === 'connected' && !catalog) void loadAgentsOnce(); }, [server.phase, catalog]);
+  const catalogFailed = useAgentsVersion((s) => s.failed);
+  useEffect(() => { if (server.phase === 'connected' && !catalog) void loadAgentsOnce(); }, [server.phase, catalog]);
   // signed out (or another user signed in in this tab): the next session loads the catalog again
   const meNow = server.phase === 'connected' ? server.meId : '';
   const lastMe = useRef('');
   useEffect(() => {
-    if (!isApi()) return;
     const ended = server.phase === 'signed-out' || server.phase === 'denied' || server.phase === 'waiting';
     if ((ended && lastMe.current) || (meNow && lastMe.current && lastMe.current !== meNow)) resetAgentsCatalog();
     if (ended) lastMe.current = '';
     if (meNow) lastMe.current = meNow;
   }, [server.phase, meNow]);
-  const waitCatalog = isApi() && gate.state === 'connected' && !catalog;
+  const waitCatalog = gate.state === 'connected' && !catalog;
 
   if (gate.state === 'connected' && !celebrate && !waitCatalog) return <>{children}</>;
-  const apiPhase = isApi() ? (waitCatalog && !celebrate ? 'booting' : server.phase) : null;
+  const apiPhase = waitCatalog && !celebrate ? 'booting' : server.phase;
   return (
     <div className="auth-screen">
       <div className="app-bg-grid" aria-hidden />
       {motionEff !== 'reduced' && <ParticleField />}
       <div className="auth-glow" aria-hidden />
-      <AnimatePresence mode="wait">
-        {apiPhase === 'booting' ? <BootCard key="boot" />
-          : apiPhase === 'offline' ? <OfflineCard key="off" />
-          : gate.state === 'signed-out' ? <ConnectCard key="connect" />
-          : gate.state === 'connected' ? <ApprovedCard key="ok" gate={gate} />
-          : <WaitCard key={gate.state} gate={gate} />}
-      </AnimatePresence>
-      <div className="auth-foot dim">{isApi() ? 'Accounts are kept on the AXION server. Passwords are stored only as argon2id hashes.' : 'DEMO · accounts are kept in this browser only. Open without ?data=demo to use the server.'}</div>
+      {waitCatalog && catalogFailed ? <div className="auth-card panel" role="alert"><Brand /><p>The agent directory could not be loaded.</p><button className="btn primary" onClick={() => void loadAgentsOnce()}>Retry</button></div>
+        : apiPhase === 'booting' ? <BootCard key="boot" />
+        : apiPhase === 'offline' ? <OfflineCard key="off" />
+        : gate.state === 'signed-out' ? <ConnectCard key="connect" />
+        : gate.state === 'connected' ? <ApprovedCard key="ok" gate={gate} />
+        : <WaitCard key={gate.state} gate={gate} />}
+      <div className="auth-foot dim">Accounts are kept on the AXION server.</div>
     </div>
   );
 }
@@ -93,15 +91,14 @@ function BootCard() {
   );
 }
 
-/** The API can't be reached: keep retrying, and offer the offline demo (Stage 5 plan, "How the owner views it"). */
 function OfflineCard() {
   return (
     <motion.div className="auth-card panel" {...cardMotion} role="alert" aria-live="assertive" data-testid="server-offline">
       <Brand />
       <div className="auth-radar bad" aria-hidden><span className="auth-radar-ico"><WifiOff size={16} /></span></div>
       <h1 className="auth-h bad">Server not reachable</h1>
-      <p className="auth-sub dim"><Loader2 size={14} className="spin" /> Retrying every 3 seconds. Start it with <span className="kbd" style={{ whiteSpace: 'nowrap' }}>cd server &amp;&amp; npm run dev</span>.</p>
-      <button className="btn ghost block" onClick={() => switchMode('demo')}>Open the offline demo instead</button>
+      <p className="auth-sub dim"><Loader2 size={14} className="spin" /> Retrying the connection every 3 seconds.</p>
+
     </motion.div>
   );
 }
@@ -110,18 +107,20 @@ function ConnectCard() {
   const connect = useAuth((s) => s.connect);
   const accounts = useAuth((s) => s.accounts);
   const server = useAuth((s) => s.server);
-  const firstEver = isApi() ? server.phase === 'signed-out' && server.firstEver === true : accounts.filter((a) => !a.fixture).length === 0;
-  const notice = isApi() && server.phase === 'signed-out' ? server.notice : undefined;
+  const firstEver = server.phase === 'signed-out' && server.firstEver === true;
+  const notice = server.phase === 'signed-out' ? server.notice : undefined;
   const [name, setName] = useState('');
   const [pass, setPass] = useState('');
   const [show, setShow] = useState(false);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const known = accounts.find((a) => a.name.toLowerCase() === name.trim().toLowerCase());
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true); setErr('');
-    window.setTimeout(async () => { const r = await connect(name, pass); setBusy(false); if (!r.ok) setErr(r.error); }, isApi() ? 0 : 650);
+    const result = await connect(name, pass);
+    setBusy(false);
+    if (!result.ok) setErr(result.error);
   };
   return (
     <motion.form className="auth-card panel" onSubmit={submit} {...cardMotion} aria-label="Connect">
@@ -149,7 +148,6 @@ function ConnectCard() {
       <motion.button type="submit" className="btn primary lg block auth-go" disabled={busy || !name.trim() || !pass} whileTap={{ scale: .97 }}>
         {busy ? <><Loader2 size={17} className="spin" />Connecting…</> : <>Connect<ArrowRight size={17} /></>}
       </motion.button>
-      {!firstEver && !isApi() && <p className="dim auth-hint">Demo members (Mina Park, Kenji Sato, Sara Lind) use the password <span className="kbd">demo</span>.</p>}
     </motion.form>
   );
 }

@@ -169,6 +169,7 @@ export const ROUTE_NO_INPUT: Record<string, string> = {
   'POST /company/metric-audits': 'appends a human audit label (administrators only) to its own table; a row\'s flag reads the labels, but no row\'s value or input does',
   'POST /skills/:sid/retirement-dismiss': 'c59: dismisses a retirement proposal on a skill record; no row reads skills',
   'POST /failure-tags/:id/attributions': 'c60: appends an attribution (which step or mechanism a tag points at) to its own append-only table; no scorecard, KPI or dimension row reads attributions, only the OTel export does',
+  'POST /cloud-models/:id/manage': 'Updates provider settings and audits the action. Neither feeds a scorecard.',
   'POST /cloud-models/:id/complete': 'owner 2026-11-24: sends one prompt to a live cloud model and appends one audit row (sizes and timing only); no scorecard input table is written',
   'POST /releases': 'c76 (parked): appends a release record (a claim about what was released, with the guardrail-path denial); nothing executes and no row reads releases', 'POST /releases/:id/marks': 'c76 (parked): appends a last-good or rollback-target mark; nothing executes and no row reads releases',
   'POST /artifacts': 'c76 (parked): appends artifact metadata (a hash, size, media type and producer claim); no file is stored and no row reads artifacts', 'POST /artifacts/:id/versions': 'c76 (parked): appends one more immutable version of artifact metadata; no file is stored and no row reads artifacts',
