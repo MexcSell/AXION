@@ -1,6 +1,6 @@
 # AXION autonomous evolution: design
 
-Date: 2026-11-26. Status: **Proposed** (waiting for the owner's approval of this document). Decisions E1–E4 and B8 are the owner's; §13 B1–B7 are Claude Code's calls.
+Date: 2026-11-26. Status: **Approved** by the owner 2026-11-26 ("yes, approved. start step 1"). Decisions E1–E4 and B8 are the owner's; §13 B1–B7 are Claude Code's calls.
 Reference used (read-only, designs not code): `/home/thomas/subnet-scout` (AXoR): `backend/app/self_edit.py`, `workbench/`, `k8s/redeploy.sh`,
 `k8s/backup.sh`, `backend/app/egress_proxy.py`, `k8s/base/56-sandbox.yaml`.
 
