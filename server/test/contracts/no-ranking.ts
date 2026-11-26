@@ -14,6 +14,7 @@ export const KEY_ALLOWLIST: Record<string, string> = {
   'GET /review-capacity::minPercentileN': 'the minimum sample size for a percentile of review times; about people\'s review capacity, not a rating of agents',
   'GET /review-capacity/people::minPercentileN': 'the same minimum sample size, on the per-person view',
   'GET /skills/retirement-proposals::score': 'a retirement proposal for a skill RECORD (c59): how little a skill was used; not an agent rating and not an ordering of agents',
+  'GET /health::leader': 'evolve step 1: whether this server instance holds the advisory lock for singleton background work (true/false); about the deployment, not an ordering of agents',
   'GET /attention::ranking': 'c68: the order of the "Needs you" queue (by tier and age), a queue of items for a person, never of agents',
 };
 export const keyWords = (k: string) => k.replace(/([a-z0-9])([A-Z])/g, '$1 $2').split(/[^A-Za-z0-9]+/).filter(Boolean).map((w) => w.toLowerCase());

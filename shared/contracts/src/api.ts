@@ -9,7 +9,7 @@ import type { MessageDto, ThreadDto } from './conversations.ts';
 import type { TaskStatus } from './tasks.ts';
 import type { ReviewVerdict } from './reviews.ts';
 
-export interface HealthDto { ok: boolean; db: 'up' | 'down'; version: string }
+export interface HealthDto { ok: boolean; db: 'up' | 'down'; version: string; /** evolve step 1: the build commit (AXION_COMMIT), null when not set */ commit: string | null; /** evolve step 1: this instance holds the leader lock (always true in mode 'always') */ leader: boolean }
 
 export interface OpsHealthDto {
   version: string;

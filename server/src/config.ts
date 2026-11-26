@@ -36,6 +36,14 @@ export interface Config {
   cloudModels?: import('./cloud/claude-cli.ts').CloudAdapter[];
   /** owner 2026-11-25: the cloud model that answers the GM and agent chats (a cloudModels id; default claude-2, env CHAT_MODEL) */
   chatModelId?: string;
+  /** evolve step 1: 'always' (default) = this instance is the leader at once; 'lock' = singleton background work waits for the advisory lock (env AXION_LEADER) */
+  leaderMode?: 'always' | 'lock';
+  /** how often a standby tries the lock, ms (default 2000; tests shorten it) */
+  leaderPollMs?: number;
+  /** called when a leader loses its lock connection; main.ts exits so the slot restarts as a standby (default: log an error) */
+  onLeaderLost?: () => void;
+  /** the build's commit, shown by GET /api/v1/health (env AXION_COMMIT) */
+  commit?: string;
 }
 
 export interface OrgGuardrailSettings {
@@ -59,6 +67,12 @@ const envInt = (name: string): number | undefined => {
 export const VERSION = '0.5.0';
 export const DEFAULT_TENANT = 't-1';
 
+function leaderModeFromEnv(v: string | undefined): 'always' | 'lock' {
+  const m = (v ?? '').trim() || 'always';
+  if (m !== 'always' && m !== 'lock') throw new Error("AXION_LEADER must be 'always' or 'lock'");
+  return m;
+}
+
 export function configFromEnv(): Config {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error('DATABASE_URL is not set (see server/.env.example)');
@@ -67,6 +81,9 @@ export function configFromEnv(): Config {
     schema: process.env.DATABASE_SCHEMA || undefined,
     logger: process.env.LOG !== '0',
     uploadDir: process.env.UPLOAD_DIR || undefined,
+    backupDir: process.env.BACKUP_DIR || undefined,
+    leaderMode: leaderModeFromEnv(process.env.AXION_LEADER),
+    commit: (process.env.AXION_COMMIT ?? '').trim() || undefined,
     orgGuardrails: { cooldownHours: envInt('ORG_COOLDOWN_HOURS'), churnBudget: envInt('ORG_CHURN_BUDGET'), churnWindowHours: envInt('ORG_CHURN_WINDOW_HOURS'), maxEscalationLevels: envInt('ORG_MAX_ESCALATION_LEVELS') },
     allowedOrigins: (process.env.ALLOWED_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean),
     playbookActiveCap: process.env.PLAYBOOK_ACTIVE_CAP ? Number(process.env.PLAYBOOK_ACTIVE_CAP) : undefined,

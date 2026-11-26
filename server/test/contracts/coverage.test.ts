@@ -64,7 +64,7 @@ describe('API coverage run', () => {
   beforeAll(async () => {
     // owner 2026-11-24: a FAKE cloud model, so the cloud routes answer 2xx without any network
     const cloudModels = [1, 2].map((n) => ({ id: `claude-${n}`, label: `Claude ${n}`, tokenVar: `CLAUDE_CODE_OAUTH_TOKEN${n}`, model: 'claude-opus-5-5', refresh: async () => ({ status: 'limited', checkedAt: new Date().toISOString(), account: 'tester@example.com', resetsAt: new Date().toISOString(), windows: [{ label: 'Weekly limit', percent: 100, resetsAt: new Date().toISOString() }] }), complete: async () => ({ text: '{"ok":true}', durationMs: 5, usage: { input: 4, output: 2 } }) }));
-    t = await makeTestApp({ staffingStepMs: 30, conversationSimMs: 80, writeLimits: { proposals: { max: 1000, windowMs: 60_000 } }, configure: recordServed, auditAnchor: anchorCfg, cloudModels });
+    t = await makeTestApp({ staffingStepMs: 30, conversationSimMs: 80, writeLimits: { proposals: { max: 1000, windowMs: 60_000 } }, configure: recordServed, auditAnchor: anchorCfg, cloudModels, commit: 'abc1234' });
     await t.app.listen({ host: '127.0.0.1', port: 0 });
     base = `http://127.0.0.1:${(t.app.server.address() as { port: number }).port}`;
   });

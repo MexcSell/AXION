@@ -31,7 +31,7 @@ export const errorEnvelope: V<ErrorEnvelope> = obj<ErrorEnvelope>({ code: oneOf(
 export const okBody: V<{ ok: boolean }> = obj({ ok: lit(true) });
 
 // ---- health, operations, policy, audit
-export const health: V<HealthDto> = obj<HealthDto>({ ok: bool, db: oneOf(['up', 'down'] as const), version: str });
+export const health: V<HealthDto> = obj<HealthDto>({ ok: bool, db: oneOf(['up', 'down'] as const), version: str, commit: nullable(str), leader: bool });
 export const opsHealth: V<OpsHealthDto> = obj<OpsHealthDto>({
   version: str, api: obj({ status: lit('up' as const), uptimeSec: num }),
   db: obj({ status: oneOf(['up', 'down'] as const), sizeBytes: opt(num), missions: opt(int) }),

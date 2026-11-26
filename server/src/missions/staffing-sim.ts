@@ -111,10 +111,10 @@ export function startStaffingSim(app: FastifyInstance, stepMs = 1500) {
   /** Called after every mission change: keep stepping while planning/running, stop otherwise. */
   app.onMissionChanged = (id, status) => { if (status === 'planning' || status === 'running') schedule(id); else stop(id); };
 
-  // resume unfinished staffing after a restart
-  void app.db.query(`select id from missions where deleted_at is null and status in ('planning','running') and presentation->'staffing' is not null and presentation->'staffing'->>'stage' <> 'working' and presentation->'staffing'->'stalled' is null`)
+  // resume unfinished staffing after a restart (evolve step 1: only the instance holding the leader lock scans, so two instances never step the same mission)
+  app.leader.onAcquire(() => app.db.query(`select id from missions where deleted_at is null and status in ('planning','running') and presentation->'staffing' is not null and presentation->'staffing'->>'stage' <> 'working' and presentation->'staffing'->'stalled' is null`)
     .then((r) => r.rows.forEach((m, i) => schedule(m.id, Math.min(stepMs, 200) + i * 20)))
-    .catch(() => {});
+    .catch(() => {}));
 
   app.addHook('onClose', async () => { closed = true; timers.forEach((t) => clearTimeout(t)); timers.clear(); });
 }

@@ -58,9 +58,10 @@ import releaseRoutes from './releases/routes.ts';
 import artifactRoutes from './artifacts/routes.ts';
 import attentionRoutes from './attention/routes.ts';
 import cloudModelRoutes from './cloud/routes.ts';
+import { startLeader, type Leader } from './leader.ts';
 
 declare module 'fastify' {
-  interface FastifyInstance { routeTable: { method: string; url: string; bodyLimit?: number }[]; db: Db; cfg: Required<Pick<Config, 'tenantId'>> & Config; onFirstAdmin?: (userId: string) => Promise<void>; chatResponder: ChatResponder; modelRouter: ModelRouter }
+  interface FastifyInstance { routeTable: { method: string; url: string; bodyLimit?: number }[]; db: Db; cfg: Required<Pick<Config, 'tenantId'>> & Config; onFirstAdmin?: (userId: string) => Promise<void>; chatResponder: ChatResponder; modelRouter: ModelRouter; leader: Leader }
 }
 
 export async function buildApp(cfg: Config): Promise<FastifyInstance> {
@@ -74,13 +75,22 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   app.decorate('db', db);
   app.decorate('cfg', { tenantId: DEFAULT_TENANT, ...cfg });
   app.addHook('onClose', async () => { await db.end(); });
+  // evolve step 1: singleton background work (startup sweeps, expiry sweep, staffing resume) runs only where the leader lock is held; mode 'always' = today's behaviour
+  const leader = startLeader({ databaseUrl: cfg.databaseUrl, schema: cfg.schema, mode: cfg.leaderMode ?? 'always', pollMs: cfg.leaderPollMs,
+    onLost: cfg.onLeaderLost ?? (() => app.log.error('lost the leader lock connection; singleton background work has stopped')) });
+  app.decorate('leader', leader);
+  app.addHook('onClose', async () => { await leader.close(); });
   // owner 2026-11-25: the GM and agent chats are answered by the chat model (Claude 2 unless CHAT_MODEL names another cloud model)
   // owner 2026-11-25: administrators order the chat models in Settings › AI Chat; the router replaces an unusable model with the next one
   const router = new ModelRouter(cfg.cloudModels ?? [], cfg.chatModelId ?? 'claude-2');
   app.decorate('modelRouter', router);
   const responder = chatResponder(app, router);
   app.decorate('chatResponder', responder);
-  app.addHook('onReady', async () => { await responder.sweep().catch((err) => app.log.error({ err }, 'chat responder sweep failed')); });
+  app.addHook('onReady', async () => {
+    let swept: Promise<void> = Promise.resolve(); // in mode always the sweep starts here, as before, and onReady waits for it
+    leader.onAcquire(() => { swept = responder.sweep().catch((err) => app.log.error({ err }, 'chat responder sweep failed')); return swept; });
+    await swept;
+  });
   app.addHook('preClose', async () => { await responder.close(); });
   // every route as registered (tests check that each write route keeps the CSRF, Origin and body-limit rules)
   const routeTable: { method: string; url: string; bodyLimit?: number }[] = [];
@@ -163,13 +173,13 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   app.get('/api/v1/health', async () => {
     let up = false;
     try { await db.query('select 1'); up = true; } catch { /* reported below */ }
-    return { ok: up, db: up ? 'up' : 'down', version: VERSION };
+    return { ok: up, db: up ? 'up' : 'down', version: VERSION, commit: cfg.commit ?? null, leader: leader.isLeader() };
   });
 
   startStaffingSim(app, cfg.staffingStepMs ?? 1500);
   if (cfg.demoSeed || cfg.conversationSimMs !== undefined) startConversationSim(app, cfg.conversationSimMs ?? 1200);
   // review I4: expired approvals are settled every minute, even when nobody opens the approvals list
-  const sweep = setInterval(() => { void tx(db, (c) => sweepExpired(c)).then((ids) => ids.forEach((id) => app.onMissionChanged?.(id, 'running'))).catch(() => {}); }, 60_000);
+  const sweep = setInterval(() => { if (!leader.isLeader()) return; void tx(db, (c) => sweepExpired(c)).then((ids) => ids.forEach((id) => app.onMissionChanged?.(id, 'running'))).catch(() => {}); }, 60_000);
   sweep.unref();
   app.addHook('onClose', async () => clearInterval(sweep));
   if (cfg.demoSeed) app.onFirstAdmin = async (adminId) => { try { await seedDemo(db, app.cfg.tenantId, adminId); } catch (e) { app.log.error({ err: e }, 'demo seed failed'); } };

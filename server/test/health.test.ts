@@ -11,6 +11,8 @@ describe('health and error envelope', () => {
     expect(r.statusCode).toBe(200);
     expect(r.json()).toMatchObject({ ok: true, db: 'up' });
     expect(typeof r.json().version).toBe('string');
+    expect(r.json().commit).toBeNull(); // no commit configured in tests
+    expect(r.json().leader).toBe(true); // mode always
   });
 
   it('unknown routes give the error envelope without a stack', async () => {

@@ -7,10 +7,10 @@ import * as C from './validators.ts';
 import { checkEvent } from './events.ts';
 
 describe('the validators themselves detect drift', () => {
-  const ok = { ok: true, db: 'up', version: '1' };
+  const ok = { ok: true, db: 'up', version: '1', commit: null, leader: true };
   it('accepts a correct body', () => expect(check('h', C.health, ok)).toEqual([]));
   it('flags a missing field, a wrong type, an extra field and a bad enum', () => {
-    expect(check('h', C.health, { ok: true, db: 'up' })).toEqual(['h.version: missing']);
+    expect(check('h', C.health, { ok: true, db: 'up', commit: null, leader: true })).toEqual(['h.version: missing']);
     expect(check('h', C.health, { ...ok, ok: 'yes' })[0]).toMatch(/expected boolean/);
     expect(check('h', C.health, { ...ok, extra: 1 })).toEqual(['h.extra: not in the contract']);
     expect(check('h', C.health, { ...ok, db: 'sideways' })[0]).toMatch(/expected one of/);
