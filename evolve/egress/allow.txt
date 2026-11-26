@@ -1,0 +1,3 @@
+# Egress allowlist: exact host:port pairs, one per line. No wildcards, no IPs.
+# Lines starting with # and blank lines are ignored.
+api.anthropic.com:443
