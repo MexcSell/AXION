@@ -66,10 +66,22 @@ export type Priority = 'low' | 'normal' | 'high' | 'critical';
 
 export interface MissionPhase { key: string; label: string; state: 'done' | 'active' | 'next' | 'blocked'; date: string; }
 
+/**
+ * Evolution step 2: the change report of an `improve` mission (presentation.evolve). Written by the host runner's CLI,
+ * only read here. Anything the runner did not know yet is absent.
+ */
+export type EvolveState = 'queued' | 'claimed' | 'working' | 'checking' | 'deploying' | 'live' | 'rejected' | 'rolled_back' | 'needs_owner' | 'failed';
+export interface EvolveInfo {
+  state: EvolveState; attempt: number; updatedAt: string;
+  commit?: string; base?: string; filesChanged?: string[]; diffStat?: string; checks?: string;
+  guard?: { outcome: string; failedStep?: string; reason?: string };
+  report?: string; hits?: string[];
+}
+
 export interface Mission {
   id: string;
   title: string;
-  kind: 'website' | 'training' | 'research' | 'structure' | 'self-update' | 'data' | 'automation';
+  kind: 'website' | 'training' | 'research' | 'structure' | 'self-update' | 'data' | 'automation' | 'improve';
   status: MissionStatus;
   priority: Priority;
   /** display name of the user who added it (kept for legacy views; the account is ownerId) */
@@ -84,6 +96,8 @@ export interface Mission {
   executorId?: string;
   /** GM → executor → agents staffing progress for missions added after u1 */
   staffing?: import('@/features/mission/staffing').Staffing;
+  /** `improve` missions only: the change report written by the host runner (state, commit, files, checks, report) */
+  evolve?: EvolveInfo;
   objective: string;
   criteria: { text: string; done: boolean }[];
   progress: number; // verified %

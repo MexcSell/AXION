@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { Globe, GraduationCap, Network, RefreshCcw, Microscope, Database, Bot, Check, AlertTriangle, type LucideIcon } from 'lucide-react';
+import { Globe, GraduationCap, Network, RefreshCcw, Microscope, Database, Bot, Sparkles, Check, AlertTriangle, type LucideIcon } from 'lucide-react';
 import type { Mission, MissionPhase } from '@/data/types';
 import { MISSION_STATUS, TONE_VAR } from '@/data/roles';
 import { cx } from '@/lib/format';
@@ -12,6 +12,7 @@ export const KIND_META: Record<Mission['kind'], { icon: LucideIcon; label: strin
   research: { icon: Microscope, label: 'Research', hue: 265 },
   data: { icon: Database, label: 'Data', hue: 175 },
   automation: { icon: Bot, label: 'Automation', hue: 150 },
+  improve: { icon: Sparkles, label: 'Improve AXION', hue: 350 },
 };
 
 export function KindIcon({ kind, size = 34 }: { kind: Mission['kind']; size?: number }) {

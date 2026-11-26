@@ -41,3 +41,9 @@
 .ma-share > span { display: flex; flex-direction: column; line-height: 1.25; }
 .ma-share > span .dim { font-size: 11px; }
 @media (max-width: 720px) { .ma-flow { flex-direction: column; } .ma-arrow { transform: rotate(90deg); } .ma-share > span .dim { display: none; } }
+
+/* evolution step 2: the administrator-only "Improve AXION itself" choice */
+.ma-improve { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; padding: 9px 12px; border-radius: var(--r-md); border: 1px solid var(--border-soft); background: var(--panel-2); font-size: 12.5px; transition: border-color .15s, background .15s; }
+.ma-improve.on { border-color: hsl(350 70% 60% / .6); background: hsl(350 70% 60% / .08); }
+.ma-improve-l { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.ma-improve-help { flex-basis: 100%; font-size: 11.5px; line-height: 1.3; }

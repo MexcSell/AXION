@@ -18,6 +18,7 @@ import type { Mission } from '@/data/types';
 import { ago } from '@/lib/format';
 import { PhaseStepper } from './MissionBits';
 import { ApprovalMini } from './Shared';
+import { EvolveReport } from './EvolveReport';
 import { useMissionControl } from '@/api/missionControl';
 
 
@@ -110,6 +111,7 @@ export function OverviewTab({ m, onSelectAgent }: { m: Mission; onSelectAgent: (
 }
 
 export function ResultsTab({ m }: { m: Mission }) {
+  if (m.evolve) return <EvolveReport evolve={m.evolve} view="results" />;
   return <EmptyState icon={Package} title="No mission results" body={`No output has been recorded for ${m.id}.`} />;
 }
 
@@ -129,6 +131,7 @@ export function ApprovalsTab({ m }: { m: Mission }) {
 }
 
 export function ReportsTab({ m }: { m: Mission }) {
+  if (m.evolve) return <EvolveReport evolve={m.evolve} view="reports" />;
   return <EmptyState icon={FileText} title="No report yet" body={`No report has been recorded for ${m.id}.`} />;
 }
 

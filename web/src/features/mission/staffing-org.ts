@@ -19,6 +19,7 @@ export const KIND_DEPT: Record<Mission['kind'], string> = {
   automation: 'Engineering',
   structure: 'Operations',
   'self-update': 'Engineering',
+  improve: 'Engineering',
 };
 
 /** KIND_DEPT as prose, kinds grouped by department in table order: the help text uses it, so it cannot drift from the table. */
@@ -98,7 +99,8 @@ export function departmentHead(kind: Mission['kind'], fixtureExecutor: string, o
  */
 export function orgStaffing(kind: Mission['kind'], base: { executorId: string; plan: { agentId: string; why: string }[] }, org: OrgView):
   { executorId: string; plan: PlannedAgent[]; origin: StaffingOrigin } {
-  const head = departmentHead(kind, base.executorId, org);
+  // `improve` pins its engineer: the department head must not take over a mission that changes AXION's code
+  const head = kind === 'improve' ? undefined : departmentHead(kind, base.executorId, org);
   const executorId = head ?? base.executorId;
   const listed = base.plan.filter((p) => p.agentId !== executorId && p.agentId !== GM);
   const raw = executorId !== base.executorId ? [{ agentId: base.executorId, why: FORMER_EXECUTOR_WHY }, ...listed] : listed;

@@ -12,10 +12,12 @@ import { canManage } from './visibility.ts';
 import { SELECT_MISSION, conflict, defaultPresentation, filesFor, getVisibleRow, listVisible, loadRow, missionDto, nextMissionId } from './service.ts';
 import { readOrgView } from './staffing-org.ts';
 
-const CreateIn = z.object({ text: z.string().max(20_000).default(''), files: z.array(z.string().max(40)).max(10).default([]), shared: z.boolean().default(false) });
+const CreateIn = z.object({ text: z.string().max(20_000).default(''), files: z.array(z.string().max(40)).max(10).default([]), shared: z.boolean().default(false),
+  /** evolution step 2: the mission changes AXION itself (kind `improve`); administrators only */
+  improve: z.boolean().optional() });
 const PatchIn = z.object({
   title: z.string().trim().min(1).max(160).optional(),
-  kind: z.enum(['website', 'training', 'research', 'structure', 'self-update', 'data', 'automation']).optional(),
+  kind: z.enum(['website', 'training', 'research', 'structure', 'self-update', 'data', 'automation', 'improve']).optional(),
   priority: z.enum(['low', 'normal', 'high', 'critical']).optional(),
   text: z.string().max(20_000).optional(),
   addFiles: z.array(z.string().max(40)).min(1).max(10).optional(),
@@ -41,11 +43,12 @@ export default async function missionRoutes(app: FastifyInstance) {
     const ctx = await requireUser(req);
     const b = parse(CreateIn, req.body);
     if (!b.text.trim() && !b.files.length) throw new ApiError('VALIDATION', 400, 'Describe the mission or attach a file.', { fieldErrors: { text: 'empty' } });
+    if (b.improve && ctx.user.role !== 'admin') throw new ApiError('FORBIDDEN', 403, 'Only an administrator can start a mission that improves AXION itself.');
     const out = await idempotent(app.db, req, ctx, async (c) => {
       const m = await (async () => {
         const files = await filesFor(c, ctx, b.files);
         const id = await nextMissionId(c);
-        const d = defaultPresentation(b.text, files, ctx.user.name, Date.now(), await readOrgView(c, ctx.tenantId)); // cycle 11: staffed by the active org
+        const d = defaultPresentation(b.text, files, ctx.user.name, Date.now(), await readOrgView(c, ctx.tenantId), b.improve ? 'improve' : undefined); // cycle 11: staffed by the active org
         // draft → submit → plan in one transaction (spec §10.6; the GM starts staffing at once)
         let status: MissionStatus = 'draft';
         status = transition(status, 'submit');
@@ -75,6 +78,10 @@ export default async function missionRoutes(app: FastifyInstance) {
       const r = await getVisibleRow(c, ctx, id, true);
       if (r.content_version !== expected) throw conflict();
       if (r.status === 'archived') throw new ApiError('ILLEGAL_TRANSITION', 409, 'Restore the mission before editing it.');
+      // the `improve` kind (an agent changes AXION's code) is an administrator's choice: moving a mission to it or away from it is admin-only
+      if (b.kind !== undefined && b.kind !== r.kind && (b.kind === 'improve' || r.kind === 'improve') && ctx.user.role !== 'admin') {
+        throw new ApiError('FORBIDDEN', 403, 'Only an administrator can set or change the Improve AXION kind.');
+      }
       const files = [...r.files];
       if (b.addFiles) {
         const added = await filesFor(c, ctx, [...new Set(b.addFiles)]);

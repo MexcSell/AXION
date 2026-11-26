@@ -12,6 +12,8 @@ const ST = { baseline: 'No change: keep the current chart as it is.', expectedCo
 
 // Improvement cycle 11 (brief web/docs/improve/cycles/c11-brief.md): new real missions are staffed by the active organisation.
 const KINDS = ['website', 'research', 'training', 'data', 'automation', 'structure', 'self-update'] as const;
+/** every kind a mission can have: `improve` (evolution step 2) is an administrator's pick, so the fixtures above stay on KINDS */
+const ALL_KINDS = [...KINDS, 'improve'] as const;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 let n = 0;
 const key = () => ({ 'idempotency-key': 'c11-' + n++ });
@@ -33,14 +35,14 @@ describe('kind → department, heads and the staffing plan (pure)', () => {
     const line = src.split('\n').find((l) => l.includes("'mission.create'"))!;
     expect(line).toContain('${kindDeptText()}');
     expect(line).not.toMatch(/Engineering;|: R&D;|: QA;/); // no hand-copied table
-    for (const k of KINDS) expect(kindDeptText(), k).toContain(k);
+    for (const k of ALL_KINDS) expect(kindDeptText(), k).toContain(k);
     for (const d of new Set(Object.values(KIND_DEPT))) expect(kindDeptText(), d).toContain(d);
-    expect(kindDeptText()).toBe('website, automation, self-update: Engineering; research, data: R&D; training: QA; structure: Operations');
+    expect(kindDeptText()).toBe('website, automation, self-update, improve: Engineering; research, data: R&D; training: QA; structure: Operations');
   });
 
   it('KIND_DEPT is the department of the fixture executor of every kind', () => {
-    for (const k of KINDS) expect(KIND_DEPT[k], k).toBe(COMPANY_AGENT_BY_ID[executorFor(k)].dept);
-    expect(Object.keys(KIND_DEPT).sort()).toEqual([...KINDS].sort());
+    for (const k of ALL_KINDS) expect(KIND_DEPT[k], k).toBe(COMPANY_AGENT_BY_ID[executorFor(k)].dept);
+    expect(Object.keys(KIND_DEPT).sort()).toEqual([...ALL_KINDS].sort());
   });
 
   it('without an organisation, staffingPlan is exactly the base fixture plan (no new keys)', () => {
@@ -59,6 +61,19 @@ describe('kind → department, heads and the staffing plan (pure)', () => {
       expect(o.plan.map((p) => [p.agentId, p.why]), k).toEqual(base.plan.map((p) => [p.agentId, p.why]));
       expect(o.plan.every((p) => p.managerId === base.executorId), k).toBe(true);
       expect(o.origin).toEqual({ revision: 1, dept: KIND_DEPT[k], executorFrom: 'head' });
+    }
+  });
+
+  it('improve pins its engineer: web-dev-01 executes even though Engineering has heads; the tester and release agents join under it', () => {
+    expect(departmentHeads('Engineering', seedOrg()).length).toBeGreaterThan(0);
+    for (const org of [seedOrg(), move(seedOrg(), { 'web-dev-01': 'gm' })]) {
+      const base = staffingPlan('improve', 'Make the list denser.');
+      expect(base.executorId).toBe('web-dev-01');
+      expect(base.plan.map((p) => p.agentId)).toEqual(['tester-01', 'release-01']);
+      const o = orgStaffing('improve', base, org);
+      expect(o.executorId).toBe('web-dev-01');
+      expect(o.plan.map((p) => p.agentId)).toEqual(['tester-01', 'release-01']);
+      expect(o.plan.every((p) => p.managerId === 'web-dev-01')).toBe(true);
     }
   });
 

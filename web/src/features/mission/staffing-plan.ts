@@ -60,7 +60,7 @@ export function fileKind(name: string, mime: string): MissionFileKind {
 /** The GM's choice of general executor for a kind of mission. */
 const EXECUTOR: Record<Mission['kind'], string> = {
   website: 'coder-01', research: 'researcher-01', training: 'mentor-01', data: 'analyst-01',
-  automation: 'integrator-01', structure: 'planner-01', 'self-update': 'coder-01',
+  automation: 'integrator-01', structure: 'planner-01', 'self-update': 'coder-01', improve: 'web-dev-01',
 };
 export const executorFor = (kind: Mission['kind']) => EXECUTOR[kind];
 
@@ -73,6 +73,8 @@ const RECRUITS: Record<Mission['kind'], [string, string][]> = {
   automation: [['browser-01', 'operates the target sites'], ['security-01', 'reviews risky actions first'], ['tester-01', 'verifies each run'], ['ops-01', 'schedules and monitors the job']],
   structure: [['analyst-01', 'simulates the impact'], ['security-01', 'checks access changes'], ['comms-01', 'explains the change to everyone']],
   'self-update': [['designer-01', 'designs the change'], ['tester-01', 'runs every test suite'], ['security-01', 'reviews the patch'], ['release-01', 'prepares a safe rollout']],
+  // the engineer (executor web-dev-01) changes AXION's code; tester-01 reviews it; release-01 follows the Guard's steps (check, deploy, watch, roll back)
+  improve: [['tester-01', 'reviews the change and runs every check'], ['release-01', 'follows the Guard steps: deploy, watch, roll back if it fails']],
 };
 
 export function staffingPlan(kind: Mission['kind'], text: string): { executorId: string; plan: { agentId: string; why: string }[] } {

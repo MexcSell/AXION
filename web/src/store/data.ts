@@ -5,6 +5,7 @@ import type { Approval, Mission, MissionFile, MissionStatus } from '@/data/types
 import { api, newKey, ApiFailure } from '@/api/client';
 import type { Notice } from '@/data/notifications';
 import { actionForUiStatus, type UiMissionStatus } from '@contracts';
+import { missionCreateBody } from '@/features/mission/create-body';
 
 /** Mission records are scoped to the current server session and updated by the event stream. */
 export type Connection = 'off' | 'live' | 'reconnecting' | 'stale';
@@ -20,7 +21,7 @@ interface DataState {
   readNotifications: Record<string, true>;
   lastEventAt: number;
   /** Owner update u1: a mission is only its content (text + files); the GM staffs it. */
-  addMission: (input: { text: string; files: MissionFile[]; shared: boolean }, owner: { id: string; name: string }) => Promise<Mission>;
+  addMission: (input: { text: string; files: MissionFile[]; shared: boolean; improve?: boolean }, owner: { id: string; name: string }) => Promise<Mission>;
   updateMission: (id: string, patch: Partial<Mission>) => void;
   setMissionStatus: (id: string, status: MissionStatus) => void;
   archiveMission: (id: string) => void;
@@ -167,9 +168,9 @@ export async function attachMissionFiles(id: string, files: { name: string; blob
   put(result.mission);
 }
 
-async function apiAddMission(input: { text: string; files: MissionFile[]; shared: boolean }): Promise<Mission> {
+async function apiAddMission(input: { text: string; files: MissionFile[]; shared: boolean; improve?: boolean }): Promise<Mission> {
   const ids = await uploadMissionFiles(input.files);
-  const r = await api<{ mission: ServerMission }>('POST', '/missions', { text: input.text, files: ids, shared: input.shared }, { idempotencyKey: newKey() });
+  const r = await api<{ mission: ServerMission }>('POST', '/missions', missionCreateBody(input, ids), { idempotencyKey: newKey() });
   put(r.mission);
   return r.mission;
 }

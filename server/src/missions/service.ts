@@ -4,6 +4,7 @@ import type { Ctx } from '../auth/session.ts';
 import { toUiStatus, type MissionStatus } from './machine.ts';
 import { VISIBLE_SQL } from './visibility.ts';
 import { guessKind, deriveTitle, staffingPlan } from '../../../web/src/features/mission/staffing-plan.ts';
+import type { Mission } from '../../../web/src/data/types.ts';
 import { orgStaffing, type OrgView } from '../../../web/src/features/mission/staffing-org.ts';
 import type { MissionFileDto } from '../../../shared/contracts/src/index.ts';
 
@@ -23,9 +24,10 @@ const PHASES = ['Plan', 'Design', 'Build', 'Verify', 'Deliver', 'Learn'];
  * Display fields for a new mission (same values as the prototype's addMission). With `org` (cycle 11: every real mission
  * created through POST /missions) the executor and the planned agents' managers follow that organisation; the plan is
  * stored here, so a later org change never alters this mission's staffing.
+ * `kindOverride` is set only by the route, for an administrator's `improve` mission; guessKind never returns it.
  */
-export function defaultPresentation(text: string, files: MissionFileDto[], ownerName: string, now = Date.now(), org?: OrgView) {
-  const kind = guessKind(text, files as never);
+export function defaultPresentation(text: string, files: MissionFileDto[], ownerName: string, now = Date.now(), org?: OrgView, kindOverride?: Mission['kind']) {
+  const kind = kindOverride ?? guessKind(text, files as never);
   const fixture = staffingPlan(kind, text);
   const fromOrg = org ? orgStaffing(kind, fixture, org) : undefined;
   const { executorId, plan } = fromOrg ?? fixture;

@@ -12,7 +12,7 @@ import { Tip } from '@/components/ui/Tip';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { RobotAvatar } from '@/components/art/RobotAvatar';
 import { useData, useMission } from '@/store/data';
-import { useMe } from '@/store/auth';
+import { useMe, isAdmin } from '@/store/auth';
 import { isApi } from '@/api/mode';
 import { toast } from '@/store/ui';
 import { AGENT_BY_ID, AGENTS } from '@/data/agents';
@@ -21,6 +21,7 @@ import type { MissionFile, MissionFileKind } from '@/data/types';
 import { deriveTitle, fileKind, guessKind, staffingPlan } from '@/features/mission/staffing';
 import { orgStaffing, type OrgView } from '@/features/mission/staffing-org';
 import { KIND_META } from '@/features/mission/MissionBits';
+import { ImproveOption } from '@/features/mission/EvolveReport';
 import { cx } from '@/lib/format';
 import '@/theme/pages/mission-add.css';
 
@@ -55,6 +56,8 @@ function MissionAdd({ close, props }: DialogComponentProps<{ text?: string; clon
   const [text, setText] = useState(props.text ?? clone?.content.text ?? '');
   const [files, setFiles] = useState<MissionFile[]>([]);
   const [shared, setShared] = useState(clone?.shared ?? false);
+  const [improve, setImprove] = useState(false);
+  const canImprove = isApi() && isAdmin(me); // the server refuses a member with 403; demo mode has no runner
   const [over, setOver] = useState(false);
   const [busy, setBusy] = useState(false);
   const pick = useRef<HTMLInputElement>(null);
@@ -72,7 +75,7 @@ function MissionAdd({ close, props }: DialogComponentProps<{ text?: string; clon
   };
   const openPicker = (accept: string) => { if (pick.current) { pick.current.accept = accept; pick.current.click(); } };
 
-  const kind = guessKind(text, files);
+  const kind = canImprove && improve ? 'improve' : guessKind(text, files);
   const title = deriveTitle(text, files);
   const catalog = useAgentsCatalog();
   // api mode (cycle 11): the server staffs a new mission from the active organisation; preview the same choice
@@ -84,7 +87,7 @@ function MissionAdd({ close, props }: DialogComponentProps<{ text?: string; clon
     setBusy(true);
     window.setTimeout(async () => {
       try {
-        const m = await add({ text, files, shared }, me);
+        const m = await add({ text, files, shared, ...(canImprove && improve ? { improve: true } : {}) }, me);
         const appointed = AGENT_BY_ID[m.executorId ?? plan.executorId] ?? exec;
         toast({ tone: 'success', title: `${m.id} added`, body: `The General Manager is appointing ${appointed?.name ?? 'an executor'}, who will bring the agents.` });
         close();
@@ -130,6 +133,8 @@ function MissionAdd({ close, props }: DialogComponentProps<{ text?: string; clon
         <input ref={pick} type="file" multiple hidden onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ''; }} />
         <AnimatePresence>{over && <motion.div className="ma-drop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><Upload size={28} /><b>Drop to attach</b></motion.div>}</AnimatePresence>
       </div>
+
+      <ImproveOption admin={canImprove} checked={improve} onChange={setImprove} help={<HelpTrigger k="mission.improve" />} />
 
       <AnimatePresence initial={false}>
         {files.length > 0 && (

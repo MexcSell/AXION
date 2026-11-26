@@ -208,3 +208,11 @@
 .mw-share.on { color: var(--info); border-color: rgba(var(--info-rgb), .5); background: rgba(var(--info-rgb), .12); }
 .mw-share:not(:disabled):hover { border-color: var(--accent); }
 .mw-share:disabled { cursor: default; }
+
+/* evolution step 2: the change report of an `improve` mission */
+.evo-sha { font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; padding: 1px 6px; border-radius: 6px; background: var(--panel-3); }
+.evo-files { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow: auto; font-size: 12px; }
+.evo-files code { word-break: break-all; }
+.evo-pre { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--panel-3); font-size: 11.5px; line-height: 1.4; white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; }
+.evo-report { white-space: pre-wrap; word-break: break-word; font-size: 13px; line-height: 1.5; }
+.evo-hits { border-color: rgba(245, 158, 11, .5); }
