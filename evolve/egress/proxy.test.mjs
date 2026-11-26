@@ -6,7 +6,7 @@ import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { startProxy, parseAllow } from './proxy.mjs';
+import { startProxy, parseAllow, isPrivateAddress } from './proxy.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -31,7 +31,7 @@ async function setup(extraAllow = []) {
   const echo = await startEcho();
   const logs = [];
   const proxy = await startProxy({
-    port: 0, host: '127.0.0.1',
+    port: 0, host: '127.0.0.1', allowPrivate: true,
     allow: [`localhost:${echo.port}`, ...extraAllow],
     log: (l) => logs.push(l),
   });
@@ -112,7 +112,7 @@ test('an IP literal is refused even if its name would be allowed', async () => {
   const forms = ['127.0.0.1', '[::1]', '[::ffff:127.0.0.1]', '2130706433', '0x7f000001', '017700000001',
     '127.1', '0177.0.0.1', '0x7f.0.0.1', '1.2.3.4', '[2001:db8::1]', '::1'];
   const allow = forms.map((f) => `${f}:${echoPort.port}`).concat([`127.0.0.1:${echoPort.port}`]);
-  const proxy = await startProxy({ port: 0, host: '127.0.0.1', allow, log: (l) => logs.push(l) });
+  const proxy = await startProxy({ port: 0, host: '127.0.0.1', allowPrivate: true, allow, log: (l) => logs.push(l) });
   for (const f of forms) {
     const r = await rawRequest(proxy.port, connectReq(`${f}:${echoPort.port}`));
     assert.ok([400, 403].includes(status(r.head)), f);
@@ -215,7 +215,7 @@ test('allowed host that refuses the connection gets 502, proxy survives', async 
   const probe = net.createServer(); await new Promise((r) => probe.listen(0, '127.0.0.1', r));
   const dead = probe.address().port; await new Promise((r) => probe.close(r));
   const logs = [];
-  const proxy = await startProxy({ port: 0, host: '127.0.0.1', allow: [`localhost:${dead}`], log: (l) => logs.push(l) });
+  const proxy = await startProxy({ port: 0, host: '127.0.0.1', allowPrivate: true, allow: [`localhost:${dead}`], log: (l) => logs.push(l) });
   const r = await rawRequest(proxy.port, connectReq(`localhost:${dead}`));
   assert.equal(status(r.head), 502);
   await proxy.close();
@@ -248,7 +248,7 @@ test('CLI: PORT and ALLOW_FILE env, one JSON log line per decision on stdout', a
   const dir = mkdtempSync(join(tmpdir(), 'egress-'));
   const file = join(dir, 'allow.txt');
   writeFileSync(file, `# test\nlocalhost:${echo.port}\n`);
-  const child = spawn(process.execPath, [join(here, 'proxy.mjs')], { env: { ...process.env, PORT: String(port), ALLOW_FILE: file } });
+  const child = spawn(process.execPath, [join(here, 'proxy.mjs')], { env: { ...process.env, PORT: String(port), ALLOW_FILE: file, ALLOW_PRIVATE: '1' } });
   let out = '';
   child.stdout.on('data', (d) => { out += d; });
   try {
@@ -266,4 +266,91 @@ test('CLI: PORT and ALLOW_FILE env, one JSON log line per decision on stdout', a
     assert.equal(lines[0].allowed, true);
     assert.equal(lines[1].allowed, false);
   } finally { child.kill(); echo.close(); }
+});
+
+test('upstream RST after the 200 writes nothing into the tunnel (no 502)', async () => {
+  const t = await setup();
+  const r = await rawRequest(t.proxy.port, connectReq(`localhost:${t.echo.port}`));
+  assert.equal(status(r.head), 200);
+  const got = [];
+  r.socket.on('data', (d) => got.push(d));
+  const closed = new Promise((res) => r.socket.once('close', res));
+  r.socket.write('x'); await new Promise((s) => setTimeout(s, 50));
+  for (const c of t.echo.conns) c.resetAndDestroy();
+  await closed;
+  assert.equal(Buffer.concat(got.slice(1)).toString(), '', 'only the echo of x, nothing after');
+  await t.done();
+});
+
+test('refused targets never log the raw target (userinfo secrets)', async () => {
+  const t = await setup();
+  await rawRequest(t.proxy.port, connectReq('user:SECRETTOKEN@api.anthropic.com:443'));
+  await rawRequest(t.proxy.port, 'CONNECT SECRETTOKEN HTTP/1.1\r\n\r\n');
+  await rawRequest(t.proxy.port, 'CONNECT [SECRETTOKEN]:1 HTTP/1.1\r\n\r\n');
+  assert.equal(t.logs.length, 3);
+  assert.ok(!JSON.stringify(t.logs).includes('SECRETTOKEN'));
+  await t.done();
+});
+
+test('connect timeout sends 502 and closes', async () => {
+  const logs = [];
+  const proxy = await startProxy({
+    port: 0, host: '127.0.0.1', allowPrivate: true, allow: ['localhost:9'], connectMs: 100, log: (l) => logs.push(l),
+    dial: () => new net.Socket(), // a socket that never connects: stands in for a black hole
+  });
+  const r = await rawRequest(proxy.port, connectReq('localhost:9'));
+  assert.equal(status(r.head), 502);
+  assert.ok(logs.some((l) => l.event === 'upstream_error' && l.code === 'ETIMEDOUT'));
+  await proxy.close();
+});
+
+test('allowlisted name resolving to a private address is refused unless allowPrivate', async () => {
+  const echo = await startEcho();
+  const logs = [];
+  const proxy = await startProxy({ port: 0, host: '127.0.0.1', allow: [`localhost:${echo.port}`], log: (l) => logs.push(l) });
+  const r = await rawRequest(proxy.port, connectReq(`localhost:${echo.port}`));
+  assert.equal(status(r.head), 403);
+  assert.deepEqual(logs.map((l) => [l.allowed, l.reason]), [[false, 'private address']]);
+  assert.equal(echo.events.closed + echo.conns.size, 0, 'never dialled');
+  await proxy.close(); echo.close();
+});
+
+test('isPrivateAddress covers loopback, RFC1918, link-local, ULA, CGNAT, unspecified, mapped', () => {
+  for (const a of ['127.0.0.1', '127.9.9.9', '10.1.2.3', '172.16.0.1', '172.31.255.255', '192.168.1.1', '169.254.169.254',
+    '100.64.0.1', '100.127.255.255', '0.0.0.0', '::', '::1', 'fc00::1', 'fd12:3456::1', 'fe80::1',
+    '::ffff:127.0.0.1', '::ffff:10.0.0.1', '::ffff:7f00:1', '::ffff:8.8.8.8', 'ff02::1', 'garbage'])
+    assert.equal(isPrivateAddress(a), true, a);
+  for (const a of ['8.8.8.8', '160.79.104.10', '172.32.0.1', '100.128.0.1', '2607:6bc0::10', '2001:4860:4860::8888'])
+    assert.equal(isPrivateAddress(a), false, a);
+});
+
+test('CLI: IDLE_MS closes an idle tunnel', async () => {
+  const echo = await startEcho();
+  const probe = net.createServer(); await new Promise((r) => probe.listen(0, '127.0.0.1', r));
+  const port = probe.address().port; await new Promise((r) => probe.close(r));
+  const dir = mkdtempSync(join(tmpdir(), 'egress-'));
+  const file = join(dir, 'allow.txt');
+  writeFileSync(file, `localhost:${echo.port}\n`);
+  const child = spawn(process.execPath, [join(here, 'proxy.mjs')],
+    { env: { ...process.env, PORT: String(port), ALLOW_FILE: file, ALLOW_PRIVATE: '1', IDLE_MS: '200' } });
+  try {
+    let r;
+    for (let i = 0; i < 100; i++) {
+      try { r = await rawRequest(port, connectReq(`localhost:${echo.port}`)); break; }
+      catch { await new Promise((s) => setTimeout(s, 50)); }
+    }
+    assert.equal(status(r.head), 200);
+    const t0 = Date.now();
+    await new Promise((res) => r.socket.once('close', res));
+    assert.ok(Date.now() - t0 < 2000);
+  } finally { child.kill(); echo.close(); }
+});
+
+test('idleMs option closes an idle tunnel', async () => {
+  const echo = await startEcho();
+  const proxy = await startProxy({ port: 0, host: '127.0.0.1', allowPrivate: true, allow: [`localhost:${echo.port}`], idleMs: 150 });
+  const r = await rawRequest(proxy.port, connectReq(`localhost:${echo.port}`));
+  assert.equal(status(r.head), 200);
+  await new Promise((res) => r.socket.once('close', res));
+  await proxy.close(); echo.close();
 });
