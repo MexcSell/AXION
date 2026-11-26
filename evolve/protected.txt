@@ -13,9 +13,18 @@ server/src/approvals/**
 server/src/policy/**
 server/src/grants/**
 
-# Secrets and tokens
+# Secrets and tokens (`**/.env*/**`: files inside a .env* directory, e.g. server/.env.d/x)
 server/src/cloud/claude-cli.ts
 **/.env*
+**/.env*/**
+
+# The deploy contract the Guard judges by: process start, migrations, the leader lock, the health route (fix wave I4)
+server/src/main.ts
+server/src/migrate.ts
+server/src/migrate-cli.ts
+server/src/leader.ts
+server/src/locks.ts
+server/src/health.ts
 
 # The Guard, deploy and Docker files
 evolve/**
@@ -30,8 +39,11 @@ evolve/**
 **/package.json
 **/package-lock.json
 
-# Test runner and shared test setup
+# Test runner and shared test setup; the compiler settings and the web build config the checks run with (fix wave I4)
 server/vitest.config.ts
+server/tsconfig.json
+web/tsconfig.json
+web/vite.config.ts
 server/test/setup.ts
 server/test/helpers.ts
 web/scripts/api-e2e.sh

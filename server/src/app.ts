@@ -2,7 +2,7 @@ import Fastify, { type FastifyInstance, type FastifyError } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { makePool, type Db } from './db.ts';
 import { ApiError } from './errors.ts';
-import { type Config, VERSION, DEFAULT_TENANT } from './config.ts';
+import { type Config, DEFAULT_TENANT } from './config.ts';
 import cookie from '@fastify/cookie';
 import authRoutes from './auth/routes.ts';
 import missionRoutes from './missions/routes.ts';
@@ -59,6 +59,7 @@ import artifactRoutes from './artifacts/routes.ts';
 import attentionRoutes from './attention/routes.ts';
 import cloudModelRoutes from './cloud/routes.ts';
 import { startLeader, type Leader } from './leader.ts';
+import { registerHealth } from './health.ts';
 
 declare module 'fastify' {
   interface FastifyInstance { routeTable: { method: string; url: string; bodyLimit?: number }[]; db: Db; cfg: Required<Pick<Config, 'tenantId'>> & Config; onFirstAdmin?: (userId: string) => Promise<void>; chatResponder: ChatResponder; modelRouter: ModelRouter; leader: Leader }
@@ -170,11 +171,7 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   await tx(db, (c) => seedCompany(c, app.cfg.tenantId)); // decision E1: company data, idempotent, independent of DEMO_SEED
   await tx(db, (c) => backfillMissionControl(c, app.cfg.tenantId, app.log)); // Stage 6: instances, delegations and tasks for missions that predate them (idempotent)
 
-  app.get('/api/v1/health', async () => {
-    let up = false;
-    try { await db.query('select 1'); up = true; } catch { /* reported below */ }
-    return { ok: up, db: up ? 'up' : 'down', version: VERSION, commit: cfg.commit ?? null, leader: leader.isLeader() };
-  });
+  registerHealth(app, { db, commit: cfg.commit, leader }); // the Guard's deploy contract (server/src/health.ts, protected)
 
   startStaffingSim(app, cfg.staffingStepMs ?? 1500);
   if (cfg.demoSeed || cfg.conversationSimMs !== undefined) startConversationSim(app, cfg.conversationSimMs ?? 1200);

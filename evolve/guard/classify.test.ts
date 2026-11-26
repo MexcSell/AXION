@@ -10,10 +10,11 @@ const hit = (path: string, status: 'A' | 'M' | 'D' | 'R' = 'M', oldPath?: string
 test('protected.txt parses to exactly the agreed rule list', () => {
   assert.deepEqual(rules, [
     'server/migrations/**', 'server/src/auth/**', 'server/src/approvals/**', 'server/src/policy/**', 'server/src/grants/**',
-    'server/src/cloud/claude-cli.ts', '**/.env*',
+    'server/src/cloud/claude-cli.ts', '**/.env*', '**/.env*/**',
+    'server/src/main.ts', 'server/src/migrate.ts', 'server/src/migrate-cli.ts', 'server/src/leader.ts', 'server/src/locks.ts', 'server/src/health.ts',
     'evolve/**', '.dockerignore', '**/Dockerfile*', '**/*.Dockerfile', '**/docker-compose*', '**/.gitattributes',
     '**/package.json', '**/package-lock.json',
-    'server/vitest.config.ts', 'server/test/setup.ts', 'server/test/helpers.ts', 'web/scripts/api-e2e.sh',
+    'server/vitest.config.ts', 'server/tsconfig.json', 'web/tsconfig.json', 'web/vite.config.ts', 'server/test/setup.ts', 'server/test/helpers.ts', 'web/scripts/api-e2e.sh',
     'modify:server/test/**', 'modify:web/scripts/**',
   ]);
 });
@@ -28,6 +29,13 @@ test('plain rules hit any status, including new files', () => {
   assert.deepEqual(hit('server/src/cloud/claude-cli.ts'), ['server/src/cloud/claude-cli.ts']);
   assert.deepEqual(hit('server/test/setup.ts', 'A'), ['server/test/setup.ts']);
   assert.deepEqual(hit('web/scripts/api-e2e.sh'), ['web/scripts/api-e2e.sh']);
+  // fix wave I4: what shapes the judge or the deploy contract
+  for (const p of ['server/tsconfig.json', 'web/tsconfig.json', 'web/vite.config.ts', 'server/src/main.ts', 'server/src/migrate.ts',
+    'server/src/migrate-cli.ts', 'server/src/leader.ts', 'server/src/locks.ts', 'server/src/health.ts', 'server/.env.d/x', '.env.d/a/b',
+    'web/.env.local.d/x.txt']) {
+    assert.deepEqual(hit(p, 'A'), [p], p);
+  }
+  for (const p of ['server/src/app.ts', 'server/src/healthx.ts', 'web/vite.config.js.md', 'server/src/main.tsx']) assert.deepEqual(hit(p), [], p);
 });
 
 test('**/ rules match at the repo root and at any depth', () => {
