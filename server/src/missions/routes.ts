@@ -78,9 +78,14 @@ export default async function missionRoutes(app: FastifyInstance) {
       const r = await getVisibleRow(c, ctx, id, true);
       if (r.content_version !== expected) throw conflict();
       if (r.status === 'archived') throw new ApiError('ILLEGAL_TRANSITION', 409, 'Restore the mission before editing it.');
-      // the `improve` kind (an agent changes AXION's code) is an administrator's choice: moving a mission to it or away from it is admin-only
-      if (b.kind !== undefined && b.kind !== r.kind && (b.kind === 'improve' || r.kind === 'improve') && ctx.user.role !== 'admin') {
-        throw new ApiError('FORBIDDEN', 403, 'Only an administrator can set or change the Improve AXION kind.');
+      // the `improve` kind (an agent changes AXION's code) is an administrator's: once a mission is `improve`, only an administrator may
+      // change anything about it (a shared one is visible to members, but its text, files and criteria steer the engineer agent)
+      const isAdmin = ctx.user.role === 'admin';
+      if (!isAdmin && (r.kind === 'improve' || b.kind === 'improve')) throw new ApiError('FORBIDDEN', 403, 'Only an administrator can edit or set an Improve AXION mission.');
+      // the runner only picks up missions owned by an administrator: refuse a flip that would leave it silently waiting for ever
+      if (b.kind === 'improve' && r.kind !== 'improve') {
+        const owner = (await c.query('select role from users where id=$1', [r.owner_id])).rows[0]?.role;
+        if (owner !== 'admin') throw new ApiError('ILLEGAL_TRANSITION', 409, 'An Improve AXION mission must be owned by an administrator; this mission belongs to someone else.');
       }
       const files = [...r.files];
       if (b.addFiles) {

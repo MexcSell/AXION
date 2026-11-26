@@ -54,19 +54,46 @@ describe('mission kind improve', () => {
     expect(ok.status).toBe(200);
     expect(ok.body.mission.kind).toBe('improve');
 
-    // a member cannot move an admin's shared improve mission away from improve (it is the admin's pick), but can edit other fields
     const cur = (await A.admin.req('GET', `/missions/${adm.id}`)).body.mission;
     const away = await mina.req('PATCH', `/missions/${adm.id}`, { kind: 'research' }, { 'if-match': String(cur.rowVersion) });
     expect(away.status).toBe(403);
-    const title = await mina.req('PATCH', `/missions/${adm.id}`, { title: 'Denser list' }, { 'if-match': String(cur.rowVersion) });
-    expect(title.status).toBe(200);
-    expect(title.body.mission.kind).toBe('improve');
+    expect(await kindOf(adm.id)).toBe('improve');
   });
 
-  it('PATCH with a kind the mission already has (improve to improve, by a member editing the title in the same call) is not refused', async () => {
+  const revOf = async (id: string) => (await t.pool.query('select current_revision::int as r from missions where id=$1', [id])).rows[0].r as number;
+
+  it('on a shared admin improve mission a member can change nothing (text, addFiles, criteria, title, priority, same kind): 403, no new revision', async () => {
     const { A, mina } = await setup();
-    const adm = (await A.admin.req('POST', '/missions', { text: 'x y z', files: [], shared: true, improve: true }, key())).body.mission;
-    const r = await mina.req('PATCH', `/missions/${adm.id}`, { kind: 'improve', title: 'Same kind' }, { 'if-match': String(adm.rowVersion) });
-    expect(r.status).toBe(200);
+    const adm = (await A.admin.req('POST', '/missions', { text: 'Make the list denser.', files: [], shared: true, improve: true }, key())).body.mission;
+    const before = await revOf(adm.id);
+    const bodies = [{ text: 'Delete everything.' }, { addFiles: ['nope'] }, { criteria: [{ text: 'x', done: true }] }, { title: 'Mine' }, { priority: 'critical' }, { kind: 'improve', title: 'Same kind' }];
+    for (const body of bodies) {
+      const r = await mina.req('PATCH', `/missions/${adm.id}`, body, { 'if-match': String(adm.rowVersion) });
+      expect(r.status, JSON.stringify(body)).toBe(403);
+    }
+    expect(await revOf(adm.id)).toBe(before);
+    const mission = (await A.admin.req('GET', `/missions/${adm.id}`)).body.mission;
+    expect(mission.content.text).toBe('Make the list denser.');
+    // the admin may
+    const ok = await A.admin.req('PATCH', `/missions/${adm.id}`, { text: 'Make the list denser and calmer.' }, { 'if-match': String(mission.rowVersion) });
+    expect(ok.status).toBe(200);
+    expect(ok.body.mission.content.text).toBe('Make the list denser and calmer.');
+    expect(await revOf(adm.id)).toBe(before + 1);
+  });
+
+  it('an admin cannot flip a mission owned by a member to improve (409, nothing written); members still edit non-improve shared missions', async () => {
+    const { A, mina } = await setup();
+    const own = (await mina.req('POST', '/missions', { text: 'Research our three main competitors.', files: [], shared: true }, key())).body.mission;
+    const before = await revOf(own.id);
+    const r = await A.admin.req('PATCH', `/missions/${own.id}`, { kind: 'improve' }, { 'if-match': String(own.rowVersion) });
+    expect(r.status).toBe(409);
+    expect(r.body.error?.message ?? JSON.stringify(r.body)).toMatch(/owned by an administrator/);
+    expect(await kindOf(own.id)).toBe('research');
+    expect(await revOf(own.id)).toBe(before);
+    const edit = await mina.req('PATCH', `/missions/${own.id}`, { title: 'Competitors' }, { 'if-match': String(own.rowVersion) });
+    expect(edit.status).toBe(200);
+    // a member can also edit an admin's shared non-improve mission, as before
+    const adm = (await A.admin.req('POST', '/missions', { text: 'Research our three main competitors.', files: [], shared: true }, key())).body.mission;
+    expect((await mina.req('PATCH', `/missions/${adm.id}`, { title: 'Shared edit' }, { 'if-match': String(adm.rowVersion) })).status).toBe(200);
   });
 });
