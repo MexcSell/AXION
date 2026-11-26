@@ -23,6 +23,8 @@ evolve/**
 **/Dockerfile*
 **/*.Dockerfile
 **/docker-compose*
+# git attributes: export-ignore/export-subst would change what `git archive` puts in the build (the Guard also overrides them)
+**/.gitattributes
 
 # Dependencies (supply-chain risk)
 **/package.json

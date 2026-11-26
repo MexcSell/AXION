@@ -18,6 +18,8 @@ export type GuardEffects = Effects & {
   /** the commit a CLI ref names in the Guard's repository */
   resolve(ref: string): Promise<string>;
   pruneImages(active: string | null, previous: string | null): Promise<{ kept: string[]; removed: string[]; warnings: string[] }>;
+  /** removes a killed Guard's throw-away containers/networks/volumes and work files (call under the lock) */
+  sweepLeftovers(): Promise<string[]>;
 };
 
 function pidAlive(pid: number): boolean {
@@ -96,5 +98,6 @@ export function makeEffects(cfg: GuardConfig, host: Host, ctx: DeployContext): G
     },
     resolve: (ref) => git.resolve(ref),
     pruneImages: (active, previous) => d.pruneImages(active, previous),
+    sweepLeftovers: () => d.sweepLeftovers(),
   };
 }

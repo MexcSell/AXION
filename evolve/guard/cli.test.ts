@@ -39,7 +39,8 @@ test('parseArgs: refuses bad input with a usage error', () => {
   const bad: string[][] = [
     ['frobnicate'], ['deploy'], ['deploy', 'a', 'b'], ['deploy', '--watch', '10'], ['deploy', '-x'], ['deploy', 'main', '--wat', '1'],
     ['deploy', 'main', '--watch'], ['deploy', 'main', '--watch', '0'], ['deploy', 'main', '--watch', '1.5'], ['deploy', 'main', '--watch', 'abc'],
-    ['deploy', 'main', '--front-port', '0'], ['deploy', 'main', '--front-port', '70000'], ['deploy', 'main', '--database', 'x;y'],
+    ['deploy', 'main', '--front-port', '0'], ['deploy', 'main', '--front-port', '80'], ['deploy', 'main', '--front-port', '1023'],
+    ['deploy', 'main', '--front-port', '70000'], ['front-port', '443'], ['deploy', 'main', '--database', 'x;y'],
     ['deploy', 'main', '--database', 'Axion-1'], ['deploy', 'main', '--approve', 'HEAD'], ['deploy', 'main', '--approve', SHA.toUpperCase()],
     ['deploy', 'main', '--approve-base', LIVE], ['deploy', 'main', '--drain', '-1'], ['deploy', 'main', '--drain', '601'],
     ['deploy', 'a..b'], ['deploy', 'main@{1}'], ['deploy', 'main', '--approve', SHA, '--approve', SHA],
@@ -215,7 +216,7 @@ test('main rollback twice: the first switches back through Docker, the second is
   assert.equal(f.sim.ctrs.get('axion-green')?.running, false);
   assert.equal(f.sim.ctrs.get('axion-green')?.restart, 'no');
   assert.equal((await readState(dir))?.active, 'blue');
-  assert.match(readFileSync(join(dir, 'front', 'default.conf'), 'utf8'), /server axion-blue:4190;/);
+  assert.match(readFileSync(join(dir, 'front', 'default.conf'), 'utf8'), /server axion-blue:4190 resolve;/);
   const n = f.calls.length;
   assert.equal(await c.run(['rollback']), 0);
   assert.match(c.out.at(-1)!, /nothing to do/);
@@ -255,8 +256,13 @@ test('main deploy: a protected change → exit 3 with the exact approval command
   assert.match(text, /needs_owner/);
   assert.match(text, /evolve\/guard\/deploy\.ts/);
   assert.ok(text.includes(`axion-guard deploy ${SHA} --approve ${SHA} --approve-base ${LIVE}`), text);
-  assert.equal(f.calls.filter((x) => x.cmd === 'docker').length, 0);
+  assert.deepEqual(f.calls.filter((x) => x.cmd === 'docker').map((x) => x.args.join(' ')), [
+    'ps -a --format {{.Names}}', 'network ls --format {{.Name}}', 'volume ls --format {{.Name}}',
+  ], 'only the leftover sweep; nothing built');
   assert.ok(!existsSync(join(dir, 'guard.lock')));
+  const st = await readState(dir);
+  assert.equal(st?.pending, undefined, 'pending dropped after needs_owner');
+  assert.equal(st?.frontPort, undefined, 'nothing promoted');
 });
 
 test('main deploy: --approve without --approve-base binds the approval to the live commit read now', async () => {
@@ -345,6 +351,7 @@ function deployHost(dir: string, watchAnswers: string[]) {
       if (g === `diff --name-status -z -M ${LIVE} ${SHA}`) return { stdout: 'M\0web/src/pages/Home.tsx\0' };
       if (g === `merge-base --is-ancestor ${LIVE} ${SHA}`) return { code: 0 };
       if (g.startsWith('archive ')) return {};
+      if (g === `ls-tree -r -z --name-only ${SHA}`) return { stdout: 'web/src/pages/Home.tsx\0' };
       if (g === `update-ref refs/heads/evolve/main ${SHA} ${LIVE}`) { main = SHA; return {}; }
       return { code: 128, stderr: `fatal: unexpected git ${g}` };
     }
@@ -362,12 +369,20 @@ function deployHost(dir: string, watchAnswers: string[]) {
   f.sim.health.set('axion-blue', health({ commit: LIVE, leader: true }));
   f.sim.health.set('axion-green', health({ commit: SHA }));
   f.fetchAnswers.set('http://127.0.0.1:5291/api/v1/health', watchAnswers);
+  mkdirSync(join(dir, 'repo.git', 'info'), { recursive: true });
+  writeFileSync(join(dir, 'repo.git', 'info', 'attributes'), '* -export-ignore -export-subst\n');
   return f;
 }
 
 test('main deploy end to end (fake host): live on green, front moved to the new port, state.json keeps port and database', async () => {
   const dir = root(BLUE_LIVE);
   const f = deployHost(dir, [health({ commit: SHA, leader: true })]);
+  let during = null as GuardState | null;
+  const origRun = f.host.run;
+  f.host.run = async (cmd, args, opts) => {
+    if (cmd === 'git' && args[2] === 'diff') during = await readState(dir);
+    return origRun(cmd, args, opts);
+  };
   const c = cli(dir, f);
   assert.equal(await c.run(['deploy', 'evolve/main', '--front-port', '5291', '--watch', '20', '--drain', '1']), 0, c.err.join('\n') + c.out.join('\n'));
   const s = await readState(dir);
@@ -377,6 +392,9 @@ test('main deploy end to end (fake host): live on green, front moved to the new 
   assert.equal(s?.frontPort, 5291);
   assert.equal(s?.database, 'axion');
   assert.equal(s?.deploying, undefined);
+  assert.equal(s?.pending, undefined, 'pending promoted and removed');
+  assert.deepEqual(during?.pending, { frontPort: 5291, database: 'axion' }, 'pending on disk before the core ran');
+  assert.equal(during?.frontPort, 5290, 'the stored port stays the old one while the deploy runs');
   assert.equal(f.sim.ctrs.get('axion-blue')?.running, false, 'old slot retired');
   assert.equal(f.sim.ctrs.get('axion-blue')?.restart, 'no');
   assert.equal(f.sim.ctrs.get('axion-green')?.restart, 'unless-stopped');
@@ -398,6 +416,7 @@ test('main deploy end to end (fake host): a failing watch rolls back to blue; th
   assert.equal(s?.active, 'blue');
   assert.equal(s?.activeSha, LIVE);
   assert.equal(s?.frontPort, 5291, 'switchTo(blue) ran with the deploy\'s port, so state.json must say so');
+  assert.equal(s?.pending, undefined);
   assert.equal(f.sim.ctrs.get('axion-blue')?.running, true);
   assert.equal(f.sim.ctrs.get('axion-green')?.running, false);
   assert.ok(!f.lines().some((l) => l.includes('update-ref')), 'evolve/main never moved');
@@ -429,4 +448,45 @@ test('main deploy: --database defaults to axion; without the flag it is refused 
   const c2 = cli(d2, f);
   assert.equal(await c2.run(['deploy', 'evolve/main']), 3, c2.err.join('\n'));
   assert.deepEqual(c2.err, []);
+});
+
+test('pending front port/database: shown by status, cleared by every rollback row, promoted by the "already live" row', async () => {
+  const pending = { frontPort: 5291, database: 'axion_restore_check' };
+  assert.match(formatStatus({ ...AFTER_SWITCH, pending, deploying: dep('watch') }),
+    /pending \(deploy in progress\): front port 5291, database axion_restore_check\nUNFINISHED DEPLOY/);
+  for (const [step, st] of [['build', BLUE_LIVE], ['switch', BLUE_LIVE], ['watch', AFTER_SWITCH]] as const) {
+    const dir = root({ ...st, pending, deploying: dep(step) });
+    await rollback(fakeFx().fx, dir);
+    const after = await readState(dir);
+    assert.equal(after?.pending, undefined, step);
+    assert.equal(after?.frontPort, 5290, `${step}: the stored port stays`);
+    assert.equal(after?.database, 'axion', `${step}: the stored database stays`);
+  }
+  const dir = root({ ...AFTER_SWITCH, pending, deploying: dep('record') });
+  await rollback(fakeFx(SHA).fx, dir);
+  assert.deepEqual(await readState(dir), { ...AFTER_SWITCH, frontPort: 5291, database: 'axion_restore_check' });
+  // record, evolve/main not moved: back to blue, pending dropped
+  const d2 = root({ ...AFTER_SWITCH, pending, deploying: dep('record') });
+  await rollback(fakeFx(LIVE).fx, d2);
+  const a2 = await readState(d2);
+  assert.equal(a2?.pending, undefined);
+  assert.equal(a2?.frontPort, 5290);
+});
+
+test('main deploy sweeps leftovers of a killed run under the lock before anything else', async () => {
+  const dir = root(BLUE_LIVE);
+  mkdirSync(join(dir, 'work', 'checks-abc'), { recursive: true });
+  const f = deployHost(dir, [health({ commit: SHA, leader: true })]);
+  const orig = f.host.run;
+  f.host.run = async (cmd, args, opts) => {
+    if (args.join(' ') === 'ps -a --format {{.Names}}') { f.calls.push({ cmd, args }); return { code: 0, stdout: 'axion-checks-0a1b2c3d-pg\naxion-blue\n', stderr: '' }; }
+    return orig(cmd, args, opts);
+  };
+  const c = cli(dir, f);
+  await c.run(['deploy', 'evolve/main', '--front-port', '5291', '--watch', '20']);
+  const l = f.lines();
+  assert.equal(l[0], 'docker ps -a --format {{.Names}}', 'the sweep runs first');
+  assert.equal(l[1], 'docker rm -f -v axion-checks-0a1b2c3d-pg');
+  assert.ok(l.indexOf('docker rm -f -v axion-checks-0a1b2c3d-pg') < l.findIndex((x) => x.startsWith('git ')));
+  assert.match(c.out.join('\n'), /removed leftovers of an earlier run: axion-checks-0a1b2c3d-pg, .*work\/checks-abc/);
 });

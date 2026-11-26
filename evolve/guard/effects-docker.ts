@@ -3,14 +3,17 @@
 // overridden DATABASE_URL) reach containers as `-e NAME` with the value in the docker CLI's environment, never in argv.
 // The exact command lines are listed in the Task 6 report and pinned by effects.test.ts.
 
-import { chmod, copyFile, cp, mkdir, mkdtemp, open, readFile, rename, rm, unlink } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { chmod, copyFile, cp, mkdir, mkdtemp, open, readdir, readFile, rm, unlink } from 'node:fs/promises';
+import { constants, existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Slot } from './deploy.ts';
 import { names } from './config.ts';
 import type { GuardConfig } from './config.ts';
 import type { Host, RunOpts, RunResult } from './host.ts';
 import { assertSha } from './effects-git.ts';
+import { envFileValue, errTail, imageTag, parseHealth, readSummary, renderFrontConf, writeAtomic } from './effects-util.ts';
+
+export { errTail, imageTag, renderFrontConf, writeAtomic };
 
 export type DeployContext = {
   /** host port the front publishes (0.0.0.0:<port> → 8080) */
@@ -25,83 +28,16 @@ export type DeployContext = {
   sha?: string;
 };
 
-type Health = { ok?: unknown; commit?: unknown; leader?: unknown };
 type State = 'missing' | 'running' | 'stopped';
 
 const DB_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const TAG_RE = /^[0-9a-f]{12}-\d{8}T\d{6}Z$/;
-const CONTAINER_RE = /^[a-z0-9][a-z0-9_.-]*$/;
 const SLOT_HEALTH = 'http://127.0.0.1:4190/api/v1/health';
+/** <repo>/info/attributes (written by install.sh): overrides any in-tree .gitattributes for `git archive` */
+export const REPO_ATTRIBUTES = '* -export-ignore -export-subst';
 
 const other = (s: Slot): Slot => (s === 'blue' ? 'green' : 'blue');
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
-
-/** the last few non-empty lines of a failed command (docker build/BuildKit puts the reason at the end) */
-export function errTail(r: RunResult, n = 5): string {
-  const lines = `${r.stderr}\n${r.stdout}`.split('\n').map((l) => l.trim()).filter(Boolean);
-  return lines.slice(-n).join(' | ') || `exit ${r.code}`;
-}
-
-function parseHealth(text: string): Health | null {
-  try {
-    const v = JSON.parse(text) as unknown;
-    return typeof v === 'object' && v !== null ? (v as Health) : null;
-  } catch {
-    return null;
-  }
-}
-
-/** `<sha12>-<YYYYMMDDTHHMMSSZ>` */
-export function imageTag(sha: string, nowMs: number): string {
-  return `${sha.slice(0, 12)}-${new Date(nowMs).toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')}`;
-}
-
-async function readSummary(file: string): Promise<{ passed?: unknown; ok?: unknown } | null> {
-  try {
-    const v = JSON.parse(await readFile(file, 'utf8')) as unknown;
-    return typeof v === 'object' && v !== null ? (v as { passed?: unknown; ok?: unknown }) : null;
-  } catch {
-    return null;
-  }
-}
-
-export function renderFrontConf(template: string, container: string): string {
-  if (!CONTAINER_RE.test(container)) throw new Error(`not a container name: ${JSON.stringify(container)}`);
-  return template.replaceAll('{{SLOT}}', container);
-}
-
-/** tmp file in the same directory (named so nginx's conf.d/*.conf never matches it), fsync, rename, fsync the directory */
-export async function writeAtomic(file: string, text: string, mode = 0o644): Promise<void> {
-  const dir = dirname(file);
-  await mkdir(dir, { recursive: true });
-  const tmp = join(dir, `.${basename(file)}.${process.pid}.${Date.now()}.tmp`);
-  const fh = await open(tmp, 'wx', mode);
-  try {
-    await fh.writeFile(text);
-    await fh.sync();
-  } finally {
-    await fh.close();
-  }
-  try {
-    await rename(tmp, file);
-  } catch (e) {
-    await unlink(tmp).catch(() => {});
-    throw e;
-  }
-  const d = await open(dir, 'r');
-  try { await d.sync(); } finally { await d.close(); }
-}
-
-/** KEY=VALUE lines as `docker --env-file` reads them (no quotes, # comments); the last duplicate wins */
-function envFileValue(text: string, key: string): string | undefined {
-  let v: string | undefined;
-  for (const line of text.split(/\r?\n/)) {
-    if (line.trim().startsWith('#')) continue;
-    const i = line.indexOf('=');
-    if (i > 0 && line.slice(0, i).trim() === key) v = line.slice(i + 1);
-  }
-  return v;
-}
 
 export function dockerOps(cfg: GuardConfig, host: Host, ctx: DeployContext) {
   const n = names(cfg);
@@ -146,6 +82,26 @@ export function dockerOps(cfg: GuardConfig, host: Host, ctx: DeployContext) {
     if (decodeURIComponent(u.pathname.replace(/^\//, '')) === ctx.database) return { url: live, overridden: false };
     u.pathname = `/${ctx.database}`;
     return { url: u.toString(), overridden: true };
+  }
+
+  /**
+   * The --env-file for a container on the live database: the live env file itself, or (with --database) a derived copy
+   * in the root-only work dir with only DATABASE_URL replaced (mode 600). One env file, no `-e DATABASE_URL`: nothing
+   * depends on which of two duplicate entries Docker keeps. `done()` removes the copy (call it right after `docker run`).
+   */
+  async function liveEnvFile(): Promise<{ file: string; done: () => Promise<void> }> {
+    const db = await dbUrl();
+    if (!db.overridden) return { file: cfg.liveEnvFile, done: async () => {} };
+    const text = await readFile(cfg.liveEnvFile, 'utf8');
+    const derived = text.split('\n').map((line) => {
+      if (line.trim().startsWith('#')) return line;
+      const i = line.indexOf('=');
+      return i > 0 && line.slice(0, i).trim() === 'DATABASE_URL' ? `DATABASE_URL=${db.url}` : line;
+    }).join('\n');
+    const file = join(await workDir(), `env-${host.randomHex(4)}.env`);
+    const fh = await open(file, 'wx', 0o600);
+    try { await fh.writeFile(derived); } finally { await fh.close(); }
+    return { file, done: () => rm(file, { force: true }) };
   }
 
   /** update --restart no, then a graceful stop (SIGTERM, 30 s): app.close lets in-flight answers finish */
@@ -304,6 +260,17 @@ export function dockerOps(cfg: GuardConfig, host: Host, ctx: DeployContext) {
       // fail closed: the trusted copy decides what goes into the image, never the candidate (R7/R11)
       if (!existsSync(cfg.dockerignore)) throw new Error(`the Guard's installed .dockerignore is missing (${cfg.dockerignore})`);
       if (!existsSync(join(cfg.evolveDir, 'docker', 'app.Dockerfile'))) throw new Error(`the Guard's installed evolve/ is incomplete (${cfg.evolveDir})`);
+      // git archive honours in-tree .gitattributes (export-ignore/export-subst): a candidate could drop or rewrite files
+      // in its own build. Two layers: the repo's info/attributes neutralises them, and a tree with any .gitattributes is refused.
+      const attrFile = join(cfg.repo, 'info', 'attributes');
+      const attrs = await readFile(attrFile, 'utf8').catch(() => null);
+      if (attrs === null || attrs.replace(/\n$/, '') !== REPO_ATTRIBUTES) {
+        throw new Error(`${attrFile} must contain exactly "${REPO_ATTRIBUTES}" (install.sh writes it); refusing to build`);
+      }
+      const ls = await host.run('git', ['--git-dir', cfg.repo, 'ls-tree', '-r', '-z', '--name-only', sha], { timeoutMs: 120_000 });
+      if (ls.code !== 0 || ls.stdout.startsWith('[…output truncated…]')) throw new Error(`git ls-tree: ${errTail(ls)}`);
+      const attrPaths = ls.stdout.split('\0').filter((p) => p === '.gitattributes' || p.endsWith('/.gitattributes'));
+      if (attrPaths.length > 0) throw new Error(`the candidate contains ${attrPaths.join(', ')}; the Guard does not build trees with .gitattributes`);
       const tag = imageTag(sha, host.now());
       const base = join(await workDir(), `build-${host.randomHex(4)}`);
       const tar = `${base}.tar`;
@@ -313,9 +280,12 @@ export function dockerOps(cfg: GuardConfig, host: Host, ctx: DeployContext) {
         if (r.code !== 0) throw new Error(`git archive: ${errTail(r)}`);
         const x = await host.run('tar', ['-xf', tar, '-C', base], { timeoutMs: 10 * 60_000 });
         if (x.code !== 0) throw new Error(`tar: ${errTail(x)}`);
+        // the candidate's evolve/ and .dockerignore go entirely (a symlink is removed, never followed); the trusted copies
+        // are written to fresh paths only (errorOnExist / COPYFILE_EXCL), so nothing is written through a candidate link
         await rm(join(base, 'evolve'), { recursive: true, force: true });
-        await cp(cfg.evolveDir, join(base, 'evolve'), { recursive: true });
-        await copyFile(cfg.dockerignore, join(base, '.dockerignore'));
+        await rm(join(base, '.dockerignore'), { recursive: true, force: true });
+        await cp(cfg.evolveDir, join(base, 'evolve'), { recursive: true, force: false, errorOnExist: true });
+        await copyFile(cfg.dockerignore, join(base, '.dockerignore'), constants.COPYFILE_EXCL);
         await must(['build', '-f', join(base, 'evolve', 'docker', 'app.Dockerfile'), '--build-arg', `AXION_COMMIT=${sha}`,
           '-t', n.app(tag), base], { timeoutMs: cfg.buildTimeoutMs });
         await must(['build', '-f', join(base, 'evolve', 'docker', 'checks.Dockerfile'), '--build-arg', `APP_IMAGE=${n.app(tag)}`,
@@ -357,7 +327,8 @@ export function dockerOps(cfg: GuardConfig, host: Host, ctx: DeployContext) {
         if (!summary) return { ok: false, passed: 0, log: `no summary.json (checks container exit ${r.code}): ${log}` };
         return { ok: r.code === 0 && summary.ok === true, passed: summary.passed as number, log };
       } finally {
-        await cleanup([['rm', '-f', run, pg], ['volume', 'rm', vol], ['network', 'rm', net]]);
+        // -v: postgres:16-alpine declares VOLUME /var/lib/postgresql/data; without it every run leaks an anonymous volume
+        await cleanup([['rm', '-f', '-v', run, pg], ['volume', 'rm', vol], ['network', 'rm', net]]);
         await rm(out, { recursive: true, force: true });
       }
     },
@@ -383,18 +354,24 @@ export function dockerOps(cfg: GuardConfig, host: Host, ctx: DeployContext) {
         }
         return h.ok;
       } finally {
-        await cleanup([['rm', '-f', app, pg], ['network', 'rm', net]]);
+        await cleanup([['rm', '-f', '-v', app, pg], ['network', 'rm', net]]);
       }
     },
 
     async migrate(tag: string): Promise<void> {
-      const id = host.randomHex(4);
-      const db = await dbUrl();
-      const r = await docker(['run', '--rm', '--name', `${cfg.prefix}-migrate-${id}`, '--network', 'none', '--user', await user(),
-        '--env-file', cfg.liveEnvFile, '-e', 'AXION_MIGRATE_ON_START=0', '-e', 'CLOUD_MODEL_HOME=/tmp/cloud-home',
-        ...(db.overridden ? ['-e', 'DATABASE_URL'] : []),
-        '-v', `${cfg.socketDir}:${cfg.socketDir}`, '-w', '/app/server', n.app(tag), 'node', '--import', 'tsx', 'src/migrate-cli.ts', 'up'],
-      { ...(db.overridden ? { env: { DATABASE_URL: db.url } } : {}), timeoutMs: cfg.migrateTimeoutMs });
+      const name = `${cfg.prefix}-migrate-${host.randomHex(4)}`;
+      const env = await liveEnvFile();
+      let r: RunResult;
+      try {
+        r = await docker(['run', '--rm', '--init', '--name', name, '--network', 'none', '--user', await user(),
+          '--env-file', env.file, '-e', 'AXION_MIGRATE_ON_START=0', '-e', 'CLOUD_MODEL_HOME=/tmp/cloud-home',
+          '-v', `${cfg.socketDir}:${cfg.socketDir}`, '-w', '/app/server', n.app(tag), 'node', '--import', 'tsx', 'src/migrate-cli.ts', 'up'],
+        { timeoutMs: cfg.migrateTimeoutMs });
+      } finally {
+        await env.done();
+        // --rm only works while the docker CLI waits: after a timeout (CLI killed) the container would keep migrating
+        await cleanup([['rm', '-f', name]]);
+      }
       if (r.code !== 0) throw new Error(`migrations failed: ${errTail(r)}`);
       host.log(`migrations: ${r.stdout.trim().split('\n').at(-1) ?? ''}`);
     },
@@ -419,14 +396,19 @@ export function dockerOps(cfg: GuardConfig, host: Host, ctx: DeployContext) {
         await retire(name);
       }
       if (st !== 'missing') await must(['rm', name]);
-      const db = await dbUrl();
-      await must(['run', '-d', '--init', '--name', name, '--network', cfg.liveNetwork, '--user', await user(), '--restart', 'unless-stopped',
-        '--env-file', cfg.liveEnvFile,
-        '-e', 'AXION_LEADER=lock', '-e', 'AXION_MIGRATE_ON_START=0', '-e', `HTTPS_PROXY=${cfg.egressUrl}`, '-e', 'NO_PROXY=127.0.0.1,localhost',
-        '-e', 'UPLOAD_DIR=/data/uploads', '-e', 'AUDIT_ANCHOR_FILE=/data/audit-anchors.jsonl', '-e', 'CLOUD_MODEL_HOME=/data/cloud-home',
-        '-e', 'BACKUP_DIR=/backups', ...(db.overridden ? ['-e', 'DATABASE_URL'] : []),
-        '-v', `${cfg.socketDir}:${cfg.socketDir}`, '-v', `${cfg.dataDir}:/data`, '-v', `${cfg.backupsDir}:/backups:ro`,
-        n.app(tag), 'node', 'evolve/slot/entry.mjs'], db.overridden ? { env: { DATABASE_URL: db.url } } : undefined);
+      const env = await liveEnvFile();
+      try {
+        // the container keeps its environment from creation; a later `docker start` does not read the env file again
+        await must(['run', '-d', '--init', '--name', name, '--network', cfg.liveNetwork, '--user', await user(), '--restart', 'unless-stopped',
+          '--env-file', env.file,
+          '-e', 'AXION_LEADER=lock', '-e', 'AXION_MIGRATE_ON_START=0', '-e', `HTTPS_PROXY=${cfg.egressUrl}`, '-e', 'NO_PROXY=127.0.0.1,localhost',
+          '-e', 'UPLOAD_DIR=/data/uploads', '-e', 'AUDIT_ANCHOR_FILE=/data/audit-anchors.jsonl', '-e', 'CLOUD_MODEL_HOME=/data/cloud-home',
+          '-e', 'BACKUP_DIR=/backups',
+          '-v', `${cfg.socketDir}:${cfg.socketDir}`, '-v', `${cfg.dataDir}:/data`, '-v', `${cfg.backupsDir}:/backups:ro`,
+          n.app(tag), 'node', 'evolve/slot/entry.mjs']);
+      } finally {
+        await env.done();
+      }
     },
 
     async smoke(slot: Slot): Promise<{ ok: boolean; commit: string | null }> {
@@ -506,6 +488,30 @@ export function dockerOps(cfg: GuardConfig, host: Host, ctx: DeployContext) {
       }
       if (expectLeader && !sawLeader) return { ok: false, reason: 'the candidate never reported leader:true through the front' };
       return { ok: true };
+    },
+
+    /**
+     * Under the lock, before a deploy: removes what a killed Guard left behind: throw-away containers (with their anonymous
+     * volumes), networks and volumes named <prefix>-checks-<id>…, <prefix>-boot-<id>…, <prefix>-migrate-<id>, and the
+     * work dir's contents (build contexts, checks output, derived env files). Returns what it removed.
+     */
+    async sweepLeftovers(): Promise<string[]> {
+      const re = new RegExp(`^${cfg.prefix}-(checks|boot|migrate)-[0-9a-f]{8}(-(pg|run|app|sock))?$`);
+      const list = async (args: string[]) => (await must(args)).stdout.split('\n').map((l) => l.trim()).filter((l) => re.test(l));
+      const removed: string[] = [];
+      const ctrs = await list(['ps', '-a', '--format', '{{.Names}}']);
+      if (ctrs.length) { await cleanup([['rm', '-f', '-v', ...ctrs]]); removed.push(...ctrs); }
+      const nets = await list(['network', 'ls', '--format', '{{.Name}}']);
+      if (nets.length) { await cleanup([['network', 'rm', ...nets]]); removed.push(...nets.map((x) => `network ${x}`)); }
+      const vols = await list(['volume', 'ls', '--format', '{{.Name}}']);
+      if (vols.length) { await cleanup([['volume', 'rm', ...vols]]); removed.push(...vols.map((x) => `volume ${x}`)); }
+      if (existsSync(cfg.workDir)) {
+        for (const e of await readdir(cfg.workDir)) {
+          await rm(join(cfg.workDir, e), { recursive: true, force: true });
+          removed.push(join(cfg.workDir, e));
+        }
+      }
+      return removed;
     },
 
     /** keeps the active, the previous and the newest other `<prefix>-app:<sha12>-<utc>`; the same tags of `<prefix>-checks` */

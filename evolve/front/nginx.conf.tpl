@@ -2,8 +2,15 @@
 # which is mounted read-only at /etc/nginx/conf.d in the axion-front container (nginx:1.27-alpine). A switch rewrites the
 # file atomically and runs `nginx -t` + `nginx -s reload`; never edit the rendered file by hand.
 # {{SLOT}} is the slot container the site is served from (axion-blue or axion-green, on the axion-live network).
+# The slot's name is re-resolved through Docker's DNS (127.0.0.11) every 10 s (`resolve`, nginx >= 1.27.3; the image
+# nginx:1.27-alpine is 1.27.5): a slot restarted with a new IP keeps being reached, and the front starts even while the
+# slot is not up yet (e.g. after a reboot).
+resolver 127.0.0.11 valid=10s ipv6=off;
+resolver_timeout 5s;
+
 upstream axion_slot {
-    server {{SLOT}}:4190;
+    zone axion_slot 64k;
+    server {{SLOT}}:4190 resolve;
     keepalive 16;
 }
 

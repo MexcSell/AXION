@@ -5,9 +5,10 @@
 //                            [--no-expect-leader] [--drain <s>=5]
 //   axion-guard status | rollback | history [n=20] | front-port <port>
 //
-// --front-port defaults to the port kept in state.json (first time 5290); --database defaults to axion, and a deploy without
-// --database is refused while the live slot uses another database. Both are written to state.json once a deploy is live
-// (the port also after a rollback, and by `front-port`). --approve-base defaults to the live commit at invocation.
+// --front-port (>= 1024) defaults to the port kept in state.json (first time 5290); --database defaults to axion, and a deploy
+// without --database is refused while the live slot uses another database. A deploy writes both to state.json as `pending`
+// before the core runs; they become the stored ones once it is live (the port also after a rollback; `front-port` stores
+// directly). --approve-base defaults to the live commit at invocation.
 // Exit codes: 0 live / done, 1 rejected / rolled back / error, 2 usage, 3 needs the owner's approval, 4 busy (lock held).
 
 import { readFile } from 'node:fs/promises';
@@ -92,7 +93,7 @@ function parseDeploy(args: string[]): Command {
       case '--approve': o.approve = sha(val(), a); break;
       case '--approve-base': o.approveBase = sha(val(), a); break;
       case '--watch': o.watchS = int(val(), a, 1, 86_400); break;
-      case '--front-port': o.frontPort = int(val(), a, 1, 65_535); break;
+      case '--front-port': o.frontPort = int(val(), a, 1024, 65_535); break;
       case '--drain': o.drainS = int(val(), a, 0, 600); break;
       case '--database': {
         const v = val();
@@ -130,7 +131,7 @@ export function parseArgs(argv: string[]): Command {
       return { cmd: 'history', n: rest.length ? int(rest[0], 'history n', 1, 100_000) : 20 };
     case 'front-port':
       if (rest.length !== 1) throw new UsageError('front-port needs exactly one port');
-      return { cmd: 'front-port', port: int(rest[0], 'port', 1, 65_535) };
+      return { cmd: 'front-port', port: int(rest[0], 'port', 1024, 65_535) };
     case 'deploy': return parseDeploy(rest);
     default: throw new UsageError(`unknown command ${JSON.stringify(cmd)}`);
   }
@@ -152,12 +153,28 @@ export function formatStatus(s: GuardState | null, defaults = { frontPort: 5290,
   lines.push(port !== undefined ? `front port: ${port}` : `front port: ${defaults.frontPort} (default)`);
   lines.push(db !== undefined ? `database:   ${db}` : `database:   ${defaults.database} (default)`);
   const d = s?.deploying;
+  const p = s ? pendingOf(s) : {};
+  if (p.frontPort !== undefined || p.database !== undefined) {
+    lines.push(`pending (deploy in progress): front port ${p.frontPort ?? '?'}, database ${p.database ?? '?'}`);
+  }
   lines.push(d ? `UNFINISHED DEPLOY of ${d.sha} at step ${d.step} (started ${d.startedAt}): run \`axion-guard rollback\`` : 'no deploy in progress');
   return lines.join('\n');
 }
 
-function withoutDeploying(s: GuardState): GuardState {
-  const { deploying: _d, ...rest } = s;
+type Pending = { frontPort?: number; database?: string };
+
+/** the front port and database of a deploy in progress (state.json `pending`, written by the CLI before the core runs) */
+function pendingOf(s: GuardState): Pending {
+  const p = s.pending as Record<string, unknown> | undefined;
+  return {
+    ...(typeof p?.frontPort === 'number' ? { frontPort: p.frontPort } : {}),
+    ...(typeof p?.database === 'string' ? { database: p.database } : {}),
+  };
+}
+
+/** state.json with the deploy resolved: no `deploying`, no `pending` */
+function settled(s: GuardState): GuardState {
+  const { deploying: _d, pending: _p, ...rest } = s;
   return rest as GuardState;
 }
 
@@ -178,7 +195,7 @@ export async function rollback(fx: Pick<Effects, 'switchTo' | 'stopSlot' | 'live
 
   if (STEPS.indexOf(d.step) < STEPS.indexOf('switch')) {
     await fx.stopSlot(idle);
-    await writeState(stateDir, withoutDeploying(s));
+    await writeState(stateDir, settled(s));
     const what = `stopped the candidate slot ${idle}; ${active} unchanged`;
     await note('rolled_back', what);
     return `rolled back the unfinished deploy of ${d.sha} (step ${d.step}): ${what}`;
@@ -186,13 +203,14 @@ export async function rollback(fx: Pick<Effects, 'switchTo' | 'stopSlot' | 'live
   if (d.step === 'switch') {
     if (s.activeImage !== null) await fx.switchTo(active);
     await fx.stopSlot(idle);
-    await writeState(stateDir, withoutDeploying(s));
+    await writeState(stateDir, settled(s));
     const what = s.activeImage !== null ? `the front is back on ${active}; stopped ${idle}` : `nothing was live; stopped ${idle}`;
     await note('rolled_back', what);
     return `rolled back the unfinished deploy of ${d.sha} (step switch): ${what}`;
   }
   if (d.step === 'record' && (await fx.liveSha()) === d.sha) {
-    await writeState(stateDir, withoutDeploying(s));
+    // the deploy did go live: its front port and database become the stored ones
+    await writeState(stateDir, { ...settled(s), ...pendingOf(s) });
     await note('live', `evolve/main is already at ${d.sha}; only cleared the unfinished-deploy marker`);
     return `already live: evolve/main is at ${d.sha}; cleared the unfinished-deploy marker (${active} stays active)`;
   }
@@ -200,7 +218,7 @@ export async function rollback(fx: Pick<Effects, 'switchTo' | 'stopSlot' | 'live
   if (s.previousImage !== null) await fx.switchTo(idle);
   await fx.stopSlot(active);
   await writeState(stateDir, {
-    ...withoutDeploying(s), active: idle, activeImage: s.previousImage, activeSha: s.previousSha, previousImage: null, previousSha: null,
+    ...settled(s), active: idle, activeImage: s.previousImage, activeSha: s.previousSha, previousImage: null, previousSha: null,
   });
   const what = s.previousImage !== null ? `the front is back on ${idle} (${s.previousImage}); stopped ${active}` : `nothing to go back to; stopped ${active}`;
   await note('rolled_back', what);
@@ -327,6 +345,13 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
             err(`axion-guard: warning: the live slot uses database ${liveDb}, this deploy uses ${ctx.database} (a rollback goes back to ${liveDb})`);
           }
           const fx = makeEffects(cfg, host, ctx);
+          // no other Guard runs (we hold the lock): whatever a killed one left behind goes now
+          try {
+            const swept = await fx.sweepLeftovers();
+            if (swept.length) out(`removed leftovers of an earlier run: ${swept.join(', ')}`);
+          } catch (e) {
+            err(`axion-guard: warning: sweeping leftovers failed: ${msg(e)}`);
+          }
           const target = await fx.resolve(c.ref);
           ctx.sha = target;
           let approvedBase = c.approveBase;
@@ -339,28 +364,34 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
           if (!Number.isInteger(baseline)) throw new Error(`${join(cfg.evolveDir, 'baseline.json')} has no integer serverTestsPassed`);
           const active: Slot = s?.active ?? 'blue';
           out(`deploying ${target} (${c.ref}) into ${cfg.prefix}-${other(active)}; front port ${ctx.frontPort}, database ${ctx.database}`);
+          // the deploy's port and database are on disk before the core runs, so `axion-guard rollback` after a kill knows them
+          await writeState(cfg.stateDir, { ...(s ?? initialState()), pending: { frontPort: ctx.frontPort, database: ctx.database } });
+          /** resolves `pending` once the core returned: dropped, or promoted (all or only the port) */
+          const finish = async (keep: Pending) => {
+            const now = await readState(cfg.stateDir);
+            if (now) await writeState(cfg.stateDir, { ...settled(now), ...(now.deploying ? { deploying: now.deploying } : {}), ...keep });
+            return now;
+          };
           // the CLI already holds the lock (taken before reading state.json); the core's lock() is a no-op here
           const result = await deploy({ ...fx, lock: async () => async () => {} }, {
             sha: target, approvedSha: c.approve, approvedBase, watchMs: c.watchS * 1000, baselinePassed: baseline as number,
             active, stateDir: cfg.stateDir, rules,
           });
           out(JSON.stringify(result));
+          if (result.outcome !== 'live') {
+            // rolled back: the switch back ran with this deploy's front port (switchTo moves the front to it)
+            await finish(result.outcome === 'rolled_back' ? { frontPort: ctx.frontPort } : {});
+          }
           if (result.outcome === 'needs_owner') {
             out(`needs the owner's approval: protected paths changed: ${(result.hits ?? []).join(', ')}`);
             out(`to approve: axion-guard deploy ${target} --approve ${target} --approve-base ${result.base ?? ''}`);
             return 3;
           }
           if (result.outcome !== 'live') {
-            if (result.outcome === 'rolled_back') {
-              // the switch back ran with this deploy's front port (switchTo recreates the front on it): keep state.json true
-              const back = await readState(cfg.stateDir);
-              if (back && portOf(back) !== ctx.frontPort) await writeState(cfg.stateDir, { ...back, frontPort: ctx.frontPort });
-            }
             out(`${result.outcome} at ${result.failedStep ?? '?'}: ${result.reason ?? ''}`);
             return 1;
           }
-          const now = await readState(cfg.stateDir);
-          if (now) await writeState(cfg.stateDir, { ...now, frontPort: ctx.frontPort, database: ctx.database });
+          const now = await finish({ frontPort: ctx.frontPort, database: ctx.database });
           out(`live: ${target} (${result.image ?? ''}) in ${cfg.prefix}-${now?.active ?? other(active)}${result.reason ? `; ${result.reason}` : ''}`);
           try {
             const p = await fx.pruneImages(now?.activeImage ?? null, now?.previousImage ?? null);

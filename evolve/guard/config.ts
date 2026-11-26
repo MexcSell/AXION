@@ -54,7 +54,12 @@ export type GuardConfig = {
   migrateTimeoutMs: number;
 };
 
-const NAME_RE = /^[a-z0-9][a-z0-9_.-]*$/;
+const NAME_RE = /^[a-z_][a-z0-9_-]*$/;
+/** the prefix and both networks: axion, axion-live, axion-trial-edge, … */
+export const AXION_NAME_RE = /^axion(-[a-z0-9]+)*$/;
+/** [registry[:port]/]name[:tag][@sha256:digest], lowercase name; never starts with `-` (it is a docker argument) */
+const IMAGE_RE = /^([a-z0-9][a-z0-9.-]*(:\d{1,5})?\/)?[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*)*(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(@sha256:[0-9a-f]{64})?$/;
+const EGRESS_RE = /^http:\/\/[a-z0-9][a-z0-9.-]*:\d{1,5}$/;
 const INSTALLED_EVOLVE = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 export function loadConfig(env: Record<string, string | undefined> = process.env, evolveDir = INSTALLED_EVOLVE): GuardConfig {
@@ -64,13 +69,26 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   };
   const root = get('AXION_GUARD_ROOT', '/srv/axion-evolve');
   if (!isAbsolute(root)) throw new Error(`AXION_GUARD_ROOT must be an absolute path, got ${root}`);
-  const prefix = get('AXION_GUARD_PREFIX', 'axion');
-  if (!NAME_RE.test(prefix)) throw new Error(`AXION_GUARD_PREFIX must be a lowercase Docker name prefix, got ${JSON.stringify(prefix)}`);
-  const name = (k: string, d: string) => {
+  // every Docker object the Guard creates or removes is named axion or axion-… (R14): a misconfiguration can never make
+  // it touch another application's containers, networks or volumes
+  const axionName = (k: string, d: string) => {
     const v = get(k, d);
-    if (!NAME_RE.test(v)) throw new Error(`${k} must be a Docker network/user name, got ${JSON.stringify(v)}`);
+    if (!AXION_NAME_RE.test(v)) throw new Error(`${k} must match ${AXION_NAME_RE.source}, got ${JSON.stringify(v)}`);
     return v;
   };
+  const prefix = axionName('AXION_GUARD_PREFIX', 'axion');
+  const name = (k: string, d: string) => {
+    const v = get(k, d);
+    if (!NAME_RE.test(v)) throw new Error(`${k} must be a lowercase user name, got ${JSON.stringify(v)}`);
+    return v;
+  };
+  const image = (k: string, d: string) => {
+    const v = get(k, d);
+    if (!IMAGE_RE.test(v)) throw new Error(`${k} must be an image reference (e.g. nginx:1.27-alpine), got ${JSON.stringify(v)}`);
+    return v;
+  };
+  const egress = get('AXION_GUARD_EGRESS', 'http://axion-egress:3128');
+  if (!EGRESS_RE.test(egress)) throw new Error(`AXION_GUARD_EGRESS must look like http://<host>:<port>, got ${JSON.stringify(egress)}`);
   const path = (k: string, d: string) => {
     const v = get(k, d);
     if (!isAbsolute(v)) throw new Error(`${k} must be an absolute path, got ${v}`);
@@ -79,12 +97,12 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   return {
     root,
     prefix,
-    liveNetwork: name('AXION_GUARD_LIVE_NETWORK', 'axion-live'),
-    edgeNetwork: name('AXION_GUARD_EDGE_NETWORK', 'axion-edge'),
-    frontImage: get('AXION_GUARD_FRONT_IMAGE', 'nginx:1.27-alpine'),
-    postgresImage: get('AXION_GUARD_POSTGRES_IMAGE', 'postgres:16-alpine'),
+    liveNetwork: axionName('AXION_GUARD_LIVE_NETWORK', 'axion-live'),
+    edgeNetwork: axionName('AXION_GUARD_EDGE_NETWORK', 'axion-edge'),
+    frontImage: image('AXION_GUARD_FRONT_IMAGE', 'nginx:1.27-alpine'),
+    postgresImage: image('AXION_GUARD_POSTGRES_IMAGE', 'postgres:16-alpine'),
     osUser: name('AXION_GUARD_USER', 'axion'),
-    egressUrl: get('AXION_GUARD_EGRESS', 'http://axion-egress:3128'),
+    egressUrl: egress,
     liveEnvFile: path('AXION_GUARD_LIVE_ENV', join(root, 'secrets', 'live.env')),
     backupScript: path('AXION_GUARD_BACKUP_SCRIPT', join(root, 'guard', 'evolve', 'backup.sh')),
     evolveDir,

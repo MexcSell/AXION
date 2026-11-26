@@ -11,7 +11,7 @@ test('protected.txt parses to exactly the agreed rule list', () => {
   assert.deepEqual(rules, [
     'server/migrations/**', 'server/src/auth/**', 'server/src/approvals/**', 'server/src/policy/**', 'server/src/grants/**',
     'server/src/cloud/claude-cli.ts', '**/.env*',
-    'evolve/**', '.dockerignore', '**/Dockerfile*', '**/*.Dockerfile', '**/docker-compose*',
+    'evolve/**', '.dockerignore', '**/Dockerfile*', '**/*.Dockerfile', '**/docker-compose*', '**/.gitattributes',
     '**/package.json', '**/package-lock.json',
     'server/vitest.config.ts', 'server/test/setup.ts', 'server/test/helpers.ts', 'web/scripts/api-e2e.sh',
     'modify:server/test/**', 'modify:web/scripts/**',
