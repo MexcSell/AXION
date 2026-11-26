@@ -35,9 +35,9 @@ describe('socket database URL', () => {
     try { c = await connectClient({ connectionString: url }); }
     catch (e) {
       const m = String((e as Error).message);
-      if (/peer authentication|role "[^"]*" does not exist/i.test(m)) {
-        console.warn(`skipped: user "${userInfo().username}" has no peer mapping on /var/run/postgresql (runs for real in the container, Task 7): ${m}`);
-        ctx.skip();
+      // AXION_REQUIRE_SOCKET_TEST=1 (set in the container, Task 7): never skip, any error fails; otherwise a runner without a peer mapping skips
+      if (process.env.AXION_REQUIRE_SOCKET_TEST !== '1' && /peer authentication|role "[^"]*" does not exist/i.test(m)) {
+        ctx.skip(`user "${userInfo().username}" has no peer mapping on /var/run/postgresql (set AXION_REQUIRE_SOCKET_TEST=1 to make this fail): ${m}`);
       }
       throw e;
     }
