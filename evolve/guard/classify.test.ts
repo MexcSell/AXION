@@ -13,7 +13,7 @@ test('protected.txt parses to exactly the agreed rule list', () => {
     'server/src/cloud/claude-cli.ts', '**/.env*', '**/.env*/**',
     'server/src/main.ts', 'server/src/migrate.ts', 'server/src/migrate-cli.ts', 'server/src/leader.ts', 'server/src/locks.ts', 'server/src/health.ts',
     'evolve/**', '.dockerignore', '**/Dockerfile*', '**/*.Dockerfile', '**/docker-compose*', '**/.gitattributes',
-    '**/package.json', '**/package-lock.json',
+    '**/package.json', '**/package-lock.json', '**/.npmrc',
     'server/vitest.config.ts', 'server/tsconfig.json', 'web/tsconfig.json', 'web/vite.config.ts', 'server/test/setup.ts', 'server/test/helpers.ts', 'web/scripts/api-e2e.sh',
     'modify:server/test/**', 'modify:web/scripts/**',
   ]);
@@ -31,7 +31,7 @@ test('plain rules hit any status, including new files', () => {
   assert.deepEqual(hit('web/scripts/api-e2e.sh'), ['web/scripts/api-e2e.sh']);
   // fix wave I4: what shapes the judge or the deploy contract
   for (const p of ['server/tsconfig.json', 'web/tsconfig.json', 'web/vite.config.ts', 'server/src/main.ts', 'server/src/migrate.ts',
-    'server/src/migrate-cli.ts', 'server/src/leader.ts', 'server/src/locks.ts', 'server/src/health.ts', 'server/.env.d/x', '.env.d/a/b',
+    'server/src/migrate-cli.ts', 'server/src/leader.ts', 'server/src/locks.ts', 'server/src/health.ts', 'server/.env.d/x', '.env.d/a/b', '.npmrc', 'server/.npmrc', 'web/.npmrc',
     'web/.env.local.d/x.txt']) {
     assert.deepEqual(hit(p, 'A'), [p], p);
   }

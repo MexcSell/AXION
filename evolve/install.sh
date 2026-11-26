@@ -14,8 +14,8 @@ RECREATE_LIVE=0
 if [ "${1:-}" = --recreate-live-network ]; then RECREATE_LIVE=1; shift; fi
 GIT_SRC="${1:?git dir of the AXION repository}"; REV="${2:?commit to install the Guard from}"
 HERE=$(cd "$(dirname "$0")" && pwd)
-# shellcheck source=networks.sh
-. "$HERE/networks.sh"
+# shellcheck source=install-lib.sh
+. "$HERE/install-lib.sh"
 PENDING=""
 ROOT="${EVOLVE_ROOT:-/srv/axion-evolve}"; P="${PREFIX:-axion}"
 SRC_ENV_SERVER="${SRC_ENV_SERVER:-/home/luca/AXION/server/.env}"; SRC_ENV_ROOT="${SRC_ENV_ROOT:-/home/luca/AXION/.env}"
@@ -27,13 +27,7 @@ SHA=$(git --git-dir="$GIT_SRC" rev-parse --verify "$REV^{commit}")
 
 step "0. the native site is retired (its systemd units would restart the old API on the live database, and the web unit
    would take 0.0.0.0:5190 back at a reboot)"
-for unit in axion-api.service axion-web.service; do
-  if [ -z "$(systemctl list-unit-files --no-legend "$unit" 2>/dev/null)" ]; then done_ "$unit (no such unit)"; continue; fi
-  en=$(systemctl is-enabled "$unit" 2>/dev/null || true); ac=$(systemctl is-active "$unit" 2>/dev/null || true)
-  if [ "$en" = enabled ] || [ "$ac" = active ] || [ "$ac" = activating ]; then
-    systemctl disable --now "$unit"; echo "  disabled and stopped $unit (was $en/$ac)"
-  else done_ "$unit ($en/$ac)"; fi
-done
+retire_native_units
 
 step "1. OS user and group axion"
 if id axion >/dev/null 2>&1; then done_ "user axion ($(id -u axion):$(id -g axion))"
@@ -84,7 +78,7 @@ else
 fi
 
 step "5. Docker networks and the egress proxy"
-if [ "$RECREATE_LIVE" = 1 ]; then recreate_live_network "$P-live" "$P-front"
+if [ "$RECREATE_LIVE" = 1 ]; then recreate_live_network "$P-live" "$P-front" || { echo "install: stopped: the live network could not be recreated (see above)" >&2; exit 1; }
 else ensure_live_network "$P-live" || { [ $? = 3 ] && PENDING="$P-live needs --recreate-live-network"; }; fi
 ensure_edge_network "$P-edge"
 if docker container inspect "$P-egress" >/dev/null 2>&1; then

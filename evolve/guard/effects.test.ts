@@ -1029,4 +1029,9 @@ test('Dockerfiles (I2): no stage that holds candidate files is built with a netw
   const script = readFileSync(new URL('../slot/run-checks.sh', import.meta.url), 'utf8');
   assert.ok(script.includes('APP=/app') && !script.includes('$(dirname "$0")'), 'run-checks.sh works from /guard (outside /app)');
   assert.ok(!/>\s*"\$APP\/server\/\.env"/.test(script), 'no write into /app');
+  // no npm/npx in the judge: a candidate .npmrc (node-options) would preload code into it
+  const steps = script.split('\n').filter((l) => l.startsWith('step '));
+  assert.equal(steps.length, 4);
+  for (const l of steps) assert.ok(!/\b(npm|npx)\b/.test(l), l);
+  assert.ok(script.includes('unset NODE_OPTIONS NODE_PATH'));
 });

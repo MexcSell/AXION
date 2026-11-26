@@ -30,6 +30,8 @@ T0=$(date +%s)
 TMPW=/tmp/axion-checks
 mkdir -p "$TMPW"/{server-data,server-vite,server-vite-temp,server-vitest-cache,web-vite,web-vite-temp,home} || exit 2
 export HOME="$TMPW/home" npm_config_cache="$TMPW/home/.npm" npm_config_update_notifier=false
+# nothing from outside may preload code into the judge's node processes
+unset NODE_OPTIONS NODE_PATH
 
 # Docker sets no USER; the pg client falls back to it for a URL without a user (PGUSER wins when set)
 export USER="${USER:-$(id -un 2>/dev/null || echo axion-checks)}"
@@ -72,9 +74,12 @@ step() { # step <name> <dir> <command...>
 }
 
 rm -f "$OUT/vitest.json"
-step server-typecheck server npm run typecheck
-step server-tests server npx vitest run --reporter=json --outputFile="$OUT/vitest.json" --maxWorkers="${VITEST_MAX_WORKERS:-8}"
-step web-typecheck web npm run typecheck
+# Every tool is started with `node <lockfile package's own entry>`, never through npm/npx: npm reads a project .npmrc
+# (node-options=--require …, script-shell) from the candidate's tree, which would run candidate code inside the judge
+# before the tests (found in the fix wave). The commands equal package.json's (protected) "typecheck" scripts.
+step server-typecheck server node node_modules/typescript/bin/tsc --noEmit -p .
+step server-tests server node node_modules/vitest/vitest.mjs run --reporter=json --outputFile="$OUT/vitest.json" --maxWorkers="${VITEST_MAX_WORKERS:-8}"
+step web-typecheck web node node_modules/typescript/bin/tsc --noEmit -p .
 read -r -a E2E_SCRIPTS <<< "${AXION_E2E_SCRIPTS:-api-auth-flow.mjs}"
 step browser-checks web env OUT="$OUT/e2e" bash scripts/api-e2e.sh "${E2E_SCRIPTS[@]}"
 

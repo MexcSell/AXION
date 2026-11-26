@@ -35,9 +35,10 @@ evolve/**
 # git attributes: export-ignore/export-subst would change what `git archive` puts in the build (the Guard also overrides them)
 **/.gitattributes
 
-# Dependencies (supply-chain risk)
+# Dependencies (supply-chain risk); npm config (a project .npmrc can preload code into every npm-started node: node-options)
 **/package.json
 **/package-lock.json
+**/.npmrc
 
 # Test runner and shared test setup; the compiler settings and the web build config the checks run with (fix wave I4)
 server/vitest.config.ts
