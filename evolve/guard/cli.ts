@@ -3,12 +3,19 @@
 //
 //   axion-guard deploy <ref> [--approve <sha> [--approve-base <sha>]] [--watch <s>=600] [--front-port <port>] [--database <name>]
 //                            [--no-expect-leader] [--drain <s>=5]
-//   axion-guard status | rollback | history [n=20] | front-port <port>
+//   axion-guard status | rollback | revert | history [n=20] | front-port <port>
+//
+// revert: go back to the previous commit after a deploy that passed its watch (the previous slot is started again, the
+// front switched to it, evolve/main moved back by compare-and-swap). Only when nothing is deploying and a previous
+// image and commit are kept; a second revert says there is nothing to revert.
 //
 // --front-port (>= 1024) defaults to the port kept in state.json (first time 5290); --database defaults to axion, and a deploy
 // without --database is refused while the live slot uses another database. A deploy writes both to state.json as `pending`
 // before the core runs; they become the stored ones once it is live (the port also after a rollback; `front-port` stores
 // directly). --approve-base defaults to the live commit at invocation.
+// The checks' test-count floor is the larger of baseline.json and the passed count of the live commit's checks
+// (state.json lastChecksPassed, written when a deploy goes live), so it rises with the suite.
+// Candidate images are pruned after every deploy outcome (active and previous kept; never one a container uses).
 // Exit codes: 0 live / done, 1 rejected / rolled back / error, 2 usage, 3 needs the owner's approval, 4 busy (lock held).
 
 import { readFile } from 'node:fs/promises';
@@ -16,7 +23,7 @@ import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Busy, deploy, STEPS } from './deploy.ts';
-import type { Effects, Slot } from './deploy.ts';
+import type { Effects, HistoryEntry, Slot } from './deploy.ts';
 import { parseRules } from './classify.ts';
 import { readState, writeState } from './state.ts';
 import type { GuardState } from './state.ts';
@@ -25,7 +32,7 @@ import type { GuardConfig } from './config.ts';
 import { realHost } from './host.ts';
 import type { Host } from './host.ts';
 import { acquireLock, makeEffects } from './effects.ts';
-import type { DeployContext } from './effects.ts';
+import type { DeployContext, GuardEffects } from './effects.ts';
 import { isPlainRef } from './effects-git.ts';
 
 export class UsageError extends Error {}
@@ -34,6 +41,7 @@ export type Command =
   | { cmd: 'help' }
   | { cmd: 'status' }
   | { cmd: 'rollback' }
+  | { cmd: 'revert' }
   | { cmd: 'history'; n: number }
   | { cmd: 'front-port'; port: number }
   | {
@@ -46,6 +54,7 @@ export const USAGE = `usage: axion-guard <command>
                            [--database <name>] [--no-expect-leader] [--drain <seconds>=5]
   axion-guard status
   axion-guard rollback
+  axion-guard revert             (back to the previous commit after a deploy went live)
   axion-guard history [n=20]
   axion-guard front-port <port>
 --front-port defaults to state.json's (first time 5290); --database defaults to axion and must be given while the live slot
@@ -126,6 +135,7 @@ export function parseArgs(argv: string[]): Command {
     case undefined: case 'help': case '--help': case '-h': return { cmd: 'help' };
     case 'status': none(); return { cmd: 'status' };
     case 'rollback': none(); return { cmd: 'rollback' };
+    case 'revert': none(); return { cmd: 'revert' };
     case 'history':
       if (rest.length > 1) throw new UsageError('history takes at most one number');
       return { cmd: 'history', n: rest.length ? int(rest[0], 'history n', 1, 100_000) : 20 };
@@ -146,6 +156,7 @@ export function formatStatus(s: GuardState | null, defaults = { frontPort: 5290,
     lines.push('no active slot');
   } else {
     lines.push(`active slot: ${s.active}`, `  image:    ${s.activeImage}`, `  commit:   ${s.activeSha ?? 'unknown'}`,
+      ...(typeof s.lastChecksPassed === 'number' ? [`  checks:   ${s.lastChecksPassed} passed (the next deploy's test floor, unless baseline.json is higher)`] : []),
       s.previousImage !== null ? `previous:   ${s.previousImage} (commit ${s.previousSha ?? 'unknown'})` : 'previous:   none');
   }
   const port = portOf(s);
@@ -219,10 +230,90 @@ export async function rollback(fx: Pick<Effects, 'switchTo' | 'stopSlot' | 'live
   await fx.stopSlot(active);
   await writeState(stateDir, {
     ...settled(s), active: idle, activeImage: s.previousImage, activeSha: s.previousSha, previousImage: null, previousSha: null,
+    lastChecksPassed: s.previousChecksPassed ?? null, previousChecksPassed: null,
   });
   const what = s.previousImage !== null ? `the front is back on ${idle} (${s.previousImage}); stopped ${active}` : `nothing to go back to; stopped ${active}`;
   await note('rolled_back', what);
   return `rolled back the unfinished deploy of ${d.sha} (step ${d.step}): ${what}`;
+}
+
+export type RevertEffects = Pick<GuardEffects, 'switchTo' | 'stopSlot' | 'startSlot' | 'liveSha' | 'record' | 'slotImage' | 'moveMain'>;
+
+/**
+ * `axion-guard revert` (I5): back to the previous commit after a deploy passed its watch. Call under the lock. Returns
+ * { code, message }: 0 reverted or nothing to revert, 1 refused. The steps reuse the rollback table's markers, so a
+ * killed or failed revert is resolved by `axion-guard rollback`:
+ *   1. refuse unless nothing is deploying, something is live, a previous image + commit are kept, evolve/main == activeSha
+ *   2. state: deploying {sha: previous, step: switch} (active unchanged; rollback = front back on active, stop the other)
+ *   3. the other slot must hold the previous image (a later rejected deploy may have replaced it): else startSlot(previous
+ *      image) there; then switchTo(other, previousSha) (restarts it, health must report previousSha, retires active)
+ *   4. state: active = other, the pairs swapped, deploying {step: record} (rollback: evolve/main moved → clear; else back)
+ *   5. evolve/main: compare-and-swap activeSha → previousSha
+ *   6. state: previous image/commit/count cleared (a second revert has nothing to revert), no deploying; history
+ */
+export async function revert(fx: RevertEffects, stateDir: string, appRef: (tag: string) => string): Promise<{ code: number; message: string }> {
+  const s = await readState(stateDir);
+  if (s?.deploying) {
+    return { code: 1, message: `refused: state.json shows an unfinished deploy of ${s.deploying.sha} (step ${s.deploying.step}); run \`axion-guard rollback\` first` };
+  }
+  if (!s || s.activeImage === null || s.activeSha === null) return { code: 1, message: 'refused: nothing is live through the Guard' };
+  if (s.previousImage === null || s.previousSha === null) {
+    return { code: 0, message: `nothing to revert: no previous image and commit are kept (live: ${s.activeSha} in ${s.active})` };
+  }
+  const live = await fx.liveSha();
+  if (live !== s.activeSha) {
+    return { code: 1, message: `refused: evolve/main is at ${live}, state.json says the live commit is ${s.activeSha}` };
+  }
+  const cur = s.active;
+  const prev = other(cur);
+  const [curImage, curSha, prevImage, prevSha] = [s.activeImage, s.activeSha, s.previousImage, s.previousSha];
+  const startedAt = new Date().toISOString();
+  const rec = (e: Omit<HistoryEntry, 'at' | 'sha'>) => fx.record({ at: new Date().toISOString(), sha: prevSha, ...e });
+  await rec({ step: 'switch', event: 'start', detail: `axion-guard revert: from ${curSha} (${curImage}) in ${cur} to ${prevSha} (${prevImage}) in ${prev}` });
+  const base = settled(s);
+  await writeState(stateDir, { ...base, deploying: { sha: prevSha, step: 'switch', startedAt } });
+  /** a failed step: resolve the marker like `axion-guard rollback` would; if that fails too the marker stays for it */
+  const undo = async (e: unknown): Promise<never> => {
+    let done: string;
+    try {
+      done = await rollback(fx, stateDir);
+    } catch (re) {
+      throw new Error(`revert failed (${msg(e)}) and resolving it failed too (${msg(re)}); state.json keeps the marker: run \`axion-guard rollback\``);
+    }
+    throw new Error(`revert failed (${msg(e)}); ${done}`);
+  };
+  try {
+    const has = await fx.slotImage(prev);
+    if (has !== appRef(prevImage)) await fx.startSlot(prev, prevImage);
+    await fx.switchTo(prev, prevSha);
+  } catch (e) {
+    return await undo(e);
+  }
+  const swapped: GuardState = {
+    ...base, active: prev, activeImage: prevImage, activeSha: prevSha, previousImage: curImage, previousSha: curSha,
+    lastChecksPassed: s.previousChecksPassed ?? null, previousChecksPassed: s.lastChecksPassed ?? null,
+  };
+  await writeState(stateDir, { ...swapped, deploying: { sha: prevSha, step: 'record', startedAt } });
+  try {
+    await fx.moveMain(prevSha, curSha);
+  } catch (e) {
+    // same rule as the deploy's advance: if the ref is at prevSha anyway it moved; if it cannot be read, keep the marker
+    let now: string;
+    try { now = await fx.liveSha(); } catch (le) {
+      throw new Error(`revert: moving evolve/main failed (${msg(e)}) and reading it failed (${msg(le)}); run \`axion-guard rollback\``);
+    }
+    if (now !== prevSha) return await undo(e);
+  }
+  await writeState(stateDir, { ...swapped, previousImage: null, previousSha: null, previousChecksPassed: null });
+  const what = `reverted: ${prev} serves ${prevSha} (${prevImage}) again; ${cur} (${curSha}) is stopped; evolve/main moved back`;
+  await rec({ step: 'record', event: 'outcome', outcome: 'reverted', reason: `axion-guard revert: ${what}`, image: prevImage });
+  return { code: 0, message: what };
+}
+
+/** the checks' test-count floor: baseline.json, raised to the live commit's passed count once one is known */
+export function checksFloor(baseline: number, s: GuardState | null): number {
+  const last = s?.lastChecksPassed;
+  return typeof last === 'number' && Number.isInteger(last) && last > baseline ? last : baseline;
 }
 
 function formatHistoryLine(line: string): string {
@@ -306,6 +397,14 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
           return 0;
         });
 
+      case 'revert':
+        return await locked(cfg, host, async () => {
+          const s = await readState(cfg.stateDir);
+          const r = await revert(makeEffects(cfg, host, ctxOf(s)), cfg.stateDir, (tag) => `${cfg.prefix}-app:${tag}`);
+          (r.code === 0 ? out : err)(r.code === 0 ? r.message : `axion-guard: ${r.message}`);
+          return r.code;
+        });
+
       case 'front-port': {
         const port = cmd.port;
         return await locked(cfg, host, async () => {
@@ -363,7 +462,9 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
           const baseline = (JSON.parse(await readFile(join(cfg.evolveDir, 'baseline.json'), 'utf8')) as { serverTestsPassed?: unknown }).serverTestsPassed;
           if (!Number.isInteger(baseline)) throw new Error(`${join(cfg.evolveDir, 'baseline.json')} has no integer serverTestsPassed`);
           const active: Slot = s?.active ?? 'blue';
-          out(`deploying ${target} (${c.ref}) into ${cfg.prefix}-${other(active)}; front port ${ctx.frontPort}, database ${ctx.database}`);
+          const floor = checksFloor(baseline as number, s && s.activeImage !== null ? s : null);
+          out(`deploying ${target} (${c.ref}) into ${cfg.prefix}-${other(active)}; front port ${ctx.frontPort}, database ${ctx.database}; `
+            + `test floor ${floor}${floor !== baseline ? ` (live commit's checks; baseline ${String(baseline)})` : ' (baseline)'}`);
           // the deploy's port and database are on disk before the core runs, so `axion-guard rollback` after a kill knows them
           await writeState(cfg.stateDir, { ...(s ?? initialState()), pending: { frontPort: ctx.frontPort, database: ctx.database } });
           /** resolves `pending` once the core returned: dropped, or promoted (all or only the port) */
@@ -374,13 +475,21 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
           };
           // the CLI already holds the lock (taken before reading state.json); the core's lock() is a no-op here
           const result = await deploy({ ...fx, lock: async () => async () => {} }, {
-            sha: target, approvedSha: c.approve, approvedBase, watchMs: c.watchS * 1000, baselinePassed: baseline as number,
+            sha: target, approvedSha: c.approve, approvedBase, watchMs: c.watchS * 1000, baselinePassed: floor,
             active, stateDir: cfg.stateDir, rules,
           });
           out(JSON.stringify(result));
-          if (result.outcome !== 'live') {
-            // rolled back: the switch back ran with this deploy's front port (switchTo moves the front to it)
-            await finish(result.outcome === 'rolled_back' ? { frontPort: ctx.frontPort } : {});
+          // rolled back: the switch back ran with this deploy's front port (switchTo moves the front to it)
+          const now = result.outcome === 'live'
+            ? await finish({ frontPort: ctx.frontPort, database: ctx.database })
+            : await finish(result.outcome === 'rolled_back' ? { frontPort: ctx.frontPort } : {});
+          // I7: after every outcome, not only after a success: rejected and rolled-back candidates go too
+          try {
+            const p = await fx.pruneImages(now?.activeImage ?? null, now?.previousImage ?? null);
+            if (p.removed.length) out(`removed images: ${p.removed.join(', ')}`);
+            for (const w of p.warnings) err(`axion-guard: warning: image not removed: ${w}`);
+          } catch (e) {
+            err(`axion-guard: warning: image retention failed: ${msg(e)}`);
           }
           if (result.outcome === 'needs_owner') {
             out(`needs the owner's approval: protected paths changed: ${(result.hits ?? []).join(', ')}`);
@@ -391,15 +500,7 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
             out(`${result.outcome} at ${result.failedStep ?? '?'}: ${result.reason ?? ''}`);
             return 1;
           }
-          const now = await finish({ frontPort: ctx.frontPort, database: ctx.database });
           out(`live: ${target} (${result.image ?? ''}) in ${cfg.prefix}-${now?.active ?? other(active)}${result.reason ? `; ${result.reason}` : ''}`);
-          try {
-            const p = await fx.pruneImages(now?.activeImage ?? null, now?.previousImage ?? null);
-            if (p.removed.length) out(`removed old images: ${p.removed.join(', ')}`);
-            for (const w of p.warnings) err(`axion-guard: warning: image not removed: ${w}`);
-          } catch (e) {
-            err(`axion-guard: warning: image retention failed: ${msg(e)}`);
-          }
           return 0;
         });
       }

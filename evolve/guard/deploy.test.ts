@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { deploy, Busy, STEPS } from './deploy.ts';
 import type { Effects, HistoryEntry, DeployRequest, Change, Slot } from './deploy.ts';
 import { parseRules } from './classify.ts';
-import { readState } from './state.ts';
+import { readState, writeState } from './state.ts';
 import type { GuardState } from './state.ts';
 
 const LIVE = 'a'.repeat(40);
@@ -114,8 +114,16 @@ test('happy path runs the steps in order and ends live; advance(sha) only after 
   // state: the candidate is live, the old one is previous, no deploy in progress, unknown fields kept
   assert.deepEqual(await stateOf(s.dir), {
     active: 'green', activeImage: IMAGE, activeSha: SHA, previousImage: LIVE_IMAGE, previousSha: LIVE,
-    frontPort: 5290, database: 'axion_restore_check',
+    frontPort: 5290, database: 'axion_restore_check', lastChecksPassed: 100, previousChecksPassed: null,
   });
+});
+
+test('I6: the live commit\'s passed count is kept in state.json (with the previous one) for the next deploy\'s floor', async () => {
+  const s = setup();
+  await writeState(s.dir, { ...(await stateOf(s.dir))!, lastChecksPassed: 90 });
+  assert.equal((await deploy(s.fx, s.req)).outcome, 'live');
+  const st = await stateOf(s.dir);
+  assert.deepEqual([st?.lastChecksPassed, st?.previousChecksPassed], [100, 90]);
 });
 
 test('a protected hit without approvedSha === sha returns needs_owner and never builds', async () => {
@@ -352,7 +360,7 @@ test('state.json shows deploying with the step after switch, and is cleared afte
   const { deploying, ...rest } = seen.watch!;
   assert.deepEqual(rest, {
     active: 'green', activeImage: IMAGE, activeSha: SHA, previousImage: LIVE_IMAGE, previousSha: LIVE,
-    frontPort: 5290, database: 'axion_restore_check',
+    frontPort: 5290, database: 'axion_restore_check', lastChecksPassed: 100, previousChecksPassed: null,
   });
   assert.equal(deploying!.sha, SHA);
   assert.equal(deploying!.step, 'watch');
@@ -367,7 +375,7 @@ test('first deploy (no state.json): goes live; a watch failure stops the candida
   const s = setup({}, null);
   assert.equal((await deploy(s.fx, s.req)).outcome, 'live');
   assert.deepEqual(await readState(s.dir), {
-    active: 'green', activeImage: IMAGE, activeSha: SHA, previousImage: null, previousSha: null,
+    active: 'green', activeImage: IMAGE, activeSha: SHA, previousImage: null, previousSha: null, lastChecksPassed: 100, previousChecksPassed: null,
   });
   const f = setup({ watch: { ok: false, reason: 'down' } }, null);
   const r = await deploy(f.fx, f.req);

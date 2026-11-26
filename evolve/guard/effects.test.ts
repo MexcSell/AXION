@@ -16,6 +16,11 @@ const SHA = 'b'.repeat(40);
 const BASE = 'a'.repeat(40);
 const TAG = 'bbbbbbbbbbbb-20261126T120000Z';
 const SOCKET_URL = 'postgresql:///axion?host=/var/run/postgresql&user=axion';
+/** F3: every container the Guard starts has bounded logs */
+const LOG = ['--log-opt', 'max-size=10m', '--log-opt', 'max-file=3'];
+const LOGS = LOG.join(' ');
+/** I3: networks holding candidate code: internal and no IPv4 on the host side */
+const ISO = '--internal -o com.docker.network.bridge.inhibit_ipv4=true';
 
 function rmSyncSafe(file: string) { try { rmSync(file); } catch { /* absent */ } }
 
@@ -44,7 +49,7 @@ const idUser = (c: Call) => {
 
 /** the brief's fixed slot line plus --init; the env file is /srv/axion-evolve/secrets/live.env by default (config test), a temp file here */
 const slotLine = (envFile: string) => [
-  'run', '-d', '--init', '--name', 'axion-green', '--network', 'axion-live', '--user', '998:997', '--restart', 'unless-stopped',
+  'run', '-d', '--init', '--name', 'axion-green', '--network', 'axion-live', ...LOG, '--user', '998:997', '--restart', 'unless-stopped',
   '--env-file', envFile,
   '-e', 'AXION_LEADER=lock', '-e', 'AXION_MIGRATE_ON_START=0', '-e', 'HTTPS_PROXY=http://axion-egress:3128', '-e', 'NO_PROXY=127.0.0.1,localhost',
   '-e', 'UPLOAD_DIR=/data/uploads', '-e', 'AUDIT_ANCHOR_FILE=/data/audit-anchors.jsonl', '-e', 'CLOUD_MODEL_HOME=/data/cloud-home', '-e', 'BACKUP_DIR=/backups',
@@ -154,7 +159,7 @@ test('migrate: --init, the derived env file with --database, and the named conta
   const file = run.args[run.args.indexOf('--env-file') + 1];
   assert.match(file, new RegExp(`^${cfg.workDir}/env-00000002\\.env$`));
   assert.deepEqual(run.args, [
-    'run', '--rm', '--init', '--name', 'axion-migrate-00000001', '--network', 'none', '--user', '998:997',
+    'run', '--rm', '--init', '--name', 'axion-migrate-00000001', '--network', 'none', ...LOG, '--user', '998:997',
     '--env-file', file, '-e', 'AXION_MIGRATE_ON_START=0', '-e', 'CLOUD_MODEL_HOME=/tmp/cloud-home',
     '-v', '/var/run/postgresql:/var/run/postgresql', '-w', '/app/server', `axion-app:${TAG}`, 'node', '--import', 'tsx', 'src/migrate-cli.ts', 'up',
   ]);
@@ -164,7 +169,7 @@ test('migrate: --init, the derived env file with --database, and the named conta
   // default database: the live env file itself
   const d = fakeHost(idUser);
   await makeEffects(cfg, d.host, { frontPort: 5290, database: 'axion' }).migrate(TAG);
-  assert.equal(d.find('docker run')[0].args[10], cfg.liveEnvFile);
+  assert.equal(d.find('docker run')[0].args[14], cfg.liveEnvFile);
   // failure (or a timeout that kills the docker CLI): the container is still removed
   const f2 = fakeHost((c) => (c.cmd === 'docker' && c.args[0] === 'run' ? { code: 1, stderr: 'migration 0066 failed' } : idUser(c)));
   await assert.rejects(makeEffects(cfg, f2.host, { frontPort: 5290, database: 'axion' }).migrate(TAG), /0066/);
@@ -186,10 +191,11 @@ test('backup runs the installed backup script with the effective database and re
   const fx = makeEffects(cfg, f.host, { frontPort: 5290, database: 'axion_restore_check' });
   assert.equal(await fx.backup(), '/srv/axion-evolve/backups/axion-20261126T120000Z.dump');
   assert.deepEqual(f.calls[0].args, []);
-  assert.deepEqual(f.calls[0].env, {
-    EVOLVE_ROOT: '/srv/axion-evolve',
-    BACKUP_SOURCE_URL: 'postgresql:///axion_restore_check?host=/var/run/postgresql&user=axion', AXION_GUARD_DATABASE: 'axion_restore_check',
-  });
+  // F2: one contract with evolve/backup.sh: the root and the database name (the script builds the socket URL itself)
+  assert.deepEqual(f.calls[0].env, { EVOLVE_ROOT: '/srv/axion-evolve', AXION_GUARD_DATABASE: 'axion_restore_check' });
+  const upper = fakeHost();
+  await assert.rejects(makeEffects(cfg, upper.host, { frontPort: 5290, database: 'Axion' }).backup(), /database name/);
+  assert.equal(upper.calls.length, 0);
   const bad = fakeHost((c) => (c.cmd === cfg.backupScript ? { stdout: 'no path here\n' } : undefined));
   await assert.rejects(makeEffects(cfg, bad.host, { frontPort: 5290, database: 'axion' }).backup(), /path/);
   const failed = fakeHost((c) => (c.cmd === cfg.backupScript ? { code: 2, stderr: 'pg_dump: error' } : undefined));
@@ -268,7 +274,7 @@ test('switchTo: target kept restartable and healthy, conf written atomically, ng
     'docker update --restart unless-stopped axion-green',
     'docker exec axion-green curl -sf --max-time 5 http://127.0.0.1:4190/api/v1/health',
     'docker container inspect --format {{.State.Running}} axion-front',
-    'docker container inspect --format {{json .HostConfig.PortBindings}} axion-front',
+    'docker container inspect --format {{json .HostConfig}} axion-front',
     'docker exec axion-front nginx -t',
     'docker exec axion-front nginx -s reload',
     'docker container inspect --format {{.State.Running}} axion-blue',
@@ -312,7 +318,7 @@ test('switchTo creates a missing front: create on the edge network, connect the 
   const i = l.indexOf('docker container inspect --format {{.State.Running}} axion-front');
   assert.deepEqual(l.slice(i, i + 4), [
     'docker container inspect --format {{.State.Running}} axion-front',
-    `docker create --name axion-front --network axion-edge --restart unless-stopped -p 0.0.0.0:5290:8080 -v ${cfg.frontDir}:/etc/nginx/conf.d:ro nginx:1.27-alpine`,
+    `docker create --name axion-front --network axion-edge --restart unless-stopped ${LOGS} -p 0.0.0.0:5290:8080 -v ${cfg.frontDir}:/etc/nginx/conf.d:ro nginx:1.27-alpine`,
     'docker network connect axion-live axion-front',
     'docker start axion-front',
   ]);
@@ -323,12 +329,12 @@ test('switchTo recreates the front when its published port differs from the depl
   const { cfg, f, fx } = switchSetup({ port: 5290, frontPort: 5291 });
   await fx.switchTo('green');
   const l = f.lines();
-  const i = l.indexOf('docker container inspect --format {{json .HostConfig.PortBindings}} axion-front');
+  const i = l.indexOf('docker container inspect --format {{json .HostConfig}} axion-front');
   assert.deepEqual(l.slice(i, i + 7), [
-    'docker container inspect --format {{json .HostConfig.PortBindings}} axion-front',
+    'docker container inspect --format {{json .HostConfig}} axion-front',
     'docker rm -f axion-front-old',
     'docker rename axion-front axion-front-old',
-    `docker create --name axion-front --network axion-edge --restart unless-stopped -p 0.0.0.0:5291:8080 -v ${cfg.frontDir}:/etc/nginx/conf.d:ro nginx:1.27-alpine`,
+    `docker create --name axion-front --network axion-edge --restart unless-stopped ${LOGS} -p 0.0.0.0:5291:8080 -v ${cfg.frontDir}:/etc/nginx/conf.d:ro nginx:1.27-alpine`,
     'docker network connect axion-live axion-front',
     'docker start axion-front',
     'docker rm -f axion-front-old',
@@ -350,7 +356,7 @@ test('switchTo to a new front port that cannot start keeps the old front serving
   const l = f.lines();
   assert.deepEqual(l.slice(l.indexOf('docker rename axion-front axion-front-old')), [
     'docker rename axion-front axion-front-old',
-    `docker create --name axion-front --network axion-edge --restart unless-stopped -p 0.0.0.0:5291:8080 -v ${cfg.frontDir}:/etc/nginx/conf.d:ro nginx:1.27-alpine`,
+    `docker create --name axion-front --network axion-edge --restart unless-stopped ${LOGS} -p 0.0.0.0:5291:8080 -v ${cfg.frontDir}:/etc/nginx/conf.d:ro nginx:1.27-alpine`,
     'docker network connect axion-live axion-front',
     'docker start axion-front',
     'docker rm -f axion-front',
@@ -473,7 +479,8 @@ test('watch: every 10 s through the front; passes when every poll is good', asyn
   assert.deepEqual(await fx.watch('green', 60_000), { ok: true });
   assert.equal(f.fetches.length, 7); // 0,10,…,60 s
   assert.equal(f.host.now() - T0, 60_000);
-  assert.equal(f.find('docker logs').at(-1)!.args.join(' '), `logs --since ${new Date(T0).toISOString()} axion-green`);
+  assert.deepEqual(f.find('docker logs').slice(-2).map((c) => c.args.join(' ')),
+    [`logs --since ${new Date(T0).toISOString()} axion-green`, `logs --since ${new Date(T0).toISOString()} axion-front`]);
 });
 
 test('watch: 3 consecutive bad polls fail; 2 bad then a good one do not', async () => {
@@ -534,25 +541,38 @@ test('watch counts error lines on both docker logs streams, since the switch tim
   assert.equal(f.find('docker logs')[0].args[2], new Date(T0 + 5_000).toISOString());
 });
 
-test('pruneImages keeps the active, the previous and one more app image; removes older app and checks images (never -f)', async () => {
+test('pruneImages (I7) keeps only the active and the previous app image; removes every other app, checks and build-stage image, never one a container uses, never -f', async () => {
   const tags = ['aaaaaaaaaaaa-20261120T100000Z', 'bbbbbbbbbbbb-20261121T100000Z', 'cccccccccccc-20261122T100000Z',
     'dddddddddddd-20261123T100000Z', 'eeeeeeeeeeee-20261124T100000Z'];
   const f = fakeHost((c) => (c.args.join(' ') === `image rm axion-app:${tags[1]}` ? { code: 1, stderr: 'image is in use by container x' } : undefined));
-  f.sim.images = [...tags.map((t) => `axion-app:${t}`), 'axion-app:dev', ...tags.map((t) => `axion-checks:${t}`), 'axion-checks:dev'];
+  f.sim.images = [...tags.map((t) => `axion-app:${t}`), 'axion-app:dev', `axion-checks:${tags[3]}`, 'axion-checks:dev',
+    `axion-build:${tags[4]}-deps`, 'axion-build:other'];
+  // the retired slot (stopped) still holds a rejected candidate's image: it stays until that container is replaced
+  f.sim.add('axion-green', { running: false, image: `axion-app:${tags[0]}` });
   const fx = makeEffects(srvCfg(), f.host, { frontPort: 5290, database: 'axion' });
   const r = await fx.pruneImages(tags[4], tags[2]);
   assert.deepEqual(f.lines(), [
     'docker image ls --format {{.Tag}} axion-app',
     'docker image ls --format {{.Tag}} axion-checks',
-    `docker image rm axion-app:${tags[0]}`,
+    'docker image ls --format {{.Tag}} axion-build',
+    `docker ps -a -q --filter ancestor=axion-app:${tags[0]}`,
+    `docker ps -a -q --filter ancestor=axion-app:${tags[1]}`,
     `docker image rm axion-app:${tags[1]}`,
-    `docker image rm axion-checks:${tags[0]}`,
-    `docker image rm axion-checks:${tags[1]}`,
+    `docker ps -a -q --filter ancestor=axion-app:${tags[3]}`,
+    `docker image rm axion-app:${tags[3]}`,
+    `docker ps -a -q --filter ancestor=axion-checks:${tags[3]}`,
+    `docker image rm axion-checks:${tags[3]}`,
+    `docker ps -a -q --filter ancestor=axion-build:${tags[4]}-deps`,
+    `docker image rm axion-build:${tags[4]}-deps`,
   ]);
-  assert.deepEqual(r.kept, [tags[4], tags[2], tags[3]]);
-  assert.deepEqual(r.removed, [`axion-app:${tags[0]}`, `axion-checks:${tags[0]}`, `axion-checks:${tags[1]}`]);
-  assert.equal(r.warnings.length, 1);
-  assert.match(r.warnings[0], /in use/);
+  assert.deepEqual(r.kept, [tags[4], tags[2], tags[0]]);
+  assert.deepEqual(r.removed, [`axion-app:${tags[3]}`, `axion-checks:${tags[3]}`, `axion-build:${tags[4]}-deps`]);
+  assert.equal(r.warnings.length, 2);
+  assert.match(r.warnings[0], new RegExp(`axion-app:${tags[0]}: kept, a container still uses it \\(axion-green\\)`));
+  assert.match(r.warnings[1], /in use/);
+  assert.ok(!f.lines().some((l) => / -f /.test(l) || l.endsWith(' -f')), 'never forced');
+  assert.ok(f.sim.images.includes('axion-app:dev') && f.sim.images.includes('axion-checks:dev') && f.sim.images.includes('axion-build:other'),
+    'tags the Guard did not make are left alone');
 });
 
 test('checks: internal network, throw-away postgres (300 connections) with the shared socket volume, both DBs, the checks container; all removed even on failure', async () => {
@@ -573,21 +593,25 @@ test('checks: internal network, throw-away postgres (300 connections) with the s
     const id = 'axion-checks-00000001';
     const l = f.lines();
     assert.deepEqual(l.slice(0, 3), [
-      `docker network create --internal ${id}`,
+      `docker network create ${ISO} ${id}`,
       `docker volume create ${id}-sock`,
-      `docker run -d --name ${id}-pg --network ${id} -e POSTGRES_PASSWORD -v ${id}-sock:/var/run/postgresql postgres:16-alpine -c max_connections=300`,
+      `docker run -d --name ${id}-pg --network ${id} ${LOGS} -e POSTGRES_PASSWORD -v ${id}-sock:/var/run/postgresql postgres:16-alpine -c max_connections=300`,
     ]);
     assert.ok(l.includes(`docker exec ${id}-pg pg_isready -U postgres -h 127.0.0.1`));
     assert.ok(l.includes(`docker exec ${id}-pg createdb -U postgres axion_test`));
     assert.ok(l.includes(`docker exec ${id}-pg createdb -U postgres axion_e2e`));
     const run = f.calls.find((c) => c.args.includes(`axion-checks:${TAG}`))!;
     const out = run.args[run.args.indexOf(`${id}-sock:/var/run/postgresql`) + 2].split(':')[0];
+    // I1: read-only root (all of /app), writable only /tmp (tmpfs), /out and /dev/shm; the Guard's run-checks.sh from outside /app
     assert.deepEqual(run.args, [
-      'run', '--name', `${id}-run`, '--network', id, '--shm-size=1g',
+      'run', '--name', `${id}-run`, '--network', id, ...LOG, '--shm-size=1g',
+      '--read-only', '--tmpfs', '/tmp:rw,exec,nosuid,nodev,size=4g', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
+      '-v', `${join(cfg.evolveDir, 'slot', 'run-checks.sh')}:/guard/run-checks.sh:ro`,
       '-e', 'TEST_DATABASE_URL', '-e', 'E2E_DATABASE_URL', '-e', 'PGUSER=postgres', '-e', 'AXION_REQUIRE_SOCKET_TEST=1',
       '-v', `${cfg.repo}:/repo.git:ro`, '-e', 'GIT_DIR=/repo.git', '-e', 'GIT_WORK_TREE=/app',
-      '-v', `${id}-sock:/var/run/postgresql`, '-v', `${out}:/out`, `axion-checks:${TAG}`,
+      '-v', `${id}-sock:/var/run/postgresql`, '-v', `${out}:/out`, `axion-checks:${TAG}`, 'bash', '/guard/run-checks.sh',
     ]);
+    assert.ok(cfg.evolveDir.startsWith('/') && !cfg.evolveDir.startsWith('/app'), 'the script comes from the Guard\'s installed copy');
     const pw = f.calls[2].env!.POSTGRES_PASSWORD;
     assert.match(pw, /^[0-9a-f]{48}$/);
     assert.deepEqual(run.env, {
@@ -595,14 +619,16 @@ test('checks: internal network, throw-away postgres (300 connections) with the s
       E2E_DATABASE_URL: `postgresql://postgres:${pw}@${id}-pg:5432/axion_e2e`,
     });
     assert.ok(!l.some((x) => x.includes(pw)), 'the password never appears in an argv');
-    assert.deepEqual(l.slice(-3), [`docker rm -f -v ${id}-run ${id}-pg`, `docker volume rm ${id}-sock`, `docker network rm ${id}`]);
+    // I7: the checks image goes right after the run, passed or not
+    assert.deepEqual(l.slice(-4), [`docker rm -f -v ${id}-run ${id}-pg`, `docker volume rm ${id}-sock`, `docker network rm ${id}`,
+      `docker image rm axion-checks:${TAG}`]);
     assert.ok(!existsSync(out), 'the out dir is removed');
   }
   // a failure while preparing still removes everything
   const f = fakeHost((c) => (c.args[0] === 'volume' && c.args[1] === 'create' ? { code: 1, stderr: 'no space' } : undefined));
   await assert.rejects(makeEffects(cfg, f.host, { frontPort: 5290, database: 'axion' }).checks(TAG), /no space/);
-  assert.deepEqual(f.lines().slice(-3), ['docker rm -f -v axion-checks-00000001-run axion-checks-00000001-pg',
-    'docker volume rm axion-checks-00000001-sock', 'docker network rm axion-checks-00000001']);
+  assert.deepEqual(f.lines().slice(-4), ['docker rm -f -v axion-checks-00000001-run axion-checks-00000001-pg',
+    'docker volume rm axion-checks-00000001-sock', 'docker network rm axion-checks-00000001', `docker image rm axion-checks:${TAG}`]);
   // no summary.json → not ok, passed NaN-free
   const g = fakeHost((c) => (c.args.includes(`axion-checks:${TAG}`) ? { code: 2, stderr: 'TEST_DATABASE_URL is required' } : undefined));
   const r = await makeEffects(cfg, g.host, { frontPort: 5290, database: 'axion' }).checks(TAG);
@@ -624,11 +650,11 @@ test('bootOffline: candidate on its own internal network with a throw-away postg
     assert.equal(ok, healthy);
     const id = 'axion-boot-00000001';
     const l = f.lines();
-    assert.equal(l[0], `docker network create --internal ${id}`);
-    assert.equal(l[1], `docker run -d --name ${id}-pg --network ${id} -e POSTGRES_PASSWORD -e POSTGRES_DB=axion postgres:16-alpine`);
+    assert.equal(l[0], `docker network create ${ISO} ${id}`);
+    assert.equal(l[1], `docker run -d --name ${id}-pg --network ${id} ${LOGS} -e POSTGRES_PASSWORD -e POSTGRES_DB=axion postgres:16-alpine`);
     const app = f.calls.find((c) => c.args.includes(`axion-app:${TAG}`))!;
     assert.deepEqual(app.args, [
-      'run', '-d', '--init', '--name', `${id}-app`, '--network', id, '--user', '998:997',
+      'run', '-d', '--init', '--name', `${id}-app`, '--network', id, ...LOG, '--user', '998:997',
       '-e', 'DATABASE_URL', '-e', 'AXION_MIGRATE_ON_START=1', '-e', 'AXION_LEADER=lock',
       '-e', 'UPLOAD_DIR=/tmp/uploads', '-e', 'AUDIT_ANCHOR_FILE=/tmp/audit-anchors.jsonl', '-e', 'CLOUD_MODEL_HOME=/tmp/cloud-home', '-e', 'BACKUP_DIR=/tmp/backups',
       `axion-app:${TAG}`, 'node', 'evolve/slot/entry.mjs',
@@ -654,6 +680,7 @@ const lsTree = (files: string) => (c: Call) => (c.cmd === 'git' && c.args[2] ===
 test('build: tree checked for .gitattributes, git archive, evolve/ and .dockerignore replaced by the installed copy, app then checks image', async () => {
   const c2 = installedGuard(tmpCfg().root);
   let seen: { evolve: string[]; ignore: string; dockerfile: string } | null = null;
+  const builds: Record<string, string>[] = [];
   const f = fakeHost((c) => {
     if (c.cmd === 'tar') {
       const dir = c.args[c.args.indexOf('-C') + 1];
@@ -670,6 +697,7 @@ test('build: tree checked for .gitattributes, git archive, evolve/ and .dockerig
         dockerfile: readFileSync(join(ctx, 'evolve', 'docker', 'app.Dockerfile'), 'utf8'),
       };
     }
+    if (c.cmd === 'docker' && c.args[0] === 'build') builds.push(c.env ?? {});
     return lsTree('server/src/a.ts\0web/x y.ts\0')(c);
   });
   const tag = await makeEffects(c2, f.host, { frontPort: 5290, database: 'axion' }).build(SHA);
@@ -682,9 +710,14 @@ test('build: tree checked for .gitattributes, git archive, evolve/ and .dockerig
     `git --git-dir ${c2.repo} ls-tree -r -z --name-only ${SHA}`,
     `git --git-dir ${c2.repo} archive --format=tar -o ${work} ${SHA}`,
     `tar -xf ${work} -C ${ctx}`,
-    `docker build -f ${ctx}/evolve/docker/app.Dockerfile --build-arg AXION_COMMIT=${SHA} -t axion-app:${tag} ${ctx}`,
-    `docker build -f ${ctx}/evolve/docker/checks.Dockerfile --build-arg APP_IMAGE=axion-app:${tag} -t axion-checks:${tag} ${ctx}`,
+    // I2: network only for the lockfile stages; every stage with the candidate tree is built with --network none
+    `docker build --force-rm -f ${ctx}/evolve/docker/app.Dockerfile --target deps -t axion-build:${tag}-deps ${ctx}`,
+    `docker build --force-rm --network none -f ${ctx}/evolve/docker/app.Dockerfile --build-arg AXION_COMMIT=${SHA} -t axion-app:${tag} ${ctx}`,
+    `docker build --force-rm -f ${ctx}/evolve/docker/checks.Dockerfile --target browsers --build-arg DEPS_IMAGE=axion-build:${tag}-deps -t axion-build:${tag}-browsers ${ctx}`,
+    `docker build --force-rm --network none -f ${ctx}/evolve/docker/checks.Dockerfile --build-arg DEPS_IMAGE=axion-build:${tag}-deps --build-arg APP_IMAGE=axion-app:${tag} --build-arg AXION_COMMIT=${SHA} -t axion-checks:${tag} ${ctx}`,
+    `docker image rm axion-build:${tag}-deps axion-build:${tag}-browsers`,
   ]);
+  assert.deepEqual(builds, [{ DOCKER_BUILDKIT: '0' }, { DOCKER_BUILDKIT: '0' }, { DOCKER_BUILDKIT: '0' }, { DOCKER_BUILDKIT: '0' }], 'the legacy builder, always');
   assert.ok(!existsSync(ctx) && !existsSync(work), 'build context and archive removed');
   // no installed .dockerignore → fail closed, never the candidate's
   const bare = tmp('guard-installed-');
@@ -704,7 +737,7 @@ test('build refuses a candidate tree with a .gitattributes at any depth, before 
   // a file merely named like it is fine
   const ok = fakeHost(lsTree('docs/my.gitattributes\0.gitattributes.md\0'));
   await makeEffects(c2, ok.host, { frontPort: 5290, database: 'axion' }).build(SHA);
-  assert.equal(ok.find('docker build').length, 2);
+  assert.equal(ok.find('docker build').length, 4);
 });
 
 test('build requires <repo>/info/attributes to be exactly "* -export-ignore -export-subst"', async () => {
@@ -786,18 +819,54 @@ test('lock: exclusive with the pid inside; held by a live pid → Busy; a dead p
   const dir = tmp();
   const file = join(dir, 'guard.lock');
   const f = fakeHost();
-  const release = await acquireLock(file, f.host);
-  assert.equal(readFileSync(file, 'utf8').trim(), String(process.pid));
-  await assert.rejects(acquireLock(file, f.host), Busy);
+  const release = await acquireLock(file, f.host, { bootId: 'boot-1' });
+  assert.equal(readFileSync(file, 'utf8'), `${process.pid}\nboot-1\n`, 'M3: pid and boot id');
+  await assert.rejects(acquireLock(file, f.host, { bootId: 'boot-1' }), Busy);
   await release();
   assert.ok(!existsSync(file));
   writeFileSync(file, '999999999\n');
   const r2 = await acquireLock(file, f.host, (pid) => pid === process.pid);
   assert.match(f.logs.join('\n'), /stale lock.*999999999/);
-  assert.equal(readFileSync(file, 'utf8').trim(), String(process.pid));
+  assert.equal(readFileSync(file, 'utf8').split('\n')[0], String(process.pid));
   await r2();
   writeFileSync(file, 'garbage');
-  await assert.rejects(acquireLock(file, f.host), /guard\.lock/);
+  const e = await acquireLock(file, f.host).then(() => null, (x: Error) => x);
+  assert.match(e!.message, /guard\.lock exists but holds no pid/);
+  assert.match(e!.message, /rm .*guard\.lock/, 'tells the owner how to clear it');
+});
+
+test('lock (M3): a lock from another boot is stale even if its pid is running now; a live pid of this boot is Busy', async () => {
+  const file = join(tmp(), 'guard.lock');
+  const f = fakeHost();
+  // pid 1 is always running; written during another boot, it is some unrelated process now
+  writeFileSync(file, '1\nold-boot\n');
+  const r = await acquireLock(file, f.host, { bootId: 'this-boot' });
+  assert.match(f.logs.join('\n'), /stale lock.*pid 1, written during another boot \(old-boot\)/);
+  assert.equal(readFileSync(file, 'utf8'), `${process.pid}\nthis-boot\n`);
+  await r();
+  writeFileSync(file, '1\nthis-boot\n');
+  const busy = await acquireLock(file, f.host, { bootId: 'this-boot' }).then(() => null, (x: Error) => x);
+  assert.ok(busy instanceof Busy);
+  assert.match(busy.message, /pid 1 holds .*rm .*guard\.lock/);
+  // a lock written before M3 (pid only) is judged by its pid
+  writeFileSync(file, '1\n');
+  await assert.rejects(acquireLock(file, f.host, { bootId: 'this-boot' }), Busy);
+});
+
+test('lock (M3): a lock file that vanishes between "exists" and the read is retried, not an error', async () => {
+  const file = join(tmp(), 'guard.lock');
+  const f = fakeHost();
+  writeFileSync(file, '1\nthis-boot\n');
+  let calls = 0;
+  let raced = 0;
+  // the holder releases it right after our exclusive create failed and before we read it
+  const r = await acquireLock(file, f.host, {
+    bootId: 'this-boot', isAlive: () => { calls++; return true; }, afterExists: () => { if (raced++ === 0) rmSync(file); },
+  });
+  assert.equal(raced, 1, 'the first attempt saw the file, the retry created it');
+  assert.equal(calls, 0, 'never judged a pid: the file was gone, so it simply tried again');
+  assert.equal(readFileSync(file, 'utf8'), `${process.pid}\nthis-boot\n`);
+  await r();
 });
 
 test('record appends one JSON line per entry to history.jsonl', async () => {
@@ -808,4 +877,156 @@ test('record appends one JSON line per entry to history.jsonl', async () => {
   const lines = readFileSync(cfg.historyFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   assert.equal(lines.length, 2);
   assert.equal(lines[1].detail, TAG);
+});
+
+// ---- fix wave ----
+
+test('front (F3): a front without the log limits is recreated on the same port: the old one is stopped first, then replaced', async () => {
+  const { cfg, f, fx } = switchSetup();
+  f.sim.ctrs.get('axion-front')!.logOpts = {};
+  await fx.switchTo('green');
+  const l = f.lines();
+  const i = l.indexOf('docker container inspect --format {{json .HostConfig}} axion-front');
+  assert.deepEqual(l.slice(i, i + 8), [
+    'docker container inspect --format {{json .HostConfig}} axion-front',
+    'docker rm -f axion-front-old',
+    'docker rename axion-front axion-front-old',
+    'docker stop -t 5 axion-front-old',
+    `docker create --name axion-front --network axion-edge --restart unless-stopped ${LOGS} -p 0.0.0.0:5290:8080 -v ${cfg.frontDir}:/etc/nginx/conf.d:ro nginx:1.27-alpine`,
+    'docker network connect axion-live axion-front',
+    'docker start axion-front',
+    'docker rm -f axion-front-old',
+  ]);
+  assert.deepEqual(f.sim.ctrs.get('axion-front')!.logOpts, { 'max-size': '10m', 'max-file': '3' });
+  // with the limits in place nothing is recreated
+  const again = switchSetup();
+  await again.fx.switchTo('green');
+  assert.equal(again.f.find('docker rename').length, 0);
+});
+
+test('front (F3): if the recreated front cannot start, the old one gets its name back and is started again', async () => {
+  const cfg = tmpCfg();
+  const sim = new DockerSim();
+  const f = fakeHost((c) => (c.args.join(' ') === 'start axion-front' ? { code: 125, stderr: 'driver failed' } : undefined), sim);
+  sim.add('axion-blue'); sim.add('axion-green');
+  sim.add('axion-front', { ports: '{"8080/tcp":[{"HostIp":"0.0.0.0","HostPort":"5290"}]}', logOpts: {} });
+  sim.health.set('axion-green', health({ commit: SHA }));
+  await assert.rejects(makeEffects(cfg, f.host, { frontPort: 5290, database: 'axion' }).switchTo('green'), /driver failed/);
+  const l = f.lines();
+  assert.deepEqual(l.slice(l.indexOf('docker rename axion-front axion-front-old')), [
+    'docker rename axion-front axion-front-old',
+    'docker stop -t 5 axion-front-old',
+    `docker create --name axion-front --network axion-edge --restart unless-stopped ${LOGS} -p 0.0.0.0:5290:8080 -v ${cfg.frontDir}:/etc/nginx/conf.d:ro nginx:1.27-alpine`,
+    'docker network connect axion-live axion-front',
+    'docker start axion-front',
+    'docker rm -f axion-front',
+    'docker rename axion-front-old axion-front',
+    'docker start axion-front',
+  ]);
+  assert.equal(sim.ctrs.get('axion-blue')!.running, true, 'nothing retired');
+});
+
+test('front template (I6): one JSON access-log line per request on stdout, status first, the slot baked in, no query string', () => {
+  const tpl = readFileSync(new URL('../front/nginx.conf.tpl', import.meta.url), 'utf8');
+  const conf = renderFrontConf(tpl, 'axion-green');
+  assert.match(conf, /log_format axion_guard escape=json '\{"status":\$status,"slot":"axion-green",/);
+  assert.ok(conf.includes('access_log /dev/stdout axion_guard;'));
+  assert.ok(conf.includes('"uri":"$uri"') && !conf.includes('$request_uri') && !conf.includes('$args'));
+});
+
+test('smoke (I6): the page and /api/v1/auth/hello (JSON) through the slot; either failing fails the smoke', async () => {
+  const f = fakeHost();
+  f.sim.add('axion-green');
+  f.sim.health.set('axion-green', health({ commit: SHA }));
+  const fx = makeEffects(srvCfg(), f.host, { frontPort: 5290, database: 'axion' });
+  assert.deepEqual(await fx.smoke('green'), { ok: true, commit: SHA });
+  assert.deepEqual(f.lines().slice(-3), [
+    'docker exec axion-green curl -sf --max-time 5 http://127.0.0.1:4190/api/v1/health',
+    'docker exec axion-green curl -sf --max-time 5 -o /dev/null http://127.0.0.1:4190/',
+    'docker exec axion-green curl -sf --max-time 5 http://127.0.0.1:4190/api/v1/auth/hello',
+  ]);
+  f.sim.pages.set('http://127.0.0.1:4190/api/v1/auth/hello', '<html>not the API</html>');
+  assert.deepEqual(await fx.smoke('green'), { ok: false, commit: SHA });
+  assert.match(f.logs.at(-1)!, /auth\/hello is not JSON/);
+  f.sim.pages.delete('http://127.0.0.1:4190/api/v1/auth/hello');
+  assert.equal((await fx.smoke('green')).ok, false, 'an HTTP error (curl -f) fails it');
+  const g = fakeHost((c) => (c.args.includes('-o') ? { code: 22 } : undefined));
+  g.sim.add('axion-green');
+  g.sim.health.set('axion-green', health({ commit: SHA }));
+  assert.equal((await makeEffects(srvCfg(), g.host, { frontPort: 5290, database: 'axion' }).smoke('green')).ok, false, 'the page failing fails it');
+  assert.equal(g.find('docker exec axion-green curl -sf --max-time 5 http://127.0.0.1:4190/api/v1/auth/hello').length, 0);
+});
+
+test('watch (I6): more than 5 5xx answers from the candidate in the front\'s access log since the switch fail; the old slot\'s do not count', async () => {
+  const line = (status: number, slot = 'axion-green') => JSON.stringify({ status, slot, time: 't', upstream_status: '', request_time: 0.01, method: 'GET', uri: '/x' });
+  const setup = (front: string, extra: Record<string, string> = {}) => {
+    const f = fakeHost();
+    f.sim.add('axion-green');
+    f.sim.logs.set('axion-front', front);
+    f.fetchAnswers.set('http://127.0.0.1:5290/api/v1/health', [good]);
+    return { f, fx: makeEffects(srvCfg(extra), f.host, { frontPort: 5290, database: 'axion', sha: SHA }) };
+  };
+  const six = [500, 502, 503, 504, 599, 500].map((s) => line(s)).join('\n');
+  const a = setup(`${six}\n${line(200)}\n`);
+  const r = await a.fx.watch('green', 60_000);
+  assert.equal(r.ok, false);
+  assert.match(r.reason!, /6 5xx answers from axion-green in the front's access log since the switch \(limit 5\)/);
+  assert.equal(a.f.find('docker logs --since').at(-1)!.args.at(-1), 'axion-front');
+  // five are tolerated; the retiring slot's, 4xx and non-JSON lines never count
+  const b = setup([500, 502, 503, 504, 500].map((s) => line(s)).concat([line(502, 'axion-blue'), line(502, 'axion-blue'), line(404), line(499),
+    '2026/11/26 12:00:00 [error] 29#29: *1 connect() failed', '{"level":50}']).join('\n'));
+  assert.deepEqual(await b.fx.watch('green', 60_000), { ok: true });
+  // configurable
+  const c = setup(line(500), { AXION_GUARD_FRONT_5XX_LIMIT: '0' });
+  assert.match((await c.fx.watch('green', 60_000)).reason!, /1 5xx answers .*limit 0/);
+  assert.throws(() => srvCfg({ AXION_GUARD_FRONT_5XX_LIMIT: 'many' }), /AXION_GUARD_FRONT_5XX_LIMIT/);
+});
+
+test('switchTo with an expected commit (revert) refuses a slot reporting another commit before touching the front', async () => {
+  const { f, fx } = switchSetup();
+  await assert.rejects(fx.switchTo('green', BASE), /reports commit b{40}, expected a{40}/);
+  assert.equal(f.find('docker exec axion-front').length, 0);
+  assert.equal(f.find('docker stop').length, 0);
+  await fx.switchTo('green', SHA);
+  assert.equal(f.find('docker exec axion-front nginx -s reload').length, 1);
+});
+
+test('slotImage: the image a slot container was created from; null when missing', async () => {
+  const f = fakeHost();
+  f.sim.add('axion-blue', { running: false, image: `axion-app:${TAG}` });
+  const fx = makeEffects(srvCfg(), f.host, { frontPort: 5290, database: 'axion' });
+  assert.equal(await fx.slotImage('blue'), `axion-app:${TAG}`);
+  assert.equal(await fx.slotImage('green'), null);
+  assert.deepEqual(f.lines()[0], 'docker container inspect --format {{.Config.Image}} axion-blue');
+});
+
+test('Dockerfiles (I2): no stage that holds candidate files is built with a network; the checks run the Guard\'s script read-only', () => {
+  const read = (f: string) => readFileSync(new URL(`../docker/${f}`, import.meta.url), 'utf8');
+  /** stages as { name, lines } (instruction lines only, comments dropped) */
+  const stages = (text: string) => {
+    const out: { from: string; name: string; lines: string[] }[] = [];
+    for (const raw of text.replace(/\\\n/g, ' ').split('\n')) {
+      const l = raw.trim();
+      if (l === '' || l.startsWith('#')) continue;
+      const m = /^FROM\s+(\S+)(?:\s+AS\s+(\S+))?/i.exec(l);
+      if (m) { out.push({ from: m[1], name: m[2] ?? '', lines: [] }); continue; }
+      out.at(-1)?.lines.push(l);
+    }
+    return out;
+  };
+  const app = stages(read('app.Dockerfile'));
+  assert.deepEqual(app.map((s) => s.name), ['deps', '']);
+  // the stage built with a network (--target deps) copies only the lockfiles
+  for (const l of app[0].lines.filter((x) => /^COPY/i.test(x))) assert.match(l, /^COPY (server|web)\/package\.json \1\/package-lock\.json \1\/$/);
+  assert.ok(app[1].lines.includes('COPY . .') && app[1].lines.some((l) => l.includes('npm run build')));
+  assert.ok(!app[1].lines.some((l) => /^COPY --chown/.test(l)), '/app stays root-owned');
+  const checks = stages(read('checks.Dockerfile'));
+  assert.deepEqual(checks.map((s) => s.name), ['browsers', 'app', '']);
+  assert.ok(!checks[0].lines.some((l) => /^COPY/i.test(l)), 'the browsers stage (built with a network) has no candidate file');
+  assert.ok(checks[2].lines.includes('COPY . .'));
+  assert.ok(checks[2].lines.some((l) => l.includes('ln -s /tmp/axion-checks/test.env server/.env')));
+  assert.ok(checks[2].lines.includes('CMD ["bash", "/guard/run-checks.sh"]'));
+  const script = readFileSync(new URL('../slot/run-checks.sh', import.meta.url), 'utf8');
+  assert.ok(script.includes('APP=/app') && !script.includes('$(dirname "$0")'), 'run-checks.sh works from /guard (outside /app)');
+  assert.ok(!/>\s*"\$APP\/server\/\.env"/.test(script), 'no write into /app');
 });

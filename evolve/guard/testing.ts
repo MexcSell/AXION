@@ -7,7 +7,19 @@ export type Call = { cmd: string; args: string[]; env?: Record<string, string> }
 type Answer = Partial<RunResult> | undefined;
 export type Handler = (c: Call) => Answer | Promise<Answer>;
 
-export type Ctr = { running: boolean; restart: string; ports?: string; networks: string[]; image: string };
+export type Ctr = { running: boolean; restart: string; ports?: string; networks: string[]; image: string; logOpts?: Record<string, string> };
+
+/** docker run/create options that take no value (everything else starting with '-' takes one, unless written --x=y) */
+const FLAGS = new Set(['-d', '--init', '--rm', '--read-only']);
+/** the image argument of a `docker run|create …` argv (the first argument that is not an option or an option's value) */
+export function runImage(a: string[]): string {
+  for (let i = 1; i < a.length;) {
+    const x = a[i];
+    if (!x.startsWith('-')) return x;
+    i += FLAGS.has(x) || x.includes('=') ? 1 : 2;
+  }
+  return '';
+}
 
 export const T0 = Date.parse('2026-11-26T12:00:00.000Z');
 const NO_SUCH = (name: string): RunResult => ({ code: 1, stdout: '', stderr: `Error: No such container: ${name}\n` });
@@ -18,9 +30,13 @@ export class DockerSim {
   /** name → health JSON answered by `docker exec <name> curl … /api/v1/health` while the container runs */
   health = new Map<string, string>();
   images: string[] = [];
+  /** stdout of `docker logs … <name>` (e.g. the front's JSON access log lines) */
+  logs = new Map<string, string>();
+  /** URL → body answered by `docker exec <slot> curl … <url>` for URLs other than the health route */
+  pages = new Map<string, string>([['http://127.0.0.1:4190/api/v1/auth/hello', '{"firstEver":false}']]);
 
   add(name: string, c: Partial<Ctr> = {}) {
-    this.ctrs.set(name, { running: true, restart: 'unless-stopped', networks: [], image: 'img', ...c });
+    this.ctrs.set(name, { running: true, restart: 'unless-stopped', networks: [], image: 'img', logOpts: { 'max-size': '10m', 'max-file': '3' }, ...c });
   }
 
   handle(c: Call): RunResult | undefined {
@@ -33,7 +49,10 @@ export class DockerSim {
       if (!ctr) return NO_SUCH(name);
       const fmt = a[3];
       if (fmt === '{{.State.Running}}') return ok(`${ctr.running}\n`);
-      if (fmt === '{{json .HostConfig.PortBindings}}') return ok(`${ctr.ports ?? '{}'}\n`);
+      if (fmt === '{{json .HostConfig}}') {
+        return ok(`${JSON.stringify({ PortBindings: JSON.parse(ctr.ports ?? '{}'), LogConfig: { Type: 'json-file', Config: ctr.logOpts ?? {} } })}\n`);
+      }
+      if (fmt === '{{.Config.Image}}') return ok(`${ctr.image}\n`);
       return ok('\n');
     }
     if (a[0] === 'run' || a[0] === 'create') {
@@ -43,8 +62,10 @@ export class DockerSim {
       const port = p > 0 ? a[p + 1].split(':')[1] : undefined;
       const net = a[a.indexOf('--network') + 1];
       const r = a.indexOf('--restart');
+      const logOpts: Record<string, string> = {};
+      a.forEach((x, i) => { if (x === '--log-opt') { const [k, v] = a[i + 1].split('='); logOpts[k] = v; } });
       this.add(name, {
-        running: a[0] === 'run', restart: r > 0 ? a[r + 1] : 'no', networks: [net],
+        running: a[0] === 'run', restart: r > 0 ? a[r + 1] : 'no', networks: [net], image: runImage(a), logOpts,
         ports: port ? `{"8080/tcp":[{"HostIp":"0.0.0.0","HostPort":"${port}"}]}` : undefined,
       });
       if (a.includes('--rm')) this.ctrs.delete(name);
@@ -83,11 +104,25 @@ export class DockerSim {
         const h = this.health.get(name);
         return h === undefined ? { code: 7, stdout: '', stderr: '' } : ok(h);
       }
-      return ok();
+      if (a.includes('/dev/null')) return ok();
+      const page = this.pages.get(a[a.length - 1]);
+      return page === undefined ? { code: 22, stdout: '', stderr: '' } : ok(page);
+    }
+    if (a[0] === 'logs') return ok(this.logs.get(a[a.length - 1]) ?? '');
+    if (a[0] === 'ps' && a.includes('--filter')) {
+      const f = a[a.indexOf('--filter') + 1];
+      if (f.startsWith('ancestor=')) {
+        const img = f.slice('ancestor='.length);
+        return ok([...this.ctrs].filter(([, c]) => c.image === img).map(([n]) => n).join('\n') + ([...this.ctrs].some(([, c]) => c.image === img) ? '\n' : ''));
+      }
     }
     if (a[0] === 'image' && a[1] === 'ls') {
       const repo = a[a.length - 1];
       return ok(this.images.filter((i) => i.startsWith(`${repo}:`)).map((i) => i.slice(repo.length + 1)).join('\n') + '\n');
+    }
+    if (a[0] === 'image' && a[1] === 'rm') {
+      for (const ref of a.slice(2).filter((x) => !x.startsWith('-'))) this.images = this.images.filter((i) => i !== ref);
+      return ok();
     }
     return undefined;
   }

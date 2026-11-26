@@ -4,6 +4,7 @@
 //   AXION_GUARD_LIVE_NETWORK (axion-live)  AXION_GUARD_EDGE_NETWORK (axion-edge)  AXION_GUARD_FRONT_IMAGE (nginx:1.27-alpine)
 //   AXION_GUARD_POSTGRES_IMAGE (postgres:16-alpine)  AXION_GUARD_EGRESS (http://axion-egress:3128)
 //   AXION_GUARD_LIVE_ENV (<root>/secrets/live.env)  AXION_GUARD_BACKUP_SCRIPT (<root>/guard/evolve/backup.sh)
+//   AXION_GUARD_FRONT_5XX_LIMIT (5: watch fails on more 5xx answers than this from the candidate, through the front)
 // The trusted files (Dockerfiles, run-checks.sh, entry.mjs, protected.txt, baseline.json) come from the evolve/ directory
 // this file is installed in (R7/R11), never from a candidate; `.dockerignore` from the directory above it.
 
@@ -44,6 +45,8 @@ export type GuardConfig = {
   leaderGraceMs: number;
   badPollLimit: number;
   errorLineLimit: number;
+  /** watch: more 5xx answers than this from the candidate in the front's access log since the switch fail it */
+  front5xxLimit: number;
   healthTimeoutMs: number;
   healthIntervalMs: number;
   frontTimeoutMs: number;
@@ -89,6 +92,11 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   };
   const egress = get('AXION_GUARD_EGRESS', 'http://axion-egress:3128');
   if (!EGRESS_RE.test(egress)) throw new Error(`AXION_GUARD_EGRESS must look like http://<host>:<port>, got ${JSON.stringify(egress)}`);
+  const count = (k: string, d: number) => {
+    const v = get(k, String(d));
+    if (!/^\d{1,6}$/.test(v)) throw new Error(`${k} must be a whole number, got ${JSON.stringify(v)}`);
+    return Number(v);
+  };
   const path = (k: string, d: string) => {
     const v = get(k, d);
     if (!isAbsolute(v)) throw new Error(`${k} must be an absolute path, got ${v}`);
@@ -122,6 +130,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     leaderGraceMs: 30_000,
     badPollLimit: 3,
     errorLineLimit: 20,
+    front5xxLimit: count('AXION_GUARD_FRONT_5XX_LIMIT', 5),
     healthTimeoutMs: 180_000,
     healthIntervalMs: 2_000,
     frontTimeoutMs: 30_000,
@@ -141,7 +150,10 @@ export function names(cfg: GuardConfig) {
     front: `${p}-front`,
     appRepo: `${p}-app`,
     checksRepo: `${p}-checks`,
+    buildRepo: `${p}-build`,
     app: (tag: string) => `${p}-app:${tag}`,
     checks: (tag: string) => `${p}-checks:${tag}`,
+    /** the stage images of one build (`<tag>-deps`, `<tag>-browsers`), removed when the build ends */
+    build: (tag: string) => `${p}-build:${tag}`,
   };
 }

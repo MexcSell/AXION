@@ -20,6 +20,10 @@ export type GuardState = {
   previousImage: string | null;
   /** the commit previousImage was built from (lets `rollback` restore activeSha on its own) */
   previousSha: string | null;
+  /** passed-test count of the live commit's checks (the CLI's test-count floor with baseline.json); absent = unknown */
+  lastChecksPassed?: number | null;
+  /** the same for the previous commit (restored by a rollback or a revert) */
+  previousChecksPassed?: number | null;
   /** present while a deploy is running (or was killed); `step` is the step in progress */
   deploying?: { sha: string; step: Step; startedAt: string };
   [extra: string]: unknown;

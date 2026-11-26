@@ -27,6 +27,7 @@ test('parseArgs: deploy with defaults and with every flag', () => {
   });
   assert.deepEqual(parseArgs(['status']), { cmd: 'status' });
   assert.deepEqual(parseArgs(['rollback']), { cmd: 'rollback' });
+  assert.deepEqual(parseArgs(['revert']), { cmd: 'revert' });
   assert.deepEqual(parseArgs(['history']), { cmd: 'history', n: 20 });
   assert.deepEqual(parseArgs(['history', '5']), { cmd: 'history', n: 5 });
   assert.deepEqual(parseArgs(['front-port', '5291']), { cmd: 'front-port', port: 5291 });
@@ -44,7 +45,7 @@ test('parseArgs: refuses bad input with a usage error', () => {
     ['deploy', 'main', '--database', 'Axion-1'], ['deploy', 'main', '--approve', 'HEAD'], ['deploy', 'main', '--approve', SHA.toUpperCase()],
     ['deploy', 'main', '--approve-base', LIVE], ['deploy', 'main', '--drain', '-1'], ['deploy', 'main', '--drain', '601'],
     ['deploy', 'a..b'], ['deploy', 'main@{1}'], ['deploy', 'main', '--approve', SHA, '--approve', SHA],
-    ['history', '0'], ['history', 'x'], ['history', '1', '2'], ['front-port'], ['front-port', 'abc'], ['status', 'extra'], ['rollback', '--force'],
+    ['history', '0'], ['history', 'x'], ['history', '1', '2'], ['front-port'], ['front-port', 'abc'], ['status', 'extra'], ['rollback', '--force'], ['revert', 'abc'],
   ];
   for (const argv of bad) assert.throws(() => parseArgs(argv), UsageError, argv.join(' '));
 });
@@ -169,7 +170,12 @@ test('rollback at watch: switch to the previous slot, stop the candidate, state 
   assert.deepEqual(t.calls, ['switchTo blue', 'stopSlot green']);
   assert.deepEqual(await readState(dir), {
     active: 'blue', activeImage: LIVE_IMG, activeSha: LIVE, previousImage: null, previousSha: null, frontPort: 5290, database: 'axion',
+    lastChecksPassed: null, previousChecksPassed: null,
   });
+  // I6: the test-count floor goes back with the commit
+  const d3 = root({ ...AFTER_SWITCH, lastChecksPassed: 4900, previousChecksPassed: 4836, deploying: dep('watch') });
+  await rollback(fakeFx().fx, d3);
+  assert.deepEqual([(await readState(d3))?.lastChecksPassed, (await readState(d3))?.previousChecksPassed], [4836, null]);
   // first deploy watched: nothing to switch back to
   const d2 = root({ ...AFTER_SWITCH, previousImage: null, previousSha: null, deploying: dep('watch') });
   const t2 = fakeFx();
@@ -258,7 +264,8 @@ test('main deploy: a protected change → exit 3 with the exact approval command
   assert.ok(text.includes(`axion-guard deploy ${SHA} --approve ${SHA} --approve-base ${LIVE}`), text);
   assert.deepEqual(f.calls.filter((x) => x.cmd === 'docker').map((x) => x.args.join(' ')), [
     'ps -a --format {{.Names}}', 'network ls --format {{.Name}}', 'volume ls --format {{.Name}}',
-  ], 'only the leftover sweep; nothing built');
+    'image ls --format {{.Tag}} axion-app', 'image ls --format {{.Tag}} axion-checks', 'image ls --format {{.Tag}} axion-build',
+  ], 'only the leftover sweep and the image retention (I7: after every outcome); nothing built');
   assert.ok(!existsSync(join(dir, 'guard.lock')));
   const st = await readState(dir);
   assert.equal(st?.pending, undefined, 'pending dropped after needs_owner');
@@ -420,7 +427,7 @@ test('main deploy end to end (fake host): a failing watch rolls back to blue; th
   assert.equal(f.sim.ctrs.get('axion-blue')?.running, true);
   assert.equal(f.sim.ctrs.get('axion-green')?.running, false);
   assert.ok(!f.lines().some((l) => l.includes('update-ref')), 'evolve/main never moved');
-  assert.ok(!f.lines().includes('docker image ls --format {{.Tag}} axion-app'), 'no image retention after a rollback');
+  assert.ok(f.lines().includes('docker image ls --format {{.Tag}} axion-app'), 'I7: image retention after a rollback too');
 });
 
 test('main deploy: --database defaults to axion; without the flag it is refused while the live slot uses another database', async () => {
@@ -489,4 +496,156 @@ test('main deploy sweeps leftovers of a killed run under the lock before anythin
   assert.equal(l[1], 'docker rm -f -v axion-checks-0a1b2c3d-pg');
   assert.ok(l.indexOf('docker rm -f -v axion-checks-0a1b2c3d-pg') < l.findIndex((x) => x.startsWith('git ')));
   assert.match(c.out.join('\n'), /removed leftovers of an earlier run: axion-checks-0a1b2c3d-pg, .*work\/checks-abc/);
+});
+
+// ---- fix wave: revert (I5) and the rising test floor (I6) ----
+
+const REVERTABLE: GuardState = {
+  active: 'green', activeImage: IMG, activeSha: SHA, previousImage: LIVE_IMG, previousSha: LIVE, frontPort: 5290, database: 'axion',
+  lastChecksPassed: 4900, previousChecksPassed: 4836,
+};
+
+/** a fake host after a deploy went live on green: blue retired (stopped) with the previous image; evolve/main at SHA */
+function revertHost(dir: string, opts: { blueImage?: string; blueCommit?: string; casFails?: boolean } = {}) {
+  let main = SHA;
+  const f = fakeHost((c) => {
+    const a = c.args;
+    if (c.cmd === 'id') return { stdout: a[0] === '-u' ? '998\n' : '997\n' };
+    if (c.cmd === 'git') {
+      const g = a.slice(2).join(' ');
+      if (g === 'rev-parse --verify refs/heads/evolve/main^{commit}') return { stdout: `${main}\n` };
+      if (g === `update-ref refs/heads/evolve/main ${LIVE} ${SHA}`) {
+        if (opts.casFails) return { code: 128, stderr: 'fatal: cannot lock ref' };
+        main = LIVE; return {};
+      }
+      return { code: 128, stderr: `fatal: unexpected git ${g}` };
+    }
+    if (a[0] === 'logs') return { stdout: '' };
+    return undefined;
+  });
+  f.sim.add('axion-green', { running: true, image: `axion-app:${IMG}` });
+  f.sim.add('axion-blue', { running: false, restart: 'no', image: opts.blueImage ?? `axion-app:${LIVE_IMG}` });
+  f.sim.add('axion-front', { ports: '{"8080/tcp":[{"HostIp":"0.0.0.0","HostPort":"5290"}]}' });
+  f.sim.health.set('axion-green', health({ commit: SHA, leader: true }));
+  f.sim.health.set('axion-blue', health({ commit: opts.blueCommit ?? LIVE, leader: true }));
+  f.fetchAnswers.set('http://127.0.0.1:5290/api/v1/health', [health({ commit: LIVE, leader: true })]);
+  return { f, main: () => main };
+}
+
+const historyOf = (dir: string) => readFileSync(join(dir, 'history.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l) as HistoryEntry);
+
+test('revert: the previous slot is started again and served, evolve/main moved back by CAS, previous cleared; a second revert has nothing to do', async () => {
+  const dir = root(REVERTABLE);
+  const { f, main: ref } = revertHost(dir);
+  const c = cli(dir, f);
+  assert.equal(await c.run(['revert']), 0, c.err.join('\n'));
+  assert.match(c.out.join('\n'), /reverted: blue serves a{40} .*green \(b{40}\) is stopped; evolve\/main moved back/);
+  const l = f.lines();
+  const at = (x: string) => { const i = l.indexOf(x); assert.ok(i >= 0, `missing ${x}`); return i; };
+  // the stopped previous slot holds the previous image: restarted, healthy with the previous commit, front switched, green retired
+  assert.ok(at('docker container inspect --format {{.Config.Image}} axion-blue') < at('docker start axion-blue'));
+  assert.ok(at('docker start axion-blue') < at('docker exec axion-front nginx -s reload'));
+  assert.ok(at('docker exec axion-front nginx -s reload') < at('docker stop -t 30 axion-green'));
+  assert.ok(at('docker stop -t 30 axion-green') < at(`git --git-dir ${dir}/repo.git update-ref refs/heads/evolve/main ${LIVE} ${SHA}`));
+  assert.equal(f.find('docker run').length, 0, 'no new container: the retired slot is reused');
+  assert.equal(ref(), LIVE);
+  assert.equal(f.sim.ctrs.get('axion-blue')?.running, true);
+  assert.equal(f.sim.ctrs.get('axion-blue')?.restart, 'unless-stopped');
+  assert.equal(f.sim.ctrs.get('axion-green')?.running, false);
+  assert.equal(f.sim.ctrs.get('axion-green')?.restart, 'no');
+  assert.deepEqual(await readState(dir), {
+    active: 'blue', activeImage: LIVE_IMG, activeSha: LIVE, previousImage: null, previousSha: null, frontPort: 5290, database: 'axion',
+    lastChecksPassed: 4836, previousChecksPassed: null,
+  });
+  const h = historyOf(dir);
+  assert.deepEqual(h.map((e) => `${e.step}:${e.event}:${e.outcome ?? ''}`), ['switch:start:', 'record:outcome:reverted']);
+  assert.ok(h.every((e) => e.sha === LIVE));
+  assert.ok(!existsSync(join(dir, 'guard.lock')));
+  // safe to run twice
+  const before = f.calls.length;
+  const c2 = cli(dir, f);
+  assert.equal(await c2.run(['revert']), 0);
+  assert.match(c2.out.join('\n'), /nothing to revert/);
+  assert.equal(f.calls.length, before, 'nothing ran');
+});
+
+test('revert: when the idle slot holds another image (a later rejected candidate), the previous image is started there first', async () => {
+  const dir = root(REVERTABLE);
+  const { f } = revertHost(dir, { blueImage: `axion-app:${PREV_IMG}` });
+  const c = cli(dir, f);
+  assert.equal(await c.run(['revert']), 0, c.err.join('\n'));
+  const run = f.find('docker run');
+  assert.equal(run.length, 1);
+  assert.ok(run[0].args.includes(`axion-app:${LIVE_IMG}`) && run[0].args.includes('axion-blue'), run[0].args.join(' '));
+  const l = f.lines();
+  const rmAt = l.indexOf('docker rm axion-blue');
+  assert.ok(rmAt >= 0 && rmAt < l.indexOf(['docker', ...run[0].args].join(' ')), 'the stopped container with the other image is replaced');
+  assert.equal((await readState(dir))?.activeImage, LIVE_IMG);
+});
+
+test('revert refuses: an unfinished deploy, nothing live, evolve/main not at the live commit; nothing changes', async () => {
+  const cases: [GuardState | null, RegExp, string?][] = [
+    [{ ...REVERTABLE, deploying: { sha: PREV, step: 'build', startedAt: '2026-11-26T12:00:00.000Z' } }, /unfinished deploy .*axion-guard rollback/],
+    [null, /nothing is live/],
+    [{ ...REVERTABLE, activeSha: PREV }, /evolve\/main is at b{40}, state.json says the live commit is d{40}/],
+  ];
+  for (const [st, re] of cases) {
+    const dir = root(st);
+    const { f } = revertHost(dir);
+    const c = cli(dir, f);
+    assert.equal(await c.run(['revert']), 1);
+    assert.match(c.err.join('\n'), re);
+    assert.equal(f.calls.filter((x) => x.cmd === 'docker' || x.args.includes('update-ref')).length, 0);
+    assert.deepEqual(await readState(dir), st);
+  }
+  // no previous kept (first deploy, or already reverted/rolled back): nothing to revert, exit 0
+  const dir = root({ ...REVERTABLE, previousImage: null, previousSha: null });
+  const c = cli(dir, revertHost(dir).f);
+  assert.equal(await c.run(['revert']), 0);
+  assert.match(c.out.join('\n'), /nothing to revert/);
+});
+
+test('revert: the previous slot reporting another commit is never routed to; the front stays on the live slot', async () => {
+  const dir = root(REVERTABLE);
+  const { f, main: ref } = revertHost(dir, { blueCommit: PREV });
+  // the front keeps serving green's commit (blue is never routed to)
+  f.fetchAnswers.set('http://127.0.0.1:5290/api/v1/health', [health({ commit: SHA, leader: true })]);
+  const c = cli(dir, f);
+  assert.equal(await c.run(['revert']), 1);
+  assert.match(c.err.join('\n'), /revert failed \(cannot switch to axion-blue: it reports commit d{40}, expected a{40}\); rolled back/);
+  assert.equal(ref(), SHA, 'evolve/main unchanged');
+  assert.equal(f.sim.ctrs.get('axion-green')?.running, true, 'green keeps serving');
+  assert.equal(f.sim.ctrs.get('axion-blue')?.running, false, 'blue stopped again');
+  const s = await readState(dir);
+  assert.deepEqual(s, { ...REVERTABLE }, 'state as before, no marker');
+});
+
+test('revert: a failed compare-and-swap of evolve/main switches back to the live slot (rollback table, step record)', async () => {
+  const dir = root(REVERTABLE);
+  const { f, main: ref } = revertHost(dir, { casFails: true });
+  f.fetchAnswers.set('http://127.0.0.1:5290/api/v1/health', [health({ commit: LIVE, leader: true }), health({ commit: SHA, leader: true })]);
+  const c = cli(dir, f);
+  assert.equal(await c.run(['revert']), 1);
+  assert.match(c.err.join('\n'), /cannot lock ref/);
+  assert.equal(ref(), SHA);
+  assert.equal(f.sim.ctrs.get('axion-green')?.running, true);
+  assert.equal(f.sim.ctrs.get('axion-blue')?.running, false);
+  const s = await readState(dir);
+  assert.equal(s?.deploying, undefined);
+  assert.deepEqual([s?.active, s?.activeImage, s?.activeSha, s?.lastChecksPassed], ['green', IMG, SHA, 4900]);
+});
+
+test('deploy (I6): the test floor is the larger of baseline.json and the live commit\'s passed count', async () => {
+  const { checksFloor } = await import('./cli.ts');
+  assert.equal(checksFloor(4836, null), 4836);
+  assert.equal(checksFloor(4836, { ...REVERTABLE, lastChecksPassed: 4900 }), 4900);
+  assert.equal(checksFloor(4836, { ...REVERTABLE, lastChecksPassed: 100 }), 4836);
+  assert.equal(checksFloor(4836, { ...REVERTABLE, lastChecksPassed: null }), 4836);
+  // end to end: a candidate passing 4836 tests is rejected when the live commit passed 4900
+  const dir = root({ ...BLUE_LIVE, lastChecksPassed: 4900 });
+  const f = deployHost(dir, [health({ commit: SHA, leader: true })]);
+  const c = cli(dir, f);
+  assert.equal(await c.run(['deploy', 'evolve/main']), 1);
+  assert.match(c.out.join('\n'), /test floor 4900 \(live commit's checks; baseline 4836\)/);
+  assert.match(c.out.join('\n'), /rejected at checks: passed tests 4836 below the baseline 4900/);
 });

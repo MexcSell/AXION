@@ -29,7 +29,8 @@
 //   switch         if activeImage !== null: switchTo(active), then stopSlot(other(active)); else stopSlot(other(active)).
 //                  Clear `deploying`; active* unchanged.
 //   watch          if previousImage !== null: switchTo(other(active)); then stopSlot(active). Write active = other(active),
-//                  activeImage = previousImage, activeSha = previousSha, previousImage = previousSha = null, no `deploying`.
+//                  activeImage = previousImage, activeSha = previousSha, lastChecksPassed = previousChecksPassed,
+//                  previousImage = previousSha = previousChecksPassed = null, no `deploying`.
 //   record         if liveSha() === deploying.sha (advance happened): only clear `deploying`. Otherwise as for `watch`.
 
 import { classify, touches } from './classify.ts';
@@ -58,7 +59,8 @@ export type HistoryEntry = {
   event: 'start' | 'end' | 'outcome';
   ok?: boolean;
   detail?: string;
-  outcome?: Outcome;
+  /** 'reverted': `axion-guard revert` went back to the previous commit */
+  outcome?: Outcome | 'reverted';
   failedStep?: Step;
   reason?: string;
   image?: string;
@@ -102,9 +104,10 @@ export interface Effects {
   /**
    * Routes the front to `slot`. Owns the slot lifecycle: if `slot` is stopped it is started again (restart policy back
    * to unless-stopped) and must be healthy before routing; afterwards the other slot is retired (`docker update
-   * --restart no` + `docker stop`). Idempotent: switching to the slot already served is safe.
+   * --restart no` + `docker stop`). Idempotent: switching to the slot already served is safe. With `expectCommit`, the
+   * slot's health must report exactly that commit before the front is touched (used by `axion-guard revert`).
    */
-  switchTo(slot: Slot): Promise<void>;
+  switchTo(slot: Slot, expectCommit?: string): Promise<void>;
   /** Stops `slot` (restart policy no). Idempotent: a stopped or missing slot is not an error. */
   stopSlot(slot: Slot): Promise<void>;
   /** Watches `slot` through the front for `ms`; ok=false with a reason on failure. */
@@ -288,7 +291,7 @@ async function run(fx: Effects, req: DeployRequest): Promise<DeployResult> {
       });
       const img = await step('build', () => fx.build(sha), (v) => v);
       image = img;
-      await step('checks', async () => {
+      const checked = await step('checks', async () => {
         const r = await fx.checks(img);
         if (r?.ok !== true) fail(`checks failed: ${tail(r?.log)}`);
         if (!Number.isInteger(r.passed)) fail(`checks reported no valid passed-test count (${String(r.passed)})`);
@@ -324,8 +327,11 @@ async function run(fx: Effects, req: DeployRequest): Promise<DeployResult> {
         switched = true;
         await fx.switchTo(idle);
         // from here state.json names the candidate as active; the step shown is the next one (watch)
+        // lastChecksPassed: the live commit's passed-test count, the CLI's floor for the next candidate (I6); it moves with
+        // activeSha, so the previous one is kept beside previousSha for a rollback or a revert
         await save({
           ...base, active: idle, activeImage: img, activeSha: sha, previousImage: base.activeImage, previousSha: base.activeSha,
+          lastChecksPassed: checked.passed, previousChecksPassed: typeof base.lastChecksPassed === 'number' ? base.lastChecksPassed : null,
           deploying: { sha, step: 'watch', startedAt },
         });
       });
