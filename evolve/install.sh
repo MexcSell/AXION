@@ -1,12 +1,22 @@
 #!/usr/bin/env bash
 # Host install for AXION evolution step 1 (design §7, §13 B3/B4). Idempotent: every step is skipped when already done.
-# Run as root by Claude Code on the owner's word. It does NOT touch the running native site, the shared PostgreSQL
-# config, other apps' databases or containers. Usage:
-#   evolve/install.sh <git-dir-of-the-AXION-repo> <commit>      e.g. evolve/install.sh /home/luca/AXION/.git evolve-step1
+# Run as root by Claude Code on the owner's word. It does NOT touch the shared PostgreSQL config, other apps' databases or
+# containers. It retires the native site's systemd units (step 0). Usage:
+#   evolve/install.sh [--recreate-live-network] <git-dir-of-the-AXION-repo> <commit>
+#     e.g. evolve/install.sh /home/luca/AXION/.git evolve-step1
+#   --recreate-live-network  recreate an existing live network that lacks the host isolation (inhibit_ipv4): the front,
+#                            the slots and the egress proxy are disconnected and reconnected (a few seconds without the site).
+#                            Without the flag such a network is left alone and the install ends with exit 3.
 # Env: EVOLVE_ROOT (default /srv/axion-evolve), SRC_ENV_SERVER (default /home/luca/AXION/server/.env),
 #      SRC_ENV_ROOT (default /home/luca/AXION/.env), SRC_DATA (default /home/luca/AXION/server/data), PREFIX (default axion)
 set -euo pipefail
+RECREATE_LIVE=0
+if [ "${1:-}" = --recreate-live-network ]; then RECREATE_LIVE=1; shift; fi
 GIT_SRC="${1:?git dir of the AXION repository}"; REV="${2:?commit to install the Guard from}"
+HERE=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=networks.sh
+. "$HERE/networks.sh"
+PENDING=""
 ROOT="${EVOLVE_ROOT:-/srv/axion-evolve}"; P="${PREFIX:-axion}"
 SRC_ENV_SERVER="${SRC_ENV_SERVER:-/home/luca/AXION/server/.env}"; SRC_ENV_ROOT="${SRC_ENV_ROOT:-/home/luca/AXION/.env}"
 SRC_DATA="${SRC_DATA:-/home/luca/AXION/server/data}"
@@ -14,6 +24,16 @@ SRC_DATA="${SRC_DATA:-/home/luca/AXION/server/data}"
 done_() { echo "  already done: $*"; }
 step() { echo "== $*"; }
 SHA=$(git --git-dir="$GIT_SRC" rev-parse --verify "$REV^{commit}")
+
+step "0. the native site is retired (its systemd units would restart the old API on the live database, and the web unit
+   would take 0.0.0.0:5190 back at a reboot)"
+for unit in axion-api.service axion-web.service; do
+  if [ -z "$(systemctl list-unit-files --no-legend "$unit" 2>/dev/null)" ]; then done_ "$unit (no such unit)"; continue; fi
+  en=$(systemctl is-enabled "$unit" 2>/dev/null || true); ac=$(systemctl is-active "$unit" 2>/dev/null || true)
+  if [ "$en" = enabled ] || [ "$ac" = active ] || [ "$ac" = activating ]; then
+    systemctl disable --now "$unit"; echo "  disabled and stopped $unit (was $en/$ac)"
+  else done_ "$unit ($en/$ac)"; fi
+done
 
 step "1. OS user and group axion"
 if id axion >/dev/null 2>&1; then done_ "user axion ($(id -u axion):$(id -g axion))"
@@ -64,15 +84,16 @@ else
 fi
 
 step "5. Docker networks and the egress proxy"
-docker network inspect "$P-live" >/dev/null 2>&1 && done_ "$P-live" || { docker network create --internal "$P-live" >/dev/null; echo "  created $P-live (internal)"; }
-docker network inspect "$P-edge" >/dev/null 2>&1 && done_ "$P-edge" || { docker network create "$P-edge" >/dev/null; echo "  created $P-edge"; }
+if [ "$RECREATE_LIVE" = 1 ]; then recreate_live_network "$P-live" "$P-front"
+else ensure_live_network "$P-live" || { [ $? = 3 ] && PENDING="$P-live needs --recreate-live-network"; }; fi
+ensure_edge_network "$P-edge"
 if docker container inspect "$P-egress" >/dev/null 2>&1; then
   # the proxy code comes from the Guard copy; recreate when the Guard was updated
   if [ "$(docker inspect -f '{{index .Config.Labels "axion.guard"}}' "$P-egress")" = "$SHA" ]; then done_ "$P-egress"
   else docker rm -f "$P-egress" >/dev/null; echo "  recreating $P-egress for guard $SHA"; fi
 fi
 if ! docker container inspect "$P-egress" >/dev/null 2>&1; then
-  docker run -d --name "$P-egress" --label "axion.guard=$SHA" --network "$P-edge" --restart unless-stopped --init \
+  docker run -d --name "$P-egress" --label "axion.guard=$SHA" --network "$P-edge" --restart unless-stopped --init "${LOG_OPTS[@]}" \
     --user 1000:1000 --read-only -v "$ROOT/guard/evolve/egress:/egress:ro" \
     node:24-bookworm-slim node /egress/proxy.mjs >/dev/null
   docker network connect "$P-live" "$P-egress"
@@ -88,4 +109,5 @@ copy "$SRC_DATA/audit-anchors.jsonl" "$ROOT/data/audit-anchors.jsonl"
 copy "$SRC_DATA/cloud-home/claude-2" "$ROOT/data/cloud-home/"
 chown -R axion:axion "$ROOT/data"
 echo "  ok ($(du -sh "$ROOT/data" | cut -f1))"
+if [ -n "$PENDING" ]; then echo "install: done (guard $SHA), except: $PENDING"; exit 3; fi
 echo "install: done (guard $SHA)"

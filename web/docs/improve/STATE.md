@@ -1,21 +1,24 @@
 # Improvement loop state (resume from here)
 
 ## How live runs since 2026-11-26 17:07Z (evolution step 1 cutover; supersedes "Branch and live" below)
-- **Live = Docker, managed by the Guard** (`axion-guard status | history | deploy | rollback | front-port`, installed copy in
+- **Live = Docker, managed by the Guard** (`axion-guard status | history | deploy | rollback | revert | front-port`, installed copy in
   `/srv/axion-evolve/guard`, never a checkout). Front `axion-front` (nginx) on `0.0.0.0:5190` → active slot `axion-blue|green`
   (one image per commit: API on 127.0.0.1:5191 inside + vite preview :4190). Slots reach the `axion` DB through
   `/var/run/postgresql` as OS user `axion` (peer auth; no PostgreSQL config change). Egress only via `axion-egress`
   (allowlist `api.anthropic.com:443`). Live chat model: Claude 2 only. Data (uploads, audit anchors, CLI home) in
   `/srv/axion-evolve/data`; backups `/srv/axion-evolve/backups` (taken by the Guard before every switch).
-- **The native processes are retired**: nothing listens on 5191 on the host any more; `/home/luca/AXION/server/data` is no
-  longer written (its files were copied to `/srv/axion-evolve/data` at cutover).
+- **The native site is retired by disabling its two systemd units** `axion-api.service` and `axion-web.service`
+  (`systemctl disable --now axion-api axion-web`; `evolve/install.sh` does it, idempotently). Both have `Restart=always`:
+  left enabled, they restarted the old API on the live database beside the slot after the cutover (2026-11-26
+  17:07–20:03Z, found in the final review) and the web unit would take `0.0.0.0:5190` back at a reboot. Nothing listens on
+  5191 on the host any more; `/home/luca/AXION/server/data` is no longer written (its files were copied to
+  `/srv/axion-evolve/data` at cutover).
 - **Changing live** = `git push /srv/axion-evolve/repo.git <sha>:refs/heads/incoming/<name>` then
   `axion-guard deploy incoming/<name>`. Protected paths (`/srv/axion-evolve/guard/evolve/protected.txt`) need
   `--approve <sha> --approve-base <live sha>` (the owner's decision).
-- **Back to native (emergency only):** `docker rm -f axion-front axion-blue axion-green`, then start the two native commands
-  again (API from `server/`: `node --env-file=.env --env-file-if-exists=../.env --import tsx src/main.ts`; web from `web/`:
-  `node node_modules/vite/bin/vite.js preview --host 0.0.0.0 --port 5190 --strictPort`), after copying
-  `/srv/axion-evolve/data` back to `server/data`.
+- **Back to native (emergency only):** (1) `docker rm -f axion-front axion-blue axion-green` (the front first, so nothing
+  serves a half-stopped slot); (2) copy `/srv/axion-evolve/data` back to `/home/luca/AXION/server/data`
+  (`rsync -a /srv/axion-evolve/data/ /home/luca/AXION/server/data/`); (3) `systemctl enable --now axion-api axion-web`.
 - Design and plan: `web/docs/evolve/`; step 1 report: `web/docs/evolve/step1-report.md`.
 
 Rewritten 2026-11-24 ~01:05Z by the controller. **Phase 2 is closed.** History is in LOG.md, MERGES.md and QUEUE.md.
