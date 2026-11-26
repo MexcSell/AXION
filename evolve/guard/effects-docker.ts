@@ -230,19 +230,34 @@ export function dockerOps(cfg: GuardConfig, host: Host, ctx: DeployContext) {
     const conf = renderFrontConf(template, target);
     const prev = existsSync(frontConf) ? await readFile(frontConf, 'utf8') : null;
     await writeAtomic(frontConf, conf);
+    /** before the front picked the new file up: put the previous one back (the running nginx still has it loaded) */
+    const restoreConf = async () => {
+      if (prev === null) await unlink(frontConf).catch(() => {});
+      else await writeAtomic(frontConf, prev);
+    };
     const st = await state(n.front);
     if (st === 'missing') {
       await createFront();
     } else if ((await frontPort()) !== ctx.frontPort) {
-      await must(['rm', '-f', n.front]);
-      await createFront();
+      // move to another port: the old front keeps serving (renamed aside) until the new one has started; if the new
+      // one cannot start (e.g. the port is taken), the old one gets its name back untouched
+      const aside = `${n.front}-old`;
+      await cleanup([['rm', '-f', aside]]);
+      await must(['rename', n.front, aside]);
+      try {
+        await createFront();
+      } catch (e) {
+        await must(['rename', aside, n.front]);
+        await restoreConf();
+        throw e;
+      }
+      await cleanup([['rm', '-f', aside]]);
     } else if (st === 'stopped') {
       await must(['start', n.front]);
     } else {
       const t = await docker(['exec', n.front, 'nginx', '-t']);
       if (t.code !== 0) {
-        if (prev === null) await unlink(frontConf).catch(() => {});
-        else await writeAtomic(frontConf, prev);
+        await restoreConf();
         throw new Error(`nginx -t refused the config for ${target}: ${errTail(t)}`);
       }
       await must(['exec', n.front, 'nginx', '-s', 'reload']);

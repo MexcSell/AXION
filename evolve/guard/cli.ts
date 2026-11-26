@@ -5,8 +5,9 @@
 //                            [--no-expect-leader] [--drain <s>=5]
 //   axion-guard status | rollback | history [n=20] | front-port <port>
 //
-// --front-port and --database default to the values kept in state.json (first time 5290 and axion); they are written to
-// state.json once a deploy is live (or by `front-port`). --approve-base defaults to the live commit at invocation.
+// --front-port defaults to the port kept in state.json (first time 5290); --database defaults to axion, and a deploy without
+// --database is refused while the live slot uses another database. Both are written to state.json once a deploy is live
+// (the port also after a rollback, and by `front-port`). --approve-base defaults to the live commit at invocation.
 // Exit codes: 0 live / done, 1 rejected / rolled back / error, 2 usage, 3 needs the owner's approval, 4 busy (lock held).
 
 import { readFile } from 'node:fs/promises';
@@ -46,7 +47,8 @@ export const USAGE = `usage: axion-guard <command>
   axion-guard rollback
   axion-guard history [n=20]
   axion-guard front-port <port>
---front-port/--database default to state.json (first time 5290/axion); --approve-base defaults to the live commit now.
+--front-port defaults to state.json's (first time 5290); --database defaults to axion and must be given while the live slot
+uses another database; --approve-base defaults to the live commit now.
 exit codes: 0 live/done, 1 rejected/rolled back/error, 2 usage, 3 needs the owner's approval, 4 another axion-guard holds the lock`;
 
 const SHA_RE = /^[0-9a-f]{40}$/;
@@ -170,7 +172,8 @@ export async function rollback(fx: Pick<Effects, 'switchTo' | 'stopSlot' | 'live
   const active = s.active;
   const idle = other(active);
   const note = (outcome: 'rolled_back' | 'live', reason: string) => fx.record({
-    at: new Date().toISOString(), sha: d.sha, step: d.step, event: 'outcome', outcome, failedStep: d.step, reason: `axion-guard rollback: ${reason}`,
+    at: new Date().toISOString(), sha: d.sha, step: d.step, event: 'outcome', outcome,
+    ...(outcome === 'rolled_back' ? { failedStep: d.step } : {}), reason: `axion-guard rollback: ${reason}`,
   });
 
   if (STEPS.indexOf(d.step) < STEPS.indexOf('switch')) {
@@ -308,14 +311,20 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
             err(`axion-guard: state.json shows an unfinished deploy of ${s.deploying.sha} (step ${s.deploying.step}); run \`axion-guard rollback\` first`);
             return 1;
           }
+          const liveDb = s && s.activeImage !== null ? dbOf(s) : undefined;
+          if (c.database === undefined && liveDb !== undefined && liveDb !== defaults.database) {
+            // never move a site off its database silently: the default (axion) differs from the live slot's
+            err(`axion-guard: the live slot uses database ${liveDb}; pass --database explicitly (--database ${liveDb} to stay on it)`);
+            return 1;
+          }
           const ctx: DeployContext = {
             frontPort: c.frontPort ?? portOf(s) ?? defaults.frontPort,
-            database: c.database ?? dbOf(s) ?? defaults.database,
+            database: c.database ?? defaults.database,
             expectLeader: c.expectLeader,
             drainMs: c.drainS * 1000,
           };
-          if (s && s.activeImage !== null && dbOf(s) !== undefined && ctx.database !== dbOf(s)) {
-            err(`axion-guard: warning: the live slot uses database ${dbOf(s)}, this deploy uses ${ctx.database} (a rollback goes back to ${dbOf(s)})`);
+          if (liveDb !== undefined && ctx.database !== liveDb) {
+            err(`axion-guard: warning: the live slot uses database ${liveDb}, this deploy uses ${ctx.database} (a rollback goes back to ${liveDb})`);
           }
           const fx = makeEffects(cfg, host, ctx);
           const target = await fx.resolve(c.ref);

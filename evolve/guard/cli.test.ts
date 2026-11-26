@@ -184,6 +184,8 @@ test('rollback at record: evolve/main already at the candidate → only clear de
   assert.match(await rollback(t.fx, dir), /already live/);
   assert.deepEqual(t.calls, ['liveSha']);
   assert.deepEqual(await readState(dir), AFTER_SWITCH);
+  assert.equal(t.history[0].outcome, 'live');
+  assert.equal(t.history[0].failedStep, undefined);
   const d2 = root({ ...AFTER_SWITCH, deploying: dep('record') });
   const t2 = fakeFx(LIVE);
   await rollback(t2.fx, d2);
@@ -287,7 +289,8 @@ test('main front-port: stores the port and moves the front of a live site', asyn
   const c = cli(dir, f);
   assert.equal(await c.run(['front-port', '5291']), 0, c.err.join('\n'));
   assert.equal((await readState(dir))?.frontPort, 5291);
-  assert.ok(f.lines().includes('docker rm -f axion-front'));
+  assert.ok(f.lines().includes('docker rename axion-front axion-front-old'));
+  assert.ok(!f.sim.ctrs.has('axion-front-old'), 'the old front is removed once the new one runs');
   assert.match(f.sim.ctrs.get('axion-front')!.ports!, /"HostPort":"5291"/);
   // nothing live: only stored
   const d2 = root(null);
@@ -399,4 +402,31 @@ test('main deploy end to end (fake host): a failing watch rolls back to blue; th
   assert.equal(f.sim.ctrs.get('axion-green')?.running, false);
   assert.ok(!f.lines().some((l) => l.includes('update-ref')), 'evolve/main never moved');
   assert.ok(!f.lines().includes('docker image ls --format {{.Tag}} axion-app'), 'no image retention after a rollback');
+});
+
+test('main deploy: --database defaults to axion; without the flag it is refused while the live slot uses another database', async () => {
+  const live = { ...BLUE_LIVE, database: 'axion_restore_check' };
+  const dir = root(live);
+  const f = fakeHost((c) => {
+    if (c.cmd !== 'git') return undefined;
+    const a = c.args.slice(2).join(' ');
+    if (a === 'rev-parse --verify evolve/main^{commit}') return { stdout: `${SHA}\n` };
+    if (a === 'rev-parse --verify refs/heads/evolve/main^{commit}') return { stdout: `${LIVE}\n` };
+    if (a === `diff --name-status -z -M ${LIVE} ${SHA}`) return { stdout: 'M\0evolve/guard/deploy.ts\0' };
+    return { code: 128, stderr: `fatal: unexpected ${a}` };
+  });
+  const c = cli(dir, f);
+  assert.equal(await c.run(['deploy', 'evolve/main']), 1);
+  assert.match(c.err.join('\n'), /live slot uses database axion_restore_check; pass --database explicitly/);
+  assert.equal(f.calls.length, 0, 'refused before any command');
+  assert.deepEqual(await readState(dir), live, 'state.json untouched');
+  // with the flag it proceeds (here to needs_owner); moving to another database warns
+  assert.equal(await c.run(['deploy', 'evolve/main', '--database', 'axion_restore_check']), 3, c.err.join('\n'));
+  assert.equal(await c.run(['deploy', 'evolve/main', '--database', 'axion']), 3);
+  assert.match(c.err.at(-1)!, /warning: the live slot uses database axion_restore_check, this deploy uses axion/);
+  // a live slot on axion (the default): no flag needed
+  const d2 = root(BLUE_LIVE);
+  const c2 = cli(d2, f);
+  assert.equal(await c2.run(['deploy', 'evolve/main']), 3, c2.err.join('\n'));
+  assert.deepEqual(c2.err, []);
 });

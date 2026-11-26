@@ -273,14 +273,43 @@ test('switchTo recreates the front when its published port differs from the depl
   await fx.switchTo('green');
   const l = f.lines();
   const i = l.indexOf('docker container inspect --format {{json .HostConfig.PortBindings}} axion-front');
-  assert.deepEqual(l.slice(i, i + 5), [
+  assert.deepEqual(l.slice(i, i + 7), [
     'docker container inspect --format {{json .HostConfig.PortBindings}} axion-front',
-    'docker rm -f axion-front',
+    'docker rm -f axion-front-old',
+    'docker rename axion-front axion-front-old',
     `docker create --name axion-front --network axion-edge --restart unless-stopped -p 0.0.0.0:5291:8080 -v ${cfg.frontDir}:/etc/nginx/conf.d:ro nginx:1.27-alpine`,
     'docker network connect axion-live axion-front',
     'docker start axion-front',
+    'docker rm -f axion-front-old',
   ]);
   assert.deepEqual(f.fetches, ['http://127.0.0.1:5291/api/v1/health']);
+  assert.ok(!f.sim.ctrs.has('axion-front-old'));
+});
+
+test('switchTo to a new front port that cannot start keeps the old front serving on its old port', async () => {
+  const cfg = tmpCfg();
+  mkdirSync(cfg.frontDir, { recursive: true });
+  writeFileSync(join(cfg.frontDir, 'default.conf'), 'OLD CONF\n');
+  const sim = new DockerSim();
+  const f = fakeHost((c) => (c.args.join(' ') === 'start axion-front' ? { code: 125, stderr: 'Bind for 0.0.0.0:5291 failed: port is already allocated' } : undefined), sim);
+  sim.add('axion-blue'); sim.add('axion-green');
+  sim.add('axion-front', { ports: '{"8080/tcp":[{"HostIp":"0.0.0.0","HostPort":"5290"}]}' });
+  sim.health.set('axion-green', health({ commit: SHA }));
+  await assert.rejects(makeEffects(cfg, f.host, { frontPort: 5291, database: 'axion' }).switchTo('green'), /port is already allocated/);
+  const l = f.lines();
+  assert.deepEqual(l.slice(l.indexOf('docker rename axion-front axion-front-old')), [
+    'docker rename axion-front axion-front-old',
+    `docker create --name axion-front --network axion-edge --restart unless-stopped -p 0.0.0.0:5291:8080 -v ${cfg.frontDir}:/etc/nginx/conf.d:ro nginx:1.27-alpine`,
+    'docker network connect axion-live axion-front',
+    'docker start axion-front',
+    'docker rm -f axion-front',
+    'docker rename axion-front-old axion-front',
+  ]);
+  assert.match(sim.ctrs.get('axion-front')!.ports!, /"HostPort":"5290"/);
+  assert.equal(sim.ctrs.get('axion-front')!.running, true);
+  assert.ok(!sim.ctrs.has('axion-front-old'));
+  assert.equal(readFileSync(join(cfg.frontDir, 'default.conf'), 'utf8'), 'OLD CONF\n', 'conf restored');
+  assert.equal(sim.ctrs.get('axion-blue')!.running, true, 'nothing retired');
 });
 
 test('switchTo: a bad nginx config is restored and nothing is retired', async () => {

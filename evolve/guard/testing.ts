@@ -63,6 +63,14 @@ export class DockerSim {
       for (const n of a.slice(1).filter((x) => !x.startsWith('-'))) this.ctrs.delete(n);
       return ok();
     }
+    if (a[0] === 'rename') {
+      const ctr = this.ctrs.get(a[1]);
+      if (!ctr) return { code: 1, stdout: '', stderr: `Error response from daemon: No such container: ${a[1]}` };
+      if (this.ctrs.has(a[2])) return { code: 1, stdout: '', stderr: `Conflict. The container name "/${a[2]}" is already in use` };
+      this.ctrs.delete(a[1]);
+      this.ctrs.set(a[2], ctr);
+      return ok();
+    }
     if (a[0] === 'network' && a[1] === 'connect') {
       this.ctrs.get(a[3])?.networks.push(a[2]);
       return ok();
