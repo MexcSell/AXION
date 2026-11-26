@@ -45,6 +45,7 @@ server/vitest.config.ts
 server/tsconfig.json
 web/tsconfig.json
 web/vite.config.ts
+web/security-headers.ts
 server/test/setup.ts
 server/test/helpers.ts
 web/scripts/api-e2e.sh
