@@ -1,0 +1,14 @@
+# evolve step 1: never in an image (secrets, data, local tooling); the image installs its own node_modules
+**/node_modules
+.env*
+**/.env*
+server/data
+backups
+.superpowers
+.git
+web/dist
+**/*.dump
+# deviation from the step-1 brief's list (controller ruling 2026-11-26): screenshots in the docs only; tests read web/docs/improve text and json, never these
+web/docs/screenshots
+web/docs/**/*.png
+web/docs/**/*.jpg
