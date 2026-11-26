@@ -1,0 +1,39 @@
+# Protected paths: a change touching any of these waits for the owner's approval, bound to the exact commit sha.
+# Owned by the Guard; this file is itself protected (evolve/**). The Guard reads its own installed copy, never the candidate's.
+# Globs: `*` = any characters inside one path segment, `**` = any number of segments (also none).
+# A rule prefixed `modify:` matches only changes to existing files (status M, D, R); new files (A) under it are allowed.
+# A rename is checked on both its old and its new path.
+
+# Database structure
+server/migrations/**
+
+# Login, roles, approvals, policy, grants
+server/src/auth/**
+server/src/approvals/**
+server/src/policy/**
+server/src/grants/**
+
+# Secrets and tokens
+server/src/cloud/claude-cli.ts
+**/.env*
+
+# The Guard, deploy and Docker files
+evolve/**
+.dockerignore
+**/Dockerfile*
+**/*.Dockerfile
+**/docker-compose*
+
+# Dependencies (supply-chain risk)
+**/package.json
+**/package-lock.json
+
+# Test runner and shared test setup
+server/vitest.config.ts
+server/test/setup.ts
+server/test/helpers.ts
+web/scripts/api-e2e.sh
+
+# Existing tests and check scripts: modify/delete/rename only (new test files are auto-live)
+modify:server/test/**
+modify:web/scripts/**
