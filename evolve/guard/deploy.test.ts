@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { deploy, Busy, STEPS } from './deploy.ts';
-import type { Effects, HistoryEntry, DeployRequest, Change } from './deploy.ts';
+import type { Effects, HistoryEntry, DeployRequest, Change, Slot } from './deploy.ts';
 import { parseRules } from './classify.ts';
 import { readState } from './state.ts';
 import type { GuardState } from './state.ts';
@@ -123,6 +123,7 @@ test('a protected hit without approvedSha === sha returns needs_owner and never 
   const r = await deploy(s.fx, s.req);
   assert.equal(r.outcome, 'needs_owner');
   assert.deepEqual(r.hits, ['evolve/guard/deploy.ts']);
+  assert.equal(r.base, LIVE);
   assert.match(r.reason ?? '', /evolve\/guard\/deploy\.ts/);
   assert.deepEqual(s.calls, [['lock'], ['liveSha'], ['diff', LIVE, SHA], ['unlock']]);
   assert.equal(s.history.at(-1)!.outcome, 'needs_owner');
@@ -131,12 +132,12 @@ test('a protected hit without approvedSha === sha returns needs_owner and never 
 
 test('approval for another sha does not count', async () => {
   const s = setup({ diff: [{ path: 'server/src/auth/session.ts', status: 'M' }] });
-  const r = await deploy(s.fx, { ...s.req, approvedSha: OTHER });
+  const r = await deploy(s.fx, { ...s.req, approvedSha: OTHER, approvedBase: LIVE });
   assert.equal(r.outcome, 'needs_owner');
   assert.ok(!s.names().includes('build'));
   // approved for exactly this sha: it proceeds
   const t = setup({ diff: [{ path: 'server/src/auth/session.ts', status: 'M' }] });
-  assert.equal((await deploy(t.fx, { ...t.req, approvedSha: SHA })).outcome, 'live');
+  assert.equal((await deploy(t.fx, { ...t.req, approvedSha: SHA, approvedBase: LIVE })).outcome, 'live');
   // a renamed protected file is caught by its old path
   const u = setup({ diff: [{ path: 'server/src/x.ts', status: 'R', oldPath: 'server/src/auth/session.ts' }] });
   assert.deepEqual((await deploy(u.fx, u.req)).hits, ['server/src/auth/session.ts']);
@@ -201,13 +202,13 @@ test('migrate runs only when approved and the diff has server/migrations/**', as
   const mig: Change[] = [{ path: 'server/migrations/0066_x.up.sql', status: 'A' }, { path: 'web/src/a.ts', status: 'M' }];
   // approved + migrations: migrate(image) after backup, before the candidate starts
   const a = setup({ diff: mig });
-  assert.equal((await deploy(a.fx, { ...a.req, approvedSha: SHA })).outcome, 'live');
+  assert.equal((await deploy(a.fx, { ...a.req, approvedSha: SHA, approvedBase: LIVE })).outcome, 'live');
   const n = a.names();
   assert.deepEqual(a.calls.filter((c) => c[0] === 'migrate'), [['migrate', IMAGE]]);
   assert.ok(n.indexOf('backup') < n.indexOf('migrate') && n.indexOf('migrate') < n.indexOf('startSlot'));
   // approved but no migrations in the diff: no migrate
   const b = setup({ diff: [{ path: 'evolve/guard/x.ts', status: 'M' }] });
-  assert.equal((await deploy(b.fx, { ...b.req, approvedSha: SHA })).outcome, 'live');
+  assert.equal((await deploy(b.fx, { ...b.req, approvedSha: SHA, approvedBase: LIVE })).outcome, 'live');
   assert.ok(!b.names().includes('migrate'));
   // migrations without approval: needs_owner, never migrates
   const c = setup({ diff: mig });
@@ -220,11 +221,11 @@ test('migrate runs only when approved and the diff has server/migrations/**', as
   assert.match(c2.history.find((h) => h.step === 'migrate' && h.event === 'end')!.detail ?? '', /not approved/);
   // a migration moved out of the folder still counts as touching migrations
   const d = setup({ diff: [{ path: 'server/old/0066.sql', status: 'R', oldPath: 'server/migrations/0066_x.up.sql' }] });
-  await deploy(d.fx, { ...d.req, approvedSha: SHA });
+  await deploy(d.fx, { ...d.req, approvedSha: SHA, approvedBase: LIVE });
   assert.ok(d.names().includes('migrate'));
   // a failed migration is rejected before the candidate starts; live untouched
   const e = setup({ diff: mig, throwIn: 'migrate' });
-  const re = await deploy(e.fx, { ...e.req, approvedSha: SHA });
+  const re = await deploy(e.fx, { ...e.req, approvedSha: SHA, approvedBase: LIVE });
   assert.equal(re.outcome, 'rejected');
   assert.equal(re.failedStep, 'migrate');
   assert.ok(!e.names().includes('startSlot'));
@@ -404,4 +405,101 @@ test('state.json naming a different active slot than the request → rejected be
   assert.deepEqual(s.calls, [['lock'], ['unlock']]);
   assert.ok(existsSync(join(s.dir, 'state.json')));
   assert.equal((await readState(s.dir))!.active, 'green');
+});
+
+test('approval is bound to the base too: another base, or no base, does not count (R9)', async () => {
+  const diff: Change[] = [{ path: 'server/src/auth/session.ts', status: 'M' }];
+  for (const approval of [{ approvedSha: SHA, approvedBase: OTHER }, { approvedSha: SHA }]) {
+    const s = setup({ diff });
+    const r = await deploy(s.fx, { ...s.req, ...approval });
+    assert.equal(r.outcome, 'needs_owner', JSON.stringify(approval));
+    assert.equal(r.base, LIVE);
+    assert.ok(!s.names().includes('build'));
+    assert.equal(s.history.at(-1)!.base, LIVE);
+  }
+  // migrations approved for another base never migrate
+  const m = setup({ diff: [{ path: 'server/migrations/0066_x.up.sql', status: 'A' }] });
+  assert.equal((await deploy(m.fx, { ...m.req, approvedSha: SHA, approvedBase: OTHER })).outcome, 'needs_owner');
+  assert.ok(!m.names().includes('migrate'));
+});
+
+test('the test-count floor rejects a missing or non-integer count', async () => {
+  for (const checks of [{ ok: true, passed: NaN, log: '' }, { ok: true, log: '' }, { ok: true, passed: 100.5, log: '' },
+    { ok: true, passed: '100', log: '' }, { ok: 1, passed: 100, log: '' }]) {
+    const s = setup({ checks: checks as Cfg['checks'] });
+    const r = await deploy(s.fx, s.req);
+    assert.equal(r.outcome, 'rejected', JSON.stringify(checks));
+    assert.equal(r.failedStep, 'checks', JSON.stringify(checks));
+    assertLiveUntouched(s.calls);
+  }
+});
+
+test('a malformed request (sha not a full commit sha, bad baseline…) fails closed before any effect except lock', async () => {
+  const bad: Partial<DeployRequest>[] = [
+    { sha: 'evolve/x', approvedSha: 'evolve/x', approvedBase: LIVE }, { sha: SHA.slice(0, 12) }, { sha: SHA.toUpperCase() },
+    { approvedSha: 'main' }, { approvedBase: 'HEAD' }, { baselinePassed: NaN }, { baselinePassed: undefined as unknown as number },
+    { baselinePassed: -1 }, { watchMs: 0 }, { watchMs: NaN }, { active: 'red' as Slot }, { rules: undefined as unknown as string[] },
+    { stateDir: '' },
+  ];
+  for (const over of bad) {
+    const s = setup({ diff: [{ path: 'server/migrations/0066_x.up.sql', status: 'A' }] });
+    const stateBefore = readFileSync(join(s.dir, 'state.json'), 'utf8');
+    const r = await deploy(s.fx, { ...s.req, ...over });
+    assert.equal(r.outcome, 'rejected', JSON.stringify(over));
+    assert.equal(r.failedStep, 'lock');
+    assert.match(r.reason ?? '', /invalid request/);
+    assert.deepEqual(s.calls, [['lock'], ['unlock']], JSON.stringify(over));
+    assert.equal(s.history.length, 0);
+    assert.equal(readFileSync(join(s.dir, 'state.json'), 'utf8'), stateBefore);
+  }
+  // liveSha() returning something that is not a full sha is refused at classify
+  const l = setup({ live: 'evolve/main' });
+  const rl = await deploy(l.fx, l.req);
+  assert.equal(rl.failedStep, 'classify');
+  assert.ok(!l.names().includes('diff'));
+});
+
+test('advance throws and the switch back throws → deploy throws, state keeps deploying step record for rollback', async () => {
+  const s = setup({ throwIn: 'advance' });
+  const orig = s.fx.switchTo;
+  let n = 0;
+  s.fx.switchTo = async (slot) => { n++; await orig(slot); if (n === 2) throw new Error('front gone'); };
+  await assert.rejects(deploy(s.fx, s.req), /rollback failed.*front gone.*deploying step record \(active green\)/);
+  const st = await readState(s.dir);
+  assert.deepEqual(st!.deploying && { sha: st!.deploying.sha, step: st!.deploying.step }, { sha: SHA, step: 'record' });
+  assert.equal(st!.active, 'green');
+  assert.equal(st!.previousSha, LIVE);
+  assert.deepEqual(s.calls.at(-1), ['unlock']);
+});
+
+test('while advance runs, state.json shows deploying step record (a Guard killed here is resolvable)', async () => {
+  let seen: GuardState | null = null;
+  const s = setup({ hook: { advance: async () => { seen = await readState(s.dir); } } });
+  assert.equal((await deploy(s.fx, s.req)).outcome, 'live');
+  const st = seen as unknown as GuardState;
+  assert.equal(st.deploying!.step, 'record');
+  assert.equal(st.deploying!.sha, SHA);
+  assert.equal(st.active, 'green');
+  assert.equal(st.activeSha, SHA);
+  assert.equal(st.previousSha, LIVE);
+  assert.equal((await readState(s.dir))!.deploying, undefined);
+});
+
+test('switch back succeeds but stopping the candidate fails → rolled_back with the error, state on the previous slot (R9)', async () => {
+  const s = setup({ watch: { ok: false, reason: 'down' } });
+  const orig = s.fx.stopSlot;
+  s.fx.stopSlot = async (slot) => { await orig(slot); throw new Error('docker hung'); };
+  const r = await deploy(s.fx, s.req);
+  assert.equal(r.outcome, 'rolled_back');
+  assert.equal(r.failedStep, 'watch');
+  assert.match(r.reason ?? '', /down.*switched back to blue, but stopping candidate green failed: docker hung/);
+  assert.deepEqual(s.calls.slice(-3), [['switchTo', 'blue'], ['stopSlot', 'green'], ['unlock']]);
+  assert.deepEqual(await readState(s.dir), INITIAL);
+});
+
+test('first deploy skips drain (no old slot) (R9)', async () => {
+  const s = setup({}, null);
+  assert.equal((await deploy(s.fx, s.req)).outcome, 'live');
+  assert.ok(!s.names().includes('drain'));
+  assert.match(s.history.find((h) => h.step === 'drain' && h.event === 'end')!.detail ?? '', /skipped: nothing live/);
 });

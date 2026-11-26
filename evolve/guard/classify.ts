@@ -1,7 +1,8 @@
 // Classify a diff against the protected-path rules (evolve/protected.txt). Pure; no I/O.
 // Rules are globs: `*` = any characters inside one path segment, `**` = any number of whole segments (also none).
 // A rule prefixed `modify:` matches only changes to existing files: every status except A (new file). A rename is
-// checked on both its old and its new path. Unknown statuses count as modifications (fail closed).
+// checked on both its old and its new path. Unknown statuses count as modifications, and a non-canonical path
+// (see isCanonicalPath) is always a hit (fail closed).
 
 export type ChangeStatus = 'A' | 'M' | 'D' | 'R';
 export type ClassifyInput = { path: string; status: ChangeStatus; oldPath?: string };
@@ -29,6 +30,18 @@ export function globToRegExp(glob: string): RegExp {
   return new RegExp(`^${re}$`);
 }
 
+/**
+ * A canonical repo-relative path: no leading `"` (git C-quoting), `/` or `./`; no empty, `.` or `..` segment
+ * (so no `//`, no trailing `/`); no backslash; no control character. Anything else cannot be matched reliably
+ * against the rules, so classify reports it as a protected hit (fail closed).
+ */
+export function isCanonicalPath(p: unknown): boolean {
+  if (typeof p !== 'string' || p === '') return false;
+  if (p.startsWith('"') || p.startsWith('/') || p.startsWith('./')) return false;
+  if (p.includes('\\') || /[\u0000-\u001f\u007f]/.test(p)) return false;
+  return p.split('/').every((seg) => seg !== '' && seg !== '.' && seg !== '..');
+}
+
 type Rule = { re: RegExp; modifyOnly: boolean };
 
 function compile(rules: string[]): Rule[] {
@@ -46,7 +59,7 @@ export function classify(paths: ClassifyInput[], rules: string[]): { hits: strin
     const isNew = c.status === 'A';
     const candidates = c.oldPath !== undefined && c.oldPath !== c.path ? [c.oldPath, c.path] : [c.path];
     for (const p of candidates) {
-      if (compiled.some((r) => (!r.modifyOnly || !isNew) && r.re.test(p))) add(p);
+      if (!isCanonicalPath(p) || compiled.some((r) => (!r.modifyOnly || !isNew) && r.re.test(p))) add(p);
     }
   }
   return { hits };

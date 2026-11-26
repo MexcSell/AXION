@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { classify, parseRules, globToRegExp } from './classify.ts';
+import { classify, parseRules, globToRegExp, isCanonicalPath } from './classify.ts';
 
 const rules = parseRules(readFileSync(new URL('../protected.txt', import.meta.url), 'utf8'));
 const hit = (path: string, status: 'A' | 'M' | 'D' | 'R' = 'M', oldPath?: string) =>
@@ -101,4 +101,16 @@ test('glob semantics: * stays inside one segment, dots are literal, matches are 
 
 test('parseRules ignores comments, blank lines and surrounding whitespace', () => {
   assert.deepEqual(parseRules('# c\n\n  a/**  \r\nmodify:b/**\n   # indented comment\n'), ['a/**', 'modify:b/**']);
+});
+
+test('non-canonical paths are always hits (fail closed): quoted, absolute, ./, empty/./.. segments, backslash, control chars', () => {
+  for (const p of ['./evolve/guard/x.ts', '/evolve/x.ts', '"server/migrations/0066_\\303\\244.sql"', 'server//migrations/a.sql',
+    'server/src/x/../auth/a.ts', 'server/./migrations/a.sql', 'web/src/a.ts/', 'web\\src\\a.ts', 'web/src/a\nb.ts', 'web/src/a\tb.ts',
+    'web/src/\u007f.ts', '..', '']) {
+    assert.deepEqual(classify([{ path: p, status: 'A' }], rules).hits, [p], JSON.stringify(p));
+  }
+  // also on the old side of a rename
+  assert.deepEqual(classify([{ path: 'web/src/b.ts', status: 'R', oldPath: './web/src/a.ts' }], rules).hits, ['./web/src/a.ts']);
+  // ordinary unicode and dots inside names are canonical
+  for (const p of ['web/src/ä.ts', 'web/src/.hidden.ts', 'web/src/a..b.ts']) assert.equal(isCanonicalPath(p), true, p);
 });
