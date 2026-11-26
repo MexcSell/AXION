@@ -1,11 +1,15 @@
 import { buildApp } from './app.ts';
 import { configFromEnv } from './config.ts';
 import { makePool } from './db.ts';
-import { migrate } from './migrate.ts';
+import { migrate, assertSchemaCurrent } from './migrate.ts';
 
 const cfg = configFromEnv();
 const pool = makePool(cfg.databaseUrl, cfg.schema, 1);
-await migrate(pool, 'up');
+// container mode: the Guard runs the migrations as an explicit step; the API only refuses to start on an out-of-date schema
+if (process.env.AXION_MIGRATE_ON_START === '0') {
+  try { await assertSchemaCurrent(pool); }
+  catch (e) { console.error(JSON.stringify({ level: 'error', msg: (e as Error).message })); process.exit(1); }
+} else await migrate(pool, 'up');
 await pool.end();
 // a leader that loses its lock connection must stop at once; Docker restarts the slot and it comes back as a standby
 cfg.onLeaderLost = () => { console.error(JSON.stringify({ level: 'error', msg: 'lost the leader lock connection; exiting' })); process.exit(1); };

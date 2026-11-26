@@ -46,3 +46,16 @@ export async function migrate(pool: pg.Pool, direction: 'up' | 'down', target?: 
     c.release();
   }
 }
+
+/**
+ * Container mode (AXION_MIGRATE_ON_START=0): the Guard migrates as its own step, so the API only checks. It refuses a schema behind this build;
+ * a schema ahead of it (a newer slot already migrated during a blue/green switch) is fine.
+ */
+export async function assertSchemaCurrent(pool: pg.Pool): Promise<{ applied: number; expected: number }> {
+  const expected = Math.max(0, ...listMigrations().map((m) => m.version));
+  let applied = 0;
+  try { applied = Number((await pool.query('select max(version) as v from schema_migrations')).rows[0]?.v ?? 0); }
+  catch (e) { if ((e as { code?: string }).code !== '42P01') throw e; } // no bookkeeping table yet = nothing applied
+  if (applied < expected) throw new Error(`schema is at ${applied}, this build expects ${expected}: run the migration step first`);
+  return { applied, expected };
+}

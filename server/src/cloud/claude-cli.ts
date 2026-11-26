@@ -58,7 +58,15 @@ export function cliArgs(model: string, system: string, stream = false): string[]
     '--tools', '', '--strict-mcp-config', '--setting-sources', '', '--disable-slash-commands', '--no-session-persistence'];
 }
 
-export interface ClaudeCliOptions { id?: string; label?: string; tokenVar?: string; token: string; model: string; bin: string; home: string; timeoutMs: number }
+export interface ClaudeCliOptions { id?: string; label?: string; tokenVar?: string; token: string; model: string; bin: string; home: string; timeoutMs: number;
+  /** the parent environment, read only for the egress proxy (container mode); defaults to none, so nothing leaks in by accident */ env?: NodeJS.ProcessEnv }
+
+/** The ONLY variables the CLI child gets. The proxy trio is added solely when HTTPS_PROXY is set and non-empty in the parent env; nothing else is copied from it. */
+export function cliChildEnv(o: Pick<ClaudeCliOptions, 'home' | 'token'>, parent: NodeJS.ProcessEnv = {}): Record<string, string> {
+  const env: Record<string, string> = { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: o.home, CLAUDE_CONFIG_DIR: join(o.home, '.claude'), CLAUDE_CODE_OAUTH_TOKEN: o.token, DISABLE_AUTOUPDATER: '1', DISABLE_TELEMETRY: '1', DISABLE_ERROR_REPORTING: '1' };
+  if (parent.HTTPS_PROXY) { env.HTTPS_PROXY = parent.HTTPS_PROXY; env.NO_PROXY = parent.NO_PROXY ?? ''; env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'; }
+  return env;
+}
 
 export function claudeCliAdapter(o: ClaudeCliOptions): CloudAdapter {
   if (!o.token) throw new Error('no token');
@@ -70,7 +78,7 @@ export function claudeCliAdapter(o: ClaudeCliOptions): CloudAdapter {
     mkdirSync(o.home, { recursive: true, mode: 0o700 });
     const child = spawn(o.bin, args, {
       cwd: o.home,
-      env: { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: o.home, CLAUDE_CONFIG_DIR: join(o.home, '.claude'), CLAUDE_CODE_OAUTH_TOKEN: token, DISABLE_AUTOUPDATER: '1', DISABLE_TELEMETRY: '1', DISABLE_ERROR_REPORTING: '1' },
+      env: cliChildEnv({ home: o.home, token }, o.env),
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     let out = ''; let err = ''; let done = false;
@@ -133,6 +141,6 @@ export function cloudAdaptersFromEnv(env: NodeJS.ProcessEnv, homeRoot: string): 
     const model = (env[modelVar] ?? '').trim() || (env.CLOUD_MODEL ?? '').trim() || 'claude-opus-5-5';
     if (!MODEL_RE.test(model)) throw new Error(`${modelVar} must look like claude-<name>`);
     const id = n ? `claude-${Number(n)}` : 'claude';
-    return claudeCliAdapter({ id, label: n ? `Claude ${Number(n)}` : 'Claude', tokenVar, token: env[tokenVar]!.trim(), model, bin, home: join(homeRoot, id), timeoutMs: t });
+    return claudeCliAdapter({ id, label: n ? `Claude ${Number(n)}` : 'Claude', tokenVar, token: env[tokenVar]!.trim(), model, bin, home: join(homeRoot, id), timeoutMs: t, env });
   });
 }
