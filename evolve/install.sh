@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# Host install for AXION evolution step 1 (design §7, §13 B3/B4). Idempotent: every step is skipped when already done.
+# Run as root by Claude Code on the owner's word. It does NOT touch the running native site, the shared PostgreSQL
+# config, other apps' databases or containers. Usage:
+#   evolve/install.sh <git-dir-of-the-AXION-repo> <commit>      e.g. evolve/install.sh /home/luca/AXION/.git evolve-step1
+# Env: EVOLVE_ROOT (default /srv/axion-evolve), SRC_ENV_SERVER (default /home/luca/AXION/server/.env),
+#      SRC_ENV_ROOT (default /home/luca/AXION/.env), SRC_DATA (default /home/luca/AXION/server/data), PREFIX (default axion)
+set -euo pipefail
+GIT_SRC="${1:?git dir of the AXION repository}"; REV="${2:?commit to install the Guard from}"
+ROOT="${EVOLVE_ROOT:-/srv/axion-evolve}"; P="${PREFIX:-axion}"
+SRC_ENV_SERVER="${SRC_ENV_SERVER:-/home/luca/AXION/server/.env}"; SRC_ENV_ROOT="${SRC_ENV_ROOT:-/home/luca/AXION/.env}"
+SRC_DATA="${SRC_DATA:-/home/luca/AXION/server/data}"
+[ "$(id -u)" = 0 ] || { echo "run as root" >&2; exit 2; }
+done_() { echo "  already done: $*"; }
+step() { echo "== $*"; }
+SHA=$(git --git-dir="$GIT_SRC" rev-parse --verify "$REV^{commit}")
+
+step "1. OS user and group axion"
+if id axion >/dev/null 2>&1; then done_ "user axion ($(id -u axion):$(id -g axion))"
+else useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin axion; echo "  created axion ($(id -u axion):$(id -g axion))"; fi
+
+step "2. directories under $ROOT"
+install -d -m 755 "$ROOT" "$ROOT/front"
+install -d -m 700 "$ROOT/secrets"
+install -d -m 750 -o axion -g axion "$ROOT/data" "$ROOT/data/uploads" "$ROOT/data/cloud-home"
+install -d -m 700 -o axion -g axion "$ROOT/backups"
+echo "  ok"
+
+step "3. bare repository and Guard code"
+if [ -d "$ROOT/repo.git" ]; then done_ "repo.git"; else git init -q --bare "$ROOT/repo.git"; echo "  created repo.git"; fi
+# a candidate's own .gitattributes must never change what `git archive` exports (Task 6 review I2)
+install -d -m 755 "$ROOT/repo.git/info"
+printf '* -export-ignore -export-subst\n' > "$ROOT/repo.git/info/attributes"
+# the Guard runs from an exported copy of evolve/ at a fixed commit; agents' branches never reach it
+cur=$(cat "$ROOT/guard/INSTALLED_COMMIT" 2>/dev/null || true)
+if [ "$cur" = "$SHA" ]; then done_ "guard at $SHA"
+else
+  tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+  git --git-dir="$GIT_SRC" archive "$SHA" evolve .dockerignore | tar -x -C "$tmp"
+  install -d -m 755 "$tmp/tools"
+  git --git-dir="$GIT_SRC" show "$SHA:server/scripts/db-backup.mjs" > "$tmp/tools/db-backup.mjs"
+  pgv=$(git --git-dir="$GIT_SRC" show "$SHA:server/package-lock.json" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const l=JSON.parse(s);process.stdout.write(l.packages["node_modules/pg"].version)})')
+  (cd "$tmp/tools" && printf '{"name":"axion-guard-tools","private":true,"type":"module"}\n' > package.json && npm install --silent --no-audit --no-fund "pg@$pgv" >/dev/null)
+  echo "$SHA" > "$tmp/INSTALLED_COMMIT"
+  rm -rf "$ROOT/guard.new"; mv "$tmp" "$ROOT/guard.new"; trap - EXIT
+  chmod -R go-w "$ROOT/guard.new"; chmod 755 "$ROOT/guard.new" "$ROOT/guard.new/tools"
+  rm -rf "$ROOT/guard.old"; [ -d "$ROOT/guard" ] && mv "$ROOT/guard" "$ROOT/guard.old"; mv "$ROOT/guard.new" "$ROOT/guard"
+  echo "  guard installed at $SHA (pg $pgv for backups)"
+fi
+ln -sfn "$ROOT/guard/evolve/bin/axion-guard" /usr/local/bin/axion-guard
+chmod 755 "$ROOT/guard/evolve/bin/axion-guard" "$ROOT/guard/evolve/backup.sh"
+
+step "4. secrets/live.env (mode 600; values never printed)"
+if [ -f "$ROOT/secrets/live.env" ]; then done_ "live.env (delete it to rebuild)"
+else
+  umask 077
+  { echo 'DATABASE_URL=postgresql:///axion?host=/var/run/postgresql&user=axion'
+    # every other key from both env files, except database URLs, test settings, host/port, the anchor file path
+    # (set per container) and Claude 1 (the live site uses Claude 2 only; design §13 B8)
+    cat "$SRC_ENV_SERVER" "$SRC_ENV_ROOT" 2>/dev/null | grep -E '^[A-Z0-9_]+=' \
+      | grep -vE '^(DATABASE_URL|TEST_DATABASE_URL|E2E_DATABASE_URL|RESTORE_DATABASE_URL|PGPASSWORD_[A-Z0-9_]*|HOST|PORT|DEMO_SEED|AUDIT_ANCHOR_FILE|UPLOAD_DIR|CLOUD_MODEL_HOME|BACKUP_DIR|CLAUDE_CODE_OAUTH_TOKEN1)=' ; } > "$ROOT/secrets/live.env"
+  chmod 600 "$ROOT/secrets/live.env"
+  echo "  written with keys: $(cut -d= -f1 "$ROOT/secrets/live.env" | tr '\n' ' ')"
+fi
+
+step "5. Docker networks and the egress proxy"
+docker network inspect "$P-live" >/dev/null 2>&1 && done_ "$P-live" || { docker network create --internal "$P-live" >/dev/null; echo "  created $P-live (internal)"; }
+docker network inspect "$P-edge" >/dev/null 2>&1 && done_ "$P-edge" || { docker network create "$P-edge" >/dev/null; echo "  created $P-edge"; }
+if docker container inspect "$P-egress" >/dev/null 2>&1; then
+  # the proxy code comes from the Guard copy; recreate when the Guard was updated
+  if [ "$(docker inspect -f '{{index .Config.Labels "axion.guard"}}' "$P-egress")" = "$SHA" ]; then done_ "$P-egress"
+  else docker rm -f "$P-egress" >/dev/null; echo "  recreating $P-egress for guard $SHA"; fi
+fi
+if ! docker container inspect "$P-egress" >/dev/null 2>&1; then
+  docker run -d --name "$P-egress" --label "axion.guard=$SHA" --network "$P-edge" --restart unless-stopped --init \
+    --user 1000:1000 --read-only -v "$ROOT/guard/evolve/egress:/egress:ro" \
+    node:24-bookworm-slim node /egress/proxy.mjs >/dev/null
+  docker network connect "$P-live" "$P-egress"
+  echo "  started $P-egress (edge + live, port 3128, no published port)"
+fi
+
+step "6. shared data copied (not moved) from $SRC_DATA"
+copy() { # $1 source, $2 dest; copies only when the destination is missing or older
+  [ -e "$1" ] || { echo "  (no $1)"; return; }
+  rsync -a --update "$1" "$2"; }
+copy "$SRC_DATA/uploads/" "$ROOT/data/uploads/"
+copy "$SRC_DATA/audit-anchors.jsonl" "$ROOT/data/audit-anchors.jsonl"
+copy "$SRC_DATA/cloud-home/claude-2" "$ROOT/data/cloud-home/"
+chown -R axion:axion "$ROOT/data"
+echo "  ok ($(du -sh "$ROOT/data" | cut -f1))"
+echo "install: done (guard $SHA)"
