@@ -21,24 +21,25 @@ export function globToRegExp(glob: string): RegExp {
     const last = i === parts.length - 1;
     if (part === '**') {
       // `**` as a whole segment: any number of segments. Trailing `a/**` needs at least one more segment.
-      re += last ? '.+' : '(?:[^/]+/)*';
+      re += last ? '[\\s\\S]+' : '(?:[^/]+/)*';
       continue;
     }
     re += part.split('*').map((s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('[^/]*');
     if (!last) re += '/';
   }
-  return new RegExp(`^${re}$`);
+  return new RegExp(`^${re}$`, 's');
 }
 
 /**
  * A canonical repo-relative path: no leading `"` (git C-quoting), `/` or `./`; no empty, `.` or `..` segment
- * (so no `//`, no trailing `/`); no backslash; no control character. Anything else cannot be matched reliably
+ * (so no `//`, no trailing `/`); no backslash; no control character (C0, DEL, C1 incl. U+0085) and no Unicode
+ * line/paragraph separator (U+2028, U+2029). Anything else cannot be matched reliably
  * against the rules, so classify reports it as a protected hit (fail closed).
  */
 export function isCanonicalPath(p: unknown): boolean {
   if (typeof p !== 'string' || p === '') return false;
   if (p.startsWith('"') || p.startsWith('/') || p.startsWith('./')) return false;
-  if (p.includes('\\') || /[\u0000-\u001f\u007f]/.test(p)) return false;
+  if (p.includes('\\') || /[\u0000-\u001f\u007f-\u009f\p{Zl}\p{Zp}]/u.test(p)) return false;
   return p.split('/').every((seg) => seg !== '' && seg !== '.' && seg !== '..');
 }
 

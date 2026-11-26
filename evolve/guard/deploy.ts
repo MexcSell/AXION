@@ -10,7 +10,8 @@
 // - Any failure from the switch on (switch, watch, record before advance returned) → switch back to the previous slot,
 //   stop the candidate, `rolled_back`. If the switch back itself fails, deploy throws and state.json keeps `deploying`
 //   for `axion-guard rollback`. If only stopping the candidate fails, it is still `rolled_back` (the error is in `reason`).
-// - `advance(sha)` (evolve/main) happens only after the watch passed; once it returned, nothing rolls back.
+// - `advance(sha)` (evolve/main) happens only after the watch passed; once it returned, nothing rolls back. If it throws,
+//   liveSha() is re-read: === sha means the ref moved anyway → stay live (marker cleared); otherwise roll back.
 // - The old slot is never stopped by the core: `switchTo(slot)` owns "target serves, the other is retired", and a
 //   `switchTo(previous)` during rollback must bring the previous slot back.
 // - First deploy (state.json missing or activeImage null = nothing live through the Guard): `drain` is skipped (no old
@@ -110,7 +111,11 @@ export interface Effects {
   watch(slot: Slot, ms: number): Promise<{ ok: boolean; reason?: string }>;
   /** Appends one history line (evolve history.jsonl). */
   record(entry: HistoryEntry): Promise<void>;
-  /** Moves `evolve/main` to `sha` (a fast-forward: `sha` contains the live commit). */
+  /**
+   * Moves `evolve/main` to `sha` (a fast-forward: `sha` contains the live commit). A throw must mean the ref did NOT
+   * move: the ref update (e.g. `git update-ref`) is the adapter's last action. The core still re-reads `liveSha()` after
+   * a throw and treats `liveSha() === sha` as "moved" (no switch back).
+   */
   advance(sha: string): Promise<void>;
 }
 
@@ -341,9 +346,32 @@ async function run(fx: Effects, req: DeployRequest): Promise<DeployResult> {
     if (!(e instanceof StepFailed)) throw e;
     // a failure after advance (e.g. clearing `deploying`, recording the record step's end) must not switch back:
     // live == evolve/main now
-    result = advanced
-      ? { outcome: 'live', image, reason: `live, but after advance: ${e.message}${clearedNote()}` }
-      : await undo(e);
+    if (!advanced && e.step === 'record') {
+      // advance threw: same rule as `axion-guard rollback` at step record. If evolve/main is at sha anyway, the ref
+      // moved (or already was there): keep the candidate live and only clear the marker. If we cannot tell, throw and
+      // leave the marker for `axion-guard rollback`.
+      let moved: boolean;
+      try {
+        moved = (await fx.liveSha()) === sha;
+      } catch (le) {
+        throw new Error(`advance failed (${e.message}) and liveSha() failed too (${msg(le)}): cannot tell whether evolve/main `
+          + `moved; state.json keeps deploying step record (active ${idle}) for \`axion-guard rollback\``);
+      }
+      if (moved) {
+        advanced = true;
+        let note = '';
+        try { await save(withoutDeploying(current as unknown as GuardState)); } catch (se) { note = ` (clearing deploying failed: ${msg(se)})`; }
+        result = { outcome: 'live', image, reason: `live: ${e.message}, but evolve/main is at ${sha}${note}${clearedNote()}` };
+      } else {
+        result = await undo(e);
+      }
+    } else {
+      // a failure after advance (e.g. clearing `deploying`, recording the record step's end) must not switch back:
+      // live == evolve/main now
+      result = advanced
+        ? { outcome: 'live', image, reason: `live, but after advance: ${e.message}${clearedNote()}` }
+        : await undo(e);
+    }
   }
 
   await log({

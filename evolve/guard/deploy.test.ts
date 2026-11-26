@@ -503,3 +503,33 @@ test('first deploy skips drain (no old slot) (R9)', async () => {
   assert.ok(!s.names().includes('drain'));
   assert.match(s.history.find((h) => h.step === 'drain' && h.event === 'end')!.detail ?? '', /skipped: nothing live/);
 });
+
+test('advance moves the ref and then throws → no switch back: marker cleared, outcome live with a note', async () => {
+  const s = setup();
+  const orig = s.fx.advance;
+  s.fx.advance = async (sha) => { await orig(sha); throw new Error('push hook failed after update-ref'); };
+  const r = await deploy(s.fx, s.req);
+  assert.equal(r.outcome, 'live');
+  assert.match(r.reason ?? '', /push hook failed.*evolve\/main is at/);
+  assert.deepEqual(s.calls.slice(-3), [['advance', SHA], ['liveSha'], ['unlock']]);
+  assert.ok(!s.calls.some((c) => c[0] === 'switchTo' && c[1] === 'blue'));
+  assert.ok(!s.calls.some((c) => c[0] === 'stopSlot'));
+  const st = await readState(s.dir);
+  assert.equal(st!.active, 'green');
+  assert.equal(st!.activeSha, SHA);
+  assert.equal(st!.deploying, undefined);
+  assert.equal(s.history.at(-1)!.outcome, 'live');
+});
+
+test('advance throws and liveSha() then fails too → deploy throws, marker kept for rollback, no switch back', async () => {
+  const s = setup({ throwIn: 'advance' });
+  let n = 0;
+  const orig = s.fx.liveSha;
+  s.fx.liveSha = async () => { n++; if (n === 2) throw new Error('git broken'); return orig(); };
+  await assert.rejects(deploy(s.fx, s.req), /cannot tell whether evolve\/main moved.*deploying step record/);
+  assert.ok(!s.calls.some((c) => c[0] === 'switchTo' && c[1] === 'blue'));
+  const st = await readState(s.dir);
+  assert.equal(st!.deploying!.step, 'record');
+  assert.equal(st!.active, 'green');
+  assert.deepEqual(s.calls.at(-1), ['unlock']);
+});

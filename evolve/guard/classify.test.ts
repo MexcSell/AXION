@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { classify, parseRules, globToRegExp, isCanonicalPath } from './classify.ts';
+import { classify, parseRules, globToRegExp, isCanonicalPath, touches } from './classify.ts';
 
 const rules = parseRules(readFileSync(new URL('../protected.txt', import.meta.url), 'utf8'));
 const hit = (path: string, status: 'A' | 'M' | 'D' | 'R' = 'M', oldPath?: string) =>
@@ -113,4 +113,21 @@ test('non-canonical paths are always hits (fail closed): quoted, absolute, ./, e
   assert.deepEqual(classify([{ path: 'web/src/b.ts', status: 'R', oldPath: './web/src/a.ts' }], rules).hits, ['./web/src/a.ts']);
   // ordinary unicode and dots inside names are canonical
   for (const p of ['web/src/ä.ts', 'web/src/.hidden.ts', 'web/src/a..b.ts']) assert.equal(isCanonicalPath(p), true, p);
+});
+
+test('Unicode line/paragraph separators and C1 controls: non-canonical (hit), and ** still matches them', () => {
+  const probes = ['evolve/guard/x .ts', 'server/migrations/0067_a b.up.sql', 'server/src/auth/ ',
+    'web/src/a\u0085.ts', 'web/src/a\u009b.ts'];
+  for (const p of probes) {
+    assert.equal(isCanonicalPath(p), false, JSON.stringify(p));
+    assert.deepEqual(classify([{ path: p, status: 'A' }], rules).hits, [p], JSON.stringify(p));
+  }
+  assert.deepEqual(classify([{ path: 'server/test/a .ts', status: 'M' }], rules).hits, ['server/test/a .ts']);
+  // the glob layer alone (independent of the canonical check) also matches across these characters
+  assert.equal(globToRegExp('evolve/**').test('evolve/guard/x .ts'), true);
+  assert.equal(globToRegExp('server/src/auth/**').test('server/src/auth/ '), true);
+  assert.equal(globToRegExp('**/package.json').test('a b/package.json'), true);
+  assert.equal(globToRegExp('evolve/*.ts').test('evolve/a b.ts'), true);
+  assert.equal(touches([{ path: 'server/migrations/0067_a b.up.sql', status: 'A' }], 'server/migrations/**'), true);
+  assert.equal(touches([{ path: 'x.sql', status: 'R', oldPath: 'server/migrations/ .sql' }], 'server/migrations/**'), true);
 });
