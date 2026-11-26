@@ -9,6 +9,9 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends curl iproute2 procps git ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
  && git config --system --add safe.directory '*'
+# the chat model runs the Claude CLI (server/src/cloud/claude-cli.ts finds `claude` on PATH); pinned to the host's version
+# (found missing in the T8 dry run: without it the live slot has no cloud model and the GM chat never answers)
+RUN npm install -g --no-audit --no-fund @anthropic-ai/claude-code@2.1.325 && npm cache clean --force && claude --version
 
 WORKDIR /app
 RUN chown node:node /app
