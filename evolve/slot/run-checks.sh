@@ -11,6 +11,8 @@
 #   PGUSER             the throw-away's role, used by the socket-URL test (migrate-start.test.ts), which connects to
 #                      postgresql:///axion_test?host=/var/run/postgresql: mount the throw-away's socket dir (a shared volume)
 #                      at /var/run/postgresql. Without the socket that test fails (connection refused/ENOENT is not a skip).
+#   AXION_E2E_SCRIPTS  browser scripts for web/scripts/api-e2e.sh, space-separated (default: api-auth-flow.mjs; ruling R6:
+#                      api-flows.mjs still asserts the DEMO missions retired in d637bc6c, so it is not in the default set)
 #   CHECKS_OUT (default /out), VITEST_MAX_WORKERS (default 8)
 # Out: $CHECKS_OUT/vitest.json, $CHECKS_OUT/summary.json { passed, failed, skipped, seconds, ok, steps }, $CHECKS_OUT/e2e/*.log
 # Exit 0 only if every step passed. Every step runs even after a failure, so one run reports everything.
@@ -36,7 +38,7 @@ done
 
 if [ -n "${GIT_DIR:-}" ]; then
   export GIT_WORK_TREE="${GIT_WORK_TREE:-$APP}"
-  export GIT_INDEX_FILE; GIT_INDEX_FILE=$(mktemp /tmp/axion-git-index.XXXXXX)
+  export GIT_INDEX_FILE; GIT_INDEX_FILE=$(mktemp /tmp/axion-git-index.XXXXXX) || exit 2
   rev="${AXION_COMMIT:-}"
   if [ -z "$rev" ] || ! git cat-file -e "$rev^{commit}" 2>/dev/null; then rev=HEAD; fi
   if git read-tree "$rev"; then git update-index -q --refresh >/dev/null 2>&1 || true; echo "run-checks: git index of $rev (private, $GIT_INDEX_FILE)"
@@ -64,7 +66,8 @@ rm -f "$OUT/vitest.json"
 step server-typecheck server npm run typecheck
 step server-tests server npx vitest run --reporter=json --outputFile="$OUT/vitest.json" --maxWorkers="${VITEST_MAX_WORKERS:-8}"
 step web-typecheck web npm run typecheck
-step browser-checks web env OUT="$OUT/e2e" bash scripts/api-e2e.sh
+read -r -a E2E_SCRIPTS <<< "${AXION_E2E_SCRIPTS:-api-auth-flow.mjs}"
+step browser-checks web env OUT="$OUT/e2e" bash scripts/api-e2e.sh "${E2E_SCRIPTS[@]}"
 
 SECONDS_TOTAL=$(( $(date +%s) - T0 ))
 STEPS_JSON="{"; ok=true

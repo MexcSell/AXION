@@ -1,11 +1,15 @@
-# evolve step 1: never in an image (secrets, data, local tooling); the image installs its own node_modules
+# evolve step 1: never in an image (secrets, data, local tooling); the image installs its own node_modules.
+# ** patterns also catch nested checkouts (e.g. .claude/worktrees/*) that would bring their own server/data (CLI credentials, uploads, anchors).
 **/node_modules
 .env*
 **/.env*
-server/data
-backups
-.superpowers
-.git
+**/server/data
+**/backups
+**/.superpowers
+**/.git
+.claude
+**/.claude
+update/
 web/dist
 **/*.dump
 # deviation from the step-1 brief's list (controller ruling 2026-11-26): screenshots in the docs only; tests read web/docs/improve text and json, never these

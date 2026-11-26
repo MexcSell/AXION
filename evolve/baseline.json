@@ -1,9 +1,9 @@
 {
   "serverTestsPassed": 4836,
-  "measuredAt": "2026-11-26T13:04:21Z",
-  "commit": "35626e5becc2b22ed8ab34a3d4196f651bb46f11",
+  "measuredAt": "2026-11-26T13:17:38Z",
+  "commit": "c20781a521003d3fd81148073f27f593212ca1f4",
   "serverTestsSkipped": 36,
   "serverTestsFailed": 0,
-  "checksSeconds": 340,
-  "note": "measured in axion-checks:dev on an --internal network (throw-away postgres:16-alpine, vitest --maxWorkers=8): server typecheck 1 s, vitest 268 s, web typecheck 0 s, browser checks 71 s; total 340 s (cap 20 min). The 36 skips are c71-budget (opt-in). Browser check api-flows.mjs fails 3 of 14 on this commit (it still expects the DEMO missions retired in d637bc6c), see task-3-report.md."
+  "checksSeconds": 273,
+  "note": "measured in axion-checks:dev on an --internal network (throw-away postgres:16-alpine, vitest --maxWorkers=8): server typecheck 1 s, vitest 246 s, web typecheck 1 s, browser checks 25 s (api-auth-flow.mjs only, ruling R6; AXION_E2E_SCRIPTS overrides); total 273 s (cap 20 min). The 36 skips are c71-budget (opt-in). Server/web/shared code at this commit is identical to its parent 35626e5b."
 }
