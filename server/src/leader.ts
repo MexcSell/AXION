@@ -47,8 +47,9 @@ export function startLeader(o: LeaderOptions): Leader {
     if (lostCalled) return;
     const wasLeader = leader;
     leader = false;
+    if (wasLeader) lostCalled = true; // before any await: a poll already scheduled or in flight must not take the freed lock again before onLost runs
     await drop();
-    if (wasLeader && !closed) { lostCalled = true; o.onLost(); }
+    if (wasLeader && !closed) o.onLost();
   }
 
   async function poll() {
@@ -57,14 +58,17 @@ export function startLeader(o: LeaderOptions): Leader {
     try {
       if (!client) {
         const c = await connectClient({ connectionString: o.databaseUrl, ...(o.schema ? { options: `-c search_path=${o.schema}` } : {}) });
-        if (closed) { await c.end().catch(() => {}); return; }
+        if (closed || lostCalled) { await c.end().catch(() => {}); return; }
         c.on('error', () => { if (client === c) void lose(); }); // the session (and with it the lock) is gone
         client = c;
       }
       if (leader) await client.query('select 1'); // notice a dead connection even when no error event arrived
       else {
         const r = await client.query(`select pg_try_advisory_lock(${LOCK_KEY_SQL}) as got`, ['axion-leader']);
-        if (r.rows[0].got && !closed) { leader = true; fns.splice(0).forEach(run); }
+        if (r.rows[0].got) {
+          if (closed || lostCalled) await drop(); // stopped meanwhile: give the lock back
+          else { leader = true; fns.splice(0).forEach(run); }
+        }
       }
     } catch {
       if (leader) { await lose(); } else await drop(); // a standby just reconnects on the next poll

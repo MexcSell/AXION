@@ -40,6 +40,8 @@ export interface Config {
   leaderMode?: 'always' | 'lock';
   /** how often a standby tries the lock, ms (default 2000; tests shorten it) */
   leaderPollMs?: number;
+  /** how often expired approvals are settled, ms (default 60000; tests shorten it; never read from the environment) */
+  approvalSweepMs?: number;
   /** called when a leader loses its lock connection; main.ts exits so the slot restarts as a standby (default: log an error) */
   onLeaderLost?: () => void;
   /** the build's commit, shown by GET /api/v1/health (env AXION_COMMIT) */

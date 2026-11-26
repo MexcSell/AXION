@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startLeader, type Leader } from '../src/leader.ts';
-import { makePool } from '../src/db.ts';
+import { makePool, tx } from '../src/db.ts';
+import { requestApproval } from '../src/approvals/service.ts';
 import { buildApp } from '../src/app.ts';
 import { makeSchema, makeTestApp, withAdmin, TEST_DB } from './helpers.ts';
 import type { CloudAdapter } from '../src/cloud/claude-cli.ts';
@@ -75,8 +76,8 @@ describe('leader lock', () => {
   it('a lost lock connection calls onLost once and stops polling', async () => {
     const s = await makeSchema({ migrate: false });
     try {
-      let lost = 0;
-      const a = lead({ databaseUrl: TEST_DB(), schema: s.schema, mode: 'lock', pollMs: 50, onLost: () => { lost++; } });
+      let lost = 0, leaderInsideOnLost: boolean | undefined;
+      const a: Leader = lead({ databaseUrl: TEST_DB(), schema: s.schema, mode: 'lock', pollMs: 50, onLost: () => { lost++; leaderInsideOnLost = a.isLeader(); } });
       await until(() => a.isLeader());
       const admin = makePool(TEST_DB(), undefined, 1);
       // kill only the session that holds THIS schema's leader key (an advisory key is split into classid = high 32 bits, objid = low 32 bits); other tests' locks stay
@@ -86,7 +87,12 @@ describe('leader lock', () => {
       await until(() => lost > 0);
       await sleep(250);
       expect(lost).toBe(1);
-      expect(a.isLeader()).toBe(false);
+      expect(leaderInsideOnLost).toBe(false);
+      expect(a.isLeader()).toBe(false); // it must not have taken the freed lock again after onLost
+      const held = makePool(TEST_DB(), undefined, 1);
+      const n = (await held.query(`select count(*)::int n from pg_locks where locktype='advisory' and granted and ((classid::int8 << 32) | objid::int8) = hashtextextended($1::text || ':axion-leader', 0)`, [s.schema])).rows[0].n;
+      await held.end();
+      expect(n).toBe(0);
     } finally { while (open.length) await open.pop()!.close(); await s.drop(); }
   });
 });
@@ -107,7 +113,7 @@ describe('leader in the app', () => {
     return app;
   };
 
-  it('the approval sweep and the responder sweep do not run in a standby app', async () => {
+  it('the responder sweep does not run in a standby app', async () => {
     t = await makeTestApp({}); // no model configured: the message stays waiting
     const A = await withAdmin(t.app);
     const r = await A.admin.req('POST', '/channels/gm/messages', { kind: 'command', text: 'Anyone there?' }, { 'idempotency-key': 'lead-1' });
@@ -131,6 +137,25 @@ describe('leader in the app', () => {
     expect(msgs).toBe(1);
     expect((await second.inject({ method: 'GET', url: '/api/v1/health' })).json().leader).toBe(false);
     expect((await first.inject({ method: 'GET', url: '/api/v1/health' })).json().leader).toBe(true);
+  });
+
+  it('the approval expiry sweep does not run in a standby app, and runs after takeover', async () => {
+    t = await makeTestApp({ staffingStepMs: 60_000 });
+    const A = await withAdmin(t.app);
+    const mid = (await A.admin.req('POST', '/missions', { text: 'Send it.', files: [], shared: false }, { 'idempotency-key': 'lead-3' })).body.mission.id as string;
+    // inserted already past its expiry; it stays 'pending' until a sweep settles it
+    const ap = await tx(t.app.db, (c) => requestApproval(c, { tenantId: 't-1', missionId: mid, agentId: 'release-01', kind: 'submit_form', title: 'T', detail: 'd', payload: { x: 1 }, expiresInMin: -5 } as any));
+    const state = async () => (await t!.pool.query('select state from approval_requests where id=$1', [ap.id])).rows[0].state as string;
+    expect(await state()).toBe('pending');
+    const holder = lead({ databaseUrl: TEST_DB(), schema: t.schema, mode: 'lock', pollMs: 50, onLost: () => {} });
+    await until(() => holder.isLeader());
+    const standby = await mk(t.schema, { leaderMode: 'lock', leaderPollMs: 50, approvalSweepMs: 50, staffingStepMs: 60_000 });
+    await sleep(600); // a dozen sweep ticks
+    expect(standby.leader.isLeader()).toBe(false);
+    expect(await state()).toBe('pending');
+    await holder.close();
+    await until(async () => (await state()) === 'expired', 8000);
+    expect(standby.leader.isLeader()).toBe(true);
   });
 
   it('the staffing resume scan runs only after the lock is acquired', async () => {

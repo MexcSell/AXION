@@ -179,7 +179,7 @@ export async function buildApp(cfg: Config): Promise<FastifyInstance> {
   startStaffingSim(app, cfg.staffingStepMs ?? 1500);
   if (cfg.demoSeed || cfg.conversationSimMs !== undefined) startConversationSim(app, cfg.conversationSimMs ?? 1200);
   // review I4: expired approvals are settled every minute, even when nobody opens the approvals list
-  const sweep = setInterval(() => { if (!leader.isLeader()) return; void tx(db, (c) => sweepExpired(c)).then((ids) => ids.forEach((id) => app.onMissionChanged?.(id, 'running'))).catch(() => {}); }, 60_000);
+  const sweep = setInterval(() => { if (!leader.isLeader()) return; void tx(db, (c) => sweepExpired(c)).then((ids) => ids.forEach((id) => app.onMissionChanged?.(id, 'running'))).catch(() => {}); }, cfg.approvalSweepMs ?? 60_000);
   sweep.unref();
   app.addHook('onClose', async () => clearInterval(sweep));
   if (cfg.demoSeed) app.onFirstAdmin = async (adminId) => { try { await seedDemo(db, app.cfg.tenantId, adminId); } catch (e) { app.log.error({ err: e }, 'demo seed failed'); } };
