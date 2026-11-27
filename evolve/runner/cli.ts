@@ -8,6 +8,11 @@
 //   axion-evolve status                   PAUSED, locks, day count, rollback streak, the last history lines
 //   axion-evolve pause [reason…]          write PAUSED (a running change stops at its next step, `failed`)
 //   axion-evolve resume                   remove PAUSED (also ends a rollback streak)
+//   axion-evolve sweep                    remove the Workshop and typecheck containers (the unit's ExecStopPost); skipped while
+//                                         a live runner holds runner.lock; never touches the Guard
+// run, once and approve: the first SIGTERM/SIGINT stops after the current step and removes the Workshop and typecheck
+// containers at once (the Workshop holds TOKEN1; its 30 min wall lives in the runner); a second one exits now. A Guard
+// deploy runs detached in its own session and is never signalled.
 // Exit codes: 0 live / done, 1 the change or approval ended otherwise (or an error), 2 usage, 3 needs the owner's approval,
 // 4 busy (the runner lock is held), 5 nothing claimed (idle, paused, halted or the day cap). `once` prints one JSON line.
 
@@ -27,11 +32,12 @@ export const USAGE = `usage: axion-evolve <command>
   axion-evolve status
   axion-evolve pause [reason…]
   axion-evolve resume
+  axion-evolve sweep                    (remove the Workshop/typecheck containers; the unit's ExecStopPost)
 exit codes: 0 live/done, 1 failed/refused/error, 2 usage, 3 needs the owner's approval, 4 busy, 5 nothing claimed`;
 
 export type Command =
   | { cmd: 'help' } | { cmd: 'run' } | { cmd: 'once'; inject: boolean } | { cmd: 'approve'; mission: string }
-  | { cmd: 'status' } | { cmd: 'pause'; reason: string } | { cmd: 'resume' };
+  | { cmd: 'status' } | { cmd: 'pause'; reason: string } | { cmd: 'resume' } | { cmd: 'sweep' };
 
 export class UsageError extends Error {}
 
@@ -51,6 +57,7 @@ export function parseArgs(argv: string[]): Command {
     case 'status': none(); return { cmd: 'status' };
     case 'pause': return { cmd: 'pause', reason: rest.join(' ').replace(/\s+/g, ' ').trim().slice(0, 300) };
     case 'resume': none(); return { cmd: 'resume' };
+    case 'sweep': none(); return { cmd: 'sweep' };
     default: throw new UsageError(`unknown command ${JSON.stringify(cmd)}`);
   }
 }
@@ -85,6 +92,9 @@ export type MainDeps = {
   effects?: (o: { paths: RunnerPaths; stopping: () => boolean; signal: AbortSignal }) => RunnerEffects;
   /** tests: no process signal handlers */
   noSignals?: boolean;
+  /** tests: receives the stop handler instead of process.on */
+  onSignal?: (handler: (sig: string) => void) => void;
+  exit?: (code: number) => void;
 };
 
 export async function main(argv: string[], deps: MainDeps = {}): Promise<number> {
@@ -108,10 +118,17 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
   const fx = deps.effects
     ? deps.effects({ paths, stopping: stopping_, signal: ac.signal })
     : makeEffects({ paths, stopping: stopping_, signal: ac.signal, prefix: env.AXION_GUARD_PREFIX?.trim() || 'axion' });
-  if (c.cmd === 'run' && !deps.noSignals) {
-    const stop = (sig: string) => { if (!stopping) err(`axion-evolve: ${sig}: stopping after the current step`); stopping = true; ac.abort(); };
-    process.on('SIGTERM', () => stop('SIGTERM'));
-    process.on('SIGINT', () => stop('SIGINT'));
+  if ((c.cmd === 'run' || c.cmd === 'once' || c.cmd === 'approve') && !deps.noSignals) {
+    let seen = 0;
+    const stop = (sig: string) => {
+      if (++seen > 1) { err(`axion-evolve: ${sig} again: exiting now (a running Guard deploy goes on by itself)`); (deps.exit ?? process.exit)(130); return; }
+      err(`axion-evolve: ${sig}: stopping after the current step; removing the Workshop and typecheck containers (never the Guard)`);
+      stopping = true;
+      ac.abort();
+      void fx.killWorkers().then((k) => { if (k.length) err(`axion-evolve: removed ${k.join(', ')}`); }, (e: unknown) => err(`axion-evolve: removing the workers failed: ${e instanceof Error ? e.message : String(e)}`));
+    };
+    if (deps.onSignal) deps.onSignal(stop);
+    else { process.on('SIGTERM', () => stop('SIGTERM')); process.on('SIGINT', () => stop('SIGINT')); }
   }
   switch (c.cmd) {
     case 'run':
@@ -137,6 +154,16 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
       await fx.writePaused(why);
       await fx.appendHistory({ event: 'pause', reason: why });
       out(`axion-evolve: ${why} (a running change stops at its next step; resume with: axion-evolve resume)`);
+      return 0;
+    }
+    case 'sweep': {
+      // never under a live runner: its own containers are its business (it removes them on a stop signal)
+      const release = await fx.lock();
+      if (!release) { out('axion-evolve sweep: a live runner holds runner.lock; nothing removed'); return 0; }
+      try {
+        const k = await fx.killWorkers();
+        out(`axion-evolve sweep: ${k.length ? `removed ${k.join(', ')}` : 'nothing to remove'}`);
+      } finally { await release(); }
       return 0;
     }
     case 'resume': {

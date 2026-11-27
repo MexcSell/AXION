@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { approve, claimsToday, once, rollbackStreak, runForever, startup } from './loop.ts';
+import { approve, claimsToday, once, rollbackStreak, runForever, startup, StillDeploying } from './loop.ts';
 import type { DeployAnswer, GuardStep, HistoryEntry, RunnerEffects, WriteResult } from './loop.ts';
 import type { Mission } from './prompts.ts';
 import type { EngineerResult } from './workshop.ts';
@@ -47,6 +47,10 @@ type Script = {
   refs: Record<string, string>;
   liveSha: string;
   guardOutcome: (sha: string) => DeployAnswer['result'];
+  guardBusy: () => boolean;
+  stopping: () => boolean;
+  finish: (body: Record<string, any>) => WriteResult;
+  secrets: () => string[];
 };
 
 function fake(s: Partial<Script> = {}) {
@@ -73,10 +77,10 @@ function fake(s: Partial<Script> = {}) {
         writes.push({ kind: 'progress', id, body });
         return s.progress?.(body, ++progressN) ?? { ok: true };
       },
-      async finish(id, body) { calls.push(`finish:${body.outcome}`); writes.push({ kind: 'finish', id, body }); return { ok: true }; },
+      async finish(id, body) { calls.push(`finish:${body.outcome}`); writes.push({ kind: 'finish', id, body }); return s.finish?.(body) ?? { ok: true }; },
       async approved(id) { calls.push('approved'); writes.push({ kind: 'approved', id, body: {} }); return s.approved?.() ?? { ok: true }; },
     },
-    async secrets() { return [SECRET, 'pw-' + 'x'.repeat(20)]; },
+    async secrets() { return s.secrets?.() ?? [SECRET, 'pw-' + 'x'.repeat(20)]; },
     async paused() { return s.paused?.() ?? paused; },
     async writePaused(reason) { calls.push('writePaused'); paused = reason; },
     async clearPaused() { const was = paused !== null; paused = null; return was; },
@@ -88,6 +92,7 @@ function fake(s: Partial<Script> = {}) {
       return async () => { calls.push('unlock'); };
     },
     async sweep() { calls.push('sweep'); return []; },
+    async killWorkers() { calls.push('killWorkers'); return []; },
     async liveSha() { return s.liveSha ?? BASE; },
     async exportTree(id, attempt, base) { calls.push(`export:a${attempt}`); attemptNow = attempt; assert.equal(base, s.liveSha ?? BASE); return `/changes/${id}/a${attempt}`; },
     async engineer(o) {
@@ -121,11 +126,11 @@ function fake(s: Partial<Script> = {}) {
       return a;
     },
     async guardOutcome(sha) { return s.guardOutcome?.(sha) ?? null; },
-    async guardBusy() { return false; },
+    async guardBusy() { return s.guardBusy?.() ?? false; },
     now: () => now,
     async sleep(ms) { calls.push(`sleep:${ms}`); now += ms; },
     log() {},
-    stopping: () => false,
+    stopping: () => s.stopping?.() ?? false,
   };
   const finish = () => writes.filter((w) => w.kind === 'finish');
   return { fx, calls, writes, history, refs, engineerInputs, reviewerDiffs, deployInputs, finish, isPaused: () => paused };
@@ -466,4 +471,132 @@ test('startup reconciles a deploy a killed runner left running: the Guard\'s out
   await startup(g.fx);
   assert.equal(g.finish().length, 0, 'no Guard outcome: left to recover');
   assert.ok(g.calls.includes('recover'));
+});
+
+// ---- fix round 1 ----
+
+test('R29: an engineer timeout, a CLI error and a missing report each go to the next attempt with the reason as feedback', async () => {
+  const fails: EngineerResult[] = [
+    { ok: false, report: '', timedOut: true, error: 'killed at the wall cap (1800 s)' },
+    { ok: false, report: '', timedOut: false, error: 'CLI error: error_max_turns (exit 1)' },
+    { ok: false, report: '', timedOut: false, error: 'no report block in the answer' },
+  ];
+  for (const bad of fails) {
+    const f = fake({ engineer: (o) => (o.attempt === 1 ? bad : { ok: true, report: '{}', timedOut: false }) });
+    await once(f.fx, { inject: false });
+    assert.equal(f.engineerInputs.length, 2, String(bad.error));
+    assert.ok(f.engineerInputs[1].feedback!.includes(bad.timedOut ? 'wall cap' : bad.error!), String(f.engineerInputs[1].feedback));
+    const [fin] = f.finish();
+    assert.equal(fin.body.outcome, 'completed', String(bad.error));
+    assert.equal(fin.body.evolve.attempt, 2);
+  }
+  const all = fake({ engineer: () => fails[1] });
+  await once(all.fx, { inject: false });
+  assert.equal(all.engineerInputs.length, CAPS.attempts);
+  assert.equal(all.finish()[0].body.outcome, 'failed');
+  assert.equal(all.finish()[0].body.evolve.state, 'failed');
+  const alive = fake({ engineer: () => ({ ok: false, report: '', timedOut: true, error: 'still there', containerAlive: true }) });
+  await once(alive.fx, { inject: false });
+  assert.equal(alive.engineerInputs.length, 1, 'containerAlive stops the change');
+});
+
+test('the Guard answers exit 3 on a change whose gates were clean → needs_owner, held at its ref, the approve command', async () => {
+  const f = fake({ deploys: [{ code: 3, result: { outcome: 'needs_owner', hits: ['server/src/auth/x.ts'], base: BASE }, stderr: '' }] });
+  const r = await once(f.fx, { inject: false });
+  assert.equal(r.kind === 'change' && r.outcome.outcome, 'needs_owner');
+  const [fin] = f.finish();
+  assert.equal(fin.body.outcome, 'needs_owner');
+  assert.deepEqual(fin.body.evolve.hits, ['protected: server/src/auth/x.ts']);
+  assert.match(fin.body.text, /axion-evolve approve M-1/);
+  assert.ok(!f.calls.includes('deleteRef:incoming/evolve-M-1-a1'), 'held');
+  assert.equal(f.history.filter((h) => h.event === 'held').length, 1);
+});
+
+test('inject: a protected hit or a Guard exit 3 ends failed, never held; approve refuses an injected held entry', async () => {
+  const hit = fake({ diff: () => ({ text: diffOf('evolve/x.ts', ['x']), files: [{ path: 'evolve/x.ts', status: 'A' }], stat: '' }) });
+  await once(hit.fx, { inject: true });
+  assert.equal(hit.finish()[0].body.outcome, 'failed');
+  assert.ok(!hit.calls.some((c) => c.startsWith('setRef')));
+  assert.ok(!hit.history.some((h) => h.event === 'held'));
+  const g3 = fake({ deploys: [{ code: 3, result: { outcome: 'needs_owner', hits: ['x'] }, stderr: '' }] });
+  await once(g3.fx, { inject: true });
+  assert.equal(g3.finish()[0].body.outcome, 'failed');
+  assert.ok(g3.calls.includes('deleteRef:incoming/evolve-M-1-a1'));
+  assert.ok(!g3.history.some((h) => h.event === 'held'));
+  const held: HistoryEntry = { at: '2026-11-27T09:00:00Z', event: 'held', mission: 'M-1', attempt: 1, ref: 'incoming/evolve-M-1-a1', commit: shaOf(1), base: BASE, injected: true };
+  const ap = fake({ history: [held], refs: { 'incoming/evolve-M-1-a1': shaOf(1) } });
+  const a = await approve(ap.fx, 'M-1');
+  assert.equal(a.code, 1);
+  assert.match(a.message, /inject/);
+  assert.ok(!ap.calls.includes('approved') && !ap.calls.includes('deploy'));
+});
+
+test('inject: the injected failure going live is an alarm: finish failed, PAUSED with the remedy, never a success', async () => {
+  const f = fake({ deploys: [live()] });
+  const r = await once(f.fx, { inject: true });
+  assert.equal(r.kind === 'change' && r.outcome.outcome, 'inject_live');
+  const [fin] = f.finish();
+  assert.equal(fin.body.outcome, 'failed');
+  assert.match(fin.body.text, /ALARM/);
+  assert.match(f.isPaused()!, /axion-guard revert/);
+  assert.equal(f.history.find((h) => h.event === 'end')!.outcome, 'inject_live');
+  assert.ok(f.history.findIndex((h) => h.event === 'end') < f.history.findIndex((h) => h.event === 'pause'));
+  const { onceCode } = await import('./cli.ts');
+  assert.equal(onceCode(r), 1);
+});
+
+test('the Guard answered live but finish completed throws: the end line is written first, no second finish; the next start settles it', async () => {
+  let n = 0;
+  const f = fake({ finish: (b) => { if (b.outcome === 'completed' && ++n === 1) throw new Error('CLI timed out'); return { ok: true }; }, guardOutcome: () => ({ outcome: 'live' }) });
+  const r = await once(f.fx, { inject: false });
+  assert.equal(r.kind === 'change' && r.outcome.outcome, 'live');
+  assert.deepEqual(f.finish().map((x) => x.body.outcome), ['completed'], 'never a second finish (failed) after the Guard answered');
+  const ev = f.history.map((h) => `${h.event}${h.outcome ? `:${h.outcome}` : ''}`);
+  assert.deepEqual(ev, ['claim', 'deploy', 'end:live', 'unsettled']);
+  await startup(f.fx);
+  assert.deepEqual(f.finish().map((x) => x.body.outcome), ['completed', 'completed']);
+  assert.equal(f.history.at(-1)!.event, 'end');
+  assert.equal(f.history.at(-1)!.outcome, 'settled');
+});
+
+test('the mission refuses a write during the deploy and the Guard rolls back: the end line says rolled_back (counted for the pause)', async () => {
+  const f = fake({
+    deploys: [rolledBack()], steps: [{ step: 'build', event: 'start' }],
+    progress: (b) => (b.by === AGENTS.release && /Guard: build/.test(b.text) ? { ok: false, refusal: { error: 'mission_not_running', status: 'paused' } } : { ok: true }),
+  });
+  const r = await once(f.fx, { inject: false });
+  assert.equal(r.kind === 'change' && r.outcome.outcome, 'rolled_back');
+  assert.equal(f.finish().length, 0);
+  assert.equal(f.history.find((h) => h.event === 'end')!.outcome, 'rolled_back');
+});
+
+test('the Guard exits 0 without a parsable result line: its history outcome decides (live)', async () => {
+  const f = fake({ deploys: [{ code: 0, result: null, stderr: '' }], guardOutcome: () => ({ outcome: 'live' }) });
+  await once(f.fx, { inject: false });
+  assert.equal(f.finish()[0].body.outcome, 'completed');
+});
+
+test('startup: a stop while waiting for a running Guard writes nothing and does not recover; past the cap it throws, nothing written', async () => {
+  const open: HistoryEntry[] = [{ at: '2026-11-27T09:30:00Z', event: 'deploy', mission: 'M-1', attempt: 1, commit: shaOf(1), base: BASE, ref: 'incoming/evolve-M-1-a1' }];
+  let polls = 0;
+  const s = fake({ history: open, guardBusy: () => true, stopping: () => ++polls > 2 });
+  await startup(s.fx);
+  assert.equal(s.history.length, 1);
+  assert.ok(!s.calls.includes('recover'));
+  assert.equal(s.finish().length, 0);
+  const c = fake({ history: open, guardBusy: () => true });
+  await assert.rejects(startup(c.fx), StillDeploying);
+  assert.equal(c.history.length, 1, 'the deploy line stays open');
+  assert.ok(!c.calls.includes('recover'));
+  assert.ok(!c.calls.some((x) => x.startsWith('deleteRef')));
+});
+
+test('no secrets: startup throws, approve refuses before approved, a change ends without running', async () => {
+  const f = fake({ secrets: () => [] });
+  await assert.rejects(startup(f.fx), /secrets/);
+  assert.ok(!f.calls.includes('recover'));
+  const held: HistoryEntry = { at: '2026-11-27T09:00:00Z', event: 'held', mission: 'M-1', attempt: 1, ref: 'incoming/evolve-M-1-a1', commit: shaOf(1), base: BASE };
+  const a = fake({ secrets: () => [], history: [held], refs: { 'incoming/evolve-M-1-a1': shaOf(1) } });
+  assert.equal((await approve(a.fx, 'M-1')).code, 1);
+  assert.ok(!a.calls.includes('approved'));
 });

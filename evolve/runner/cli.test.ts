@@ -12,7 +12,8 @@ test('parseArgs: the commands; run takes nothing (never --inject-failure); once 
   assert.deepEqual(parseArgs(['approve', 'M-12']), { cmd: 'approve', mission: 'M-12' });
   assert.deepEqual(parseArgs(['pause', 'owner', ' says  so']), { cmd: 'pause', reason: 'owner says so' });
   assert.deepEqual(parseArgs([]), { cmd: 'help' });
-  for (const bad of [['run', '--inject-failure'], ['run', 'x'], ['once', '--inject'], ['once', '--inject-failure', 'x'], ['approve'], ['approve', 'a', 'b'], ['status', 'x'], ['resume', 'x'], ['deploy']]) {
+  assert.deepEqual(parseArgs(['sweep']), { cmd: 'sweep' });
+  for (const bad of [['sweep', 'x'], ['run', '--inject-failure'], ['run', 'x'], ['once', '--inject'], ['once', '--inject-failure', 'x'], ['approve'], ['approve', 'a', 'b'], ['status', 'x'], ['resume', 'x'], ['deploy']]) {
     assert.throws(() => parseArgs(bad), UsageError, bad.join(' '));
   }
 });
@@ -37,7 +38,11 @@ function fakeFx() {
     async appendHistory(e: Omit<HistoryEntry, 'at'>) { hist.push({ at: '2026-11-27T00:00:00Z', ...e }); },
     async guardBusy() { return false; },
     now: () => Date.parse('2026-11-27T12:00:00Z'),
-    async lock() { return null; },
+    lockFree: false,
+    log() {},
+    killed: 0,
+    async lock() { return (fx as any).lockFree ? async () => {} : null; },
+    async killWorkers() { (fx as any).killed++; return ['axion-workshop-M-1-a1']; },
   } as unknown as RunnerEffects;
   return { fx, hist, isPaused: () => paused };
 }
@@ -65,5 +70,40 @@ test('bin/axion-evolve runs the installed copy of cli.ts with node; the unit run
   const unit = readFileSync(new URL('./axion-evolve.service', import.meta.url), 'utf8');
   for (const l of ['ExecStart=/usr/local/bin/axion-evolve run', 'Restart=on-failure', 'RestartSec=30', 'KillMode=process', 'WantedBy=multi-user.target']) {
     assert.ok(unit.split('\n').includes(l), l);
+  }
+});
+
+test('sweep: skipped while a live runner holds the lock; otherwise removes the workers; the unit runs it after every stop', async () => {
+  const f = fakeFx();
+  const out: string[] = [];
+  const deps = { env: { AXION_GUARD_ROOT: '/nonexistent-root' }, out: (s: string) => out.push(s), err: (s: string) => out.push(s), effects: () => f.fx, noSignals: true };
+  assert.equal(await main(['sweep'], deps), 0);
+  assert.match(out.at(-1)!, /holds runner\.lock; nothing removed/);
+  assert.equal((f.fx as any).killed, 0);
+  (f.fx as any).lockFree = true;
+  assert.equal(await main(['sweep'], deps), 0);
+  assert.match(out.at(-1)!, /removed axion-workshop-M-1-a1/);
+  const unit = readFileSync(new URL('./axion-evolve.service', import.meta.url), 'utf8');
+  assert.ok(unit.split('\n').includes('ExecStopPost=/usr/local/bin/axion-evolve sweep'));
+});
+
+test('a stop signal in once/approve/run removes the Workshop containers at once and stops after the step; a second one exits 130', async () => {
+  for (const cmd of [['once'], ['approve', 'M-1'], ['run']]) {
+    const f = fakeFx();
+    const box: { h?: (sig: string) => void } = {};
+    const exits: number[] = [];
+    let stopping: (() => boolean) | null = null;
+    const deps = { env: { AXION_GUARD_ROOT: '/nonexistent-root' }, out: () => {}, err: () => {}, onSignal: (h: (s: string) => void) => { box.h = h; },
+      exit: (c: number) => { exits.push(c); },
+      effects: (o: { stopping: () => boolean }) => { stopping = o.stopping; (f.fx as any).stopping = o.stopping; (f.fx as any).sleep = async () => {}; return f.fx; } };
+    const p = main(cmd, deps);
+    assert.ok(box.h, `${cmd[0]} installs a handler`);
+    box.h!('SIGINT');
+    assert.equal(stopping!(), true);
+    await p;
+    await new Promise((r) => setImmediate(r));
+    assert.equal((f.fx as any).killed, 1, cmd[0]);
+    box.h!('SIGINT');
+    assert.deepEqual(exits, [130]);
   }
 });

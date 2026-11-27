@@ -25,7 +25,8 @@
 # Evolution step 2 (the runner and its Workshop):
 #   copy_missing <src> <dest>       rsync -a --ignore-existing: copies only what the destination does not have yet (an
 #                                   old native file is never copied over live data, however new its mtime)
-#   runner_running                  0 when axion-evolve.service is active (install.sh refuses then: stop it first)
+#   runner_running [<runner.lock>]  0 when axion-evolve.service is active/activating/deactivating, or a live process holds
+#                                   runner.lock (an `once` or `approve`); install.sh refuses then: stop it first
 #   ensure_workshop_network <name> <egress>  the Workshop's network, isolated like the live one (internal, no IPv4 on the
 #                                   host side); recreated when it lacks the isolation and only the egress is attached (3 =
 #                                   other members, left alone); the egress proxy connected to it (its only way out)
@@ -137,8 +138,15 @@ copy_missing() {
   rsync -a --ignore-existing "$1" "$2"
 }
 
-runner_running() {
-  [ "$(systemctl is-active axion-evolve.service 2>/dev/null || true)" = active ]
+runner_running() { # [<runner.lock>]: the unit active or activating, or a live process holds runner.lock (once/approve)
+  local st pid
+  st=$(systemctl is-active axion-evolve.service 2>/dev/null || true)
+  case "$st" in active|activating|reloading|deactivating) return 0 ;; esac
+  if [ -n "${1:-}" ] && [ -f "$1" ]; then
+    pid=$(head -n 1 "$1" 2>/dev/null || true)
+    if [[ "$pid" =~ ^[1-9][0-9]*$ ]] && kill -0 "$pid" 2>/dev/null; then return 0; fi
+  fi
+  return 1
 }
 
 ensure_workshop_network() {

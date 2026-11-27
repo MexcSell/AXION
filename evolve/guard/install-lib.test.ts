@@ -284,5 +284,12 @@ test('runner_running: install.sh refuses while axion-evolve.service is active', 
   const off = world({ networks: {}, containers: {}, units: { 'axion-evolve.service': { enabled: 'enabled', active: 'inactive' } } });
   assert.match(off.run('runner_running && echo yes || echo no').out, /no/);
   assert.match(world({ networks: {}, containers: {} }).run('runner_running && echo yes || echo no').out, /no/);
-  assert.match(readFileSync(new URL('../install.sh', import.meta.url), 'utf8'), /if runner_running; then .*exit 2; fi/);
+  const act = world({ networks: {}, containers: {}, units: { 'axion-evolve.service': { enabled: 'enabled', active: 'activating' } } });
+  assert.match(act.run('runner_running && echo yes || echo no').out, /yes/);
+  const lk = world({ networks: {}, containers: {} });
+  writeFileSync(join(lk.dir, 'runner.lock'), `${process.pid}\nboot\n`);
+  assert.match(lk.run(`runner_running ${join(lk.dir, 'runner.lock')} && echo yes || echo no`).out, /yes/, 'a live holder of runner.lock');
+  writeFileSync(join(lk.dir, 'runner.lock'), '999999999\nboot\n');
+  assert.match(lk.run(`runner_running ${join(lk.dir, 'runner.lock')} && echo yes || echo no`).out, /no/, 'a stale lock');
+  assert.match(readFileSync(new URL('../install.sh', import.meta.url), 'utf8'), /if runner_running "\$ROOT\/runner\.lock"; then .*exit 2; fi/);
 });

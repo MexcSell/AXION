@@ -10,6 +10,13 @@
 //     as feedback) → reviewer (tester-01; not ok ⇒ next attempt, the concerns as feedback) → push incoming/evolve-<id>-a<n>
 //     → `axion-guard deploy` (release-01 mirrors its steps; busy ⇒ wait 60 s, retry, max 30 min) → live ⇒ completed;
 //     rejected at build/checks ⇒ next attempt with the reason; rolled_back ⇒ failed (2 in a row ⇒ PAUSED); other ⇒ failed.
+//     An engineer run that times out, errors or gives no report ⇒ the next attempt with the reason (R29); a container that
+//     could not be confirmed gone ⇒ the change stops.
+// After the Guard answered, its real outcome goes to runner-history FIRST, then the mission's finish; a finish that throws
+// leaves an `unsettled` line, so the next start settles the mission from the Guard's history (never a second, other finish).
+// `once --inject-failure` (Claude Code's exit demo): the injected commit is never held for approval (a hit or a Guard
+// exit 3 ends the change failed, and approve refuses an injected entry), and if it ever goes live that is an alarm: the
+// mission fails, PAUSED is written, the remedy (axion-guard revert) is logged.
 // Kill switches (PAUSED, a run halt, a stopping runner) are checked before every step; a tripped one ends the change
 // `failed` with the reason. A refused mission write (the mission left `running`: paused, canceled) stops the change at
 // once and is never retried; the runner-history keeps the truth. Every text that reaches the mission is redacted with every
@@ -48,10 +55,12 @@ export interface MissionCli {
 /** one line of runner-history.jsonl: outcomes and pointers only, never a diff, a report or a secret */
 export type HistoryEntry = {
   at: string;
-  /** retry: the Guard rejected an attempt at build/checks and the change goes on (closes that attempt's deploy line) */
-  event: 'claim' | 'deploy' | 'retry' | 'held' | 'end' | 'pause' | 'resume' | 'note';
+  /** retry: the Guard rejected an attempt at build/checks and the change goes on (closes that attempt's deploy line);
+   *  unsettled: the Guard answered and the end line was written, but the mission's finish threw: reopens the deploy for
+   *  the next start's reconcile (`since` = when that deploy started) */
+  event: 'claim' | 'deploy' | 'retry' | 'held' | 'end' | 'unsettled' | 'pause' | 'resume' | 'note';
   mission?: string; attempt?: number; commit?: string; base?: string; ref?: string;
-  outcome?: string; reason?: string; injected?: boolean; by?: string;
+  outcome?: string; reason?: string; injected?: boolean; by?: string; since?: string;
 };
 export type GuardStep = { step: string; event: 'start' | 'end'; ok?: boolean; detail?: string };
 export type GuardResult = { outcome: string; failedStep?: string; reason?: string; image?: string; hits?: string[]; base?: string };
@@ -73,6 +82,8 @@ export interface RunnerEffects {
   lock(): Promise<(() => Promise<void>) | null>;
   /** at start, under the lock: leftovers of a killed runner (containers, change trees) */
   sweep(): Promise<string[]>;
+  /** removes the runner's Workshop and typecheck containers now (never the Guard); on a stop signal and ExecStopPost */
+  killWorkers(): Promise<string[]>;
   /** evolve/main in the Guard's repository */
   liveSha(): Promise<string>;
   /** `git archive <base>` into <changeDir>/tree, owned by uid 1000; returns changeDir */
@@ -106,7 +117,8 @@ export interface RunnerEffects {
 
 export type ChangeOutcome = {
   mission: string;
-  outcome: 'live' | 'needs_owner' | 'rejected' | 'rolled_back' | 'failed' | 'stopped' | 'gone' | 'error';
+  /** inject_live: the injected failure went live (an alarm, never a success) */
+  outcome: 'live' | 'needs_owner' | 'rejected' | 'rolled_back' | 'failed' | 'stopped' | 'gone' | 'error' | 'inject_live';
   attempt: number; commit?: string; reason: string;
 };
 export type TickResult =
@@ -114,6 +126,8 @@ export type TickResult =
   | { kind: 'cap'; count: number } | { kind: 'idle' } | { kind: 'change'; outcome: ChangeOutcome };
 
 class Stop extends Error {}
+/** startup could not settle a deploy (the Guard still runs after the reconcile cap): neither reconcile nor recover now */
+export class StillDeploying extends Error {}
 class Gone extends Error {
   refusal: Refusal;
   constructor(r: Refusal) { super(`mission write refused: ${r.error}`); this.refusal = r; }
@@ -198,6 +212,7 @@ type DeployCtx = { fx: RunnerEffects; w: ReturnType<typeof writer>; id: string; 
 async function deployMirrored(c: DeployCtx, o: { ref: string; sha: string; approve?: { sha: string; base: string } }): Promise<DeployAnswer> {
   const { fx, w } = c;
   const t0 = fx.now();
+  const since = new Date(t0).toISOString();
   let chain: Promise<void> = Promise.resolve();
   const onStep = (s: GuardStep) => {
     const what = s.event === 'start' ? 'started' : s.ok === false ? 'failed' : 'passed';
@@ -206,8 +221,13 @@ async function deployMirrored(c: DeployCtx, o: { ref: string; sha: string; appro
   };
   let saidBusy = false;
   for (;;) {
-    const a = await fx.deploy(o, onStep);
+    let a = await fx.deploy(o, onStep);
     await chain;
+    if (a.code !== 4 && a.result === null) {
+      // no parsable result line (exit 0 included): the Guard's own history has the outcome
+      const h = await fx.guardOutcome(o.sha, since).catch(() => null);
+      if (h) a = { ...a, result: h };
+    }
     if (a.code !== 4) return a;
     if (fx.now() - t0 + TIMING.busyWaitMs > TIMING.busyMaxMs) {
       return { code: 4, result: null, stderr: `the Guard stayed busy for ${Math.round(TIMING.busyMaxMs / 60_000)} min (another deploy held its lock)` };
@@ -233,10 +253,45 @@ const guardInfo = (a: DeployAnswer): Guard => ({
   reason: (a.result?.reason ?? lastLines(a.stderr, 20)).slice(-3900),
 });
 
+
+/** the Guard's answer as an outcome; exit 0 means live even without a parsable result line */
+function guardKind(a: DeployAnswer): 'live' | 'rolled_back' | 'rejected' | 'needs_owner' | 'busy' | 'failed' {
+  const o = a.result?.outcome;
+  if (a.code === 4 && !a.result) return 'busy';
+  if (o === 'live' || (a.code === 0 && !a.result)) return 'live';
+  if (a.code === 3 || o === 'needs_owner') return 'needs_owner';
+  if (o === 'rolled_back') return 'rolled_back';
+  if (o === 'rejected') return 'rejected';
+  return 'failed';
+}
+
 const SECRET_TEXT = 'The change was refused before anything was pushed: it contained a secret value or a credential marker. '
   + 'The tree and the commit were deleted; nothing from it is shown.';
 
-/** One claimed mission, start to end. Never throws (a runner error ends the mission `failed`). */
+/** the text of the inject alarm (the injected failure went live) */
+export const injectAlarmText = (sha: string, id: string) => `ALARM: the injected failure commit ${sha} of ${id} went LIVE: the Guard's watch `
+  + 'did not roll it back, so evolve/main carries the 503 health hook of `axion-evolve once --inject-failure`. The runner paused itself. '
+  + 'Remedy: axion-guard revert (back to the previous commit), check axion-guard status, then axion-evolve resume.';
+
+async function raiseAlarm(fx: RunnerEffects, sha: string, id: string): Promise<void> {
+  const t = injectAlarmText(sha, id);
+  await fx.writePaused(t);
+  await fx.appendHistory({ event: 'pause', mission: id, reason: t.slice(0, 300) });
+  fx.log(t);
+}
+
+async function pauseOnStreak(fx: RunnerEffects, id: string): Promise<void> {
+  if (rollbackStreak(await fx.readHistory()) < CAPS.rollbacksToPause) return;
+  const why = `${CAPS.rollbacksToPause} consecutive changes were rolled back (last: ${id}); paused by the runner at ${new Date(fx.now()).toISOString()}. `
+    + 'Remove with: axion-evolve resume';
+  await fx.writePaused(why);
+  await fx.appendHistory({ event: 'pause', reason: why });
+  fx.log(why);
+}
+
+type Deployed = { ref: string; sha: string; base: string; since: string };
+
+/** One claimed mission, start to end. Never throws (a runner error ends the mission `failed`, unless the Guard had answered). */
 export async function runChange(fx: RunnerEffects, m: Mission, opts: { inject: boolean }): Promise<ChangeOutcome> {
   const secrets = await fx.secrets().catch(() => [] as string[]);
   const w = writer(fx, m.id, secrets);
@@ -244,23 +299,27 @@ export async function runChange(fx: RunnerEffects, m: Mission, opts: { inject: b
   let attempt = 1;
   let commit: string | undefined;
   let heldRef: string | null = null;
+  /** the Guard gave this change its final answer: from here on nothing may finish the mission with another outcome */
+  let answered = false;
   const pushed: string[] = [];
   const hist = (e: Omit<HistoryEntry, 'at'>) => fx.appendHistory({ mission: m.id, ...e, ...(opts.inject ? { injected: true } : {}) });
+  /** the end line (the truth), then the pause rule */
   const done = async (o: ChangeOutcome): Promise<ChangeOutcome> => {
     const reason = red(o.reason).slice(0, 300);
     await hist({ event: 'end', attempt: o.attempt, outcome: o.outcome, ...(o.commit ? { commit: o.commit } : {}), reason });
-    if (o.outcome === 'rolled_back' && rollbackStreak(await fx.readHistory()) >= CAPS.rollbacksToPause) {
-      const why = `${CAPS.rollbacksToPause} consecutive changes were rolled back (last: ${m.id}); paused by the runner at ${new Date(fx.now()).toISOString()}. `
-        + 'Remove with: axion-evolve resume';
-      await fx.writePaused(why);
-      await fx.appendHistory({ event: 'pause', reason: why });
-      fx.log(why);
-    }
+    if (o.outcome === 'rolled_back') await pauseOnStreak(fx, m.id);
     return { ...o, reason };
   };
-  const end = async (outcome: FinishBody['outcome'], kind: ChangeOutcome['outcome'], text: string, evolve: FinishEvolve): Promise<ChangeOutcome> => {
-    await w.finish(outcome, text, { attempt, ...evolve });
-    return done({ mission: m.id, outcome: kind, attempt, ...(evolve.commit ? { commit: evolve.commit } : {}), reason: text.split('\n')[0] });
+  /** the end line first, then the mission's finish; after a Guard answer a finish that throws leaves an `unsettled` line */
+  const end = async (outcome: FinishBody['outcome'], kind: ChangeOutcome['outcome'], text: string, evolve: FinishEvolve, deployed?: Deployed): Promise<ChangeOutcome> => {
+    const r = await done({ mission: m.id, outcome: kind, attempt, ...(evolve.commit ? { commit: evolve.commit } : {}), reason: text.split('\n')[0] });
+    try {
+      await w.finish(outcome, text, { attempt, ...evolve });
+    } catch (e) {
+      fx.log(`${m.id}: finish ${outcome} failed (${red(msg(e)).slice(0, 200)}); ${deployed ? 'the next start settles it from the Guard\'s history' : 'recover at the next start ends it'}`);
+      if (deployed) await hist({ event: 'unsettled', attempt, ref: deployed.ref, commit: deployed.sha, base: deployed.base, since: deployed.since });
+    }
+    return r;
   };
   const checkpoint = async (before: string) => {
     const why = await stopReason(fx);
@@ -286,10 +345,14 @@ export async function runChange(fx: RunnerEffects, m: Mission, opts: { inject: b
         return await end('failed', 'failed', `The engineer's container could not be confirmed gone, so its tree was not used (nothing committed): ${eng.error ?? ''}`, { state: 'failed' });
       }
       if (!eng.ok) {
+        // R29: a timeout, a CLI error or a missing report is retried within the attempt cap, with the reason as feedback
         const why = eng.timedOut
-          ? `The engineer's run hit the ${Math.round(CAPS.engineerMs / 60_000)} min wall cap and was stopped; nothing was committed.`
-          : `The engineer's run did not finish properly (${eng.error ?? 'no report'}); nothing was committed.`;
-        return await end('failed', 'failed', why, { state: 'failed' });
+          ? `The engineer's run of attempt ${attempt} hit the ${Math.round(CAPS.engineerMs / 60_000)} min wall cap and was stopped; nothing was committed.`
+          : `The engineer's run of attempt ${attempt} did not finish properly (${red(eng.error ?? 'no report')}); nothing was committed.`;
+        feedback = `${why} Start again on a fresh tree: make a smaller, focused change and end your answer with the <report> block.`;
+        lastRejected = { text: why, evolve: { state: 'failed' } };
+        if (attempt < CAPS.attempts) { await w.say(AGENTS.gm, `${why} Back to ${AGENTS.engineer}.`, { state: 'working', attempt }); continue; }
+        break;
       }
       await w.say(AGENTS.engineer, `${AGENTS.engineer} finished attempt ${attempt}; the runner builds the commit and runs the diff gates.`, { state: 'checking', attempt });
 
@@ -312,6 +375,10 @@ export async function runChange(fx: RunnerEffects, m: Mission, opts: { inject: b
       const shown = { attempt, commit: sha, base, filesChanged: files, diffStat: d.stat, report: eng.report };
       const hits = [...g.protectedHits.map((p) => `protected: ${p}`), ...g.flags.map((f) => `flag: ${f}`)];
       if (hits.length > 0) {
+        if (opts.inject) {
+          return await end('failed', 'failed', `inject-failure run: the engineer's change needs the owner (${hits.length}: ${hits.slice(0, 5).join('; ')}). `
+            + 'An injected commit is never held for approval, so nothing was kept or deployed.', { ...shown, state: 'failed', hits });
+        }
         const ref = refName(m.id, attempt);
         await fx.setRef(ref, sha);
         heldRef = ref;
@@ -358,57 +425,81 @@ export async function runChange(fx: RunnerEffects, m: Mission, opts: { inject: b
       const ref = refName(m.id, attempt);
       await fx.setRef(ref, sha);
       pushed.push(ref);
-      await hist({ event: 'deploy', attempt, ref, commit: sha, base });
+      const since = new Date(fx.now()).toISOString();
+      await hist({ event: 'deploy', attempt, ref, commit: sha, base, since });
       await w.say(AGENTS.release, `Handed ${ref} (${short(sha)}) to the Guard: axion-guard deploy ${ref}.`, { state: 'deploying', attempt });
       const a = await deployMirrored({ fx, w, id: m.id, attempt }, { ref, sha });
+      answered = true;
+      const deployed: Deployed = { ref, sha, base, since };
+      const kind = guardKind(a);
       const gi = guardInfo(a);
       const r = a.result;
       if (w.gone) {
-        return await done({ mission: m.id, outcome: 'gone', attempt, commit: sha, reason: `mission write refused (${w.gone.error}) during the deploy; the Guard answered ${guardText(a)}` });
+        // the mission refused a write while the Guard ran: record what the Guard really did, write nothing more
+        const real: ChangeOutcome['outcome'] = kind === 'live' && opts.inject ? 'inject_live' : kind === 'busy' ? 'failed' : kind;
+        const o = await done({ mission: m.id, outcome: real, attempt, commit: sha, reason: `the Guard answered ${guardText(a)}; the mission refused writes (${w.gone.error})` });
+        if (real === 'inject_live') await raiseAlarm(fx, sha, m.id);
+        return o;
       }
-      if (a.code === 0 && r?.outcome === 'live') {
-        return await end('completed', 'live', `Live: ${short(sha)} passed the Guard (build, checks, boot, smoke, switch, watch) and evolve/main is at it.`, { ...shown, guard: gi });
+      if (kind === 'live') {
+        if (opts.inject) {
+          const o = await end('failed', 'inject_live', injectAlarmText(sha, m.id), { ...shown, state: 'failed', guard: gi }, deployed);
+          await raiseAlarm(fx, sha, m.id);
+          return o;
+        }
+        return await end('completed', 'live', `Live: ${short(sha)} passed the Guard (build, checks, boot, smoke, switch, watch) and evolve/main is at it.`, { ...shown, guard: gi }, deployed);
       }
-      if (a.code === 3 || r?.outcome === 'needs_owner') {
+      if (kind === 'needs_owner') {
+        const gh = r?.hits ?? [];
+        if (opts.inject) {
+          return await end('failed', 'failed', `inject-failure run: the Guard asks for the owner's approval (protected paths: ${gh.join(', ') || '?'}). `
+            + 'An injected commit is never held for approval, so nothing was kept or deployed.', { ...shown, state: 'failed', guard: gi }, deployed);
+        }
         pushed.pop();
         heldRef = ref;
-        const gh = r?.hits ?? [];
         await hist({ event: 'held', attempt, ref, commit: sha, base });
         return await end('needs_owner', 'needs_owner', [`The Guard asks for the owner's approval (protected paths: ${gh.join(', ') || '?'}). Nothing was deployed.`,
           `The commit ${short(sha)} is kept at ${ref}. To deploy it (Claude Code or the owner only): axion-evolve approve ${m.id}`].join('\n'),
-        { ...shown, hits: gh.map((h) => `protected: ${h}`), guard: gi });
+        { ...shown, hits: gh.map((h) => `protected: ${h}`), guard: gi }, deployed);
       }
-      if (r?.outcome === 'rolled_back') {
-        return await end('failed', 'rolled_back', `Rolled back: the Guard switched to ${short(sha)}, then ${r.failedStep ?? 'a step'} failed and the previous version is live again (${r.reason ?? ''}).`, { ...shown, state: 'rolled_back', guard: gi });
+      if (kind === 'rolled_back') {
+        return await end('failed', 'rolled_back', `Rolled back: the Guard switched to ${short(sha)}, then ${r?.failedStep ?? 'a step'} failed and the previous version is live again (${r?.reason ?? ''}).`, { ...shown, state: 'rolled_back', guard: gi }, deployed);
       }
-      if (r?.outcome === 'rejected' && (r.failedStep === 'build' || r.failedStep === 'checks')) {
+      if (kind === 'rejected' && (r?.failedStep === 'build' || r?.failedStep === 'checks')) {
         const text = `The Guard rejected attempt ${attempt} at ${r.failedStep}.`;
         feedback = `${text} Its reason (the Guard keeps only the tail of the failing log):\n${lastLines(red(r.reason ?? ''))}`;
         lastRejected = { text: feedback, evolve: { ...shown, state: 'rejected', guard: gi } };
         await fx.deleteRef(ref);
         pushed.pop();
         await hist({ event: 'retry', attempt, commit: sha, outcome: 'rejected', reason: `${r.failedStep}`.slice(0, 40) });
+        answered = false; // the change goes on
         if (attempt < CAPS.attempts) { await w.say(AGENTS.release, `${text} Back to the engineer with the reason.`, { state: 'working', attempt, guard: gi }); continue; }
         break;
       }
-      const why = a.code === 4 ? gi.reason ?? 'busy' : guardText(a);
-      return await end('failed', 'failed', `The Guard did not deploy the change: ${why}`, { ...shown, state: 'failed', guard: gi });
+      const why = kind === 'busy' ? gi.reason ?? 'busy' : guardText(a);
+      return await end('failed', kind === 'rejected' ? 'rejected' : 'failed', `The Guard did not deploy the change: ${why}`, { ...shown, state: kind === 'rejected' ? 'rejected' : 'failed', guard: gi }, deployed);
     }
     attempt = Math.min(attempt, CAPS.attempts);
     const last = lastRejected ?? { text: 'no attempt passed', evolve: {} };
-    return await end('failed', 'rejected', `Failed after ${CAPS.attempts} attempts. The last one: ${last.text}`, { ...last.evolve, state: 'rejected' });
+    const kind = last.evolve.state === 'failed' ? 'failed' : 'rejected';
+    return await end('failed', kind, `Failed after ${CAPS.attempts} attempts. The last one: ${last.text}`, { ...last.evolve, state: kind });
   } catch (e) {
     if (e instanceof Gone) {
       return done({ mission: m.id, outcome: 'gone', attempt, ...(commit ? { commit } : {}), reason: `the mission left running (${e.refusal.error}${typeof e.refusal.status === 'string' ? `: ${e.refusal.status}` : ''}); the change stopped` });
     }
     if (e instanceof Stop) {
-      await w.finish('failed', e.message, { attempt, state: 'failed' }).catch((x) => fx.log(`${m.id}: finish failed: ${msg(x)}`));
+      await w.finish('failed', e.message, { attempt, state: 'failed' }).catch((x) => fx.log(`${m.id}: finish failed: ${red(msg(x))}`));
       return done({ mission: m.id, outcome: 'stopped', attempt, reason: e.message });
     }
     const text = `The runner hit an error and stopped this change: ${red(msg(e)).slice(0, 500)}`;
     fx.log(`${m.id}: ${text}`);
-    await w.finish('failed', text, { attempt, state: 'failed' }).catch((x) => fx.log(`${m.id}: finish failed: ${msg(x)}`));
-    return done({ mission: m.id, outcome: 'error', attempt, reason: text });
+    if (answered) {
+      // never a second, different finish after the Guard answered: the next start reconciles from the Guard's history
+      fx.log(`${m.id}: the Guard had already answered; the mission is left to the next start (reconcile, then recover)`);
+      return { mission: m.id, outcome: 'error', attempt, ...(commit ? { commit } : {}), reason: text.slice(0, 300) };
+    }
+    await w.finish('failed', text, { attempt, state: 'failed' }).catch((x) => fx.log(`${m.id}: finish failed: ${red(msg(x))}`));
+    return done({ mission: m.id, outcome: 'error', attempt, reason: text }).catch(() => ({ mission: m.id, outcome: 'error' as const, attempt, reason: text.slice(0, 300) }));
   } finally {
     for (const ref of pushed) if (ref !== heldRef) await fx.deleteRef(ref).catch((x) => fx.log(`deleteRef ${ref}: ${msg(x)}`));
     await fx.removeChange(m.id).catch((x) => fx.log(`removeChange ${m.id}: ${msg(x)}`));
@@ -435,54 +526,77 @@ async function tickLocked(fx: RunnerEffects, inject: boolean): Promise<TickResul
   return { kind: 'change', outcome: await runChange(fx, m, { inject }) };
 }
 
-/** a deploy recorded in runner-history with no end for its mission after it (a runner killed while the Guard ran) */
+/**
+ * Deploys a killed runner left open: a `deploy` line with no later `end`/`retry` for its mission, or an `unsettled`
+ * line (the Guard answered, the end line was written, the mission's finish threw).
+ */
 function openDeploys(h: HistoryEntry[]): HistoryEntry[] {
   const open = new Map<string, HistoryEntry>();
   for (const e of h) {
     if (!e.mission) continue;
-    if (e.event === 'deploy') open.set(e.mission, e);
+    if (e.event === 'deploy' || e.event === 'unsettled') open.set(e.mission, e);
     else if (e.event === 'end' || e.event === 'retry') open.delete(e.mission);
   }
   return [...open.values()];
 }
 
 /**
- * At runner start, under the lock: remove a killed runner's leftovers; settle every deploy it left running with the
- * Guard's recorded outcome (waiting while a Guard still runs); then `recover` fails whatever is still in flight.
+ * At runner start, under the lock: remove a killed runner's leftovers; settle every open deploy with the Guard's recorded
+ * outcome (waiting while a Guard still runs); then `recover` fails whatever is still in flight. A stop signal while
+ * waiting returns without writing anything; a Guard still busy after the reconcile cap throws StillDeploying (nothing
+ * reconciled, no recover: the mission must not be failed while the Guard may still make it live).
  */
 export async function startup(fx: RunnerEffects): Promise<void> {
   const swept = await fx.sweep();
   if (swept.length) fx.log(`removed leftovers of an earlier run: ${swept.join(', ')}`);
   const secrets = await fx.secrets().catch(() => [] as string[]);
+  if (secrets.length === 0) throw new Error('startup: the secrets (secrets/*.env) cannot be read; the runner refuses to write anything unredacted');
   for (const d of openDeploys(await fx.readHistory())) {
     if (!d.mission || !d.commit) continue;
     const t0 = fx.now();
     while (await fx.guardBusy()) {
-      if (fx.now() - t0 > TIMING.reconcileMaxMs || fx.stopping()) break;
+      if (fx.stopping()) return;
+      if (fx.now() - t0 > TIMING.reconcileMaxMs) {
+        throw new StillDeploying(`the Guard is still deploying after ${Math.round(TIMING.reconcileMaxMs / 3_600_000)} h (commit ${d.commit} of ${d.mission}); `
+          + 'nothing was reconciled or recovered now. See axion-guard status; start the runner again later.');
+      }
       fx.log(`waiting for the Guard (deploy of ${d.commit} for ${d.mission} by an earlier runner)`);
       await fx.sleep(TIMING.pollMs);
     }
-    const out = await fx.guardOutcome(d.commit, d.at);
+    if (fx.stopping()) return;
+    const out = await fx.guardOutcome(d.commit, d.since ?? d.at);
     const w = writer(fx, d.mission, secrets);
     const note = ' (settled after a runner restart, from the Guard\'s history)';
     const evolve = { attempt: d.attempt ?? 1, commit: d.commit, ...(d.base ? { base: d.base } : {}) };
-    let outcome: string = 'interrupted';
-    if (out?.outcome === 'live') { await w.finish('completed', `Live: ${short(d.commit)}${note}.`, evolve); outcome = 'live'; }
-    else if (out?.outcome === 'rolled_back') { await w.finish('failed', `Rolled back at ${out.failedStep ?? '?'}: ${out.reason ?? ''}${note}`, { ...evolve, state: 'rolled_back', guard: { outcome: out.outcome, ...(out.failedStep ? { failedStep: out.failedStep } : {}), reason: out.reason ?? '' } }); outcome = 'rolled_back'; }
-    else if (out?.outcome === 'rejected') { await w.finish('failed', `The Guard rejected it at ${out.failedStep ?? '?'}: ${out.reason ?? ''}${note}`, { ...evolve, state: 'rejected' }); outcome = 'rejected'; }
-    else if (out?.outcome === 'needs_owner' && d.ref) {
-      await w.finish('needs_owner', `The Guard asks for the owner's approval${note}. To deploy it: axion-evolve approve ${d.mission}`, { ...evolve, hits: (out.hits ?? []).map((x) => `protected: ${x}`) });
-      await fx.appendHistory({ event: 'held', mission: d.mission, attempt: d.attempt, ref: d.ref, commit: d.commit, base: d.base });
+    const gi = out ? { outcome: out.outcome, ...(out.failedStep ? { failedStep: out.failedStep } : {}), reason: out.reason ?? '' } : undefined;
+    let outcome = 'interrupted';
+    let fin: [FinishBody['outcome'], string, FinishEvolve] | null = null;
+    if (out?.outcome === 'live' && d.injected) { outcome = 'inject_live'; fin = ['failed', `${injectAlarmText(d.commit, d.mission)}${note}`, { ...evolve, state: 'failed', guard: gi }]; }
+    else if (out?.outcome === 'live') { outcome = 'live'; fin = ['completed', `Live: ${short(d.commit)}${note}.`, { ...evolve, guard: gi }]; }
+    else if (out?.outcome === 'rolled_back') { outcome = 'rolled_back'; fin = ['failed', `Rolled back at ${out.failedStep ?? '?'}: ${out.reason ?? ''}${note}`, { ...evolve, state: 'rolled_back', guard: gi }]; }
+    else if (out?.outcome === 'rejected') { outcome = 'rejected'; fin = ['failed', `The Guard rejected it at ${out.failedStep ?? '?'}: ${out.reason ?? ''}${note}`, { ...evolve, state: 'rejected', guard: gi }]; }
+    else if (out?.outcome === 'needs_owner' && d.ref && !d.injected) {
       outcome = 'needs_owner';
+      fin = ['needs_owner', `The Guard asks for the owner's approval${note}. To deploy it: axion-evolve approve ${d.mission}`, { ...evolve, hits: (out.hits ?? []).map((x) => `protected: ${x}`) }];
+    } else if (out?.outcome === 'needs_owner') { outcome = 'failed'; fin = ['failed', `inject-failure run: the Guard asked for the owner's approval; an injected commit is never held${note}.`, { ...evolve, state: 'failed', guard: gi }]; }
+    const unsettled = d.event === 'unsettled';
+    // the truth first; an `unsettled` line was already ended once, so its second end does not count again for the streak
+    await fx.appendHistory({ event: 'end', mission: d.mission, attempt: d.attempt, commit: d.commit, outcome: unsettled ? 'settled' : outcome,
+      ...(d.injected ? { injected: true } : {}), reason: `startup reconcile: ${out ? out.outcome : 'no Guard outcome recorded (recover fails it)'}` });
+    if (fin) {
+      try {
+        await w.finish(fin[0], fin[1], fin[2]);
+      } catch (e) {
+        fx.log(`${d.mission}: finish during reconcile failed (${w.red(msg(e)).slice(0, 200)}); the next start tries again`);
+        await fx.appendHistory({ event: 'unsettled', mission: d.mission, attempt: d.attempt, ref: d.ref, commit: d.commit, base: d.base, since: d.since ?? d.at, ...(d.injected ? { injected: true } : {}) });
+      }
     }
-    await fx.appendHistory({ event: 'end', mission: d.mission, attempt: d.attempt, commit: d.commit, outcome, reason: `startup reconcile: ${out ? out.outcome : 'no Guard outcome recorded (recover fails it)'}` });
-    if (outcome !== 'needs_owner' && d.ref) await fx.deleteRef(d.ref).catch(() => {});
-    if (outcome === 'rolled_back' && rollbackStreak(await fx.readHistory()) >= CAPS.rollbacksToPause) {
-      const why = `${CAPS.rollbacksToPause} consecutive changes were rolled back (last: ${d.mission}); paused by the runner. Remove with: axion-evolve resume`;
-      await fx.writePaused(why);
-      await fx.appendHistory({ event: 'pause', reason: why });
-    }
+    if (outcome === 'needs_owner') await fx.appendHistory({ event: 'held', mission: d.mission, attempt: d.attempt, ref: d.ref, commit: d.commit, base: d.base });
+    else if (d.ref) await fx.deleteRef(d.ref).catch(() => {});
+    if (outcome === 'rolled_back' && !unsettled) await pauseOnStreak(fx, d.mission);
+    if (outcome === 'inject_live') await raiseAlarm(fx, d.commit, d.mission);
   }
+  if (fx.stopping()) return;
   const rec = await fx.missions.recover();
   if (rec.length) {
     fx.log(`recovered (failed as interrupted): ${rec.join(', ')}`);
@@ -496,6 +610,7 @@ export async function once(fx: RunnerEffects, o: { inject: boolean }): Promise<T
   if (!release) return { kind: 'busy' };
   try {
     await startup(fx);
+    if (fx.stopping()) return { kind: 'idle' };
     return await tickLocked(fx, o.inject);
   } finally {
     await release();
@@ -521,7 +636,13 @@ export async function runForever(fx: RunnerEffects, o: { maxTicks?: number } = {
     const release = await fx.lock();
     if (!release) r = { kind: 'busy' };
     else {
-      try { r = await tickLocked(fx, false); } catch (e) { fx.log(`tick failed: ${msg(e)}`); r = { kind: 'idle' }; } finally { await release(); }
+      try {
+        r = await tickLocked(fx, false);
+      } catch (e) {
+        const s = await fx.secrets().catch(() => [] as string[]);
+        fx.log(s.length ? `tick failed: ${storable(redactSecrets(msg(e), s)).slice(0, 500)}` : 'tick failed (details withheld: the secrets to redact them with cannot be read)');
+        r = { kind: 'idle' };
+      } finally { await release(); }
     }
     const what = r.kind === 'change' ? `change ${r.outcome.mission}: ${r.outcome.outcome}` : r.kind === 'paused' || r.kind === 'halted' ? `${r.kind}: ${r.reason}` : r.kind;
     if (what !== last || r.kind === 'change') fx.log(what);
@@ -532,8 +653,9 @@ export async function runForever(fx: RunnerEffects, o: { maxTicks?: number } = {
 
 /**
  * `axion-evolve approve <mission>` (Claude Code / the owner only), under the runner lock: the change the runner holds for the
- * mission (runner-history `held`) must still be at its ref and on the live commit; then `approved` → Guard deploy
- * --approve <sha> --approve-base <live> → finish. Exit codes: 0 live, 1 refused/failed, 2 usage, 3 needs owner, 4 busy.
+ * mission (runner-history `held`, never an injected one) must still be at its ref and on the live commit; then `approved`
+ * → Guard deploy --approve <sha> --approve-base <live> → end line → finish. Exit codes: 0 live, 1 refused/failed, 2 usage,
+ * 3 needs owner, 4 busy.
  */
 export async function approve(fx: RunnerEffects, id: string): Promise<{ code: number; message: string }> {
   if (!ID_RE.test(id)) return { code: 2, message: `not a mission id: ${JSON.stringify(id)}` };
@@ -543,6 +665,7 @@ export async function approve(fx: RunnerEffects, id: string): Promise<{ code: nu
     const h = await fx.readHistory();
     const held = [...h].reverse().find((e) => e.event === 'held' && e.mission === id);
     if (!held || !held.ref || !held.commit || !held.base) return { code: 1, message: `no change is held for ${id} (runner-history has no held entry)` };
+    if (held.injected) return { code: 1, message: `the held entry of ${id} comes from an inject-failure run; an injected commit is never approved` };
     const later = h.slice(h.lastIndexOf(held) + 1);
     if (later.some((e) => e.mission === id && (e.event === 'claim' || (e.event === 'end' && e.ref === held.ref)))) {
       return { code: 1, message: `the held change ${held.ref} of ${id} was already handled or replaced by a newer claim` };
@@ -555,6 +678,8 @@ export async function approve(fx: RunnerEffects, id: string): Promise<{ code: nu
     }
     const why = await stopReason(fx);
     if (why) return { code: 1, message: `refused: ${why}` };
+    const secrets = await fx.secrets().catch(() => [] as string[]);
+    if (secrets.length === 0) return { code: 1, message: 'refused: the secrets (secrets/*.env) cannot be read, so nothing could be redacted; nothing deployed' };
     const ok = await fx.missions.approved(id);
     if (!ok.ok) {
       const hint = ok.refusal.error === 'mission_not_waiting'
@@ -563,9 +688,9 @@ export async function approve(fx: RunnerEffects, id: string): Promise<{ code: nu
       return { code: 1, message: `the mission refused the approval: ${ok.refusal.error}${hint}; nothing deployed` };
     }
     const attempt = held.attempt ?? 1;
-    const secrets = await fx.secrets().catch(() => [] as string[]);
     const w = writer(fx, id, secrets);
-    await fx.appendHistory({ event: 'deploy', mission: id, attempt, ref: held.ref, commit: held.commit, base: held.base, by: 'approve' });
+    const since = new Date(fx.now()).toISOString();
+    await fx.appendHistory({ event: 'deploy', mission: id, attempt, ref: held.ref, commit: held.commit, base: held.base, by: 'approve', since });
     let a: DeployAnswer;
     // a refusal here (the mission left running right after `approved`) means: deploy nothing
     await w.say(AGENTS.release, `The owner approved ${short(held.commit)}; the Guard deploys it: axion-guard deploy ${held.ref} --approve ${held.commit} --approve-base ${live}.`, { state: 'deploying', attempt })
@@ -577,40 +702,41 @@ export async function approve(fx: RunnerEffects, id: string): Promise<{ code: nu
     try {
       a = await deployMirrored({ fx, w, id, attempt }, { ref: held.ref, sha: held.commit, approve: { sha: held.commit, base: live } });
     } catch (e) {
-      const text = e instanceof Stop ? e.message : `the approve stopped: ${msg(e)}`;
+      const text = e instanceof Stop ? e.message : `the approve stopped: ${w.red(msg(e))}`;
       await w.finish('failed', text, { attempt, state: 'failed' }).catch(() => false);
       await fx.appendHistory({ event: 'end', mission: id, attempt, ref: held.ref, commit: held.commit, outcome: 'stopped', reason: text.slice(0, 300) });
       return { code: 1, message: text };
     }
     const gi = guardInfo(a);
     const r = a.result;
+    const kind = guardKind(a);
     const evolve = { attempt, commit: held.commit, base: held.base, guard: gi };
     let code = 1;
-    let outcome = 'failed';
-    let text: string;
-    if (a.code === 0 && r?.outcome === 'live') {
-      code = 0; outcome = 'live';
-      text = `Live (approved by the owner): ${short(held.commit)} passed the Guard.`;
-      await w.finish('completed', text, evolve);
-    } else if (a.code === 3 || r?.outcome === 'needs_owner') {
-      code = 3; outcome = 'needs_owner';
-      text = `The Guard still asks for the owner's approval: ${guardText(a)}`;
-      await w.finish('needs_owner', `${text}\nTo try again: axion-evolve approve ${id}`, { ...evolve, hits: (r?.hits ?? []).map((x) => `protected: ${x}`) });
+    let outcome: string = kind === 'busy' ? 'failed' : kind;
+    let fin: [FinishBody['outcome'], string, FinishEvolve];
+    if (kind === 'live') {
+      code = 0;
+      fin = ['completed', `Live (approved by the owner): ${short(held.commit)} passed the Guard.`, evolve];
+    } else if (kind === 'needs_owner') {
+      code = 3;
+      fin = ['needs_owner', `The Guard still asks for the owner's approval: ${guardText(a)}\nTo try again: axion-evolve approve ${id}`, { ...evolve, hits: (r?.hits ?? []).map((x) => `protected: ${x}`) }];
     } else {
-      outcome = r?.outcome === 'rolled_back' ? 'rolled_back' : r?.outcome === 'rejected' ? 'rejected' : 'failed';
-      text = `The approved change did not go live: ${guardText(a)}`;
-      await w.finish('failed', text, { ...evolve, state: outcome === 'rolled_back' ? 'rolled_back' : outcome === 'rejected' ? 'rejected' : 'failed' });
+      outcome = kind === 'rolled_back' || kind === 'rejected' ? kind : 'failed';
+      fin = ['failed', `The approved change did not go live: ${guardText(a)}`, { ...evolve, state: outcome === 'rolled_back' ? 'rolled_back' : outcome === 'rejected' ? 'rejected' : 'failed' }];
     }
-    await fx.appendHistory({ event: 'end', mission: id, attempt, ref: held.ref, commit: held.commit, outcome, reason: w.red(text).slice(0, 300), by: 'approve' });
+    // the truth first, then the mission (a finish that throws leaves the deploy for the next start's reconcile)
+    await fx.appendHistory({ event: 'end', mission: id, attempt, ref: held.ref, commit: held.commit, outcome, reason: w.red(fin[1]).slice(0, 300), by: 'approve' });
+    try {
+      await w.finish(fin[0], fin[1], fin[2]);
+    } catch (e) {
+      fx.log(`${id}: finish failed (${w.red(msg(e)).slice(0, 200)}); the next runner start settles it from the Guard's history`);
+      await fx.appendHistory({ event: 'unsettled', mission: id, attempt, ref: held.ref, commit: held.commit, base: held.base, since });
+    }
     // still held (after the end line, so a later approve finds it as the newest held entry)
     if (outcome === 'needs_owner') await fx.appendHistory({ event: 'held', mission: id, attempt, ref: held.ref, commit: held.commit, base: live });
     else await fx.deleteRef(held.ref).catch(() => {});
-    if (outcome === 'rolled_back' && rollbackStreak(await fx.readHistory()) >= CAPS.rollbacksToPause) {
-      const why = `${CAPS.rollbacksToPause} consecutive changes were rolled back (last: ${id}, approved); paused by the runner. Remove with: axion-evolve resume`;
-      await fx.writePaused(why);
-      await fx.appendHistory({ event: 'pause', reason: why });
-    }
-    return { code, message: w.red(text) };
+    if (outcome === 'rolled_back') await pauseOnStreak(fx, id);
+    return { code, message: w.red(fin[1].split('\n')[0]) };
   } finally {
     await release();
   }

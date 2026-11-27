@@ -23,7 +23,7 @@ ROOT="${EVOLVE_ROOT:-/srv/axion-evolve}"; P="${PREFIX:-axion}"
 SRC_ENV_SERVER="${SRC_ENV_SERVER:-/home/luca/AXION/server/.env}"; SRC_ENV_ROOT="${SRC_ENV_ROOT:-/home/luca/AXION/.env}"
 SRC_DATA="${SRC_DATA:-/home/luca/AXION/server/data}"
 [ "$(id -u)" = 0 ] || { echo "run as root" >&2; exit 2; }
-if runner_running; then echo "install: axion-evolve.service is running; stop it first (systemctl stop axion-evolve), then start it again after the install" >&2; exit 2; fi
+if runner_running "$ROOT/runner.lock"; then echo "install: the runner is running (axion-evolve.service, or an axion-evolve once/approve holding $ROOT/runner.lock); stop it first (systemctl stop axion-evolve), then start it again after the install" >&2; exit 2; fi
 done_() { echo "  already done: $*"; }
 step() { echo "== $*"; }
 SHA=$(git --git-dir="$GIT_SRC" rev-parse --verify "$REV^{commit}")

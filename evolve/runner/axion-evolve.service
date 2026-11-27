@@ -3,7 +3,8 @@
 # never started by it (Claude Code starts it).
 # KillMode=process: a stop signals the runner only. A Guard deploy it started keeps running to its own end (a killed Guard
 # leaves an unfinished deploy that needs `axion-guard rollback`); the next start waits for it and settles the mission from
-# the Guard's history, then sweeps the runner's leftover containers.
+# the Guard's history, then sweeps the runner's leftover containers. The runner starts the Guard detached (its own
+# session, output to a file), so neither the stop nor a dying runner can signal it or break its output.
 [Unit]
 Description=AXION evolution runner (axion-evolve)
 After=docker.service network-online.target postgresql.service
@@ -13,6 +14,8 @@ Requires=docker.service
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/axion-evolve run
+# after every stop or crash: no Workshop container (it holds TOKEN1, its wall cap lives in the runner) outlives the runner
+ExecStopPost=/usr/local/bin/axion-evolve sweep
 Restart=on-failure
 RestartSec=30
 KillMode=process

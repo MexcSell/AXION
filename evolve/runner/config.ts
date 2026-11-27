@@ -49,6 +49,10 @@ export const SOCKET_DIR = '/var/run/postgresql';
 export const REF_PREFIX = 'incoming/evolve-';
 /** container names the runner owns (the startup sweep removes leftovers of a killed runner) */
 export const CONTAINER_PREFIXES = ['axion-workshop-', 'axion-evolve-tc-', 'axion-evolve-cli-'] as const;
+/** the containers that run agent work (the Workshop runs hold TOKEN1): removed on a stop signal and by ExecStopPost */
+export const WORKER_PREFIXES = ['axion-workshop-', 'axion-evolve-tc-'] as const;
+/** the Guard's output while the runner waits for it: <root>/runner-guard/<sha12>-<hex>.log (a file, never a pipe) */
+export const GUARD_LOG_DIR = 'runner-guard';
 
 export type RunnerPaths = {
   root: string;

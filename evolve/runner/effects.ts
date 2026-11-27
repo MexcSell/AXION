@@ -10,8 +10,8 @@
 // change directory and with it every object the engineer's tree produced. No push to GitHub, ever.
 
 import { spawn } from 'node:child_process';
-import { appendFile, chmod, copyFile, mkdir, open, readdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { appendFile, chmod, copyFile, lstat, mkdir, open, readdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
+import { closeSync, existsSync, openSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { acquireLock, currentBootId } from '../guard/effects.ts';
@@ -25,7 +25,7 @@ import { realExec, runEngineer, runReviewer, WORKSHOP_DEFAULTS } from './worksho
 import type { Exec, WorkshopConfig } from './workshop.ts';
 import type { Mission } from './prompts.ts';
 import type { DeployAnswer, GuardResult, GuardStep, HistoryEntry, MissionCli, RunnerEffects, WriteResult } from './loop.ts';
-import { CONTAINER_PREFIXES, DB_USER, GUARD_BIN, HISTORY_KEEP, MAX_DIFF_BYTES, REF_PREFIX, SOCKET_DIR, TIMING } from './config.ts';
+import { CAPS, CONTAINER_PREFIXES, DB_USER, GUARD_BIN, GUARD_LOG_DIR, WORKER_PREFIXES, HISTORY_KEEP, MAX_DIFF_BYTES, REF_PREFIX, SOCKET_DIR, TIMING } from './config.ts';
 import type { RunnerPaths } from './config.ts';
 
 export type ProcResult = { code: number; stdout: string; stderr: string; truncated: boolean };
@@ -67,6 +67,29 @@ export const realProc: Proc = (cmd, args, o = {}) => new Promise((resolve, rejec
     if (timedOut) { reject(new Error(`${cmd} ${args[0] ?? ''} timed out after ${o.timeoutMs} ms`)); return; }
     resolve({ code: code ?? (signal ? 128 : 1), stdout: Buffer.concat(out).toString('utf8'), stderr: Buffer.concat(err).toString('utf8'), truncated });
   });
+});
+
+/** starts the Guard; resolves with its exit code (128 when a signal ended it) */
+export type GuardSpawn = (bin: string, args: string[], logFile: string) => Promise<number>;
+
+/**
+ * The Guard in its own session and process group (detached), stdin /dev/null, stdout and stderr appended to `logFile`
+ * (mode 600), never a pipe and no timeout: a dying runner, a Ctrl-C in the controller's shell or a stop of the unit
+ * (KillMode=process) can never kill it mid-deploy or make its next log write fail with EPIPE. The runner only waits.
+ */
+export const spawnGuardDetached: GuardSpawn = (bin, args, logFile) => new Promise((resolve, reject) => {
+  const fd = openSync(logFile, 'a', 0o600);
+  let child;
+  try {
+    child = spawn(bin, args, { detached: true, stdio: ['ignore', fd, fd], shell: false, env: process.env });
+  } catch (e) {
+    closeSync(fd);
+    reject(e);
+    return;
+  }
+  closeSync(fd);
+  child.on('error', (e) => reject(new Error(`${bin}: ${e.message}`)));
+  child.on('exit', (code, signal) => resolve(code ?? (signal ? 128 : 1)));
 });
 
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9-]{0,40}$/;
@@ -116,13 +139,16 @@ export function injectFailurePatch(src: string): string {
 
 // ---- small parsers ----
 
-/** the values of KEY=VALUE lines (optional `export`, optional quotes) that are 12+ characters */
+/** R28: only the values of keys like these are secret needles (DATABASE_URL, AUDIT_ANCHOR_DOMAIN, model ids are not) */
+export const SECRET_KEY_RE = /(TOKEN|KEY|SECRET|PASS|PWD|CREDENTIAL|COOKIE|SESSION)/i;
+
+/** the values of KEY=VALUE lines (optional `export`, optional quotes) whose key matches SECRET_KEY_RE and that are 12+ characters */
 export function parseEnvValues(text: string): string[] {
   const out: string[] = [];
   for (const raw of text.split('\n')) {
-    const m = /^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*=(.*)$/.exec(raw.replace(/\r$/, ''));
-    if (!m) continue;
-    let v = m[1].trim();
+    const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(raw.replace(/\r$/, ''));
+    if (!m || !SECRET_KEY_RE.test(m[1])) continue;
+    let v = m[2].trim();
     if (v.length >= 2 && ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")))) v = v.slice(1, -1);
     if (v.length >= 12) out.push(v);
   }
@@ -161,6 +187,8 @@ export type EffectsOptions = {
   /** the Workshop's Exec (docker for the engineer and the reviewer) */
   exec?: Exec;
   guardBin?: string;
+  /** tests: how the Guard is started (default spawnGuardDetached) */
+  spawnGuard?: GuardSpawn;
   log?: (m: string) => void;
   stopping?: () => boolean;
   /** aborts sleep() early (the service's SIGTERM) */
@@ -179,6 +207,8 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
   const log = o.log ?? ((m: string) => { process.stderr.write(`axion-evolve: ${m}\n`); });
   const prefix = o.prefix ?? 'axion';
   const guardBin = o.guardBin ?? GUARD_BIN;
+  const spawnGuard = o.spawnGuard ?? spawnGuardDetached;
+  const guardLogDir = join(P.root, GUARD_LOG_DIR);
   const maxDiff = o.maxDiffBytes ?? MAX_DIFF_BYTES;
   const host: Host = { ...realHost, log };
   let ids: string | null = o.uidGid ?? null;
@@ -216,15 +246,32 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
     assertSha(sha, `git rev-parse ${spec}`);
     return sha;
   };
+  /** every path segment named .git (file, directory or link) in the tree; symlinks are not followed */
+  async function findDotGit(root: string): Promise<string[]> {
+    const out: string[] = [];
+    const walk = async (rel: string) => {
+      for (const e of await readdir(join(root, rel), { withFileTypes: true })) {
+        const p = rel === '' ? e.name : `${rel}/${e.name}`;
+        if (e.name.toLowerCase() === '.git') out.push(p);
+        else if (e.isDirectory()) await walk(p);
+      }
+    };
+    await walk('');
+    return out;
+  }
   /** the tree at <changeDir>/tree as a commit on `parent`, in the scratch object dir; null when it equals parent's tree */
   async function commitTree(changeDir: string, parent: string, message: string, who: Record<string, string>): Promise<string | null> {
     assertSha(parent, 'commit parent');
     const tree = join(changeDir, 'tree');
+    const dotGit = await findDotGit(tree);
+    if (dotGit.length) throw new Error(`the tree contains a .git entry (${dotGit.slice(0, 3).map((x) => JSON.stringify(x.slice(0, 120))).join(', ')}); nothing committed`);
     await mkdir(join(changeDir, 'objects'), { recursive: true, mode: 0o700 });
     await rm(join(changeDir, 'index'), { force: true });
     await gitMust(['read-tree', parent], { changeDir, tree });
     await gitMust(['add', '-A', '-f', '--', '.'], { changeDir, tree });
     const t = await gitMust(['write-tree'], { changeDir, tree });
+    const links = (await gitMust(['ls-tree', '-r', '-z', t], { changeDir, maxBytes: 64 * 1024 * 1024 })).split('\0').filter((l) => l.startsWith('160000 '));
+    if (links.length) throw new Error(`the tree contains ${links.length} gitlink(s) (an embedded repository); nothing committed`);
     const before = await revParse(`${parent}^{tree}`, changeDir);
     if (t === before) return null;
     const sha = await gitMust(['commit-tree', t, '-p', parent, '-F', '-'], { changeDir, env: who, input: message });
@@ -322,7 +369,8 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
     const commit = (await readFile(P.guardCommitFile, 'utf8')).trim();
     if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error(`${P.guardCommitFile} holds no commit sha`);
     const secrets = await readSecrets();
-    return { ...WORKSHOP_DEFAULTS, envFile: P.workshopEnv, image: `axion-workshop:${commit.slice(0, 12)}`, secrets };
+    // the caps come from config.ts (single source), not from the Workshop's defaults
+    return { ...WORKSHOP_DEFAULTS, engineerCapMs: CAPS.engineerMs, reviewerCapMs: CAPS.reviewerMs, envFile: P.workshopEnv, image: `axion-workshop:${commit.slice(0, 12)}`, secrets };
   }
 
   async function readFrom(file: string, offset: number): Promise<{ text: string; size: number }> {
@@ -340,6 +388,16 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
 
   function pidAlive(pid: number): boolean {
     try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; }
+  }
+
+  async function guardBusy(): Promise<boolean> {
+    let text: string;
+    try { text = await readFile(P.guardLock, 'utf8'); } catch { return false; }
+    const [pidText = '', bootText = ''] = text.split('\n').map((l) => l.trim());
+    if (!/^[1-9]\d*$/.test(pidText)) return true; // a lock without a pid: the Guard refuses too; treat as busy
+    const boot = currentBootId();
+    if (bootText !== '' && boot !== '' && bootText !== boot) return false;
+    return pidAlive(Number(pidText));
   }
 
   const sleep = (ms: number) => new Promise<void>((resolve) => {
@@ -402,6 +460,14 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
       }
     },
 
+    async killWorkers() {
+      const r = await proc('docker', ['ps', '-a', '--format', '{{.Names}}'], { timeoutMs: 60_000 });
+      if (r.code !== 0) { log(`killWorkers: docker ps failed: ${tail(r.stderr)}`); return []; }
+      const mine = r.stdout.split('\n').map((l) => l.trim()).filter((n) => WORKER_PREFIXES.some((p) => n.startsWith(p) && n.length > p.length));
+      if (mine.length) await proc('docker', ['rm', '-f', ...mine], { timeoutMs: 120_000 }).catch(() => null);
+      return mine;
+    },
+
     async sweep() {
       const removed: string[] = [];
       const r = await proc('docker', ['ps', '-a', '--format', '{{.Names}}'], { timeoutMs: 60_000 });
@@ -413,6 +479,10 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
         }
       } else {
         log(`sweep: docker ps failed: ${tail(r.stderr)}`);
+      }
+      // the output files of Guard runs an earlier runner waited for (kept while a Guard still runs)
+      if (existsSync(guardLogDir) && !(await guardBusy())) {
+        for (const e of await readdir(guardLogDir)) { await rm(join(guardLogDir, e), { force: true }); removed.push(join(guardLogDir, e)); }
       }
       await mkdir(P.changes, { recursive: true, mode: 0o700 });
       await chmod(P.changes, 0o700);
@@ -453,7 +523,10 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
 
     async injectFailure({ changeDir, parent }) {
       const file = join(changeDir, 'tree', 'server', 'src', 'app.ts');
-      const st = await stat(file);
+      for (const p of [join(changeDir, 'tree', 'server'), join(changeDir, 'tree', 'server', 'src')]) {
+        if (!(await lstat(p)).isDirectory()) throw new Error('inject-failure: server/src is not a plain directory in the tree');
+      }
+      const st = await lstat(file); // never through a symlink the engineer could have left
       if (!st.isFile()) throw new Error('inject-failure: server/src/app.ts is not a regular file in the tree');
       await writeFile(file, injectFailurePatch(await readFile(file, 'utf8')));
       const sha = await commitTree(changeDir, parent, `evolve: injected failure (${INJECT_MARK})\n\nThe Guard's watch must roll this back.\n`, INJECTOR);
@@ -570,10 +643,13 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
           } catch { /* not a step line */ }
         }
       };
+      await mkdir(guardLogDir, { recursive: true, mode: 0o700 });
+      await chmod(guardLogDir, 0o700);
+      const logFile = join(guardLogDir, `${d.sha.slice(0, 12)}-${hex(4)}.log`);
       let done = false;
-      const run = proc(guardBin, args, { timeoutMs: TIMING.deployMs }).then(
-        (r) => { done = true; return r; },
-        (e: unknown) => { done = true; return { code: 1, stdout: '', stderr: `axion-guard did not finish: ${msg(e)}`, truncated: false } as ProcResult; },
+      const run = spawnGuard(guardBin, args, logFile).then(
+        (code) => { done = true; return { code, err: '' }; },
+        (e: unknown) => { done = true; return { code: 1, err: `axion-guard could not be started: ${msg(e)}` }; },
       );
       while (!done) {
         await Promise.race([run, new Promise((r) => setTimeout(r, TIMING.mirrorMs))]);
@@ -581,7 +657,10 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
       }
       const r = await run;
       await poll().catch(() => {});
-      const answer: DeployAnswer = { code: r.code, result: parseGuardResult(r.stdout), stderr: tail(r.stderr, 4000) };
+      const text = await readFile(logFile, 'utf8').catch(() => '');
+      await rm(logFile, { force: true });
+      const other = text.split('\n').filter((l) => !l.trim().startsWith('{')).join('\n');
+      const answer: DeployAnswer = { code: r.code, result: parseGuardResult(text), stderr: tail(`${other}\n${r.err}`.trim(), 4000) };
       return answer;
     },
 
@@ -605,15 +684,8 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
       return found;
     },
 
-    async guardBusy() {
-      let text: string;
-      try { text = await readFile(P.guardLock, 'utf8'); } catch { return false; }
-      const [pidText = '', bootText = ''] = text.split('\n').map((l) => l.trim());
-      if (!/^[1-9]\d*$/.test(pidText)) return true; // a lock without a pid: the Guard refuses too; treat as busy
-      const boot = currentBootId();
-      if (bootText !== '' && boot !== '' && bootText !== boot) return false;
-      return pidAlive(Number(pidText));
-    },
+    guardBusy,
+
 
     now: () => Date.now(),
     sleep,
