@@ -840,3 +840,13 @@ test('M6: axion-evolve file --owner <name> --text <text> goes through the missio
     assert.throws(() => parseArgs(bad), UsageError, bad.join(' ').slice(0, 60));
   }
 });
+
+test('M1 under PAUSED: an open deploy is still settled from the Guard\'s record; nothing is claimed', async () => {
+  const open: HistoryEntry = { at: '2026-11-27T09:30:00Z', event: 'unsettled', mission: 'M-5', attempt: 1, commit: shaOf(5), base: BASE, ref: 'incoming/evolve-M-5-a1', since: '2026-11-27T09:30:00Z' };
+  let rc = 0;
+  let f: ReturnType<typeof fake>;
+  f = fake({ paused: () => 'paused by the runner (unclear)', recovered: () => { if (++rc === 1) f.history.push({ ...open }); return []; }, guardOutcome: () => ({ outcome: 'live' }) });
+  await runForever(f.fx, { maxTicks: 1 });
+  assert.deepEqual(f.finish().map((x) => `${x.id}:${x.body.outcome}`), ['M-5:completed']);
+  assert.ok(!f.calls.includes('next'));
+});

@@ -674,13 +674,14 @@ function lastEnd(h: HistoryEntry[], id: string): HistoryEntry | undefined {
  * The caller holds the runner lock.
  */
 async function tickLocked(fx: RunnerEffects, inject: boolean): Promise<TickResult> {
-  const p = await fx.paused();
-  if (p !== null) return { kind: 'paused', reason: p.trim() };
-  // M1: deploys left open (an earlier runner error, a finish that threw) are settled at the start of every tick
+  // M1: deploys left open (an earlier runner error, a finish that threw) are settled at the start of every tick, also
+  // while PAUSED (the paths that leave one often write PAUSED too: unclear outcome, rollback streak, inject alarm)
   const s0 = await settle(fx, { wait: false, recover: false });
   if (s0.stopped || fx.stopping()) return { kind: 'idle' };
-  if (s0.pending) return { kind: 'halted', reason: 'a Guard deploy of an earlier change still runs; it is settled once the Guard ends' };
   if (s0.settled > 0) await settle(fx, { wait: false, recover: true });
+  const p = await fx.paused();
+  if (p !== null) return { kind: 'paused', reason: p.trim() };
+  if (s0.pending) return { kind: 'halted', reason: 'a Guard deploy of an earlier change still runs; it is settled once the Guard ends' };
   // M2: an unfinished Guard deploy (state.json `deploying`, e.g. a killed Guard): never claim on top of it
   const dep = await fx.guardDeploying();
   if (dep !== null) return { kind: 'halted', reason: `the Guard has an unfinished deploy (${dep}); see axion-guard status (axion-guard rollback if no Guard runs)` };

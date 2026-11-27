@@ -328,8 +328,9 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
     if (!raw) throw new Error('secrets/live.env has no DATABASE_URL');
     let u: URL;
     try { u = new URL(raw); } catch { throw new Error('secrets/live.env: DATABASE_URL is not a URL'); }
-    if (decodeURIComponent(u.pathname.replace(/^\//, '')) !== database) u.pathname = `/${database}`;
-    const url = u.toString();
+    // the raw value unless state.json names another database (then only the name is replaced, like the Guard's dbUrl)
+    let url = raw;
+    if (decodeURIComponent(u.pathname.replace(/^\//, '')) !== database) { u.pathname = `/${database}`; url = u.toString(); }
     const schema = envFileValue(text, 'DATABASE_SCHEMA');
     if (/[\r\n\0]/.test(url) || (schema !== undefined && /[\r\n\0]/.test(schema))) throw new Error('secrets/live.env: DATABASE_URL/DATABASE_SCHEMA hold a line break');
     await mkdir(cliEnvDir, { recursive: true, mode: 0o700 });
