@@ -28,6 +28,8 @@ function Chip({ hue, children }: { hue: number; children: ReactNode }) {
 
 function StateHeader({ e }: { e: EvolveInfo }) {
   const s = EVOLVE_STATE[e.state] ?? { label: e.state, hue: 225, note: '' };
+  const updated = e.updatedAt ? new Date(e.updatedAt) : null;
+  const validUpdated = updated && !Number.isNaN(updated.getTime()) ? updated : null;
   return (
     <div className="subpanel evo-head">
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
@@ -36,7 +38,7 @@ function StateHeader({ e }: { e: EvolveInfo }) {
         <Chip hue={s.hue}><span className="dot sm" />{s.label}</Chip>
         {e.attempt > 1 && <span className="dim">attempt {e.attempt}</span>}
         <span className="spacer" />
-        <time className="dim" dateTime={e.updatedAt} style={{ fontSize: 12 }}>updated {new Date(e.updatedAt).toLocaleString()}</time>
+        <time className="dim" dateTime={validUpdated ? e.updatedAt : undefined} style={{ fontSize: 12 }}>updated {validUpdated ? validUpdated.toLocaleString() : '—'}</time>
       </div>
       {s.note && <p className="dim" style={{ margin: '6px 0 0', fontSize: 12.5 }}>{s.note}</p>}
     </div>
