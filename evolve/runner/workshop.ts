@@ -18,7 +18,7 @@ import { globToRegExp, isCanonicalPath } from '../guard/classify.ts';
 import { LOG_OPTS } from '../guard/effects-docker.ts';
 import { engineerPrompt, parseReport, parseReview, reviewerPrompt } from './prompts.ts';
 import type { Mission } from './prompts.ts';
-import { loadRules, redactSecrets } from './gates.ts';
+import { loadRules, redactSecrets, SAFE_PATH } from './gates.ts';
 
 export type RunResult = { code: number; stdout: string; stderr: string };
 export type ExecOpts = { input?: string; timeoutMs?: number };
@@ -55,11 +55,15 @@ export type WorkshopConfig = {
   maxReviewDiff: number;
   /** protected rules (the runner's installed evolve/protected.txt) */
   rules: string[];
-  /** secret values (secrets/*.env): every form of them is redacted from CLI errors and reviewer concerns (I3) */
+  /**
+   * secret values (secrets/*.env): every form of them is redacted from CLI errors, refusals and reviewer concerns, on the
+   * raw text before any cut or quoting (I3). Required and non-empty: runEngineer/runReviewer throw otherwise (fail closed).
+   */
   secrets: string[];
 };
 
-export const WORKSHOP_DEFAULTS: WorkshopConfig = {
+/** everything but `secrets`, which the caller must always supply (the values of secrets/*.env) */
+export const WORKSHOP_DEFAULTS: Omit<WorkshopConfig, 'secrets'> = {
   image: 'axion-workshop:current',
   network: 'axion-workshop',
   envFile: '/srv/axion-evolve/secrets/workshop.env',
@@ -70,13 +74,18 @@ export const WORKSHOP_DEFAULTS: WorkshopConfig = {
   reviewerCapMs: 5 * 60_000,
   maxReviewDiff: 400_000,
   get rules() { return loadRules(); },
-  secrets: [],
 };
+
+function checkSecrets(cfg: WorkshopConfig) {
+  const s = (cfg as Partial<WorkshopConfig>).secrets;
+  if (!Array.isArray(s) || s.length === 0 || !s.every((v) => typeof v === 'string')) {
+    throw new Error('WorkshopConfig.secrets is required (the secrets/*.env values); refusing to run without redaction');
+  }
+}
 
 /** characters a path may have to be written into a permission rule (no glob, escape, quote or bracket characters) */
 /** largest --settings JSON passed in argv (one argv string may be at most 131072 bytes) */
 export const MAX_SETTINGS = 120_000;
-const SAFE_PATH = /^[A-Za-z0-9_.\/@+-]+$/;
 
 /**
  * The files (and symlinks; never followed) of an exported tree that existing `modify:` rules cover, as sorted repo-relative
@@ -106,10 +115,11 @@ export function existingModifyFiles(treeDir: string, protectedPatterns: string[]
  *  - Read (which governs Grep and Glob too) denied on /proc, /etc, /srv, /root, HOME and /tmp.
  * Throws on an `existingModify` path that is not canonical or has characters outside SAFE_PATH (it would not be a literal rule).
  */
-export function cliSettings(protectedPatterns: string[], existingModify: string[] = []): object {
+export function cliSettings(protectedPatterns: string[], existingModify: string[] = [], secrets: string[] = []): object {
   const at = (p: string) => `/${WORK}/${p}`; // `//work/…`: an absolute path in the CLI's rule syntax
   for (const p of existingModify) {
-    if (!isCanonicalPath(p) || !SAFE_PATH.test(p)) throw new Error(`unusable file name under a modify: rule: ${JSON.stringify(p.slice(0, 120))}`);
+    // redact the raw name first, then cut and quote (a cut or JSON escaping would leave a partial, unredactable value)
+    if (!isCanonicalPath(p) || !SAFE_PATH.test(p)) throw new Error(`unusable file name under a modify: rule: ${JSON.stringify(redactSecrets(p, secrets).slice(0, 120))}`);
   }
   const writeDeny = [...protectedPatterns.filter((r) => !r.startsWith('modify:')), ...GIT_RULES, ...existingModify]
     .flatMap((p) => [`Edit(${at(p)})`, `Write(${at(p)})`]);
@@ -165,9 +175,10 @@ async function kill(x: Exec, name: string): Promise<void> {
   }
 }
 
-/** `docker rm -f` then `docker container inspect` until the container is confirmed gone (two rounds); false = it still exists */
+/** `docker rm -f` then `docker container inspect` until the container is confirmed gone (two rounds, 500 ms apart); false = it still exists */
 async function ensureGone(x: Exec, name: string): Promise<boolean> {
   for (let i = 0; i < 2; i++) {
+    if (i > 0) await x.sleep(500);
     await x.run('docker', ['rm', '-f', name], DOCKER_T).catch(() => null);
     const r = await x.run('docker', ['container', 'inspect', '--format', '{{.State.Status}}', name], DOCKER_T).catch(() => null);
     if (r && r.code !== 0 && NO_SUCH.test(r.stderr)) return true;
@@ -177,10 +188,12 @@ async function ensureGone(x: Exec, name: string): Promise<boolean> {
 
 /**
  * One containerised CLI run: remove a leftover of the same name, run, kill at the cap, parse the JSON envelope.
- * After a timeout or a failed docker client the container is killed, removed and confirmed gone (I5); if it still exists
- * the outcome says containerAlive: the caller must not diff or commit the tree (the container may still write to /work).
+ * After ANY non-ok outcome (timeout, failed docker client, signal-killed client, lost daemon connection, a CLI error) the
+ * container is killed, removed and confirmed gone (I5); if it still exists the outcome says containerAlive: the caller
+ * must not diff or commit the tree (the container may still write to /work). Raw texts are redacted before any cut.
  */
-async function cliRun(x: Exec, name: string, args: string[], input: string, capMs: number): Promise<CliOutcome> {
+async function cliRun(x: Exec, name: string, args: string[], input: string, capMs: number, secrets: string[]): Promise<CliOutcome> {
+  const red = (t: string) => redactSecrets(t, secrets);
   await x.run('docker', ['rm', '-f', name], DOCKER_T);
   const ac = new AbortController();
   const runP = x.run('docker', args, { input, timeoutMs: capMs + 120_000 }).then((r) => ({ r }), (e: unknown) => ({ e }));
@@ -193,27 +206,31 @@ async function cliRun(x: Exec, name: string, args: string[], input: string, capM
     // the docker client ends once the container is gone; bounded wait (the client has its own backstop timeout)
     done = await Promise.race([runP, x.sleep(30_000).then(() => null)]);
   }
-  if (timedOut || (done !== null && 'e' in done)) {
-    if (!timedOut) await kill(x, name);
-    const why = timedOut ? `killed at the wall cap (${Math.round(capMs / 1000)} s)`
-      : `docker client failed: ${done !== null && 'e' in done ? (done.e instanceof Error ? done.e.message : String(done.e)) : ''}`;
-    if (!(await ensureGone(x, name))) {
-      return { ok: false, timedOut, containerAlive: true, error: `${why}; container ${name} still exists after kill and rm -f: do not use the tree` };
+  const outcome = ((): CliOutcome => {
+    if (timedOut) return { ok: false, timedOut: true, error: `killed at the wall cap (${Math.round(capMs / 1000)} s)` };
+    if (done === null || 'e' in done) {
+      const e = done === null ? 'no result' : done.e;
+      return { ok: false, timedOut: false, error: `docker client failed: ${tail(red(e instanceof Error ? e.message : String(e)))}` };
     }
-    return { ok: false, timedOut, error: why };
+    const r = done.r;
+    if (r.code !== 0 && r.stdout.trim() === '') return { ok: false, timedOut: false, error: `exit ${r.code}: ${tail(red(r.stderr))}` };
+    let env: Envelope;
+    try {
+      env = JSON.parse(r.stdout.trim()) as Envelope;
+    } catch {
+      return { ok: false, timedOut: false, error: `unparsable CLI output (exit ${r.code})` };
+    }
+    if (env.is_error !== false || env.subtype !== 'success' || typeof env.result !== 'string') {
+      return { ok: false, timedOut: false, error: `CLI error: ${tail(red(String(env.subtype)), 80)} (exit ${r.code})` };
+    }
+    return { ok: true, result: env.result, denials: Array.isArray(env.permission_denials) ? env.permission_denials.length : 0 };
+  })();
+  if (outcome.ok) return outcome;
+  if (!timedOut) await kill(x, name);
+  if (!(await ensureGone(x, name))) {
+    return { ...outcome, containerAlive: true, error: `${outcome.error}; container ${name} still exists after kill and rm -f: do not use the tree` };
   }
-  const r = (done as { r: RunResult }).r;
-  if (r.code !== 0 && r.stdout.trim() === '') return { ok: false, timedOut: false, error: `exit ${r.code}: ${tail(r.stderr)}` };
-  let env: Envelope;
-  try {
-    env = JSON.parse(r.stdout.trim()) as Envelope;
-  } catch {
-    return { ok: false, timedOut: false, error: `unparsable CLI output (exit ${r.code})` };
-  }
-  if (env.is_error !== false || env.subtype !== 'success' || typeof env.result !== 'string') {
-    return { ok: false, timedOut: false, error: `CLI error: ${String(env.subtype)} (exit ${r.code})` };
-  }
-  return { ok: true, result: env.result, denials: Array.isArray(env.permission_denials) ? env.permission_denials.length : 0 };
+  return outcome;
 }
 
 function checkMission(m: Mission, attempt: number) {
@@ -237,9 +254,10 @@ export type EngineerResult = {
 export async function runEngineer(
   o: { changeDir: string; mission: Mission; attempt: number; feedback?: string },
   x: Exec,
-  cfg: WorkshopConfig = WORKSHOP_DEFAULTS,
+  cfg: WorkshopConfig,
 ): Promise<EngineerResult> {
   checkMission(o.mission, o.attempt);
+  checkSecrets(cfg);
   if (!isAbsolute(o.changeDir) || /[:,\0\n]/.test(o.changeDir) || o.changeDir.split('/').includes('..')) {
     throw new Error(`invalid changeDir: ${JSON.stringify(o.changeDir)}`);
   }
@@ -248,7 +266,7 @@ export async function runEngineer(
   // R27: the existing files under modify: rules, read from the exported tree right before the run
   let settings: object;
   try {
-    settings = cliSettings(rules, existingModifyFiles(tree, rules));
+    settings = cliSettings(rules, existingModifyFiles(tree, rules), cfg.secrets);
   } catch (e) {
     return { ok: false, report: '', timedOut: false, error: redactSecrets(`refused before the run (exported tree): ${e instanceof Error ? e.message : String(e)}`, cfg.secrets) };
   }
@@ -258,7 +276,7 @@ export async function runEngineer(
   const name = `${cfg.namePrefix}-${o.mission.id}-a${o.attempt}`;
   const prompt = engineerPrompt({ mission: o.mission, attempt: o.attempt, feedback: o.feedback, protectedPatterns: rules });
   const args = dockerRun(cfg, name, tree, engineerArgs({ model: cfg.model, settings }));
-  const r = await cliRun(x, name, args, prompt, cfg.engineerCapMs);
+  const r = await cliRun(x, name, args, prompt, cfg.engineerCapMs, cfg.secrets);
   if (!r.ok) {
     return { ok: false, report: '', timedOut: r.timedOut, error: redactSecrets(r.error, cfg.secrets), ...(r.containerAlive ? { containerAlive: true as const } : {}) };
   }
@@ -271,14 +289,15 @@ export async function runEngineer(
 export async function runReviewer(
   o: { mission: Mission; diff: string; attempt?: number },
   x: Exec,
-  cfg: WorkshopConfig = WORKSHOP_DEFAULTS,
+  cfg: WorkshopConfig,
 ): Promise<{ ok: boolean; concerns: string[] }> {
   const attempt = o.attempt ?? 1;
   checkMission(o.mission, attempt);
+  checkSecrets(cfg);
   if (o.diff.length > cfg.maxReviewDiff) return { ok: false, concerns: [`the diff is too large to review (${o.diff.length} characters)`] };
   const name = `${cfg.namePrefix}-${o.mission.id}-a${attempt}-review`;
   const args = dockerRun(cfg, name, null, reviewerArgs({ model: cfg.model, settings: cliSettings(cfg.rules) }));
-  const r = await cliRun(x, name, args, reviewerPrompt({ mission: o.mission, diff: o.diff }), cfg.reviewerCapMs);
+  const r = await cliRun(x, name, args, reviewerPrompt({ mission: o.mission, diff: o.diff }), cfg.reviewerCapMs, cfg.secrets);
   if (!r.ok) return { ok: false, concerns: [redactSecrets(`review did not complete: ${r.error}`, cfg.secrets)] };
   const v = parseReview(r.result);
   return { ok: v.ok, concerns: v.concerns.map((c) => redactSecrets(c, cfg.secrets)) };

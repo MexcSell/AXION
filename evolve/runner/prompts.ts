@@ -9,8 +9,12 @@ export type Mission = { id: string; title: string; text: string; criteria: strin
 /** JSON with `<` escaped: the text cannot contain a closing tag of the block it is quoted in */
 const quote = (v: unknown) => JSON.stringify(v, null, 1).replace(/</g, '\\u003c');
 
-const FLAG_LIST = 'network calls (fetch(, absolute http:// or https:// URLs), reading process.env, child_process, file-system writes or deletes '
-  + '(fs.write*, rmSync, unlink), SQL DROP / TRUNCATE / DELETE FROM without WHERE, eval( or new Function(';
+// what gates.ts flags (FLAG_RULES plus symlinks and unusable new file names); keep in step with it
+const FLAG_LIST = 'network calls (fetch(, WebSocket, EventSource, XMLHttpRequest, sendBeacon), absolute or protocol-relative URLs '
+  + '(http://, https://, ws://, wss://, ftp://, \'//host\'), reading the environment (process.env, importing process), importing Node I/O '
+  + 'modules (fs, http, https, http2, net, dgram, tls, dns, child_process, worker_threads, cluster, vm, inspector), file-system writes, '
+  + 'renames or deletes (fs.write*, rm, rmSync, rename, unlink, copyFile), SQL DROP / TRUNCATE / DELETE FROM without WHERE, eval( or '
+  + 'Function( (with or without new), symlinks, or new file names with characters outside A-Z a-z 0-9 _ . / @ + -';
 
 export function engineerPrompt(o: { mission: Mission; attempt: number; feedback?: string; protectedPatterns: string[] }): string {
   const m = o.mission;

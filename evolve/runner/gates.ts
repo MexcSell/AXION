@@ -12,7 +12,7 @@
 // `files` must list every changed path (from `git diff --name-status -z -M`).
 
 import { readFileSync } from 'node:fs';
-import { classify, parseRules } from '../guard/classify.ts';
+import { classify, isCanonicalPath, parseRules } from '../guard/classify.ts';
 import type { ClassifyInput } from '../guard/classify.ts';
 
 export type GateInput = {
@@ -30,6 +30,11 @@ export type GateInput = {
 export type GateResult = { protectedHits: string[]; secretHits: string[]; flags: string[] };
 
 const MIN_SECRET = 12;
+/**
+ * Characters a path may have to become a literal permission rule (no glob, escape, quote or bracket characters). The
+ * Workshop refuses to run on a tree with another name under a modify: rule (R27), so a new such name is a flag here.
+ */
+export const SAFE_PATH = /^[A-Za-z0-9_.\/@+-]+$/;
 const MARKERS = ['sk-ant-', 'CLAUDE_CODE_OAUTH', '-----BEGIN'];
 const MAX_FLAGS = 50;
 
@@ -207,6 +212,13 @@ export function gates(o: GateInput): GateResult {
   const flag = (s: string) => { if (!flags.includes(s)) flags.push(s); };
   for (const h of headers) {
     if (/^(?:new file mode|new mode) 120000$/.test(h.text)) flag(`symlink ${h.file}`);
+  }
+  // a new name (added, renamed, or any status other than M/D) must be usable as a literal rule: redacted before quoting
+  for (const f of o.files) {
+    if (f.status === 'M' || f.status === 'D') continue;
+    if (!isCanonicalPath(f.path) || !SAFE_PATH.test(f.path)) {
+      flag(`unusable file name (characters outside [A-Za-z0-9_./@+-], or not canonical): ${JSON.stringify(redactSecrets(f.path, o.secrets))}`);
+    }
   }
   for (const a of added) {
     for (const id of scanFlags(a.text)) flag(`${FLAG_RULES.find((r) => r.id === id)!.label} in ${a.file}:${a.line}`);

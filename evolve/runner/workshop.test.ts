@@ -119,8 +119,9 @@ type Call = { cmd: string; args: string[]; opts?: ExecOpts };
  * (or `rm -f`). `killFails`: kill answers an error and stops nothing. `alive`: the container never goes away (rm -f fails,
  * inspect finds it). `runRejects`: the docker client itself fails (e.g. the backstop timeout).
  */
-function fakeExec(o: { runAnswer?: Partial<RunResult>; hang?: boolean; killFails?: boolean; alive?: boolean; runRejects?: boolean } = {}) {
+function fakeExec(o: { runAnswer?: Partial<RunResult>; hang?: boolean; killFails?: boolean; alive?: boolean; runRejects?: boolean; stillRunning?: boolean } = {}) {
   const calls: Call[] = [];
+  const sleeps: number[] = [];
   let release: (() => void) | null = null;
   let running = false;
   const exec: Exec = {
@@ -133,6 +134,7 @@ function fakeExec(o: { runAnswer?: Partial<RunResult>; hang?: boolean; killFails
           await new Promise<void>((r) => { release = r; });
           return { code: 137, stdout: '', stderr: '' };
         }
+        if (o.stillRunning) running = true;
         return { code: 0, stdout: '', stderr: '', ...o.runAnswer };
       }
       if (args[0] === 'kill') {
@@ -149,18 +151,22 @@ function fakeExec(o: { runAnswer?: Partial<RunResult>; hang?: boolean; killFails
       return { code: 0, stdout: '', stderr: '' };
     },
     sleep(ms, signal) {
+      sleeps.push(ms);
       // the wall cap "expires" at once when the run hangs; a sleep without a signal (grace waits) ends at once
       if (o.hang || !signal) return Promise.resolve();
       return new Promise((r) => signal.addEventListener('abort', () => r(), { once: true }));
     },
   };
-  return { exec, calls };
+  return { exec, calls, sleeps };
 }
 
 const envelope = (result: string, extra: Record<string, unknown> = {}) =>
   JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result, num_turns: 3, permission_denials: [], ...extra });
 
-const cfg = { ...WORKSHOP_DEFAULTS, image: 'axion-workshop:abc123def456', rules: RULES };
+const FAKE_SECRET = 'fk' + 'e'.repeat(20) + Date.now().toString(36);
+const cfg = { ...WORKSHOP_DEFAULTS, image: 'axion-workshop:abc123def456', rules: RULES, secrets: [FAKE_SECRET] };
+/** every 12-character window of `secret` (what survives a cut through a value) */
+const windows = (secret: string) => Array.from({ length: secret.length - 11 }, (_, i) => secret.slice(i, i + 12));
 
 test('runEngineer: removes a leftover container, then the exact docker run argv; the prompt goes on stdin', async () => {
   const { exec, calls } = fakeExec({ runAnswer: { stdout: envelope('done <report>{"goal":"g"}</report>') } });
@@ -235,6 +241,54 @@ test('I3: secret values (any form) are redacted from the CLI error and the revie
   assert.deepEqual(rv, { ok: false, concerns: ['it adds [redacted]'] });
   const rv2 = await runReviewer({ mission, diff: '+x\n' }, fakeExec({ runAnswer: { code: 1, stderr: `bad ${secret}` } }).exec, scfg);
   assert.ok(!rv2.concerns.join(' ').includes(secret));
+});
+
+test('fix 2 I3: the raw stderr is redacted before it is cut (a secret across the 400-char tail leaves nothing of 12 chars)', async () => {
+  const secret = 'pw' + 'Q7'.repeat(19);
+  for (const filler of [380, 395, 390]) {
+    const stderr = `auth failed: ${secret}${'.'.repeat(filler)}`;
+    const r = await runEngineer({ changeDir: CHANGE, mission, attempt: 1 }, fakeExec({ runAnswer: { code: 1, stderr } }).exec, { ...cfg, secrets: [secret] });
+    for (const w of windows(secret)) assert.ok(!(r.error ?? '').includes(w), `filler ${filler}: window survived`);
+  }
+  const rv = await runReviewer({ mission, diff: '+x\n' }, fakeExec({ runAnswer: { code: 1, stderr: `x ${secret}${'.'.repeat(385)}` } }).exec, { ...cfg, secrets: [secret] });
+  for (const w of windows(secret)) assert.ok(!rv.concerns.join(' ').includes(w));
+});
+
+test('fix 2 I3: a long or quote-bearing file name is redacted before it is cut or JSON-escaped', () => {
+  const secret = 'pw' + 'Z9'.repeat(19);
+  const quoted = 'pw"q\\' + 'R5'.repeat(8);
+  for (const [name, sec] of [[`server/test/${'x'.repeat(95)}${secret} .ts`, secret], [`server/test/${quoted} .ts`, quoted]] as const) {
+    let msg = '';
+    try { cliSettings(RULES, [name], [sec]); } catch (e) { msg = (e as Error).message; }
+    assert.match(msg, /unusable file name/);
+    for (const w of windows(sec)) assert.ok(!msg.includes(w) && !msg.includes(JSON.stringify(w).slice(1, -1)), `window survived in: ${msg.slice(0, 60)}`);
+  }
+});
+
+test('fix 2 (a): every non-ok CLI outcome is followed by kill + rm -f + inspect; a survivor is containerAlive', async () => {
+  for (const answer of [{ code: 128, stdout: '', stderr: '' }, { code: 1, stdout: '', stderr: 'error during connect: lost connection' }, { stdout: 'not json' },
+    { stdout: envelope('x', { is_error: true, subtype: 'error_during_execution' }) }]) {
+    const { exec, calls } = fakeExec({ runAnswer: answer });
+    const r = await runEngineer({ changeDir: CHANGE, mission, attempt: 1 }, exec, cfg);
+    assert.equal(r.ok, false);
+    assert.deepEqual(calls.map((c) => c.args[0] === 'container' ? 'inspect' : c.args[0]), ['rm', 'run', 'kill', 'rm', 'inspect'], JSON.stringify(answer));
+  }
+  const { exec, calls, sleeps } = fakeExec({ runAnswer: { code: 1, stderr: 'boom' }, alive: true, stillRunning: true });
+  const r = await runEngineer({ changeDir: CHANGE, mission, attempt: 1 }, exec, cfg);
+  assert.equal(r.containerAlive, true);
+  assert.equal(calls.filter((c) => c.args[0] === 'container').length, 2);
+  // (b) a 500 ms pause between the two rm -f / inspect rounds
+  assert.ok(sleeps.includes(500), JSON.stringify(sleeps));
+});
+
+test('fix 2 (c): secrets are required (no silent empty default)', async () => {
+  const { secrets: _drop, ...noSecrets } = cfg;
+  const { exec, calls } = fakeExec();
+  await assert.rejects(runEngineer({ changeDir: CHANGE, mission, attempt: 1 }, exec, noSecrets as typeof cfg), /secrets/);
+  await assert.rejects(runReviewer({ mission, diff: '+x\n' }, exec, noSecrets as typeof cfg), /secrets/);
+  await assert.rejects(runEngineer({ changeDir: CHANGE, mission, attempt: 1 }, exec, { ...cfg, secrets: [] }), /secrets/);
+  assert.equal(calls.length, 0);
+  assert.equal('secrets' in WORKSHOP_DEFAULTS, false);
 });
 
 test('runEngineer: a CLI error, unparsable output or a missing report block is not ok', async () => {

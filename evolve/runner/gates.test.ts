@@ -156,3 +156,16 @@ test('redactSecrets replaces every form of every value (hex in any case), leaves
   assert.ok(out.startsWith('x [redacted] y [redacted] z '));
   assert.equal(redactSecrets('nothing here short', SECRETS), 'nothing here short');
 });
+
+test('fix 2: an added or renamed path that fails SAFE_PATH or isCanonicalPath is a flag (anywhere), with the path redacted', () => {
+  const d = diffOf('web/src/a.ts', ['x']);
+  const flagged = (files: { path: string; status: 'A' | 'M' | 'D' | 'R'; oldPath?: string }[]) => run({ diff: d, files }).flags.filter((f) => f.startsWith('unusable file name'));
+  assert.equal(flagged([{ path: 'server/test/a b.test.ts', status: 'A' }]).length, 1);
+  assert.equal(flagged([{ path: 'web/src/ä.ts', status: 'A' }]).length, 1);
+  assert.equal(flagged([{ path: 'web/src/x*.ts', status: 'R', oldPath: 'web/src/x.ts' }]).length, 1);
+  assert.equal(flagged([{ path: 'web/src/ok-file_1.2@x+y.ts', status: 'A' }]).length, 0);
+  assert.equal(flagged([{ path: 'web/src/old name.ts', status: 'M' }]).length, 0, 'an existing odd name being modified is not new');
+  const withSecret = flagged([{ path: `web/"${PASSWORD} x.ts`, status: 'A' }]);
+  assert.equal(withSecret.length, 1);
+  assert.ok(!withSecret[0].includes(PASSWORD) && withSecret[0].includes('[redacted]'), withSecret[0]);
+});
