@@ -21,7 +21,7 @@ test('engineer prompt: house rules, every protected pattern, the report block; n
   const p = engineerPrompt({ mission, attempt: 1, protectedPatterns: rules });
   for (const r of rules) assert.ok(p.includes(r.replace(/^modify:/, '')), r);
   for (const s of ['small, focused change', 'Keep every existing test passing', 'Add or extend a test', 'protected']) assert.ok(p.includes(s), s);
-  assert.ok(p.includes('server/test/**  (you may add new files there; never change existing ones (Edit is refused there, rewrite a file you created with Write))'));
+  assert.ok(p.includes('server/test/**  (read-only for you: Edit and Write are refused there, also for new files)'));
   assert.match(p, /<report>\{"goal": .*"changed": .*"how_checked": .*"expected_effect": .*\}<\/report>/);
   assert.ok(!p.includes('feedback_untrusted'));
 });

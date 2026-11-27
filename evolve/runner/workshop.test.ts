@@ -18,13 +18,13 @@ test('cliSettings: allow only the five file tools, scoped to /work', () => {
   assert.ok(!JSON.stringify(s).includes('Bash'));
 });
 
-test('cliSettings: Edit and Write are denied on every protected pattern, only Edit on modify: ones (R25), and both on git files', () => {
+test('cliSettings: Edit and Write are denied on every protected pattern (modify: ones too: the CLI refuses Write under an Edit deny anyway) and on git files', () => {
   const s = cliSettings(RULES) as { permissions: { deny: string[] } };
   const deny = s.permissions.deny;
   for (const r of RULES) {
     const p = r.replace(/^modify:/, '');
     assert.ok(deny.includes(`Edit(//work/${p})`), `Edit ${p}`);
-    assert.equal(deny.includes(`Write(//work/${p})`), !r.startsWith('modify:'), `Write ${p}`);
+    assert.ok(deny.includes(`Write(//work/${p})`), `Write ${p}`);
   }
   for (const p of ['.claude/**', '**/CLAUDE.md', '**/.mcp.json', '.github/**', '.vscode/**']) assert.ok(deny.includes(`Write(//work/${p})`), `R26 ${p}`);
   for (const p of ['**/.git/**', '**/.git*', '**/.gitattributes']) {

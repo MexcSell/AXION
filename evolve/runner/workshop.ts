@@ -73,14 +73,14 @@ export const WORKSHOP_DEFAULTS: WorkshopConfig = {
 
 /**
  * The --settings JSON for every Workshop run. `protectedPatterns` are evolve/protected.txt rules: Edit and Write are denied
- * on each; a `modify:` rule (new files allowed) denies only Edit (R25), so a new test file can be written there, while an
- * overwrite of an existing file through Write is status M, which the Guard's classify reports as a protected hit.
+ * on each, `modify:` ones too. R25 (deny only Edit there, so new test files could be written) does not work with the CLI:
+ * verified with 2.1.325 (Task 3 fix round 1), an Edit(path) deny rule also refuses Write of a NEW file under that path, so
+ * both stay explicit and new files under server/test/** and web/scripts/** cannot be created by the engineer.
  */
 export function cliSettings(protectedPatterns: string[]): object {
   const at = (p: string) => `/${WORK}/${p}`; // `//work/…`: an absolute path in the CLI's rule syntax
-  const writeDeny = [...protectedPatterns, ...GIT_RULES].flatMap((r) => (r.startsWith('modify:')
-    ? [`Edit(${at(r.slice('modify:'.length))})`]
-    : [`Edit(${at(r)})`, `Write(${at(r)})`]));
+  const writeDeny = [...protectedPatterns.map((r) => r.replace(/^modify:/, '')), ...GIT_RULES]
+    .flatMap((p) => [`Edit(${at(p)})`, `Write(${at(p)})`]);
   const readDeny = NO_READ.flatMap((d) => [`Read(/${d})`, `Read(/${d}/**)`]);
   return {
     permissions: {
