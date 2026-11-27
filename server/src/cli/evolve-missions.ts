@@ -11,7 +11,9 @@
  *   next                           → {mission:null} | {mission:null, halted:true, reason} | {mission:{id,title,text,criteria,owner}}   (claims it: evolve.state claimed, attempt 1)
  *                                    a running mission whose last change ended without going live (rejected|rolled_back|failed|needs_owner,
  *                                    e.g. after Retry or a pause/resume) is claimable again: the old evolve moves into evolve.history (last 5)
- *   progress <id>   stdin {by, text, evolve}          → {ok:true, id, state}
+ *   progress <id>   stdin {by, text, evolve, clear?}  → {ok:true, id, state}   clear: change fields of an earlier attempt removed first
+ *                                                      (commit, filesChanged, diffStat, report, checks, guard, hits; the runner sends it when
+ *                                                      an attempt starts, so attempt n never shows attempt n-1's commit)
  *   finish <id>     stdin {outcome, text, evolve}     → {ok:true, id, status, state}   completed: verify+complete; failed: fail; needs_owner: requestApproval
  *   approved <id>                  → {ok:true, id, status:'running', state:'deploying'}   (waiting_approval → approvalDone → running)
  *   file --owner <name> --text <text> → {id}   an `improve` mission created as POST /missions would for that administrator, staffed to the end
@@ -89,7 +91,9 @@ const FinishEvolve = EvolvePatch.extend({ state: z.enum(['claimed', 'working', '
 type _Fits = [z.infer<typeof EvolvePatch>, z.infer<typeof FinishEvolve>] extends [Partial<EvolveInfo>, Partial<EvolveInfo>] ? true : never;
 const _fits: _Fits = true; void _fits;
 const line = (n: number) => str().min(1).transform((s) => clip(s, n));
-const ProgressIn = z.object({ by: line(CAPS.by), text: line(CAPS.text), evolve: EvolvePatch }).strict();
+/** the change fields of one attempt; `progress` may remove them (`clear`) when the next attempt starts */
+const ATTEMPT_FIELDS = ['commit', 'filesChanged', 'diffStat', 'report', 'checks', 'guard', 'hits'] as const satisfies readonly (keyof EvolveInfo)[];
+const ProgressIn = z.object({ by: line(CAPS.by), text: line(CAPS.text), evolve: EvolvePatch, clear: z.array(z.enum(ATTEMPT_FIELDS)).max(ATTEMPT_FIELDS.length).optional() }).strict();
 const FinishIn = z.object({ outcome: z.enum(['completed', 'failed', 'needs_owner']), text: line(CAPS.text), evolve: FinishEvolve }).strict();
 type Patch = Partial<EvolveInfo>;
 
@@ -124,9 +128,11 @@ async function lockMission(c: Tx, id: string) {
 type Row = Record<string, any>;
 
 /** Merge one progress line into the locked row: staffing log (bounded tail), evolve, summary, lastEvent; the status may change in the same write. */
-async function write(c: Tx, r: Row, o: { by: string; text: string; evolve: Patch; fresh?: boolean; status?: MissionStatus; extra?: Record<string, unknown>; now: number }) {
+async function write(c: Tx, r: Row, o: { by: string; text: string; evolve: Patch; fresh?: boolean; clear?: readonly string[]; status?: MissionStatus; extra?: Record<string, unknown>; now: number }) {
   const p = (r.presentation ?? {}) as Record<string, any>;
-  const evolve = { attempt: 0, ...(o.fresh ? {} : p.evolve ?? {}), ...o.evolve, updatedAt: new Date(o.now).toISOString() } as EvolveInfo;
+  const before: Record<string, unknown> = { ...(o.fresh ? {} : p.evolve ?? {}) };
+  for (const k of o.clear ?? []) delete before[k];
+  const evolve = { attempt: 0, ...before, ...o.evolve, updatedAt: new Date(o.now).toISOString() } as EvolveInfo;
   const st = (p.staffing ?? { stage: 'working', joined: 0, plan: [], log: [] }) as { stage?: string; joined?: number; log?: unknown[] };
   const log = [...(st.log ?? []), { at: o.now, by: o.by, text: o.text }].slice(-CAPS.logTail);
   const lastEvent = clip(o.text.split('\n')[0], CAPS.lastEvent);
@@ -212,7 +218,7 @@ async function progress(argv: string[], io: CliIo) {
   return tx(io.pool, async (c) => {
     const r = await lockMission(c, id);
     assertRunningChange(r);
-    const e = await write(c, r, { by: b.by, text: b.text, evolve: b.evolve, now: io.now?.() ?? Date.now() });
+    const e = await write(c, r, { by: b.by, text: b.text, evolve: b.evolve, clear: b.clear, now: io.now?.() ?? Date.now() });
     return { ok: true, id, state: e.state };
   });
 }
