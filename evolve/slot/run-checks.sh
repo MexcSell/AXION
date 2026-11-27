@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Every check for one candidate, inside the checks container (evolve/docker/checks.Dockerfile), on an --internal network
-# with a throw-away PostgreSQL. Run as the Guard's worker user (axion-ws, R31; --user, no passwd entry in the image): bash /guard/run-checks.sh, where /guard/run-checks.sh is the
+# with a throw-away PostgreSQL. Run as the Guard's worker user (axion-ws, R31; --user; the checks image gives that uid a nologin passwd entry): bash /guard/run-checks.sh, where /guard/run-checks.sh is the
 # Guard's installed copy mounted read-only from outside /app (never the candidate's own copy).
 # The container is read-only (`docker run --read-only`): nothing under /app can be written by the tests. Writable are only
 # /tmp (tmpfs), /out (bind) and /dev/shm. The few paths the suite writes inside /app are links baked into the checks image

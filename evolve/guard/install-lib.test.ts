@@ -354,6 +354,8 @@ test('I2 guard_deploying: a live pid of this boot in guard.lock, a lock without 
   assert.match(q(), /pid \d+ holds .*guard\.lock[\s\S]*busy/);
   writeFileSync(join(root, 'guard.lock'), `${process.pid}\nboot-before\n`);
   assert.equal(q(), 'free', 'a lock of another boot is stale');
+  writeFileSync(join(root, 'guard.lock'), `${process.pid}\n`);
+  assert.match(q(), /pid \d+ holds .*guard\.lock[\s\S]*busy/, 'N6: no boot line → judged by the pid alone (live → busy)');
   writeFileSync(join(root, 'guard.lock'), '999999999\nboot-now\n');
   assert.equal(q(), 'free', 'a dead pid is stale');
   writeFileSync(join(root, 'guard.lock'), 'garbage\n');
