@@ -1,5 +1,17 @@
 # Improvement loop state (resume from here)
 
+## Evolution step 2 (Workshop) live since 2026-11-27 (report: `web/docs/evolve/step2-report.md`)
+- **Runner** `axion-evolve.service` (enabled; `axion-evolve status | pause | resume | approve <mission> | file --owner <name>
+  --text … | once | sweep`) claims admin `improve` missions, has the engineer (Claude 1, Workshop container as `axion-ws`, network
+  `axion-workshop`, only exit `axion-egress`) change the code, gates + typecheck + reviewer, then `axion-guard deploy`. Caps: 12
+  changes/UTC day, 3 attempts/mission, 2 rollbacks in a row → `/srv/axion-evolve/PAUSED`. History `runner-history.jsonl`,
+  `went-live.jsonl`.
+- **Agent changes land in** `/srv/axion-evolve/repo.git` `evolve/main` = live. They reach this tree only by a deliberate, read
+  merge (`git fetch /srv/axion-evolve/repo.git evolve/main` then ff) — never automatically.
+- **Installing a new Guard/runner:** `systemctl stop axion-evolve` → `evolve/install.sh /home/luca/AXION/.git <sha>` → deploy the
+  same sha through the Guard → `systemctl daemon-reload` if `systemctl show axion-evolve -p Environment` is stale → start.
+- Live after step 2: `594d3b8f` (M-140), test floor 4878.
+
 ## How live runs since 2026-11-26 17:07Z (evolution step 1 cutover; supersedes "Branch and live" below)
 - **Live = Docker, managed by the Guard** (`axion-guard status | history | deploy | rollback | revert | front-port`, installed copy in
   `/srv/axion-evolve/guard`, never a checkout). Front `axion-front` (nginx) on `0.0.0.0:5190` → active slot `axion-blue|green`
