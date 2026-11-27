@@ -33,7 +33,21 @@
 #   ensure_workshop_image <tag> <dockerfile> <context>  build it once per tag (the Guard's commit), legacy builder
 #   write_workshop_env <src-env> <dest>  only when <dest> is missing: CLAUDE_CODE_OAUTH_TOKEN=<CLAUDE_CODE_OAUTH_TOKEN1 of
 #                                   <src-env>>, mode 600; the value is never printed and never an argument (bash builtins)
-#   install_runner_unit <unit> [<systemd-dir>]  install when changed + daemon-reload; enable, never --now (not started)
+#   install_runner_unit <unit> [<systemd-dir>]  install when changed + daemon-reload; never enabled, never started (R36:
+#                                   Claude Code enables and starts it after the smoke)
+#
+# Step 2 fix wave:
+#   ensure_system_user <name>       a non-login system user with its own group (useradd --system --user-group
+#                                   --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin), once
+#   require_nologin_user <name>     R31: 0 when <name> exists, its uid is not 0 and `getent passwd <uid>` gives a nologin/false
+#                                   shell; else the reason on stderr, rc 1 (install.sh exits 2: no container may run as a uid
+#                                   a login account owns, its processes could read /proc/<pid>/environ of the container)
+#   guard_deploying <root>          I2: 0 (the reason on stdout) while a Guard deploy runs or was left unfinished: guard.lock
+#                                   names a live pid of this boot (or holds no pid), or state.json has `deploying` (or cannot be
+#                                   read); 1 = no deploy. The Guard runs detached and survives a stop of the runner
+#                                   (KillMode=process), so runner_running alone does not see it.
+#   prune_workshop_images <keep>    M9: removes every axion-workshop:<tag> image except <keep> (never -f, never another
+#                                   repository); an image still in use is kept with a warning
 
 retire_native_units() {
   local unit en ac
@@ -130,7 +144,9 @@ _live_restore() {
   done
   _reload_front "$front"
   if [ ${#left[@]} -gt 0 ]; then echo "  RESTORE INCOMPLETE: $net exists, still detached: ${left[*]} (docker network connect $net <name>)" >&2; return 1; fi
-  echo "  restored: $net exists ($(live_network_isolated "$net" && echo isolated || echo 'NOT isolated')), every member is connected again" >&2
+  local iso='NOT isolated'
+  if live_network_isolated "$net"; then iso=isolated; fi
+  echo "  restored: $net exists ($iso), every member is connected again" >&2
 }
 
 copy_missing() {
@@ -188,7 +204,8 @@ write_workshop_env() {
   if [ ${#v} -lt 20 ]; then echo "  CLAUDE_CODE_OAUTH_TOKEN1 is missing or too short in $src; $(basename "$dest") not written" >&2; return 1; fi
   rm -f "$dest.tmp"
   ( umask 077; printf 'CLAUDE_CODE_OAUTH_TOKEN=%s\n' "$v" > "$dest.tmp" ) || return 1
-  chmod 600 "$dest.tmp" && mv -f "$dest.tmp" "$dest" || return 1
+  chmod 600 "$dest.tmp" || return 1
+  mv -f "$dest.tmp" "$dest" || return 1
   v=""
   echo "  written $(basename "$dest") (mode 600, one key: CLAUDE_CODE_OAUTH_TOKEN; the value is not shown)"
 }
@@ -200,11 +217,65 @@ install_runner_unit() {
   else
     install -m 644 "$src" "$dir/$name" || return 1
     systemctl daemon-reload || return 1
-    echo "  installed $dir/$name"
+    echo "  installed $dir/$name (not enabled, not started: Claude Code enables and starts it after the smoke; R36)"
   fi
-  if [ "$(systemctl is-enabled "$name" 2>/dev/null || true)" = enabled ]; then echo "  already done: $name is enabled"
-  else
-    systemctl enable "$name" >/dev/null 2>&1 || { echo "  systemctl enable $name failed" >&2; return 1; }
-    echo "  enabled $name (not started: Claude Code starts it)"
+}
+
+ensure_system_user() {
+  local name=$1
+  if id "$name" >/dev/null 2>&1; then echo "  already done: user $name ($(id -u "$name"):$(id -g "$name"))"; return 0; fi
+  useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin "$name" || return 1
+  echo "  created $name ($(id -u "$name"):$(id -g "$name"), no login shell, no home)"
+}
+
+require_nologin_user() {
+  local name=$1 uid line shell
+  if ! uid=$(id -u "$name" 2>/dev/null); then echo "  refusing: the user $name does not exist" >&2; return 1; fi
+  if ! [[ "$uid" =~ ^[0-9]+$ ]] || [ "$uid" = 0 ]; then echo "  refusing: $name has uid ${uid:-?} (uid 0 never runs a container of the stack)" >&2; return 1; fi
+  line=$(getent passwd "$uid" | head -n 1) || line=""
+  shell=${line##*:}
+  case "$shell" in
+    /usr/sbin/nologin|/sbin/nologin|/bin/false|/usr/bin/false) return 0 ;;
+  esac
+  echo "  refusing: uid $uid ($name) resolves to the account ${line%%:*} with the login shell ${shell:-?}: its processes could read" >&2
+  echo "  the environment of a container running as that uid (/proc/<pid>/environ) and write into it. Give $name its own non-login uid." >&2
+  return 1
+}
+
+guard_deploying() {
+  local root=$1 pid="" boot="" now="" st
+  if [ -f "$root/guard.lock" ]; then
+    pid=$(sed -n 1p "$root/guard.lock" 2>/dev/null | tr -d '[:space:]') || pid=""
+    boot=$(sed -n 2p "$root/guard.lock" 2>/dev/null | tr -d '[:space:]') || boot=""
+    now=$(cat "${AXION_BOOT_ID_FILE:-/proc/sys/kernel/random/boot_id}" 2>/dev/null | tr -d '[:space:]') || now=""
+    if ! [[ "$pid" =~ ^[1-9][0-9]*$ ]]; then
+      echo "$root/guard.lock holds no pid (the Guard refuses to deploy while it exists); see axion-guard status"; return 0
+    fi
+    if { [ -z "$boot" ] || [ -z "$now" ] || [ "$boot" = "$now" ]; } && kill -0 "$pid" 2>/dev/null; then
+      echo "an axion-guard deploy is running (pid $pid holds $root/guard.lock); wait for it to end (axion-guard status)"; return 0
+    fi
   fi
+  if [ -f "$root/state.json" ]; then
+    st=$(node -e '
+      let s; try { s = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); } catch { process.stdout.write("bad"); process.exit(0); }
+      const d = s && s.deploying;
+      if (d) process.stdout.write(`deploying ${String(d.sha).slice(0, 12)} ${String(d.step)} ${String(d.startedAt)}`);' "$root/state.json" 2>/dev/null) || st=bad
+    case "$st" in
+      bad) echo "$root/state.json cannot be read; see axion-guard status before installing"; return 0 ;;
+      deploying*) set -- $st; echo "state.json records an unfinished deploy of $2 at $3 (since $4): axion-guard status, then axion-guard rollback if no Guard runs"; return 0 ;;
+    esac
+  fi
+  return 1
+}
+
+prune_workshop_images() {
+  local keep=$1 ref n=0 refs=()
+  mapfile -t refs < <(docker image ls --format '{{.Repository}}:{{.Tag}}' axion-workshop 2>/dev/null | grep '^axion-workshop:' || true)
+  for ref in "${refs[@]}"; do
+    [ "$ref" != "$keep" ] || continue
+    [ "${ref%%:*}" = axion-workshop ] || continue
+    if docker image rm "$ref" >/dev/null 2>&1; then echo "  removed $ref"; n=$((n + 1))
+    else echo "  warning: $ref kept (still in use or not removable)" >&2; fi
+  done
+  if [ "$n" = 0 ]; then echo "  already done: no other axion-workshop image to remove (keeping $keep)"; fi
 }

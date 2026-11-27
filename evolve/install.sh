@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Host install for AXION evolution steps 1 and 2 (design §7, §13 B3/B4). Idempotent: every step is skipped when already done.
 # Run as root by Claude Code on the owner's word. It does NOT touch the shared PostgreSQL config, other apps' databases or
-# containers. It retires the native site's systemd units (step 0). Step 2 adds the runner (axion-evolve): the Workshop
-# network, image and token file, its directories and its systemd unit (enabled, NOT started: Claude Code starts it). It
-# refuses while axion-evolve.service runs (stop it first: the Guard copy it runs from is replaced here). Usage:
+# containers. It retires the native site's systemd units (step 0). Step 2 adds the runner (axion-evolve): the non-login
+# system users axion-ws (Workshop, typecheck, the Guard's checks and web build) and axion-egress (the egress proxy), the
+# Workshop network, image and token file, its directories and its systemd unit (installed, NOT enabled and NOT started:
+# Claude Code enables and starts it after the smoke; R36). It refuses while axion-evolve.service runs or a Guard deploy runs
+# or was left unfinished (the Guard copy and the egress proxy are replaced here). Usage:
 #   evolve/install.sh [--recreate-live-network] <git-dir-of-the-AXION-repo> <commit>
 #     e.g. evolve/install.sh /home/luca/AXION/.git evolve-step1
 #   --recreate-live-network  recreate an existing live network that lacks the host isolation (inhibit_ipv4): the front,
@@ -24,6 +26,9 @@ SRC_ENV_SERVER="${SRC_ENV_SERVER:-/home/luca/AXION/server/.env}"; SRC_ENV_ROOT="
 SRC_DATA="${SRC_DATA:-/home/luca/AXION/server/data}"
 [ "$(id -u)" = 0 ] || { echo "run as root" >&2; exit 2; }
 if runner_running "$ROOT/runner.lock"; then echo "install: the runner is running (axion-evolve.service, or an axion-evolve once/approve holding $ROOT/runner.lock); stop it first (systemctl stop axion-evolve), then start it again after the install" >&2; exit 2; fi
+# I2: a Guard deploy the runner started keeps running after the runner stops (KillMode=process); replacing the Guard copy
+# or the egress proxy under it would break that deploy
+if why=$(guard_deploying "$ROOT"); then echo "install: refused: $why" >&2; exit 2; fi
 done_() { echo "  already done: $*"; }
 step() { echo "== $*"; }
 SHA=$(git --git-dir="$GIT_SRC" rev-parse --verify "$REV^{commit}")
@@ -32,9 +37,16 @@ step "0. the native site is retired (its systemd units would restart the old API
    would take 0.0.0.0:5190 back at a reboot)"
 retire_native_units
 
-step "1. OS user and group axion"
-if id axion >/dev/null 2>&1; then done_ "user axion ($(id -u axion):$(id -g axion))"
-else useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin axion; echo "  created axion ($(id -u axion):$(id -g axion))"; fi
+step "1. OS users (no login shell, no home, own group): axion (slots, DB peer auth), axion-ws (Workshop, typecheck,
+   the Guard's checks and web build), axion-egress (the egress proxy)"
+# R31: no container of the stack runs as a uid that a login account owns (uid 1000 is a login user on this host: its
+# processes could read a container's /proc/<pid>/environ, e.g. TOKEN1 in the Workshop, and write into its files)
+for u in axion axion-ws axion-egress; do ensure_system_user "$u" || { echo "install: stopped: could not create the user $u" >&2; exit 1; }; done
+require_nologin_user axion || { echo "install: refused: the slots' user axion must not be a login account (see above)" >&2; exit 2; }
+require_nologin_user axion-ws || { echo "install: refused: the Workshop user axion-ws must not be a login account (see above)" >&2; exit 2; }
+require_nologin_user axion-egress || { echo "install: refused: the egress user axion-egress must not be a login account (see above)" >&2; exit 2; }
+EGRESS_IDS="$(id -u axion-egress):$(id -g axion-egress)"
+echo "  ok (axion $(id -u axion):$(id -g axion), axion-ws $(id -u axion-ws):$(id -g axion-ws), axion-egress $EGRESS_IDS)"
 
 step "2. directories under $ROOT"
 install -d -m 755 "$ROOT" "$ROOT/front"
@@ -83,16 +95,21 @@ fi
 
 step "5. Docker networks and the egress proxy"
 if [ "$RECREATE_LIVE" = 1 ]; then recreate_live_network "$P-live" "$P-front" || { echo "install: stopped: the live network could not be recreated (see above)" >&2; exit 1; }
-else ensure_live_network "$P-live" || { [ $? = 3 ] && PENDING="$P-live needs --recreate-live-network"; }; fi
+else
+  rc=0; ensure_live_network "$P-live" || rc=$?
+  if [ "$rc" = 3 ]; then PENDING="$P-live needs --recreate-live-network"
+  elif [ "$rc" != 0 ]; then echo "install: stopped: the live network (see above)" >&2; exit 1; fi
+fi
 ensure_edge_network "$P-edge"
 if docker container inspect "$P-egress" >/dev/null 2>&1; then
-  # the proxy code comes from the Guard copy; recreate when the Guard was updated
-  if [ "$(docker inspect -f '{{index .Config.Labels "axion.guard"}}' "$P-egress")" = "$SHA" ]; then done_ "$P-egress"
-  else docker rm -f "$P-egress" >/dev/null; echo "  recreating $P-egress for guard $SHA"; fi
+  # the proxy code comes from the Guard copy; recreate when the Guard was updated or it runs as another uid (R31)
+  if [ "$(docker inspect -f '{{index .Config.Labels "axion.guard"}}' "$P-egress")" = "$SHA" ] \
+     && [ "$(docker inspect -f '{{.Config.User}}' "$P-egress")" = "$EGRESS_IDS" ]; then done_ "$P-egress"
+  else docker rm -f "$P-egress" >/dev/null; echo "  recreating $P-egress for guard $SHA as axion-egress ($EGRESS_IDS)"; fi
 fi
 if ! docker container inspect "$P-egress" >/dev/null 2>&1; then
   docker run -d --name "$P-egress" --label "axion.guard=$SHA" --network "$P-edge" --restart unless-stopped --init "${LOG_OPTS[@]}" \
-    --user 1000:1000 --read-only -v "$ROOT/guard/evolve/egress:/egress:ro" \
+    --user "$EGRESS_IDS" --read-only -v "$ROOT/guard/evolve/egress:/egress:ro" \
     node:24-bookworm-slim node /egress/proxy.mjs >/dev/null
   docker network connect "$P-live" "$P-egress"
   echo "  started $P-egress (edge + live, port 3128, no published port)"
@@ -108,12 +125,16 @@ chown -R axion:axion "$ROOT/data"
 echo "  ok ($(du -sh "$ROOT/data" | cut -f1))"
 
 step "7. the Workshop (step 2): network $P-workshop (only way out: $P-egress), image, secrets/workshop.env"
-ensure_workshop_network "$P-workshop" "$P-egress" || { rc=$?; [ "$rc" = 3 ] && PENDING="${PENDING:+$PENDING; }$P-workshop lacks the isolation" || { echo "install: stopped: the Workshop network (see above)" >&2; exit 1; }; }
+rc=0; ensure_workshop_network "$P-workshop" "$P-egress" || rc=$?
+if [ "$rc" = 3 ]; then PENDING="${PENDING:+$PENDING; }$P-workshop lacks the isolation"
+elif [ "$rc" != 0 ]; then echo "install: stopped: the Workshop network (see above)" >&2; exit 1; fi
 ensure_workshop_image "axion-workshop:${SHA:0:12}" "$ROOT/guard/evolve/docker/workshop.Dockerfile" "$ROOT/guard/evolve/docker" \
   || { echo "install: stopped: the Workshop image (see above)" >&2; exit 1; }
+# M9: the Workshop images of earlier Guard commits (only the axion-workshop repository, never forced)
+prune_workshop_images "axion-workshop:${SHA:0:12}"
 write_workshop_env "$SRC_ENV_ROOT" "$ROOT/secrets/workshop.env" || { echo "install: stopped: secrets/workshop.env (see above)" >&2; exit 1; }
 
-step "8. the runner (step 2): directories, axion-evolve.service (enabled, not started)"
+step "8. the runner (step 2): directories, axion-evolve.service (installed; not enabled, not started: R36)"
 # work/ is the Guard's scratch dir (it empties it before every deploy); the runner's change trees live in changes/
 install -d -m 700 "$ROOT/work" "$ROOT/changes"
 install_runner_unit "$ROOT/guard/evolve/runner/axion-evolve.service" "${SYSTEMD_DIR:-/etc/systemd/system}" \

@@ -50,6 +50,8 @@ if (a[0] === 'inspect') {
 if (a[0] === 'exec') out('');
 if (a[0] === 'container' && a[1] === 'inspect') { if (!ctrs[a.at(-1)]) die('no such container'); out('[{}]\\n'); }
 if (a[0] === 'image' && a[1] === 'inspect') { if (!(st.images || []).includes(a.at(-1))) die('no such image'); out('[{}]\\n'); }
+if (a[0] === 'image' && a[1] === 'ls') { const repo = a.at(-1); out((st.images || []).filter((x) => x.split(':')[0] === repo).join('\\n') + '\\n'); }
+if (a[0] === 'image' && a[1] === 'rm') { if ((st.inUse || []).includes(a.at(-1))) die('image is being used by a container'); st.images = (st.images || []).filter((x) => x !== a.at(-1)); out('Untagged: ' + a.at(-1) + '\\n'); }
 if (a[0] === 'build') { st.images = [...(st.images || []), a[a.indexOf('-t') + 1]]; st.buildEnv = process.env.DOCKER_BUILDKIT ?? null; out('sha256:x\\n'); }
 die('fake docker: unexpected ' + line, 99);
 `;
@@ -71,18 +73,38 @@ if (a[0] === 'enable') { u.enabled = 'enabled'; fs.writeFileSync(S, JSON.stringi
 process.exit(99);
 `;
 
-type World = { networks: Record<string, { internal: boolean; inhibit: boolean }>; containers: Record<string, { running: boolean; networks: string[] }>;
-  units?: Record<string, { enabled: string; active: string }>; failOnce?: string[]; images?: string[]; buildEnv?: string | null; reloads?: number };
+/** fake id / getent / useradd over st.users (name → uid, gid, shell); `useradd` logs its argv and creates the user */
+const FAKE_USERS = `#!/usr/bin/env node
+const fs = require('node:fs'), path = require('node:path');
+const S = process.env.FAKE_STATE, L = process.env.FAKE_LOG;
+const st = JSON.parse(fs.readFileSync(S, 'utf8'));
+st.users ??= {};
+const me = path.basename(process.argv[1]); const a = process.argv.slice(2);
+fs.appendFileSync(L, me + ' ' + a.join(' ') + '\\n');
+const save = () => fs.writeFileSync(S, JSON.stringify(st));
+if (me === 'id') { const u = st.users[a.at(-1)]; if (!u) { process.stderr.write("id: '" + a.at(-1) + "': no such user\\n"); process.exit(1); }
+  process.stdout.write((a[0] === '-g' ? u.gid : a[0] === '-u' ? u.uid : 'uid=' + u.uid) + '\\n'); process.exit(0); }
+if (me === 'getent') { const e = Object.entries(st.users).find(([, u]) => String(u.uid) === a[1]); if (!e) process.exit(2);
+  process.stdout.write(e[0] + ':x:' + e[1].uid + ':' + e[1].gid + '::' + (e[1].home || '/nonexistent') + ':' + e[1].shell + '\\n'); process.exit(0); }
+if (me === 'useradd') { const name = a.at(-1); if (st.users[name]) process.exit(9); const n = 990 - Object.keys(st.users).length;
+  st.users[name] = { uid: n, gid: n, shell: a[a.indexOf('--shell') + 1] }; save(); process.exit(0); }
+process.exit(99);
+`;
 
-function world(w: World) {
+type World = { networks: Record<string, { internal: boolean; inhibit: boolean }>; containers: Record<string, { running: boolean; networks: string[] }>;
+  units?: Record<string, { enabled: string; active: string }>; failOnce?: string[]; images?: string[]; buildEnv?: string | null; reloads?: number;
+  users?: Record<string, { uid: number; gid: number; shell: string }>; inUse?: string[] };
+
+function world(w: World, extraEnv: Record<string, string> = {}) {
   const d = mkdtempSync(join(tmpdir(), 'guard-install-lib-'));
   writeFileSync(join(d, 'docker'), FAKE_DOCKER); chmodSync(join(d, 'docker'), 0o755);
   writeFileSync(join(d, 'systemctl'), FAKE_SYSTEMCTL); chmodSync(join(d, 'systemctl'), 0o755);
+  for (const b of ['id', 'getent', 'useradd']) { writeFileSync(join(d, b), FAKE_USERS); chmodSync(join(d, b), 0o755); }
   writeFileSync(join(d, 'state.json'), JSON.stringify({ units: {}, failOnce: [], ...w }));
   writeFileSync(join(d, 'log'), '');
   const run = (script: string) => {
     const r = spawnSync('bash', ['-c', `set -euo pipefail; . ${LIB}; ${script}`], {
-      encoding: 'utf8', env: { PATH: `${d}:${process.env.PATH}`, FAKE_STATE: join(d, 'state.json'), FAKE_LOG: join(d, 'log') },
+      encoding: 'utf8', env: { PATH: `${d}:${process.env.PATH}`, FAKE_STATE: join(d, 'state.json'), FAKE_LOG: join(d, 'log'), ...extraEnv },
     });
     return { code: r.status, out: r.stdout, err: r.stderr };
   };
@@ -261,7 +283,7 @@ test('write_workshop_env: only CLAUDE_CODE_OAUTH_TOKEN=<TOKEN1>, mode 600, the v
   assert.ok(!existsSync(d2));
 });
 
-test('install_runner_unit: installed, daemon-reload, enabled (never --now, never started); idempotent', () => {
+test('install_runner_unit (R36): installed + daemon-reload, NOT enabled and never started; idempotent', () => {
   const w = world({ networks: {}, containers: {} });
   const unit = new URL('../runner/axion-evolve.service', import.meta.url).pathname;
   const dir = join(w.dir, 'systemd'); mkdirSync(dir);
@@ -269,13 +291,14 @@ test('install_runner_unit: installed, daemon-reload, enabled (never --now, never
   assert.equal(a.code, 0, a.err);
   assert.equal(readFileSync(join(dir, 'axion-evolve.service'), 'utf8'), readFileSync(unit, 'utf8'));
   const sys = w.log().filter((l) => l.startsWith('systemctl'));
-  assert.ok(sys.includes('systemctl daemon-reload'));
-  assert.ok(sys.includes('systemctl enable axion-evolve.service'));
-  assert.ok(!sys.some((l) => /--now|start|restart/.test(l)), sys.join('; '));
+  assert.deepEqual(sys, ['systemctl daemon-reload']);
+  assert.equal(w.state().units!['axion-evolve.service'].enabled, 'disabled');
   assert.equal(w.state().units!['axion-evolve.service'].active, 'inactive');
+  assert.match(a.out, /not enabled, not started/);
   const b = w.run(`install_runner_unit ${unit} ${dir}`);
-  assert.match(b.out, /already done: .*axion-evolve\.service[\s\S]*already done: axion-evolve\.service is enabled/);
+  assert.match(b.out, /already done: .*axion-evolve\.service/);
   assert.equal(w.state().reloads, 1);
+  assert.ok(!w.log().some((l) => /systemctl (enable|start|restart)/.test(l)));
 });
 
 test('runner_running: install.sh refuses while axion-evolve.service is active', () => {
@@ -293,3 +316,67 @@ test('runner_running: install.sh refuses while axion-evolve.service is active', 
   assert.match(lk.run(`runner_running ${join(lk.dir, 'runner.lock')} && echo yes || echo no`).out, /no/, 'a stale lock');
   assert.match(readFileSync(new URL('../install.sh', import.meta.url), 'utf8'), /if runner_running "\$ROOT\/runner\.lock"; then .*exit 2; fi/);
 });
+
+// ---- step 2 fix wave ----
+
+test('R31 ensure_system_user + require_nologin_user: non-login system users with their own group; a login shell or uid 0 is refused (rc 1)', () => {
+  const w = world({ networks: {}, containers: {}, users: { thomas: { uid: 1000, gid: 1000, shell: '/bin/bash' }, axion: { uid: 988, gid: 983, shell: '/usr/sbin/nologin' } } });
+  const a = w.run('ensure_system_user axion-ws && ensure_system_user axion-egress && ensure_system_user axion');
+  assert.equal(a.code, 0, a.err);
+  assert.ok(w.log().includes('useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin axion-ws'));
+  assert.ok(w.log().includes('useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin axion-egress'));
+  assert.equal(w.log().filter((l) => l.startsWith('useradd')).length, 2, 'an existing user is left alone');
+  assert.match(a.out, /already done: user axion \(988:983\)/);
+  const ok = w.run('require_nologin_user axion-ws && require_nologin_user axion-egress && require_nologin_user axion && echo fine');
+  assert.match(ok.out, /fine/);
+  // an existing account whose uid resolves to a login shell (e.g. created by hand), and uid 0
+  const st = w.state(); st.users!['axion-ws'] = { uid: 1000, gid: 1000, shell: '/bin/bash' }; st.users!.rooty = { uid: 0, gid: 0, shell: '/bin/bash' };
+  writeFileSync(join(w.dir, 'state.json'), JSON.stringify(st));
+  const bad = w.run('require_nologin_user axion-ws || echo "rc=$?"');
+  assert.match(bad.out, /rc=1/);
+  assert.match(bad.err, /uid 1000 .*thomas.*\/bin\/bash/);
+  assert.match(w.run('require_nologin_user rooty || echo "rc=$?"').out, /rc=1/);
+  assert.match(w.run('require_nologin_user nobody-x || echo "rc=$?"').out, /rc=1/);
+  const sh = readFileSync(new URL('../install.sh', import.meta.url), 'utf8');
+  for (const u of ['axion', 'axion-ws', 'axion-egress']) assert.match(sh, new RegExp(`require_nologin_user ${u} \\|\\| `), u);
+  assert.match(sh, /--user "\$EGRESS_IDS"/);
+  assert.ok(!/--user 1000/.test(sh));
+});
+
+test('I2 guard_deploying: a live pid of this boot in guard.lock, a lock without a pid, or state.json deploying → busy (rc 0 + reason); else rc 1', () => {
+  const w = world({ networks: {}, containers: {} }, { AXION_BOOT_ID_FILE: '' });
+  const root = join(w.dir, 'root'); mkdirSync(root);
+  const bootFile = join(w.dir, 'boot_id'); writeFileSync(bootFile, 'boot-now\n');
+  const run = (s: string) => spawnSync('bash', ['-c', `set -euo pipefail; . ${LIB}; ${s}`], { encoding: 'utf8', env: { PATH: process.env.PATH, AXION_BOOT_ID_FILE: bootFile } });
+  const q = () => { const r = run(`guard_deploying ${root} && echo "busy" || echo "free"`); return r.stdout.trim(); };
+  assert.equal(q(), 'free', 'nothing there');
+  writeFileSync(join(root, 'guard.lock'), `${process.pid}\nboot-now\n`);
+  assert.match(q(), /pid \d+ holds .*guard\.lock[\s\S]*busy/);
+  writeFileSync(join(root, 'guard.lock'), `${process.pid}\nboot-before\n`);
+  assert.equal(q(), 'free', 'a lock of another boot is stale');
+  writeFileSync(join(root, 'guard.lock'), '999999999\nboot-now\n');
+  assert.equal(q(), 'free', 'a dead pid is stale');
+  writeFileSync(join(root, 'guard.lock'), 'garbage\n');
+  assert.match(q(), /no pid[\s\S]*busy/);
+  rmSyncSafe(join(root, 'guard.lock'));
+  writeFileSync(join(root, 'state.json'), JSON.stringify({ active: 'blue', activeImage: 'x', activeSha: null, previousImage: null, deploying: { sha: 'a'.repeat(40), step: 'watch', startedAt: '2026-11-27T10:00:00Z' } }));
+  assert.match(q(), /unfinished deploy of a{12}.* at watch[\s\S]*axion-guard rollback[\s\S]*busy/);
+  writeFileSync(join(root, 'state.json'), JSON.stringify({ active: 'blue', activeImage: 'x', activeSha: null, previousImage: null }));
+  assert.equal(q(), 'free');
+  writeFileSync(join(root, 'state.json'), '{not json');
+  assert.match(q(), /cannot be read[\s\S]*busy/, 'fail closed');
+  assert.match(readFileSync(new URL('../install.sh', import.meta.url), 'utf8'), /if why=\$\(guard_deploying "\$ROOT"\); then .*exit 2; fi/);
+});
+
+test('M9 prune_workshop_images: removes axion-workshop:* other than the current tag; never another repository; an image in use is kept with a warning', () => {
+  const w = world({ networks: {}, containers: {}, images: ['axion-workshop:aaa', 'axion-workshop:bbb', 'axion-workshop:ccc', 'axion-workshop-x:aaa', 'node:24', 'axion-app:aaa'], inUse: ['axion-workshop:ccc'] });
+  const r = w.run('prune_workshop_images axion-workshop:bbb');
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(w.state().images, ['axion-workshop:bbb', 'axion-workshop:ccc', 'axion-workshop-x:aaa', 'node:24', 'axion-app:aaa']);
+  assert.ok(w.log().includes('image rm axion-workshop:aaa'));
+  assert.ok(!w.log().some((l) => / -f\b/.test(l) && l.startsWith('image rm')));
+  assert.match(r.out + r.err, /axion-workshop:ccc.*kept/);
+  assert.match(w.run('prune_workshop_images axion-workshop:bbb').out, /already done/);
+});
+
+function rmSyncSafe(f: string) { try { spawnSync('rm', ['-f', f]); } catch { /* absent */ } }
