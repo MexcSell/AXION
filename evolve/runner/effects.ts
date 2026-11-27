@@ -19,13 +19,14 @@ import { Busy } from '../guard/deploy.ts';
 import { readState } from '../guard/state.ts';
 import { assertSha, isPlainRef, MAIN_REF, parseNameStatusZ } from '../guard/effects-git.ts';
 import { LOG_OPTS } from '../guard/effects-docker.ts';
+import { resolveRunAs } from '../guard/effects-util.ts';
 import { realHost } from '../guard/host.ts';
 import type { Host } from '../guard/host.ts';
 import { realExec, runEngineer, runReviewer, WORKSHOP_DEFAULTS } from './workshop.ts';
 import type { Exec, WorkshopConfig } from './workshop.ts';
 import type { Mission } from './prompts.ts';
 import type { DeployAnswer, GuardResult, GuardStep, HistoryEntry, MissionCli, RunnerEffects, WriteResult } from './loop.ts';
-import { CAPS, CONTAINER_PREFIXES, DB_USER, GUARD_BIN, GUARD_LOG_DIR, WORKER_PREFIXES, HISTORY_KEEP, MAX_DIFF_BYTES, REF_PREFIX, SOCKET_DIR, TIMING } from './config.ts';
+import { CAPS, CONTAINER_PREFIXES, DB_USER, WORKER_USER, GUARD_BIN, GUARD_LOG_DIR, WORKER_PREFIXES, HISTORY_KEEP, MAX_DIFF_BYTES, REF_PREFIX, SOCKET_DIR, TIMING } from './config.ts';
 import type { RunnerPaths } from './config.ts';
 
 export type ProcResult = { code: number; stdout: string; stderr: string; truncated: boolean };
@@ -187,6 +188,14 @@ export const TYPECHECK_SCRIPT = [
   '[ "$s" = 0 ] && [ "$w" = 0 ]',
 ].join('\n');
 
+/**
+ * R31: `<uid>:<gid>` of the Workshop user (axion-ws): looked up at run time with `id`, refused when it is 0 or resolves to
+ * an account with a login shell (`getent passwd <uid>`). `who` may be a numeric uid:gid (trials).
+ */
+export async function workerIdsOf(proc: Proc, who: string = WORKER_USER): Promise<string> {
+  return resolveRunAs((c, a) => proc(c, a, { timeoutMs: 30_000 }), who);
+}
+
 export type EffectsOptions = {
   paths: RunnerPaths;
   proc?: Proc;
@@ -203,6 +212,8 @@ export type EffectsOptions = {
   prefix?: string;
   /** tests: the uid:gid of the DB user instead of `id -u/-g axion` */
   uidGid?: string;
+  /** R31, tests and trials: a numeric uid:gid (or another user name) instead of axion-ws; still checked against getent */
+  workerIds?: string;
   maxDiffBytes?: number;
 };
 
@@ -218,6 +229,9 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
   const maxDiff = o.maxDiffBytes ?? MAX_DIFF_BYTES;
   const host: Host = { ...realHost, log };
   let ids: string | null = o.uidGid ?? null;
+  let wids: string | null = null;
+  /** R31: the Workshop/typecheck/tree uid:gid (axion-ws), looked up and checked once per process */
+  const workerIds = async () => (wids ??= await workerIdsOf(proc, o.workerIds ?? WORKER_USER));
   /** this process holds runner.lock right now */
   let holding = false;
 
@@ -378,7 +392,7 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
     if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error(`${P.guardCommitFile} holds no commit sha`);
     const secrets = await readSecrets();
     // the caps come from config.ts (single source), not from the Workshop's defaults
-    return { ...WORKSHOP_DEFAULTS, engineerCapMs: CAPS.engineerMs, reviewerCapMs: CAPS.reviewerMs, envFile: P.workshopEnv, image: `axion-workshop:${commit.slice(0, 12)}`, secrets };
+    return { ...WORKSHOP_DEFAULTS, engineerCapMs: CAPS.engineerMs, reviewerCapMs: CAPS.reviewerMs, envFile: P.workshopEnv, image: `axion-workshop:${commit.slice(0, 12)}`, secrets, user: await workerIds() };
   }
 
   async function readFrom(file: string, offset: number): Promise<{ text: string; size: number }> {
@@ -531,8 +545,8 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
       await mkdir(join(dir, 'tree'), { mode: 0o755 });
       await must('tar', ['-x', '--no-same-owner', '-f', tar, '-C', join(dir, 'tree')], { timeoutMs: TIMING.gitMs });
       await rm(tar, { force: true });
-      // the Workshop runs as uid 1000; -h: a symlink itself, never its target
-      await must('chown', ['-R', '-h', '1000:1000', join(dir, 'tree')], { timeoutMs: TIMING.gitMs });
+      // the Workshop runs as axion-ws (R31); -h: a symlink itself, never its target
+      await must('chown', ['-R', '-h', await workerIds(), join(dir, 'tree')], { timeoutMs: TIMING.gitMs });
       return dir;
     },
 
@@ -608,7 +622,7 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
         const cname = `axion-evolve-tc-${name}`;
         await proc('docker', ['rm', '-f', cname], { timeoutMs: 60_000 }).catch(() => null);
         const argv = ['run', '--rm', '--name', cname, '--network', 'none', '--read-only', '--tmpfs', '/tmp:rw,noexec,nosuid,size=2g',
-          '--user', '1000:1000', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--pids-limit', '512', '--memory', '4g', ...LOG_OPTS,
+          '--user', await workerIds(), '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--pids-limit', '512', '--memory', '4g', ...LOG_OPTS,
           '-v', `${check}:/cand:ro`, '-w', '/tmp', '--entrypoint', 'sh', image, '-c', TYPECHECK_SCRIPT];
         let r: ProcResult;
         try {

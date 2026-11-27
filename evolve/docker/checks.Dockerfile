@@ -5,7 +5,7 @@
 #      Playwright's Chromium (+ its OS libraries) on the deps image: no candidate file is in the image yet.
 #   2. no network:    docker build --network none -f evolve/docker/checks.Dockerfile --build-arg DEPS_IMAGE=… --build-arg APP_IMAGE=<p>-app:<tag>
 #                       --build-arg AXION_COMMIT=<sha> -t <p>-checks:<tag> .
-# Everything under /app is owned by root. The checks container runs read-only (`--read-only`, tmpfs /tmp, bind /out) with
+# Everything under /app is owned by root. The checks container runs as the Guard's worker user (axion-ws), read-only (`--read-only`, tmpfs /tmp, bind /out) with
 # the Guard's own run-checks.sh mounted at /guard/run-checks.sh: the paths the suite writes inside /app are links into /tmp.
 ARG DEPS_IMAGE=axion-build:deps
 ARG APP_IMAGE=axion-app:dev
@@ -21,6 +21,13 @@ RUN cd web && npx playwright install --with-deps chromium \
 FROM ${APP_IMAGE} AS app
 
 FROM browsers
+# R31: the checks run as the Guard's worker user (axion-ws; its uid:gid is passed by the Guard, looked up at run time). It
+# gets a passwd entry here (no login shell) so os.userInfo() works for the suite (audit-anchor tests); before the
+# candidate's files, so the layer is shared by every build with the same uid. The default 65534 (nobody) exists already.
+ARG AXION_BUILD_UID=65534
+ARG AXION_BUILD_GID=65534
+RUN getent passwd "$AXION_BUILD_UID" >/dev/null \
+ || echo "axion-ws:x:$AXION_BUILD_UID:$AXION_BUILD_GID:AXION checks:/tmp/axion-checks/home:/usr/sbin/nologin" >> /etc/passwd
 # the candidate tree (root-owned) and the web build from its app image; node_modules stay the lockfile ones of the deps stage
 COPY . .
 COPY --from=app /app/web/dist web/dist
@@ -40,5 +47,7 @@ RUN rm -rf server/.env server/data server/node_modules/.vite server/node_modules
 
 ARG AXION_COMMIT
 ENV AXION_COMMIT=$AXION_COMMIT
-USER node
+# a neutral default (nobody); the Guard always runs the checks with --user <axion-ws uid:gid> (R31: never node = uid 1000,
+# a login account on the host)
+USER 65534:65534
 CMD ["bash", "/guard/run-checks.sh"]

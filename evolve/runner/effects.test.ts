@@ -50,7 +50,7 @@ function world(o: { proc?: Proc; guardBin?: string } = {}) {
   writeFileSync(join(root, 'guard', 'INSTALLED_COMMIT'), `${'a1b2c3d4e5f6'.padEnd(40, '0')}\n`);
   const paths = runnerPaths({ AXION_GUARD_ROOT: root });
   const logs: string[] = [];
-  const fx = makeEffects({ paths, proc: o.proc, guardBin: o.guardBin, log: (m) => logs.push(m), uidGid: '999:999' });
+  const fx = makeEffects({ paths, proc: o.proc, guardBin: o.guardBin, log: (m) => logs.push(m), uidGid: '999:999', workerIds: '64999:64998' });
   return { root, repo, base, paths, fx, logs };
 }
 
@@ -66,13 +66,14 @@ function dockerFake(answer: (args: string[], input: string) => { code: number; s
   return { proc, calls };
 }
 
-test('exportTree: git archive of the base into <changes>/<id>/a<n>/tree, owned by uid 1000, no .git', { skip: !isRoot && 'needs root (chown)' }, async () => {
+test('exportTree: git archive of the base into <changes>/<id>/a<n>/tree, owned by the worker uid (axion-ws), no .git', { skip: !isRoot && 'needs root (chown)' }, async () => {
   const w = world();
   const dir = await w.fx.exportTree('M-1', 1, w.base);
   assert.equal(dir, join(w.paths.changes, 'M-1', 'a1'));
   assert.equal(readFileSync(join(dir, 'tree', 'web', 'src', 'a.ts'), 'utf8'), 'export const a = 1;\n');
-  assert.equal(statSync(join(dir, 'tree', 'web', 'src', 'a.ts')).uid, 1000);
-  assert.equal(statSync(join(dir, 'tree')).uid, 1000);
+  assert.equal(statSync(join(dir, 'tree', 'web', 'src', 'a.ts')).uid, 64999);
+  assert.equal(statSync(join(dir, 'tree')).uid, 64999);
+  assert.equal(statSync(join(dir, 'tree')).gid, 64998);
   assert.ok(!existsSync(join(dir, 'tree', '.git')));
   assert.ok(!existsSync(join(dir, 'tree.tar')));
   assert.equal(statSync(w.paths.changes).mode & 0o777, 0o700);
@@ -118,7 +119,7 @@ test('a secret written by the engineer never reaches repo.git: the scratch objec
 
 test('diff: a diff over the cap is refused (fail closed, never gated in part)', { skip: !isRoot && 'needs root (chown)' }, async () => {
   const w = world();
-  const fx = makeEffects({ paths: w.paths, log: () => {}, uidGid: '999:999', maxDiffBytes: 2000 });
+  const fx = makeEffects({ paths: w.paths, log: () => {}, uidGid: '999:999', workerIds: '64999:64998', maxDiffBytes: 2000 });
   const dir = await fx.exportTree('M-3', 1, w.base);
   writeFileSync(join(dir, 'tree', 'web', 'src', 'big.ts'), 'x'.repeat(5000) + '\n');
   const sha = (await fx.commit({ changeDir: dir, parent: w.base, message: 'x' }))!;
@@ -172,7 +173,7 @@ test('the Workshop runs get the caps of config.ts (CAPS.engineerMs / CAPS.review
     async sleep(ms: number, signal?: AbortSignal) { sleeps.push(ms); if (ms > 60_000) await new Promise<void>((r) => { if (signal?.aborted) r(); else signal?.addEventListener('abort', () => r(), { once: true }); }); },
   };
   const w = world();
-  const fx = makeEffects({ paths: w.paths, exec, log: () => {}, uidGid: '999:999' });
+  const fx = makeEffects({ paths: w.paths, exec, log: () => {}, uidGid: '999:999', workerIds: '64999:64998' });
   const dir = await fx.exportTree('M-8', 1, w.base);
   await fx.engineer({ changeDir: dir, mission: { id: 'M-8', title: 't', text: 'x', criteria: [] }, attempt: 1 });
   await fx.reviewer({ mission: { id: 'M-8', title: 't', text: 'x', criteria: [] }, diff: 'd', attempt: 1 });
@@ -181,6 +182,7 @@ test('the Workshop runs get the caps of config.ts (CAPS.engineerMs / CAPS.review
   const run = runs.find((a) => a[0] === 'run')!;
   assert.ok(run.includes('axion-workshop:a1b2c3d4e5f6'));
   assert.equal(run[run.indexOf('--env-file') + 1], w.paths.workshopEnv);
+  assert.equal(run[run.indexOf('--user') + 1], '64999:64998', 'R31: the worker uid, never 1000');
 });
 
 test('mission CLI: the exact docker argv (live image from state.json, DB socket, -w /app/server, tsx), stdin for progress; refusals and failures', async () => {
@@ -234,7 +236,8 @@ test('typecheck: the exported commit read-only at /cand in a no-network read-onl
   assert.equal(r.ok, false);
   assert.match(r.log, /TS2322/);
   const run = f.calls.find((c) => c.args[0] === 'run')!.args;
-  for (const flag of ['--network', 'none', '--read-only', '--cap-drop', 'ALL', '--user', '1000:1000']) assert.ok(run.includes(flag), flag);
+  for (const flag of ['--network', 'none', '--read-only', '--cap-drop', 'ALL', '--user', '64999:64998']) assert.ok(run.includes(flag), flag);
+  assert.ok(!run.includes('1000:1000'));
   const v = run[run.indexOf('-v') + 1];
   assert.equal(v, `${join(w.paths.changes, 'M-5', 'a1', 'check')}:/cand:ro`);
   assert.equal(run.filter((x) => x === '-v').length, 1, 'one mount only');
@@ -379,4 +382,20 @@ test('killWorkers: removes the Workshop and typecheck containers only (never the
   const k = await w.fx.killWorkers();
   assert.deepEqual(k.sort(), ['axion-evolve-tc-M-1-a1', 'axion-workshop-M-1-a1', 'axion-workshop-M-1-a1-review']);
   assert.deepEqual(f.calls.filter((c) => c.args[0] === 'rm').map((c) => c.args.slice(2).sort()), [k.sort()]);
+});
+
+test('R31: the worker ids are looked up at run time (id -u/-g axion-ws), checked against getent (no login shell), never 1000 by default', async () => {
+  const seen: string[] = [];
+  const passwd: Record<string, string> = { 1000: 'thomas:x:1000:1000::/home/thomas:/bin/bash', 987: 'axion-ws:x:987:982::/nonexistent:/usr/sbin/nologin' };
+  const mk = (ids: Record<string, string>) => async (cmd: string, args: string[]) => {
+    seen.push([cmd, ...args].join(' '));
+    if (cmd === 'id') return { code: ids[args.join(' ')] ? 0 : 1, stdout: `${ids[args.join(' ')] ?? ''}\n`, stderr: '', truncated: false };
+    if (cmd === 'getent') return passwd[args[1]] ? { code: 0, stdout: `${passwd[args[1]]}\n`, stderr: '', truncated: false } : { code: 2, stdout: '', stderr: '', truncated: false };
+    return realProc(cmd, args);
+  };
+  const { workerIdsOf } = await import('./effects.ts');
+  assert.equal(await workerIdsOf(mk({ '-u axion-ws': '987', '-g axion-ws': '982' })), '987:982');
+  assert.deepEqual(seen, ['id -u axion-ws', 'id -g axion-ws', 'getent passwd 987']);
+  await assert.rejects(workerIdsOf(mk({ '-u axion-ws': '1000', '-g axion-ws': '1000' })), /login shell \/bin\/bash/);
+  await assert.rejects(workerIdsOf(mk({})), /axion-ws/);
 });

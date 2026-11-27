@@ -1,6 +1,8 @@
 // Every host object the Guard names (directories, containers, networks, images, the OS user), in one place, so the
 // controller can run a trial with another root and name prefix. Read from the environment once per CLI run:
 //   AXION_GUARD_ROOT (/srv/axion-evolve)   AXION_GUARD_PREFIX (axion)          AXION_GUARD_USER (axion: slots run as its uid:gid)
+//   AXION_GUARD_WORKER_USER (axion-ws: the checks container and the candidate's web build run as its uid:gid; a user name, or
+//                            a numeric <uid>:<gid> for a trial; R31: never a uid that resolves to a login account)
 //   AXION_GUARD_LIVE_NETWORK (axion-live)  AXION_GUARD_EDGE_NETWORK (axion-edge)  AXION_GUARD_FRONT_IMAGE (nginx:1.27-alpine)
 //   AXION_GUARD_POSTGRES_IMAGE (postgres:16-alpine)  AXION_GUARD_EGRESS (http://axion-egress:3128)
 //   AXION_GUARD_LIVE_ENV (<root>/secrets/live.env)  AXION_GUARD_BACKUP_SCRIPT (<root>/guard/evolve/backup.sh)
@@ -20,6 +22,8 @@ export type GuardConfig = {
   postgresImage: string;
   /** OS user whose uid:gid the slots run as (looked up with `id` when first needed) */
   osUser: string;
+  /** R31: the non-login user (or numeric uid:gid) the checks container and the candidate's web build run as */
+  workerUser: string;
   egressUrl: string;
   liveEnvFile: string;
   backupScript: string;
@@ -110,6 +114,11 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     frontImage: image('AXION_GUARD_FRONT_IMAGE', 'nginx:1.27-alpine'),
     postgresImage: image('AXION_GUARD_POSTGRES_IMAGE', 'postgres:16-alpine'),
     osUser: name('AXION_GUARD_USER', 'axion'),
+    workerUser: (() => {
+      const v = get('AXION_GUARD_WORKER_USER', 'axion-ws');
+      if (!NAME_RE.test(v) && !/^\d{1,10}:\d{1,10}$/.test(v)) throw new Error(`AXION_GUARD_WORKER_USER must be a user name or <uid>:<gid>, got ${JSON.stringify(v)}`);
+      return v;
+    })(),
     egressUrl: egress,
     liveEnvFile: path('AXION_GUARD_LIVE_ENV', join(root, 'secrets', 'live.env')),
     backupScript: path('AXION_GUARD_BACKUP_SCRIPT', join(root, 'guard', 'evolve', 'backup.sh')),

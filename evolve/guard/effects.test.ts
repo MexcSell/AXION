@@ -580,6 +580,7 @@ test('checks: internal network, throw-away postgres (300 connections) with the s
   for (const outcome of ['pass', 'fail'] as const) {
     const f = fakeHost((c) => {
       const a = c.args;
+      if (c.cmd === 'id') return idUser(c);
       if (a[0] === 'run' && a.includes(`axion-checks:${TAG}`)) {
         const out = a.find((x) => x.endsWith(':/out'))!.slice(0, -':/out'.length);
         writeFileSync(join(out, 'summary.json'), JSON.stringify({ passed: 4836, failed: outcome === 'pass' ? 0 : 2, skipped: 36, seconds: 273, ok: outcome === 'pass', steps: {} }));
@@ -591,7 +592,9 @@ test('checks: internal network, throw-away postgres (300 connections) with the s
     assert.equal(r.ok, outcome === 'pass');
     assert.equal(r.passed, 4836);
     const id = 'axion-checks-00000001';
-    const l = f.lines();
+    // R31: the worker user is looked up first (id, then getent for the login-shell check)
+    assert.deepEqual(f.lines().slice(0, 3), ['id -u axion-ws', 'id -g axion-ws', 'getent passwd 998']);
+    const l = f.lines().filter((x) => x.startsWith('docker '));
     assert.deepEqual(l.slice(0, 3), [
       `docker network create ${ISO} ${id}`,
       `docker volume create ${id}-sock`,
@@ -605,14 +608,14 @@ test('checks: internal network, throw-away postgres (300 connections) with the s
     // I1: read-only root (all of /app), writable only /tmp (tmpfs), /out and /dev/shm; the Guard's run-checks.sh from outside /app
     assert.deepEqual(run.args, [
       'run', '--name', `${id}-run`, '--network', id, ...LOG, '--shm-size=1g',
-      '--read-only', '--tmpfs', '/tmp:rw,exec,nosuid,nodev,size=4g', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
+      '--read-only', '--tmpfs', '/tmp:rw,exec,nosuid,nodev,size=4g', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--user', '998:997',
       '-v', `${join(cfg.evolveDir, 'slot', 'run-checks.sh')}:/guard/run-checks.sh:ro`,
       '-e', 'TEST_DATABASE_URL', '-e', 'E2E_DATABASE_URL', '-e', 'PGUSER=postgres', '-e', 'AXION_REQUIRE_SOCKET_TEST=1',
       '-v', `${cfg.repo}:/repo.git:ro`, '-e', 'GIT_DIR=/repo.git', '-e', 'GIT_WORK_TREE=/app',
       '-v', `${id}-sock:/var/run/postgresql`, '-v', `${out}:/out`, `axion-checks:${TAG}`, 'bash', '/guard/run-checks.sh',
     ]);
     assert.ok(cfg.evolveDir.startsWith('/') && !cfg.evolveDir.startsWith('/app'), 'the script comes from the Guard\'s installed copy');
-    const pw = f.calls[2].env!.POSTGRES_PASSWORD;
+    const pw = f.calls.find((c) => c.env?.POSTGRES_PASSWORD)!.env!.POSTGRES_PASSWORD;
     assert.match(pw, /^[0-9a-f]{48}$/);
     assert.deepEqual(run.env, {
       TEST_DATABASE_URL: `postgresql://postgres:${pw}@${id}-pg:5432/axion_test`,
@@ -625,12 +628,12 @@ test('checks: internal network, throw-away postgres (300 connections) with the s
     assert.ok(!existsSync(out), 'the out dir is removed');
   }
   // a failure while preparing still removes everything
-  const f = fakeHost((c) => (c.args[0] === 'volume' && c.args[1] === 'create' ? { code: 1, stderr: 'no space' } : undefined));
+  const f = fakeHost((c) => (c.args[0] === 'volume' && c.args[1] === 'create' ? { code: 1, stderr: 'no space' } : idUser(c)));
   await assert.rejects(makeEffects(cfg, f.host, { frontPort: 5290, database: 'axion' }).checks(TAG), /no space/);
   assert.deepEqual(f.lines().slice(-4), ['docker rm -f -v axion-checks-00000001-run axion-checks-00000001-pg',
     'docker volume rm axion-checks-00000001-sock', 'docker network rm axion-checks-00000001', `docker image rm axion-checks:${TAG}`]);
   // no summary.json → not ok, passed NaN-free
-  const g = fakeHost((c) => (c.args.includes(`axion-checks:${TAG}`) ? { code: 2, stderr: 'TEST_DATABASE_URL is required' } : undefined));
+  const g = fakeHost((c) => (c.args.includes(`axion-checks:${TAG}`) ? { code: 2, stderr: 'TEST_DATABASE_URL is required' } : idUser(c)));
   const r = await makeEffects(cfg, g.host, { frontPort: 5290, database: 'axion' }).checks(TAG);
   assert.equal(r.ok, false);
   assert.equal(r.passed, 0);
@@ -675,7 +678,7 @@ function installedGuard(cfgRoot: string) {
   writeFileSync(join(cfgRoot, 'repo.git', 'info', 'attributes'), ATTRS);
   return loadConfig({ AXION_GUARD_ROOT: cfgRoot }, join(guard, 'evolve'));
 }
-const lsTree = (files: string) => (c: Call) => (c.cmd === 'git' && c.args[2] === 'ls-tree' ? { stdout: files } : undefined);
+const lsTree = (files: string) => (c: Call) => (c.cmd === 'git' && c.args[2] === 'ls-tree' ? { stdout: files } : idUser(c));
 
 test('build: tree checked for .gitattributes, git archive, evolve/ and .dockerignore replaced by the installed copy, app then checks image', async () => {
   const c2 = installedGuard(tmpCfg().root);
@@ -710,11 +713,13 @@ test('build: tree checked for .gitattributes, git archive, evolve/ and .dockerig
     `git --git-dir ${c2.repo} ls-tree -r -z --name-only ${SHA}`,
     `git --git-dir ${c2.repo} archive --format=tar -o ${work} ${SHA}`,
     `tar -xf ${work} -C ${ctx}`,
+    // R31: the worker user the candidate's web build runs as (never the image's node = uid 1000)
+    'id -u axion-ws', 'id -g axion-ws', 'getent passwd 998',
     // I2: network only for the lockfile stages; every stage with the candidate tree is built with --network none
     `docker build --force-rm -f ${ctx}/evolve/docker/app.Dockerfile --target deps -t axion-build:${tag}-deps ${ctx}`,
-    `docker build --force-rm --network none -f ${ctx}/evolve/docker/app.Dockerfile --build-arg AXION_COMMIT=${SHA} -t axion-app:${tag} ${ctx}`,
+    `docker build --force-rm --network none -f ${ctx}/evolve/docker/app.Dockerfile --build-arg AXION_COMMIT=${SHA} --build-arg AXION_BUILD_UID=998 --build-arg AXION_BUILD_GID=997 -t axion-app:${tag} ${ctx}`,
     `docker build --force-rm -f ${ctx}/evolve/docker/checks.Dockerfile --target browsers --build-arg DEPS_IMAGE=axion-build:${tag}-deps -t axion-build:${tag}-browsers ${ctx}`,
-    `docker build --force-rm --network none -f ${ctx}/evolve/docker/checks.Dockerfile --build-arg DEPS_IMAGE=axion-build:${tag}-deps --build-arg APP_IMAGE=axion-app:${tag} --build-arg AXION_COMMIT=${SHA} -t axion-checks:${tag} ${ctx}`,
+    `docker build --force-rm --network none -f ${ctx}/evolve/docker/checks.Dockerfile --build-arg DEPS_IMAGE=axion-build:${tag}-deps --build-arg APP_IMAGE=axion-app:${tag} --build-arg AXION_COMMIT=${SHA} --build-arg AXION_BUILD_UID=998 --build-arg AXION_BUILD_GID=997 -t axion-checks:${tag} ${ctx}`,
     `docker image rm axion-build:${tag}-deps axion-build:${tag}-browsers`,
   ]);
   assert.deepEqual(builds, [{ DOCKER_BUILDKIT: '0' }, { DOCKER_BUILDKIT: '0' }, { DOCKER_BUILDKIT: '0' }, { DOCKER_BUILDKIT: '0' }], 'the legacy builder, always');
@@ -1020,6 +1025,14 @@ test('Dockerfiles (I2): no stage that holds candidate files is built with a netw
   for (const l of app[0].lines.filter((x) => /^COPY/i.test(x))) assert.match(l, /^COPY (server|web)\/package\.json \1\/package-lock\.json \1\/$/);
   assert.ok(app[1].lines.includes('COPY . .') && app[1].lines.some((l) => l.includes('npm run build')));
   assert.ok(!app[1].lines.some((l) => /^COPY --chown/.test(l)), '/app stays root-owned');
+  // R31: the candidate's web build runs as the build-arg uid (the Guard's worker user), never as node (uid 1000)
+  const userLines = [...app, ...stages(read('checks.Dockerfile'))].flatMap((s) => s.lines).filter((l) => /^USER /i.test(l));
+  assert.ok(!userLines.some((l) => /\bnode\b|\b1000\b/.test(l)), userLines.join(' | '));
+  const build = app[1].lines.findIndex((l) => l.includes('npm run build'));
+  assert.equal(app[1].lines.slice(0, build).filter((l) => /^USER /.test(l)).at(-1), 'USER ${AXION_BUILD_UID}:${AXION_BUILD_GID}');
+  assert.ok(app[1].lines.includes('ARG AXION_BUILD_UID=65534') && !app[0].lines.some((l) => l.includes('AXION_BUILD')), 'declared after the deps stage only');
+  const ws = stages(read('workshop.Dockerfile'));
+  assert.deepEqual(ws.flatMap((s) => s.lines).filter((l) => /^USER /.test(l)), ['USER 65534:65534'], 'the Workshop image bakes no uid but nobody');
   const checks = stages(read('checks.Dockerfile'));
   assert.deepEqual(checks.map((s) => s.name), ['browsers', 'app', '']);
   assert.ok(!checks[0].lines.some((l) => /^COPY/i.test(l)), 'the browsers stage (built with a network) has no candidate file');
@@ -1034,4 +1047,50 @@ test('Dockerfiles (I2): no stage that holds candidate files is built with a netw
   assert.equal(steps.length, 4);
   for (const l of steps) assert.ok(!/\b(npm|npx)\b/.test(l), l);
   assert.ok(script.includes('unset NODE_OPTIONS NODE_PATH'));
+});
+
+// ---- step 2 fix wave, ruling R31: no container runs as a uid that resolves to a login account ----
+
+test('R31 resolveRunAs: a name via id -u/-g, or a numeric uid:gid; refused when the uid is 0 or resolves to a login shell', async () => {
+  const { resolveRunAs, loginAccountProblem } = await import('./effects-util.ts');
+  const passwd: Record<string, string> = { 1000: 'thomas:x:1000:1000:thomas,,,:/home/thomas:/bin/bash\n', 987: 'axion-ws:x:987:982::/nonexistent:/usr/sbin/nologin\n',
+    101: 'messagebus:x:101:102::/nonexistent:/usr/sbin/nologin\n', 999: 'dnsmasq:x:999:65534:dnsmasq:/var/lib/misc:/bin/false\n' };
+  const ids: Record<string, [string, string]> = { 'axion-ws': ['987', '982'], thomas: ['1000', '1000'] };
+  const calls: string[] = [];
+  const run = async (cmd: string, args: string[]) => {
+    calls.push([cmd, ...args].join(' '));
+    if (cmd === 'id') { const v = ids[args[1]]; return v ? { code: 0, stdout: `${args[0] === '-u' ? v[0] : v[1]}\n`, stderr: '' } : { code: 1, stdout: '', stderr: `id: '${args[1]}': no such user` }; }
+    if (cmd === 'getent') { const l = passwd[args[1]]; return l ? { code: 0, stdout: l, stderr: '' } : { code: 2, stdout: '', stderr: '' }; }
+    return { code: 99, stdout: '', stderr: '' };
+  };
+  assert.equal(await resolveRunAs(run, 'axion-ws'), '987:982');
+  assert.deepEqual(calls, ['id -u axion-ws', 'id -g axion-ws', 'getent passwd 987']);
+  assert.equal(await resolveRunAs(run, '64999:64999'), '64999:64999', 'a uid that does not resolve is fine');
+  await assert.rejects(resolveRunAs(run, 'thomas'), /login shell \/bin\/bash/);
+  await assert.rejects(resolveRunAs(run, '1000:1000'), /thomas/);
+  await assert.rejects(resolveRunAs(run, '0:0'), /uid 0/);
+  await assert.rejects(resolveRunAs(run, 'nobody-here'), /cannot look up/);
+  assert.equal(await resolveRunAs(run, '999:999'), '999:999', '/bin/false is not a login shell');
+  assert.equal(loginAccountProblem('5', { code: 3, stdout: '', stderr: '' })?.includes('getent'), true, 'a failing getent fails closed');
+});
+
+test('R31: the checks container runs as the worker user (axion-ws), never the image user node (uid 1000)', async () => {
+  const cfg = tmpCfg();
+  const f = fakeHost((c) => {
+    if (c.cmd === 'id') return { stdout: c.args[0] === '-u' ? '987\n' : '982\n' };
+    if (c.cmd === 'getent') return { code: 2 };
+    if (c.args[0] === 'run' && c.args.includes(`axion-checks:${TAG}`)) {
+      const out = c.args.find((x) => x.endsWith(':/out'))!.slice(0, -':/out'.length);
+      writeFileSync(join(out, 'summary.json'), JSON.stringify({ passed: 4836, failed: 0, skipped: 36, seconds: 273, ok: true, steps: {} }));
+      return { code: 0 };
+    }
+    return undefined;
+  });
+  await makeEffects(cfg, f.host, { frontPort: 5290, database: 'axion' }).checks(TAG);
+  assert.ok(f.lines().includes('id -u axion-ws') && f.lines().includes('getent passwd 987'));
+  const run = f.calls.find((c) => c.args.includes(`axion-checks:${TAG}`))!;
+  assert.equal(run.args[run.args.indexOf('--user') + 1], '987:982');
+  assert.equal(loadConfig({}).workerUser, 'axion-ws');
+  assert.equal(loadConfig({ AXION_GUARD_WORKER_USER: '64999:64999' }).workerUser, '64999:64999');
+  assert.throws(() => loadConfig({ AXION_GUARD_WORKER_USER: '--x' }), /AXION_GUARD_WORKER_USER/);
 });

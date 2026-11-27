@@ -164,7 +164,7 @@ const envelope = (result: string, extra: Record<string, unknown> = {}) =>
   JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result, num_turns: 3, permission_denials: [], ...extra });
 
 const FAKE_SECRET = 'fk' + 'e'.repeat(20) + Date.now().toString(36);
-const cfg = { ...WORKSHOP_DEFAULTS, image: 'axion-workshop:abc123def456', rules: RULES, secrets: [FAKE_SECRET] };
+const cfg = { ...WORKSHOP_DEFAULTS, image: 'axion-workshop:abc123def456', rules: RULES, secrets: [FAKE_SECRET], user: '987:982' };
 /** every 12-character window of `secret` (what survives a cut through a value) */
 const windows = (secret: string) => Array.from({ length: secret.length - 11 }, (_, i) => secret.slice(i, i + 12));
 
@@ -177,7 +177,7 @@ test('runEngineer: removes a leftover container, then the exact docker run argv;
   assert.deepEqual(calls[1].cmd, 'docker');
   assert.deepEqual(calls[1].args, [
     'run', '--rm', '-i', '--name', 'axion-workshop-M-7-a2', '--network', 'axion-workshop', ...LOG_OPTS,
-    '--user', '1000:1000', '--read-only', '--tmpfs', '/tmp', '--tmpfs', '/home/w', '--cap-drop', 'ALL',
+    '--user', '987:982', '--read-only', '--tmpfs', '/tmp', '--tmpfs', '/home/w', '--cap-drop', 'ALL',
     '--security-opt', 'no-new-privileges', '--pids-limit', '512', '--memory', '4g',
     '-v', `${CHANGE}/tree:/work`, '--env-file', '/srv/axion-evolve/secrets/workshop.env',
     '-e', 'HOME=/home/w', '-e', 'HTTPS_PROXY=http://axion-egress:3128', '-e', 'NO_PROXY=', '-e', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1',
@@ -340,4 +340,19 @@ test('runReviewer: unparsable, CLI failure, timeout or an oversized diff → not
   const r4 = await runReviewer({ mission, diff: 'x'.repeat(cfg.maxReviewDiff + 1) }, big.exec, cfg);
   assert.equal(r4.ok, false);
   assert.equal(big.calls.length, 0);
+});
+
+test('R31: the Workshop user comes from the config (axion-ws, looked up by the runner); no default, never uid 0', async () => {
+  assert.equal('user' in WORKSHOP_DEFAULTS, false, 'no baked-in uid');
+  const { user: _u, ...noUser } = cfg;
+  for (const bad of [noUser as typeof cfg, { ...cfg, user: '0:0' }, { ...cfg, user: '1000' }, { ...cfg, user: '987:0' }, { ...cfg, user: '-u:1' }]) {
+    const { exec, calls } = fakeExec();
+    await assert.rejects(runEngineer({ changeDir: CHANGE, mission, attempt: 1 }, exec, bad), /user/);
+    await assert.rejects(runReviewer({ mission, diff: '+x\n' }, exec, bad), /user/);
+    assert.equal(calls.length, 0);
+  }
+  const { exec, calls } = fakeExec({ runAnswer: { stdout: envelope('{"ok":true,"concerns":[]}') } });
+  await runReviewer({ mission, diff: '+x\n' }, exec, cfg);
+  const run = calls.find((c) => c.args[0] === 'run')!.args;
+  assert.equal(run[run.indexOf('--user') + 1], '987:982');
 });

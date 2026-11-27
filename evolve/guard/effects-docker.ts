@@ -15,7 +15,7 @@ import { names } from './config.ts';
 import type { GuardConfig } from './config.ts';
 import type { Host, RunOpts, RunResult } from './host.ts';
 import { assertSha } from './effects-git.ts';
-import { envFileValue, errTail, imageTag, parseHealth, readSummary, renderFrontConf, writeAtomic } from './effects-util.ts';
+import { envFileValue, errTail, imageTag, parseHealth, readSummary, renderFrontConf, resolveRunAs, writeAtomic } from './effects-util.ts';
 
 export { errTail, imageTag, renderFrontConf, writeAtomic };
 
@@ -76,18 +76,18 @@ export function dockerOps(cfg: GuardConfig, host: Host, ctx: DeployContext) {
     throw new Error(`docker container inspect ${name}: ${errTail(r)}`);
   }
 
-  /** `<uid>:<gid>` of the OS user the slots run as, looked up once */
+  /** `<uid>:<gid>` of the OS user the slots run as, looked up once (R31: never uid 0 or a login account) */
   async function user(): Promise<string> {
     if (userCache) return userCache;
-    const ids: string[] = [];
-    for (const flag of ['-u', '-g']) {
-      const r = await host.run('id', [flag, cfg.osUser]);
-      const v = r.stdout.trim();
-      if (r.code !== 0 || !/^\d+$/.test(v)) throw new Error(`cannot look up the ${cfg.osUser} user (id ${flag}): ${errTail(r)}`);
-      ids.push(v);
-    }
-    userCache = ids.join(':');
+    userCache = await resolveRunAs((c, a) => host.run(c, a), cfg.osUser);
     return userCache;
+  }
+  let workerCache: string | null = null;
+  /** R31: `<uid>:<gid>` of the worker user (axion-ws): the checks container and the candidate's web build; looked up once */
+  async function worker(): Promise<string> {
+    if (workerCache) return workerCache;
+    workerCache = await resolveRunAs((c, a) => host.run(c, a), cfg.workerUser);
+    return workerCache;
   }
 
   /** the slots' DATABASE_URL: the live env file's, with only the database name replaced by ctx.database */
@@ -338,12 +338,15 @@ export function dockerOps(cfg: GuardConfig, host: Host, ctx: DeployContext) {
         const deps = n.build(`${tag}-deps`);
         const browsers = n.build(`${tag}-browsers`);
         const b = (args: string[]) => must(['build', '--force-rm', ...args, base], { timeoutMs: cfg.buildTimeoutMs, env: BUILD_ENV });
+        // R31: the candidate's web build (its vite.config.ts) runs as the worker user, never as the image's node (uid 1000)
+        const [buildUid, buildGid] = (await worker()).split(':');
         try {
           await b(['-f', appFile, '--target', 'deps', '-t', deps]);
-          await b(['--network', 'none', '-f', appFile, '--build-arg', `AXION_COMMIT=${sha}`, '-t', n.app(tag)]);
+          await b(['--network', 'none', '-f', appFile, '--build-arg', `AXION_COMMIT=${sha}`, '--build-arg', `AXION_BUILD_UID=${buildUid}`,
+            '--build-arg', `AXION_BUILD_GID=${buildGid}`, '-t', n.app(tag)]);
           await b(['-f', checksFile, '--target', 'browsers', '--build-arg', `DEPS_IMAGE=${deps}`, '-t', browsers]);
           await b(['--network', 'none', '-f', checksFile, '--build-arg', `DEPS_IMAGE=${deps}`, '--build-arg', `APP_IMAGE=${n.app(tag)}`,
-            '--build-arg', `AXION_COMMIT=${sha}`, '-t', n.checks(tag)]);
+            '--build-arg', `AXION_COMMIT=${sha}`, '--build-arg', `AXION_BUILD_UID=${buildUid}`, '--build-arg', `AXION_BUILD_GID=${buildGid}`, '-t', n.checks(tag)]);
         } finally {
           // the stage tags only: their layers stay as long as the app/checks images built on them
           await cleanup([['image', 'rm', deps, browsers]]);
@@ -361,7 +364,9 @@ export function dockerOps(cfg: GuardConfig, host: Host, ctx: DeployContext) {
       const [net, vol, pg, run] = [id, `${id}-sock`, `${id}-pg`, `${id}-run`];
       const out = await mkdtemp(join(await workDir(), 'checks-'));
       try {
-        // the checks run as the image's user (node, uid 1000); the dir sits inside the root-only work dir
+        // R31: the checks run as the worker user (axion-ws, a non-login system user; never the image's node = uid 1000,
+        // which is a login account on this host); /out is world-writable inside the root-only work dir
+        const runAs = await worker();
         await chmod(out, 0o777);
         await must(['network', 'create', ...ISOLATED_NET, net]);
         await must(['volume', 'create', vol]);
@@ -374,7 +379,7 @@ export function dockerOps(cfg: GuardConfig, host: Host, ctx: DeployContext) {
         // node_modules), only /tmp (tmpfs), /out and /dev/shm are writable, and the script that runs is the Guard's
         // installed run-checks.sh, mounted read-only from outside /app. /tmp allows exec: tests run fake CLI scripts from there
         const r = await docker(['run', '--name', run, '--network', net, ...LOG_OPTS, '--shm-size=1g',
-          '--read-only', '--tmpfs', '/tmp:rw,exec,nosuid,nodev,size=4g', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
+          '--read-only', '--tmpfs', '/tmp:rw,exec,nosuid,nodev,size=4g', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--user', runAs,
           '-v', `${join(cfg.evolveDir, 'slot', 'run-checks.sh')}:/guard/run-checks.sh:ro`,
           '-e', 'TEST_DATABASE_URL', '-e', 'E2E_DATABASE_URL', '-e', 'PGUSER=postgres', '-e', 'AXION_REQUIRE_SOCKET_TEST=1',
           '-v', `${cfg.repo}:/repo.git:ro`, '-e', 'GIT_DIR=/repo.git', '-e', 'GIT_WORK_TREE=/app',

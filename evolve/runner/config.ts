@@ -44,6 +44,12 @@ export const AGENTS = { gm: 'gm', engineer: 'web-dev-01', reviewer: 'tester-01',
 export const GUARD_BIN = '/usr/local/bin/axion-guard';
 /** the OS user whose uid:gid the mission CLI container runs as (peer auth on the DB socket) */
 export const DB_USER = 'axion';
+/**
+ * R31: the non-login system user (install.sh step 1) the Workshop runs, the typecheck and the exported tree's ownership use.
+ * Its uid:gid is looked up at run time (`id -u/-g`), never hard-coded, and refused when it is 0 or resolves to an account
+ * with a login shell (uid 1000 is the login user thomas on this host: its processes could read the Workshop's environ).
+ */
+export const WORKER_USER = 'axion-ws';
 export const SOCKET_DIR = '/var/run/postgresql';
 /** git ref prefix of the commits handed to the Guard: incoming/evolve-<mission>-a<n> */
 export const REF_PREFIX = 'incoming/evolve-';

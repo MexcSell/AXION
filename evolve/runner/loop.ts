@@ -92,7 +92,7 @@ export interface RunnerEffects {
   holdsLock(): boolean;
   /** evolve/main in the Guard's repository */
   liveSha(): Promise<string>;
-  /** `git archive <base>` into <changeDir>/tree, owned by uid 1000; returns changeDir */
+  /** `git archive <base>` into <changeDir>/tree, owned by the Workshop user axion-ws (R31); returns changeDir */
   exportTree(id: string, attempt: number, base: string): Promise<string>;
   engineer(o: { changeDir: string; mission: Mission; attempt: number; feedback?: string }): Promise<EngineerResult>;
   /** the tree as a commit on `parent` (scratch objects, hooks off); null when the tree equals the parent's */

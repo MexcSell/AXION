@@ -1,6 +1,7 @@
 // The Workshop (evolution step 2): the engineer and reviewer agents run the Claude CLI (Claude 1 only) in a throw-away
 // container of the Workshop image (evolve/docker/workshop.Dockerfile):
-//   - uid 1000, read-only root, tmpfs /tmp and HOME=/home/w, no capabilities, no-new-privileges, pids/memory limits;
+//   - the uid:gid of axion-ws (cfg.user, looked up by the runner; R31: a non-login system user, never 1000 = a login account),
+//     read-only root, tmpfs /tmp and HOME=/home/w, no capabilities, no-new-privileges, pids/memory limits;
 //   - network axion-workshop (internal, inhibit_ipv4) whose only way out is axion-egress (api.anthropic.com:443);
 //   - the only host mount: the engineer's exported tree <changeDir>/tree at /work (the reviewer gets none); never a git
 //     directory, the Docker socket or the DB;
@@ -46,6 +47,8 @@ export type WorkshopConfig = {
   /** root-only file holding CLAUDE_CODE_OAUTH_TOKEN=<TOKEN1> */
   envFile: string;
   proxyUrl: string;
+  /** R31: `<uid>:<gid>` the container runs as (axion-ws, looked up at run time); required, never 0, no default */
+  user: string;
   /** container names: <namePrefix>-<mission>-a<n>[-review] */
   namePrefix: string;
   model: string;
@@ -62,8 +65,8 @@ export type WorkshopConfig = {
   secrets: string[];
 };
 
-/** everything but `secrets`, which the caller must always supply (the values of secrets/*.env) */
-export const WORKSHOP_DEFAULTS: Omit<WorkshopConfig, 'secrets'> = {
+/** everything but `secrets` and `user`, which the caller must always supply (secrets/*.env values; axion-ws's uid:gid) */
+export const WORKSHOP_DEFAULTS: Omit<WorkshopConfig, 'secrets' | 'user'> = {
   image: 'axion-workshop:current',
   network: 'axion-workshop',
   envFile: '/srv/axion-evolve/secrets/workshop.env',
@@ -80,6 +83,11 @@ function checkSecrets(cfg: WorkshopConfig) {
   const s = (cfg as Partial<WorkshopConfig>).secrets;
   if (!Array.isArray(s) || s.length === 0 || !s.every((v) => typeof v === 'string')) {
     throw new Error('WorkshopConfig.secrets is required (the secrets/*.env values); refusing to run without redaction');
+  }
+  const u = (cfg as Partial<WorkshopConfig>).user;
+  const m = typeof u === 'string' ? /^(\d{1,10}):(\d{1,10})$/.exec(u) : null;
+  if (!m || Number(m[1]) === 0 || Number(m[2]) === 0) {
+    throw new Error(`WorkshopConfig.user must be the <uid>:<gid> of the Workshop user (axion-ws), never 0, got ${JSON.stringify(u ?? null)}`);
   }
 }
 
@@ -151,7 +159,7 @@ export function reviewerArgs(o: { model: string; settings: object }): string[] {
 function dockerRun(cfg: WorkshopConfig, name: string, mount: string | null, claudeArgs: string[]): string[] {
   return [
     'run', '--rm', '-i', '--name', name, '--network', cfg.network, ...LOG_OPTS,
-    '--user', '1000:1000', '--read-only', '--tmpfs', '/tmp', '--tmpfs', HOME, '--cap-drop', 'ALL',
+    '--user', cfg.user, '--read-only', '--tmpfs', '/tmp', '--tmpfs', HOME, '--cap-drop', 'ALL',
     '--security-opt', 'no-new-privileges', '--pids-limit', '512', '--memory', '4g',
     ...(mount ? ['-v', `${mount}:${WORK}`] : []),
     '--env-file', cfg.envFile,
@@ -248,7 +256,7 @@ export type EngineerResult = {
 };
 
 /**
- * One engineer attempt on the exported tree at <changeDir>/tree (owned by uid 1000). ok = the CLI finished without error and
+ * One engineer attempt on the exported tree at <changeDir>/tree (owned by cfg.user). ok = the CLI finished without error and
  * the answer ends with a <report> block; `denials` = tool calls the permission layer refused. The tree holds the result.
  */
 export async function runEngineer(
