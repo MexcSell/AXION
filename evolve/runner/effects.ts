@@ -69,30 +69,33 @@ export const realProc: Proc = (cmd, args, o = {}) => new Promise((resolve, rejec
   });
 });
 
-/** starts the Guard; resolves with its exit code (128 when a signal ended it) */
-export type GuardSpawn = (bin: string, args: string[], logFile: string) => Promise<number>;
+/** starts the Guard (stdout and stderr into two files); resolves with its exit code (128 when a signal ended it) */
+export type GuardSpawn = (bin: string, args: string[], outFile: string, errFile: string) => Promise<number>;
 
 /**
- * The Guard in its own session and process group (detached), stdin /dev/null, stdout and stderr appended to `logFile`
+ * The Guard in its own session and process group (detached), stdin /dev/null, stdout and stderr appended to two files
  * (mode 600), never a pipe and no timeout: a dying runner, a Ctrl-C in the controller's shell or a stop of the unit
  * (KillMode=process) can never kill it mid-deploy or make its next log write fail with EPIPE. The runner only waits.
  */
-export const spawnGuardDetached: GuardSpawn = (bin, args, logFile) => new Promise((resolve, reject) => {
-  const fd = openSync(logFile, 'a', 0o600);
+export const spawnGuardDetached: GuardSpawn = (bin, args, outFile, errFile) => new Promise((resolve, reject) => {
+  const out = openSync(outFile, 'a', 0o600);
+  const err = openSync(errFile, 'a', 0o600);
   let child;
   try {
-    child = spawn(bin, args, { detached: true, stdio: ['ignore', fd, fd], shell: false, env: process.env });
+    child = spawn(bin, args, { detached: true, stdio: ['ignore', out, err], shell: false, env: process.env });
   } catch (e) {
-    closeSync(fd);
+    closeSync(out); closeSync(err);
     reject(e);
     return;
   }
-  closeSync(fd);
+  closeSync(out); closeSync(err);
   child.on('error', (e) => reject(new Error(`${bin}: ${e.message}`)));
   child.on('exit', (code, signal) => resolve(code ?? (signal ? 128 : 1)));
 });
 
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9-]{0,40}$/;
+/** at most this much of the Guard's stdout (head) and stderr (tail) is read */
+const GUARD_READ_MAX = 1024 * 1024;
 const TAG_RE = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/;
 const DB_RE = /^[a-z_][a-z0-9_]{0,62}$/;
 const UIDGID_RE = /^\d{1,10}:\d{1,10}$/;
@@ -155,15 +158,18 @@ export function parseEnvValues(text: string): string[] {
   return out;
 }
 
-/** the Guard's JSON result line (`{outcome,…}`) among its other stdout lines; null when there is none */
+/**
+ * The Guard's result line: the FIRST stdout line that is a JSON object (the Guard prints it before its human summary,
+ * whose reason can carry a candidate's test output). Display only: the decision is the exit code plus the Guard's
+ * history.jsonl record. null when the first JSON line is not a result.
+ */
 export function parseGuardResult(stdout: string): GuardResult | null {
-  const lines = stdout.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('{'));
-  for (let i = lines.length - 1; i >= 0; i--) {
-    try {
-      const v = JSON.parse(lines[i]) as Record<string, unknown>;
-      if (v && typeof v === 'object' && typeof v.outcome === 'string') return v as GuardResult;
-    } catch { /* not the result line */ }
-  }
+  const first = stdout.split('\n').map((l) => l.trim()).find((l) => l.startsWith('{'));
+  if (!first) return null;
+  try {
+    const v = JSON.parse(first) as Record<string, unknown>;
+    if (v && typeof v === 'object' && !Array.isArray(v) && typeof v.outcome === 'string') return v as GuardResult;
+  } catch { /* not a result line */ }
   return null;
 }
 
@@ -212,6 +218,8 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
   const maxDiff = o.maxDiffBytes ?? MAX_DIFF_BYTES;
   const host: Host = { ...realHost, log };
   let ids: string | null = o.uidGid ?? null;
+  /** this process holds runner.lock right now */
+  let holding = false;
 
   const changeDirOf = (id: string, attempt?: number) => {
     if (!ID_RE.test(id)) throw new Error(`invalid mission id ${JSON.stringify(id)}`);
@@ -384,6 +392,18 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
       return { text: buf.toString('utf8'), size };
     } finally { await fh.close(); }
   }
+  /** at most `max` bytes of a file, from its start or its end; '' when it cannot be read */
+  async function readPart(file: string, from: 'head' | 'tail', max: number): Promise<string> {
+    let fh;
+    try { fh = await open(file, 'r'); } catch { return ''; }
+    try {
+      const { size } = await fh.stat();
+      const n = Math.min(size, max);
+      const buf = Buffer.alloc(n);
+      await fh.read(buf, 0, n, from === 'head' ? 0 : size - n);
+      return buf.toString('utf8');
+    } finally { await fh.close(); }
+  }
   const sizeOf = async (file: string) => { try { return (await stat(file)).size; } catch { return 0; } };
 
   function pidAlive(pid: number): boolean {
@@ -453,12 +473,16 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
 
     async lock() {
       try {
-        return await acquireLock(P.lock, host);
+        const release = await acquireLock(P.lock, host);
+        holding = true;
+        return async () => { holding = false; await release(); };
       } catch (e) {
         if (e instanceof Busy) return null;
         throw e;
       }
     },
+
+    holdsLock: () => holding,
 
     async killWorkers() {
       const r = await proc('docker', ['ps', '-a', '--format', '{{.Names}}'], { timeoutMs: 60_000 });
@@ -645,9 +669,11 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
       };
       await mkdir(guardLogDir, { recursive: true, mode: 0o700 });
       await chmod(guardLogDir, 0o700);
-      const logFile = join(guardLogDir, `${d.sha.slice(0, 12)}-${hex(4)}.log`);
+      const stem = join(guardLogDir, `${d.sha.slice(0, 12)}-${hex(4)}`);
+      const outFile = `${stem}.out`;
+      const errFile = `${stem}.err`;
       let done = false;
-      const run = spawnGuard(guardBin, args, logFile).then(
+      const run = spawnGuard(guardBin, args, outFile, errFile).then(
         (code) => { done = true; return { code, err: '' }; },
         (e: unknown) => { done = true; return { code: 1, err: `axion-guard could not be started: ${msg(e)}` }; },
       );
@@ -657,10 +683,12 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
       }
       const r = await run;
       await poll().catch(() => {});
-      const text = await readFile(logFile, 'utf8').catch(() => '');
-      await rm(logFile, { force: true });
-      const other = text.split('\n').filter((l) => !l.trim().startsWith('{')).join('\n');
-      const answer: DeployAnswer = { code: r.code, result: parseGuardResult(text), stderr: tail(`${other}\n${r.err}`.trim(), 4000) };
+      // bounded reads: the head of stdout (the result line comes first), the tail of stderr
+      const stdout = await readPart(outFile, 'head', GUARD_READ_MAX);
+      const stderr = await readPart(errFile, 'tail', GUARD_READ_MAX);
+      await rm(outFile, { force: true });
+      await rm(errFile, { force: true });
+      const answer: DeployAnswer = { code: r.code, result: parseGuardResult(stdout), stderr: tail(`${stderr}\n${r.err}`.trim(), 4000) };
       return answer;
     },
 

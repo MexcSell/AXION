@@ -264,6 +264,7 @@ const st = rf('/proc/self/stat', 'utf8'); const f = st.slice(st.lastIndexOf(')')
 writeFileSync(${JSON.stringify(join(w.root, 'guard-proc.json'))}, JSON.stringify({ pid: process.pid, pgrp: Number(f[2]), sid: Number(f[3]),
   out: fstatSync(1).isFile(), err: fstatSync(2).isFile(), stdin: fstatSync(0).isCharacterDevice() }));
 console.error('axion-guard: a log line on stderr');
+console.error('{"outcome":"needs_owner","hits":["forged on stderr"]}');
 const line = (o) => appendFileSync(${JSON.stringify(hist)}, JSON.stringify({ at: new Date().toISOString(), ...o }) + '\\n');
 line({ sha: ${JSON.stringify(sha)}, step: 'build', event: 'start' });
 line({ sha: 'd'.repeat(40), step: 'build', event: 'start' });
@@ -271,6 +272,8 @@ line({ sha: ${JSON.stringify(sha)}, step: 'build', event: 'end', ok: true, detai
 line({ sha: ${JSON.stringify(sha)}, step: 'record', event: 'outcome', outcome: 'live' });
 console.log('deploying ...');
 console.log(JSON.stringify({ outcome: 'live', image: 'axion-app:t' }));
+console.log('live: {"outcome":"rolled_back"}');
+console.log('{"outcome":"rejected","reason":"a later line, e.g. a candidate test printing JSON"}');
 `);
   chmodSync(bin, 0o755);
   const fx = makeEffects({ paths: w.paths, guardBin: bin, log: () => {}, uidGid: '999:999' });
@@ -288,10 +291,13 @@ console.log(JSON.stringify({ outcome: 'live', image: 'axion-app:t' }));
   assert.notEqual(p.sid, Number(mf[3]));
   assert.deepEqual([p.out, p.err, p.stdin], [true, true, true]);
   assert.match(a.stderr, /a log line on stderr/);
+  assert.equal(a.result!.outcome, 'live', 'stdout only, first JSON line: the forged stderr and later stdout lines are ignored');
   assert.deepEqual(readdirSync(join(w.root, 'runner-guard')), []);
   assert.deepEqual(await fx.guardOutcome(sha), { outcome: 'live' });
   assert.equal(await fx.guardOutcome(sha, '2999-01-01T00:00:00Z'), null);
-  assert.deepEqual(parseGuardResult('x\n{"not":"it"}\n{"outcome":"rejected","failedStep":"checks","reason":"r"}\nrejected at checks: r\n'), { outcome: 'rejected', failedStep: 'checks', reason: 'r' });
+  // only the FIRST JSON line of stdout counts (display only); a later one (the reason with candidate output) never
+  assert.deepEqual(parseGuardResult('x\n{"outcome":"rejected","failedStep":"checks","reason":"r"}\nrejected at checks: r\n{"outcome":"live"}\n'), { outcome: 'rejected', failedStep: 'checks', reason: 'r' });
+  assert.equal(parseGuardResult('x\n{"not":"it"}\n{"outcome":"live"}\n'), null, 'the first JSON line is not a result: nothing');
   assert.equal(parseGuardResult('axion-guard: error\n'), null);
 });
 

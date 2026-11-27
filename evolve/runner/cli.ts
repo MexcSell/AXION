@@ -122,9 +122,12 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
     let seen = 0;
     const stop = (sig: string) => {
       if (++seen > 1) { err(`axion-evolve: ${sig} again: exiting now (a running Guard deploy goes on by itself)`); (deps.exit ?? process.exit)(130); return; }
-      err(`axion-evolve: ${sig}: stopping after the current step; removing the Workshop and typecheck containers (never the Guard)`);
+      err(`axion-evolve: ${sig}: stopping after the current step; removing this runner's Workshop and typecheck containers (never the Guard)`);
       stopping = true;
       ac.abort();
+      // only this process's own workers: a process that does not hold runner.lock (waiting for it, or approve before it
+      // got it) must not remove the containers of the runner that does
+      if (!fx.holdsLock()) { err('axion-evolve: not holding runner.lock: no containers removed'); return; }
       void fx.killWorkers().then((k) => { if (k.length) err(`axion-evolve: removed ${k.join(', ')}`); }, (e: unknown) => err(`axion-evolve: removing the workers failed: ${e instanceof Error ? e.message : String(e)}`));
     };
     if (deps.onSignal) deps.onSignal(stop);

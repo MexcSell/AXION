@@ -64,8 +64,12 @@ export type HistoryEntry = {
 };
 export type GuardStep = { step: string; event: 'start' | 'end'; ok?: boolean; detail?: string };
 export type GuardResult = { outcome: string; failedStep?: string; reason?: string; image?: string; hits?: string[]; base?: string };
-/** `axion-guard deploy`: exit 0 live, 1 rejected/rolled back/error, 2 usage, 3 needs owner, 4 busy; its JSON result line */
-export type DeployAnswer = { code: number; result: GuardResult | null; stderr: string };
+/**
+ * `axion-guard deploy`: exit 0 live, 1 rejected/rolled back/error, 2 usage, 3 needs owner, 4 busy. `result` is the first JSON
+ * line of its stdout: display only (a candidate's test output can reach the Guard's output). `recorded` is the Guard's own
+ * history.jsonl outcome for this sha since this deploy started (deployMirrored fills it): with the exit code, the authority.
+ */
+export type DeployAnswer = { code: number; result: GuardResult | null; stderr: string; recorded?: GuardResult | null };
 export type Diff = { text: string; files: ClassifyInput[]; stat: string };
 
 export interface RunnerEffects {
@@ -84,6 +88,8 @@ export interface RunnerEffects {
   sweep(): Promise<string[]>;
   /** removes the runner's Workshop and typecheck containers now (never the Guard); on a stop signal and ExecStopPost */
   killWorkers(): Promise<string[]>;
+  /** this process holds runner.lock now (its stop handler removes the Workshop containers only then: they are its own) */
+  holdsLock(): boolean;
   /** evolve/main in the Guard's repository */
   liveSha(): Promise<string>;
   /** `git archive <base>` into <changeDir>/tree, owned by uid 1000; returns changeDir */
@@ -221,14 +227,10 @@ async function deployMirrored(c: DeployCtx, o: { ref: string; sha: string; appro
   };
   let saidBusy = false;
   for (;;) {
-    let a = await fx.deploy(o, onStep);
+    const a = await fx.deploy(o, onStep);
     await chain;
-    if (a.code !== 4 && a.result === null) {
-      // no parsable result line (exit 0 included): the Guard's own history has the outcome
-      const h = await fx.guardOutcome(o.sha, since).catch(() => null);
-      if (h) a = { ...a, result: h };
-    }
-    if (a.code !== 4) return a;
+    // the decision's authority: the Guard's own outcome record for this sha, written after this deploy started
+    if (a.code !== 4) return { ...a, recorded: await fx.guardOutcome(o.sha, since).catch(() => null) };
     if (fx.now() - t0 + TIMING.busyWaitMs > TIMING.busyMaxMs) {
       return { code: 4, result: null, stderr: `the Guard stayed busy for ${Math.round(TIMING.busyMaxMs / 60_000)} min (another deploy held its lock)` };
     }
@@ -242,27 +244,37 @@ async function deployMirrored(c: DeployCtx, o: { ref: string; sha: string; appro
   }
 }
 
+const unclearText = (a: DeployAnswer) => `the Guard's outcome is unclear (exit ${a.code}, its history records ${a.recorded?.outcome ?? 'no outcome'} for this commit since the deploy started); treated as failed, never live`;
 const guardText = (a: DeployAnswer) => {
-  const r = a.result;
+  if (guardKind(a) === 'unclear') return `${unclearText(a)}: ${lastLines(a.stderr, 10)}`;
+  const r = a.recorded ?? a.result;
   if (!r) return `the Guard gave no result (exit ${a.code}): ${lastLines(a.stderr, 10)}`;
   return `${r.outcome}${r.failedStep ? ` at ${r.failedStep}` : ''}${r.reason ? `: ${r.reason}` : ''}`;
 };
-const guardInfo = (a: DeployAnswer): Guard => ({
-  outcome: a.result?.outcome ?? (a.code === 4 ? 'busy' : 'error'),
-  ...(a.result?.failedStep ? { failedStep: a.result.failedStep } : {}),
-  reason: (a.result?.reason ?? lastLines(a.stderr, 20)).slice(-3900),
-});
+/** display fields: the history record first, the stdout line only as a fallback; the outcome is the decided one */
+const guardInfo = (a: DeployAnswer): Guard => {
+  const k = guardKind(a);
+  const r = a.recorded ?? a.result;
+  return {
+    outcome: k,
+    ...(r?.failedStep ? { failedStep: r.failedStep } : {}),
+    reason: (k === 'unclear' ? unclearText(a) : r?.reason ?? lastLines(a.stderr, 20)).slice(-3900),
+  };
+};
 
 
-/** the Guard's answer as an outcome; exit 0 means live even without a parsable result line */
-function guardKind(a: DeployAnswer): 'live' | 'rolled_back' | 'rejected' | 'needs_owner' | 'busy' | 'failed' {
-  const o = a.result?.outcome;
-  if (a.code === 4 && !a.result) return 'busy';
-  if (o === 'live' || (a.code === 0 && !a.result)) return 'live';
-  if (a.code === 3 || o === 'needs_owner') return 'needs_owner';
-  if (o === 'rolled_back') return 'rolled_back';
-  if (o === 'rejected') return 'rejected';
-  return 'failed';
+/**
+ * The Guard's outcome: its exit code AND its own history.jsonl record (`recorded`) must agree. live only with exit 0 and a
+ * live record; needs_owner only with exit 3; rejected/rolled_back only with exit 1. Anything else (a disagreement, no
+ * record, an exit 2) is `unclear`, which is handled as failed and never as live. The stdout line never decides.
+ */
+function guardKind(a: DeployAnswer): 'live' | 'rolled_back' | 'rejected' | 'needs_owner' | 'busy' | 'unclear' {
+  if (a.code === 4) return 'busy';
+  const rec = a.recorded?.outcome;
+  if (a.code === 0 && rec === 'live') return 'live';
+  if (a.code === 3 && rec === 'needs_owner') return 'needs_owner';
+  if (a.code === 1 && (rec === 'rejected' || rec === 'rolled_back')) return rec;
+  return 'unclear';
 }
 
 const SECRET_TEXT = 'The change was refused before anything was pushed: it contained a secret value or a credential marker. '
@@ -433,10 +445,11 @@ export async function runChange(fx: RunnerEffects, m: Mission, opts: { inject: b
       const deployed: Deployed = { ref, sha, base, since };
       const kind = guardKind(a);
       const gi = guardInfo(a);
-      const r = a.result;
+      // decisions and the fields they use come from the Guard's history record only
+      const r = a.recorded ?? null;
       if (w.gone) {
         // the mission refused a write while the Guard ran: record what the Guard really did, write nothing more
-        const real: ChangeOutcome['outcome'] = kind === 'live' && opts.inject ? 'inject_live' : kind === 'busy' ? 'failed' : kind;
+        const real: ChangeOutcome['outcome'] = kind === 'live' && opts.inject ? 'inject_live' : kind === 'busy' || kind === 'unclear' ? 'failed' : kind;
         const o = await done({ mission: m.id, outcome: real, attempt, commit: sha, reason: `the Guard answered ${guardText(a)}; the mission refused writes (${w.gone.error})` });
         if (real === 'inject_live') await raiseAlarm(fx, sha, m.id);
         return o;
@@ -477,6 +490,7 @@ export async function runChange(fx: RunnerEffects, m: Mission, opts: { inject: b
         break;
       }
       const why = kind === 'busy' ? gi.reason ?? 'busy' : guardText(a);
+      if (kind === 'unclear') fx.log(`${m.id}: ${red(unclearText(a))}`);
       return await end('failed', kind === 'rejected' ? 'rejected' : 'failed', `The Guard did not deploy the change: ${why}`, { ...shown, state: kind === 'rejected' ? 'rejected' : 'failed', guard: gi }, deployed);
     }
     attempt = Math.min(attempt, CAPS.attempts);
@@ -708,11 +722,11 @@ export async function approve(fx: RunnerEffects, id: string): Promise<{ code: nu
       return { code: 1, message: text };
     }
     const gi = guardInfo(a);
-    const r = a.result;
+    const r = a.recorded ?? null;
     const kind = guardKind(a);
     const evolve = { attempt, commit: held.commit, base: held.base, guard: gi };
     let code = 1;
-    let outcome: string = kind === 'busy' ? 'failed' : kind;
+    let outcome: string = kind === 'busy' || kind === 'unclear' ? 'failed' : kind;
     let fin: [FinishBody['outcome'], string, FinishEvolve];
     if (kind === 'live') {
       code = 0;

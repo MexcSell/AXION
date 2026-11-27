@@ -43,6 +43,8 @@ function fakeFx() {
     killed: 0,
     async lock() { return (fx as any).lockFree ? async () => {} : null; },
     async killWorkers() { (fx as any).killed++; return ['axion-workshop-M-1-a1']; },
+    holds: true,
+    holdsLock() { return (fx as any).holds; },
   } as unknown as RunnerEffects;
   return { fx, hist, isPaused: () => paused };
 }
@@ -106,4 +108,16 @@ test('a stop signal in once/approve/run removes the Workshop containers at once 
     box.h!('SIGINT');
     assert.deepEqual(exits, [130]);
   }
+});
+
+test('the stop handler removes containers only while this process holds runner.lock', async () => {
+  const f = fakeFx();
+  (f.fx as any).holds = false;
+  const box: { h?: (sig: string) => void } = {};
+  const msgs: string[] = [];
+  await main(['once'], { env: { AXION_GUARD_ROOT: '/nonexistent-root' }, out: () => {}, err: (m: string) => msgs.push(m), onSignal: (h) => { box.h = h; }, exit: () => {}, effects: () => f.fx });
+  box.h!('SIGTERM');
+  await new Promise((r) => setImmediate(r));
+  assert.equal((f.fx as any).killed, 0);
+  assert.ok(msgs.some((m) => /not holding runner\.lock/.test(m)));
 });
