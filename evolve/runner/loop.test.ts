@@ -52,6 +52,10 @@ type Script = {
   stopping: () => boolean;
   finish: (body: Record<string, any>) => WriteResult;
   secrets: () => string[];
+  guardDeploying: () => string | null;
+  /** evolve/main after n deploys (M3) */
+  liveShaFn: (deploys: number) => string;
+  recovered: () => string[];
 };
 
 function fake(s: Partial<Script> = {}) {
@@ -72,8 +76,14 @@ function fake(s: Partial<Script> = {}) {
   const fx: RunnerEffects = {
     missions: {
       async halted() { calls.push('halted'); return s.halted?.() ?? { halted: false }; },
-      async recover() { calls.push('recover'); return []; },
-      async next() { calls.push('next'); return queue.shift() ?? null; },
+      async recover() { calls.push('recover'); return s.recovered?.() ?? []; },
+      async next() {
+        calls.push('next');
+        const h = s.halted?.();
+        if (h?.halted) return { mission: null, halted: h.reason ?? 'halted' };
+        return { mission: queue.shift() ?? null };
+      },
+      async file(owner, text) { calls.push(`file:${owner}`); return { id: `M-${text.length}` }; },
       async progress(id, body) {
         calls.push(`progress:${body.evolve.state ?? '-'}`);
         writes.push({ kind: 'progress', id, body });
@@ -95,7 +105,7 @@ function fake(s: Partial<Script> = {}) {
     },
     async sweep() { calls.push('sweep'); return []; },
     async killWorkers() { calls.push('killWorkers'); return []; },
-    async liveSha() { return s.liveSha ?? BASE; },
+    async liveSha() { return s.liveShaFn?.(deployInputs.length) ?? s.liveSha ?? BASE; },
     async exportTree(id, attempt, base) { calls.push(`export:a${attempt}`); attemptNow = attempt; assert.equal(base, s.liveSha ?? BASE); return `/changes/${id}/a${attempt}`; },
     async engineer(o) {
       calls.push(`engineer:a${o.attempt}`);
@@ -133,6 +143,7 @@ function fake(s: Partial<Script> = {}) {
     async guardOutcome(sha) { return s.guardOutcome?.(sha) ?? recorded[sha] ?? null; },
     holdsLock: () => true,
     async guardBusy() { return s.guardBusy?.() ?? false; },
+    async guardDeploying() { return s.guardDeploying?.() ?? null; },
     now: () => now,
     async sleep(ms) { calls.push(`sleep:${ms}`); now += ms; },
     log() {},
@@ -157,7 +168,7 @@ test('happy path: claim → engineer → commit → gates → typecheck → revi
   const f = fake({ steps: [{ step: 'build', event: 'start' }, { step: 'build', event: 'end', ok: true, detail: 'axion-app:x' }] });
   const r = await once(f.fx, { inject: false });
   assert.equal(r.kind, 'change');
-  inOrder(f.calls, ['lock', 'sweep', 'recover', 'halted', 'next', 'export:a1', 'engineer:a1', 'commit', 'diff:1', 'import',
+  inOrder(f.calls, ['lock', 'sweep', 'recover', 'next', 'halted', 'export:a1', 'engineer:a1', 'commit', 'diff:1', 'import',
     'typecheck', 'reviewer', 'setRef:incoming/evolve-M-1-a1', 'deploy', 'finish:completed', 'deleteRef:incoming/evolve-M-1-a1', 'remove:M-1', 'unlock']);
   const [fin] = f.finish();
   assert.equal(fin.body.evolve.commit, shaOf(1));
@@ -178,19 +189,45 @@ test('happy path: claim → engineer → commit → gates → typecheck → revi
   assert.equal(f.calls.filter((c) => c === 'inject').length, 0);
 });
 
-test('protected hit → needs_owner with the hit list and the approve command; held at incoming/…; nothing typechecked, reviewed or deployed', async () => {
-  const f = fake({ diff: () => ({ text: diffOf('evolve/x.ts', ['x']), files: [{ path: 'evolve/x.ts', status: 'A' }], stat: '' }) });
+test('R34: a protected hit is typechecked and reviewed first, then needs_owner with the hit list, the reviewer\'s verdict and the approve command; held at incoming/…; never deployed', async () => {
+  const f = fake({
+    diff: () => ({ text: diffOf('evolve/x.ts', ['x']), files: [{ path: 'evolve/x.ts', status: 'A' }], stat: '' }),
+    reviewer: () => ({ ok: true, concerns: [`fine, but it touches evolve/ ${SECRET}`] }),
+  });
   await once(f.fx, { inject: false });
-  for (const c of ['typecheck', 'reviewer', 'deploy']) assert.ok(!f.calls.includes(c), c);
-  assert.ok(f.calls.includes('setRef:incoming/evolve-M-1-a1'));
+  inOrder(f.calls, ['commit', 'diff:1', 'import', 'typecheck', 'reviewer', 'setRef:incoming/evolve-M-1-a1', 'finish:needs_owner']);
+  assert.ok(!f.calls.includes('deploy'));
   assert.ok(!f.calls.some((c) => c.startsWith('deleteRef')), 'the held ref stays');
   const [fin] = f.finish();
   assert.equal(fin.body.outcome, 'needs_owner');
   assert.ok(fin.body.evolve.hits.some((h: string) => h.includes('evolve/x.ts')));
   assert.match(fin.body.text, /axion-evolve approve M-1/);
+  assert.match(fin.body.text, /typecheck passed/i);
+  assert.match(fin.body.text, /reviewer \(tester-01\) accepted the change\. Notes: fine, but it touches evolve\//);
+  noSecret(f.writes);
   assert.equal(f.refs['incoming/evolve-M-1-a1'], shaOf(1));
   const held = f.history.find((h) => h.event === 'held')!;
   assert.deepEqual([held.mission, held.ref, held.commit, held.base], ['M-1', 'incoming/evolve-M-1-a1', shaOf(1), BASE]);
+  // the gates line says it needs the owner, never "no protected path"
+  const gatesLine = f.writes.find((w) => w.kind === 'progress' && /Diff gates/.test(w.body.text))!;
+  assert.match(gatesLine.body.text, /needs the owner's approval once the typecheck and the review pass/);
+});
+
+test('R34: a protected change whose typecheck fails goes back to the engineer (no hold); a reviewer who never accepts ends it failed, never held', async () => {
+  const prot = () => ({ text: diffOf('evolve/x.ts', ['x']), files: [{ path: 'evolve/x.ts', status: 'A' as const }], stat: '' });
+  const t = fake({ diff: prot, typecheck: (a) => ({ ok: a > 1, log: 'src/x.ts(1,1): error TS2322' }) });
+  await once(t.fx, { inject: false });
+  assert.equal(t.engineerInputs.length, 2);
+  assert.match(t.engineerInputs[1].feedback!, /TS2322/);
+  assert.equal(t.finish()[0].body.outcome, 'needs_owner');
+  assert.equal(t.finish()[0].body.evolve.attempt, 2);
+  const r = fake({ diff: prot, reviewer: () => ({ ok: false, concerns: ['weakens the Guard'] }) });
+  await once(r.fx, { inject: false });
+  assert.equal(r.engineerInputs.length, CAPS.attempts);
+  assert.equal(r.finish()[0].body.outcome, 'failed');
+  assert.equal(r.finish()[0].body.evolve.state, 'rejected');
+  assert.ok(!r.history.some((h) => h.event === 'held'));
+  assert.ok(!r.calls.some((c) => c.startsWith('setRef')));
 });
 
 test('a flag (absolute URL) → needs_owner too', async () => {
@@ -318,12 +355,15 @@ test('rollbackStreak: a live change or a resume breaks the streak; changes that 
   assert.equal(rollbackStreak([]), 0);
 });
 
-test('a halt → nothing claimed', async () => {
+test('a halt → nothing claimed (M7: the claim itself checks the halt, no separate halted call per tick)', async () => {
   const f = fake({ halted: () => ({ halted: true, reason: 'global: owner' }) });
   const r = await once(f.fx, { inject: false });
   assert.equal(r.kind, 'halted');
-  assert.ok(!f.calls.includes('next'));
+  assert.equal(r.kind === 'halted' && r.reason, 'global: owner');
+  assert.ok(!f.calls.includes('halted'));
+  assert.equal(f.calls.filter((c) => c === 'next').length, 1);
   assert.equal(f.writes.length, 0);
+  assert.ok(!f.history.some((h) => h.event === 'claim'));
 });
 
 test('PAUSED → nothing claimed', async () => {
@@ -551,18 +591,19 @@ test('inject: the injected failure going live is an alarm: finish failed, PAUSED
   assert.equal(onceCode(r), 1);
 });
 
-test('the Guard answered live but finish completed throws: the end line is written first, no second finish; the next start settles it', async () => {
+test('the Guard answered live but finish completed throws: the end line is written first, never a different finish; the same tick settles it (I3)', async () => {
   let n = 0;
   const f = fake({ finish: (b) => { if (b.outcome === 'completed' && ++n === 1) throw new Error('CLI timed out'); return { ok: true }; }, guardOutcome: () => ({ outcome: 'live' }) });
   const r = await once(f.fx, { inject: false });
   assert.equal(r.kind === 'change' && r.outcome.outcome, 'live');
-  assert.deepEqual(f.finish().map((x) => x.body.outcome), ['completed'], 'never a second finish (failed) after the Guard answered');
+  assert.ok(!f.finish().some((x) => x.body.outcome !== 'completed'), 'never a different finish (failed) after the Guard answered');
+  // I3: the same tick settles it from the Guard's history (the second finish is the same outcome), then recover
   const ev = f.history.map((h) => `${h.event}${h.outcome ? `:${h.outcome}` : ''}`);
-  assert.deepEqual(ev, ['claim', 'deploy', 'end:live', 'unsettled']);
-  await startup(f.fx);
+  assert.deepEqual(ev, ['claim', 'deploy', 'end:live', 'unsettled', 'end:settled']);
   assert.deepEqual(f.finish().map((x) => x.body.outcome), ['completed', 'completed']);
-  assert.equal(f.history.at(-1)!.event, 'end');
-  assert.equal(f.history.at(-1)!.outcome, 'settled');
+  inOrder(f.calls, ['finish:completed', 'finish:completed', 'recover']);
+  await startup(f.fx);
+  assert.equal(f.finish().length, 2, 'nothing left open');
 });
 
 test('the mission refuses a write during the deploy and the Guard rolls back: the end line says rolled_back (counted for the pause)', async () => {
@@ -647,4 +688,155 @@ test('a forged needs_owner with exit 1 is not held; exit 0 with a rolled_back re
   const a = await approve(ap.fx, 'M-1');
   assert.equal(a.code, 1);
   assert.equal(ap.finish()[0].body.outcome, 'failed');
+});
+
+// ---- step 2 fix wave (final review): I3, I4/R34, M1–M5, M7 ----
+
+const missionCliCalls = (calls: string[]) => calls.filter((c) => ['halted', 'recover', 'next', 'approved'].includes(c) || /^(progress|finish|file)/.test(c));
+
+test('M7 + M1: an idle tick runs one mission CLI call (next); nothing open → the reconcile reads the history only', async () => {
+  const f = fake({ missions: [] });
+  await runForever(f.fx, { maxTicks: 3 });
+  const afterStart = f.calls.slice(f.calls.indexOf('recover') + 1);
+  assert.deepEqual(missionCliCalls(afterStart), ['next', 'next', 'next']);
+});
+
+test('I3: a refused write (Gone) is followed at once by recover (under the lock), so the mission does not stay working', async () => {
+  const f = fake({ progress: (b) => (b.by === AGENTS.reviewer ? { ok: false, refusal: { error: 'mission_not_running', status: 'paused' } } : { ok: true }) });
+  const r = await once(f.fx, { inject: false });
+  assert.equal(r.kind === 'change' && r.outcome.outcome, 'gone');
+  inOrder(f.calls, ['lock', 'recover', 'next', 'engineer:a1', 'recover', 'unlock']);
+  assert.equal(f.calls.filter((c) => c === 'recover').length, 2);
+  // a finish refused at the end (paused meanwhile) is settled the same way
+  const g = fake({ finish: () => ({ ok: false, refusal: { error: 'mission_not_running', status: 'paused' } }) });
+  await once(g.fx, { inject: false });
+  assert.equal(g.calls.filter((c) => c === 'recover').length, 2);
+});
+
+test('I3: no recover while a deploy is still open (its finish threw again): the mission is never failed before the Guard\'s answer is written', async () => {
+  const f = fake({ finish: (b) => { if (b.outcome === 'completed') throw new Error('CLI timed out'); return { ok: true }; }, guardOutcome: () => ({ outcome: 'live' }) });
+  await once(f.fx, { inject: false });
+  assert.equal(f.calls.filter((c) => c === 'recover').length, 1, 'only startup\'s recover (before the claim)');
+  assert.ok(!f.finish().some((x) => x.body.outcome === 'failed'));
+  assert.equal(f.history.at(-1)!.event, 'unsettled');
+  // the next tick settles it once the CLI works again
+  const ok = fake({ history: f.history, missions: [], guardOutcome: () => ({ outcome: 'live' }) });
+  await runForever(ok.fx, { maxTicks: 1 });
+  assert.deepEqual(ok.finish().map((x) => x.body.outcome), ['completed']);
+});
+
+test('M1: an open deploy (a runner error after the Guard answered) is settled at the start of the next tick, before any claim', async () => {
+  const open: HistoryEntry = { at: '2026-11-27T09:30:00Z', event: 'deploy', mission: 'M-5', attempt: 1, commit: shaOf(5), base: BASE, ref: 'incoming/evolve-M-5-a5', since: '2026-11-27T09:30:00Z' };
+  // the deploy line appears after startup's recover (as a runner error after the Guard answered leaves it)
+  let recovers = 0;
+  let f: ReturnType<typeof fake>;
+  f = fake({ missions: [mission('M-6')], recovered: () => { if (++recovers === 1) f.history.push({ ...open }); return []; },
+    guardOutcome: (sha) => (sha === shaOf(5) ? { outcome: 'rolled_back', failedStep: 'watch', reason: 'r' } : null) });
+  await runForever(f.fx, { maxTicks: 1 });
+  const first = f.writes.find((w) => w.kind === 'finish')!;
+  assert.equal(first.id, 'M-5');
+  assert.equal(first.body.evolve.state, 'rolled_back');
+  inOrder(f.calls, ['recover', 'finish:failed', 'recover', 'next', 'engineer:a1']);
+  // a Guard still busy: the tick claims nothing and says why (it never waits inside a tick)
+  let rb = 0;
+  let b: ReturnType<typeof fake>;
+  const logs: string[] = [];
+  b = fake({ recovered: () => { if (++rb === 1) b.history.push({ ...open }); return []; }, guardBusy: () => b.history.length > 0 });
+  b.fx.log = (m: string) => { logs.push(m); };
+  await runForever(b.fx, { maxTicks: 1 });
+  assert.ok(logs.some((m) => /halted: a Guard deploy of an earlier change still runs/.test(m)), logs.join(' | '));
+  assert.ok(!b.calls.includes('next'));
+  assert.ok(!b.calls.some((c) => c.startsWith('sleep:') && c !== `sleep:${TIMING.pollMs}`), 'no wait inside the tick');
+});
+
+test('M2: state.json deploying → nothing claimed (like a halt); an unclear Guard outcome writes PAUSED with the reason', async () => {
+  const f = fake({ guardDeploying: () => 'state.json: deploying aaaaaaaaaaaa at watch since 2026-11-27T09:00:00Z' });
+  const r = await once(f.fx, { inject: false });
+  assert.equal(r.kind, 'halted');
+  assert.match(r.kind === 'halted' ? r.reason : '', /unfinished deploy .*axion-guard rollback/);
+  assert.ok(!f.calls.includes('next'));
+  const u = fake({ deploys: [{ code: 0, result: { outcome: 'live' }, stderr: '', history: null }] });
+  await once(u.fx, { inject: false });
+  assert.ok(u.calls.includes('writePaused'));
+  assert.match(u.isPaused() ?? '', /unclear.*axion-evolve resume/);
+  assert.ok(u.history.some((h) => h.event === 'pause'));
+  assert.equal((await once(u.fx, { inject: false })).kind, 'paused');
+});
+
+test('M3: exit 1 with a live record: live when evolve/main is at the commit (never failed); otherwise unclear (failed + PAUSED)', async () => {
+  const a: DeployAnswer & { history?: DeployAnswer['result'] } = { code: 1, result: null, stderr: 'record failed', history: { outcome: 'live' } };
+  const at = fake({ deploys: [{ ...a }], liveShaFn: (n) => (n > 0 ? shaOf(1) : BASE) });
+  const r = await once(at.fx, { inject: false });
+  assert.equal(r.kind === 'change' && r.outcome.outcome, 'live');
+  assert.equal(at.finish()[0].body.outcome, 'completed');
+  assert.ok(!at.calls.includes('writePaused'));
+  const off = fake({ deploys: [{ ...a }] });
+  const r2 = await once(off.fx, { inject: false });
+  assert.equal(r2.kind === 'change' && r2.outcome.outcome, 'failed');
+  assert.ok(off.calls.includes('writePaused'));
+});
+
+test('M4: every attempt starts by clearing the previous attempt\'s commit/files/report/checks/guard/hits fields', async () => {
+  const f = fake({ reviewer: (n) => ({ ok: n > 1, concerns: n > 1 ? [] : ['no test'] }) });
+  await once(f.fx, { inject: false });
+  const starts = f.writes.filter((w) => w.kind === 'progress' && w.body.evolve.state === 'working' && w.body.evolve.base);
+  assert.equal(starts.length, 2);
+  for (const w of starts) assert.deepEqual(w.body.clear, ['commit', 'filesChanged', 'diffStat', 'report', 'checks', 'guard', 'hits']);
+  assert.ok(f.writes.filter((w) => w.kind === 'progress' && w.body.clear).every((w) => w.body.evolve.state === 'working'));
+});
+
+test('M5: approve while the Guard is busy changes nothing (exit 4); busy through the whole wait → exit 4, the change stays held and the mission waits again; a second approve deploys it', async () => {
+  const held: HistoryEntry = { at: '2026-11-27T09:00:00Z', event: 'held', mission: 'M-1', attempt: 1, ref: 'incoming/evolve-M-1-a1', commit: shaOf(1), base: BASE };
+  const pre = fake({ history: [held], refs: { 'incoming/evolve-M-1-a1': shaOf(1) }, guardBusy: () => true });
+  const p = await approve(pre.fx, 'M-1');
+  assert.equal(p.code, 4);
+  assert.ok(!pre.calls.includes('approved') && !pre.calls.includes('deploy'));
+  const deploys = Array.from({ length: 40 }, busy);
+  const f = fake({ history: [held], refs: { 'incoming/evolve-M-1-a1': shaOf(1) }, deploys });
+  const r = await approve(f.fx, 'M-1');
+  assert.equal(r.code, 4, r.message);
+  assert.match(r.message, /stays held at incoming\/evolve-M-1-a1/);
+  assert.ok(!f.calls.some((c) => c.startsWith('deleteRef')), 'the ref stays');
+  assert.equal(f.refs['incoming/evolve-M-1-a1'], shaOf(1));
+  assert.deepEqual(f.finish().map((x) => x.body.outcome), ['needs_owner'], 'back to waiting for the approval');
+  assert.equal(f.history.at(-1)!.event, 'held');
+  assert.equal(f.history.at(-2)!.outcome, 'busy');
+  // the same command again, now the Guard is free
+  f.history.forEach((h) => { h.at = h.at ?? '2026-11-27T10:00:00Z'; });
+  const g = fake({ history: f.history, refs: f.refs, deploys: [live()] });
+  const r2 = await approve(g.fx, 'M-1');
+  assert.equal(r2.code, 0, r2.message);
+  assert.deepEqual(g.finish().map((x) => x.body.outcome), ['completed']);
+  // nothing was left open for a reconcile to fail
+  const s2 = fake({ history: g.history });
+  await startup(s2.fx);
+  assert.equal(s2.finish().length, 0);
+});
+
+test('I3 follow-up: a mission whose change went live while it refused writes, claimed again after a resume, is completed without a second change', async () => {
+  const h: HistoryEntry[] = [
+    { at: '2026-11-27T09:00:00Z', event: 'claim', mission: 'M-1' },
+    { at: '2026-11-27T09:10:00Z', event: 'deploy', mission: 'M-1', attempt: 1, commit: shaOf(1), base: BASE, ref: 'incoming/evolve-M-1-a1' },
+    { at: '2026-11-27T09:20:00Z', event: 'end', mission: 'M-1', attempt: 1, commit: shaOf(1), outcome: 'live', reason: 'the mission refused writes' },
+  ];
+  const f = fake({ history: h });
+  const r = await once(f.fx, { inject: false });
+  assert.equal(r.kind === 'change' && r.outcome.outcome, 'live');
+  assert.ok(!f.calls.some((c) => c.startsWith('engineer') || c === 'deploy'));
+  assert.deepEqual(f.finish().map((x) => x.body.outcome), ['completed']);
+  assert.match(f.finish()[0].body.text, /Already live/);
+});
+
+test('M6: axion-evolve file --owner <name> --text <text> goes through the mission CLI; usage errors for a bad owner or text', async () => {
+  const { main, parseArgs, UsageError } = await import('./cli.ts');
+  const f = fake();
+  const out: string[] = [];
+  const code = await main(['file', '--owner', 'admin', '--text', 'Make the list denser.'], { effects: () => f.fx, noSignals: true, out: (s) => out.push(s), err: () => {} });
+  assert.equal(code, 0);
+  assert.deepEqual(out, ['{"id":"M-21"}']);
+  assert.ok(f.calls.includes('file:admin'));
+  for (const bad of [['file', '--owner', 'admin'], ['file', '--text', 'x'], ['file', '--owner', '-x', '--text', 'y'], ['file', '--owner', 'a', '--text', '  '],
+    ['file', '--owner', 'a', '--text', 'x'.repeat(20_001)], ['file', '--owner', 'a', '--text', 'x', '--owner', 'b'], ['file', '--owner', 'a', '--text', 'x', 'extra']]) {
+    assert.throws(() => parseArgs(bad), UsageError, bad.join(' ').slice(0, 60));
+  }
 });

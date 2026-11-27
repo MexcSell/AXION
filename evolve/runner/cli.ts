@@ -10,6 +10,9 @@
 //   axion-evolve resume                   remove PAUSED (also ends a rollback streak)
 //   axion-evolve sweep                    remove the Workshop and typecheck containers (the unit's ExecStopPost); skipped while
 //                                         a live runner holds runner.lock; never touches the Guard
+//   axion-evolve file --owner <name> --text <text>   file an owner request (an `improve` mission of that administrator,
+//                                         staffed to the end) through the mission CLI in the live image; prints its id (M6).
+//                                         The text is not secret (argv is fine), at most 20000 characters
 // run, once and approve: the first SIGTERM/SIGINT stops after the current step and removes the Workshop and typecheck
 // containers at once (the Workshop holds TOKEN1; its 30 min wall lives in the runner); a second one exits now. A Guard
 // deploy runs detached in its own session and is never signalled.
@@ -33,11 +36,17 @@ export const USAGE = `usage: axion-evolve <command>
   axion-evolve pause [reason…]
   axion-evolve resume
   axion-evolve sweep                    (remove the Workshop/typecheck containers; the unit's ExecStopPost)
+  axion-evolve file --owner <name> --text <text>   (file an owner request: an improve mission; prints its id)
 exit codes: 0 live/done, 1 failed/refused/error, 2 usage, 3 needs the owner's approval, 4 busy, 5 nothing claimed`;
 
 export type Command =
   | { cmd: 'help' } | { cmd: 'run' } | { cmd: 'once'; inject: boolean } | { cmd: 'approve'; mission: string }
-  | { cmd: 'status' } | { cmd: 'pause'; reason: string } | { cmd: 'resume' } | { cmd: 'sweep' };
+  | { cmd: 'status' } | { cmd: 'pause'; reason: string } | { cmd: 'resume' } | { cmd: 'sweep' }
+  | { cmd: 'file'; owner: string; text: string };
+
+/** M6: the mission CLI's own cap (server CAPS.missionText) */
+export const FILE_TEXT_MAX = 20_000;
+const OWNER_RE = /^[^\s\-\p{Cc}][^\p{Cc}]{0,63}$/u;
 
 export class UsageError extends Error {}
 
@@ -58,6 +67,20 @@ export function parseArgs(argv: string[]): Command {
     case 'pause': return { cmd: 'pause', reason: rest.join(' ').replace(/\s+/g, ' ').trim().slice(0, 300) };
     case 'resume': none(); return { cmd: 'resume' };
     case 'sweep': none(); return { cmd: 'sweep' };
+    case 'file': {
+      const o: Record<string, string> = {};
+      for (let i = 0; i < rest.length; i += 2) {
+        const k = rest[i];
+        if ((k !== '--owner' && k !== '--text') || rest[i + 1] === undefined || k.slice(2) in o) throw new UsageError('file takes --owner <name> --text <text>, each once');
+        o[k.slice(2)] = rest[i + 1];
+      }
+      if (o.owner === undefined || o.text === undefined) throw new UsageError('file takes --owner <name> --text <text>');
+      if (!OWNER_RE.test(o.owner)) throw new UsageError('file: --owner must be a user name (1-64 characters, no control characters, not starting with - or a space)');
+      if (o.text.trim() === '') throw new UsageError('file: --text is empty');
+      if (o.text.length > FILE_TEXT_MAX) throw new UsageError(`file: --text is longer than ${FILE_TEXT_MAX} characters`);
+      if (o.text.includes('\u0000')) throw new UsageError('file: --text contains a NUL character');
+      return { cmd: 'file', owner: o.owner, text: o.text };
+    }
     default: throw new UsageError(`unknown command ${JSON.stringify(cmd)}`);
   }
 }
@@ -167,6 +190,11 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
         const k = await fx.killWorkers();
         out(`axion-evolve sweep: ${k.length ? `removed ${k.join(', ')}` : 'nothing to remove'}`);
       } finally { await release(); }
+      return 0;
+    }
+    case 'file': {
+      const r = await fx.missions.file(c.owner, c.text);
+      out(JSON.stringify({ id: r.id }));
       return 0;
     }
     case 'resume': {

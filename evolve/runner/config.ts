@@ -59,6 +59,8 @@ export const CONTAINER_PREFIXES = ['axion-workshop-', 'axion-evolve-tc-', 'axion
 export const WORKER_PREFIXES = ['axion-workshop-', 'axion-evolve-tc-'] as const;
 /** the Guard's output while the runner waits for it: <root>/runner-guard/<sha12>-<hex>.log (a file, never a pipe) */
 export const GUARD_LOG_DIR = 'runner-guard';
+/** M8: <root>/runner-cli/cli-<hex>.env: the mission CLI's DATABASE_URL (from secrets/live.env), one file per call, mode 600 */
+export const CLI_ENV_DIR = 'runner-cli';
 
 export type RunnerPaths = {
   root: string;

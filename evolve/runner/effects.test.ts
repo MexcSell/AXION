@@ -193,16 +193,28 @@ test('mission CLI: the exact docker argv (live image from state.json, DB socket,
     finish: { code: 2, stdout: '{"error":"bad_input","detail":"x"}\n' },
     recover: { code: 0, stdout: '{"recovered":["M-1"]}\n' },
   };
-  const f = dockerFake((args) => answers[args[args.indexOf('src/cli/evolve-missions.ts') + 1]] ?? { code: 1, stdout: '' });
+  const envSeen: { file: string; text: string; mode: number }[] = [];
+  const f = dockerFake((args) => {
+    const i = args.indexOf('--env-file');
+    if (i > 0) envSeen.push({ file: args[i + 1], text: readFileSync(args[i + 1], 'utf8'), mode: statSync(args[i + 1]).mode & 0o777 });
+    return answers[args[args.indexOf('src/cli/evolve-missions.ts') + 1]] ?? { code: 1, stdout: '' };
+  });
   const w = world({ proc: f.proc });
   assert.deepEqual(await w.fx.missions.halted(), { halted: false });
   const a = f.calls[0].args;
   const name = a[a.indexOf('--name') + 1];
   assert.match(name, /^axion-evolve-cli-[0-9a-f]{8}$/);
+  const envFile = a[a.indexOf('--env-file') + 1];
   assert.deepEqual(a, ['run', '--rm', '-i', '--name', name, '--network', 'none', '--user', '999:999', '--log-opt', 'max-size=10m', '--log-opt', 'max-file=3',
-    '-v', '/var/run/postgresql:/var/run/postgresql', '-e', 'DATABASE_URL=postgresql:///axion?host=/var/run/postgresql&user=axion',
+    '-v', '/var/run/postgresql:/var/run/postgresql', '--env-file', envFile,
     '-w', '/app/server', 'axion-app:abc123-20261127T000000Z', 'node', '--import', 'tsx', 'src/cli/evolve-missions.ts', 'halted']);
-  assert.deepEqual(await w.fx.missions.next(), { id: 'M-9', title: 't', text: 'x', criteria: ['c'], owner: 'Luca' });
+  // M8: DATABASE_URL comes from secrets/live.env (never rebuilt, never in argv), in a root-only file removed after the run
+  assert.ok(envFile.startsWith(join(w.root, 'runner-cli') + '/'), envFile);
+  assert.deepEqual(envSeen[0], { file: envFile, text: 'DATABASE_URL=postgresql:///axion?host=/var/run/postgresql&user=axion\n', mode: 0o600 });
+  assert.ok(!existsSync(envFile), 'removed right after the run');
+  assert.equal(statSync(join(w.root, 'runner-cli')).mode & 0o777, 0o700);
+  assert.ok(!a.some((x) => x.includes('DATABASE_URL')));
+  assert.deepEqual(await w.fx.missions.next(), { mission: { id: 'M-9', title: 't', text: 'x', criteria: ['c'], owner: 'Luca' } });
   const body = { by: 'gm', text: 'hi', evolve: { state: 'working' as const } };
   assert.deepEqual(await w.fx.missions.progress('M-9', body), { ok: false, refusal: { error: 'mission_not_running', status: 'paused' } });
   const p = f.calls.at(-1)!;
@@ -216,6 +228,36 @@ test('mission CLI: the exact docker argv (live image from state.json, DB socket,
   answers.halted = { code: 0, stdout: 'garbage\n' };
   assert.equal((await w.fx.missions.halted()).halted, true);
   for (const c of f.calls) assert.ok(!JSON.stringify(c.args).includes(SECRET));
+  // M7: next reports the run halt itself
+  answers.next = { code: 0, stdout: '{"mission":null,"halted":true,"reason":"global: owner"}\n' };
+  assert.deepEqual(await w.fx.missions.next(), { mission: null, halted: 'global: owner' });
+  answers.next = { code: 0, stdout: '{"mission":null}\n' };
+  assert.deepEqual(await w.fx.missions.next(), { mission: null });
+  // M6: file --owner --text (argv; not secret)
+  answers.file = { code: 0, stdout: '{"id":"M-12"}\n' };
+  assert.deepEqual(await w.fx.missions.file('admin', 'Make it denser.'), { id: 'M-12' });
+  assert.deepEqual(f.calls.at(-1)!.args.slice(-5), ['src/cli/evolve-missions.ts', 'file', '--owner', 'admin', '--text', 'Make it denser.'].slice(-5));
+  answers.file = { code: 1, stdout: '{"error":"owner_not_admin"}\n' };
+  await assert.rejects(w.fx.missions.file('mina', 'x'), /owner_not_admin/);
+  // M8: DATABASE_SCHEMA is passed too; a --database in state.json replaces only the database name
+  writeFileSync(join(w.root, 'secrets', 'live.env'), 'DATABASE_URL=postgresql:///axion?host=/var/run/postgresql&user=axion\nDATABASE_SCHEMA=s1\nSESSION_SECRET=session-value-0123456789\n', { mode: 0o600 });
+  writeFileSync(join(w.root, 'state.json'), JSON.stringify({ active: 'blue', activeImage: 'abc123-20261127T000000Z', activeSha: w.base, previousImage: null, database: 'axion_trial' }));
+  await w.fx.missions.recover();
+  assert.equal(envSeen.at(-1)!.text, 'DATABASE_URL=postgresql:///axion_trial?host=/var/run/postgresql&user=axion\nDATABASE_SCHEMA=s1\n');
+  assert.ok(!envSeen.at(-1)!.text.includes('session-value'), 'only the two DB keys');
+  writeFileSync(join(w.root, 'secrets', 'live.env'), 'SESSION_SECRET=session-value-0123456789\n', { mode: 0o600 });
+  const n = f.calls.length;
+  await assert.rejects(w.fx.missions.recover(), /no DATABASE_URL/);
+  assert.equal(f.calls.length, n, 'nothing run without the live DATABASE_URL');
+});
+
+test('M2 guardDeploying: state.json deploying → the reason; none → null; an unreadable state.json → a reason (fail closed)', async () => {
+  const w = world();
+  assert.equal(await w.fx.guardDeploying(), null);
+  writeFileSync(join(w.root, 'state.json'), JSON.stringify({ active: 'blue', activeImage: 'x', activeSha: null, previousImage: null, deploying: { sha: 'c'.repeat(40), step: 'watch', startedAt: '2026-11-27T10:00:00Z' } }));
+  assert.match((await w.fx.guardDeploying())!, /deploying cccccccccccc at watch since 2026-11-27T10:00:00Z/);
+  writeFileSync(join(w.root, 'state.json'), '{bad');
+  assert.match((await w.fx.guardDeploying())!, /cannot be read/);
 });
 
 test('mission CLI: no live image in state.json → an error, nothing run', async () => {

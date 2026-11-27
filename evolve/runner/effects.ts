@@ -17,6 +17,7 @@ import { randomBytes } from 'node:crypto';
 import { acquireLock, currentBootId } from '../guard/effects.ts';
 import { Busy } from '../guard/deploy.ts';
 import { readState } from '../guard/state.ts';
+import { envFileValue } from '../guard/effects-util.ts';
 import { assertSha, isPlainRef, MAIN_REF, parseNameStatusZ } from '../guard/effects-git.ts';
 import { LOG_OPTS } from '../guard/effects-docker.ts';
 import { resolveRunAs } from '../guard/effects-util.ts';
@@ -26,7 +27,7 @@ import { realExec, runEngineer, runReviewer, WORKSHOP_DEFAULTS } from './worksho
 import type { Exec, WorkshopConfig } from './workshop.ts';
 import type { Mission } from './prompts.ts';
 import type { DeployAnswer, GuardResult, GuardStep, HistoryEntry, MissionCli, RunnerEffects, WriteResult } from './loop.ts';
-import { CAPS, CONTAINER_PREFIXES, DB_USER, WORKER_USER, GUARD_BIN, GUARD_LOG_DIR, WORKER_PREFIXES, HISTORY_KEEP, MAX_DIFF_BYTES, REF_PREFIX, SOCKET_DIR, TIMING } from './config.ts';
+import { CAPS, CLI_ENV_DIR, CONTAINER_PREFIXES, DB_USER, WORKER_USER, GUARD_BIN, GUARD_LOG_DIR, WORKER_PREFIXES, HISTORY_KEEP, MAX_DIFF_BYTES, REF_PREFIX, SOCKET_DIR, TIMING } from './config.ts';
 import type { RunnerPaths } from './config.ts';
 
 export type ProcResult = { code: number; stdout: string; stderr: string; truncated: boolean };
@@ -226,6 +227,8 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
   const guardBin = o.guardBin ?? GUARD_BIN;
   const spawnGuard = o.spawnGuard ?? spawnGuardDetached;
   const guardLogDir = join(P.root, GUARD_LOG_DIR);
+  /** M8: the mission CLI's derived env files (root-only; each removed right after its docker run, leftovers by sweep) */
+  const cliEnvDir = join(P.root, CLI_ENV_DIR);
   const maxDiff = o.maxDiffBytes ?? MAX_DIFF_BYTES;
   const host: Host = { ...realHost, log };
   let ids: string | null = o.uidGid ?? null;
@@ -313,11 +316,33 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
     if (!DB_RE.test(database)) throw new Error(`state.json database is not a database name: ${JSON.stringify(database)}`);
     return { image: `${prefix}-app:${s.activeImage}`, database };
   }
+  /**
+   * M8: the mission CLI's --env-file: DATABASE_URL (and DATABASE_SCHEMA when set) from secrets/live.env, as the Guard's
+   * migrate step reads it (with --database in state.json, only the database name replaced). Written to a fresh root-only
+   * file (dir 700, file 600) holding only those keys; the caller removes it right after `docker run`. No value is ever an
+   * argument or in an error message.
+   */
+  async function cliEnvFile(database: string): Promise<string> {
+    const text = await readFile(join(P.secretsDir, 'live.env'), 'utf8').catch(() => { throw new Error('secrets/live.env cannot be read (the mission CLI takes its DATABASE_URL from it)'); });
+    const raw = envFileValue(text, 'DATABASE_URL');
+    if (!raw) throw new Error('secrets/live.env has no DATABASE_URL');
+    let u: URL;
+    try { u = new URL(raw); } catch { throw new Error('secrets/live.env: DATABASE_URL is not a URL'); }
+    if (decodeURIComponent(u.pathname.replace(/^\//, '')) !== database) u.pathname = `/${database}`;
+    const url = u.toString();
+    const schema = envFileValue(text, 'DATABASE_SCHEMA');
+    if (/[\r\n\0]/.test(url) || (schema !== undefined && /[\r\n\0]/.test(schema))) throw new Error('secrets/live.env: DATABASE_URL/DATABASE_SCHEMA hold a line break');
+    await mkdir(cliEnvDir, { recursive: true, mode: 0o700 });
+    await chmod(cliEnvDir, 0o700);
+    const file = join(cliEnvDir, `cli-${hex(6)}.env`);
+    const fh = await open(file, 'wx', 0o600);
+    try { await fh.writeFile(`DATABASE_URL=${url}\n${schema ? `DATABASE_SCHEMA=${schema}\n` : ''}`); } finally { await fh.close(); }
+    return file;
+  }
+  /** the DB user's uid:gid (peer auth on the socket); R31: never 0, never a login account */
   async function uidGid(): Promise<string> {
     if (ids) return ids;
-    const u = (await must('id', ['-u', DB_USER])).stdout.trim();
-    const g = (await must('id', ['-g', DB_USER])).stdout.trim();
-    const v = `${u}:${g}`;
+    const v = await resolveRunAs((c, a) => proc(c, a, { timeoutMs: 30_000 }), DB_USER);
     if (!UIDGID_RE.test(v)) throw new Error(`id ${DB_USER}: unexpected ${JSON.stringify(v)}`);
     ids = v;
     return v;
@@ -325,8 +350,9 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
   async function cli(cmd: string, args: string[] = [], input?: string): Promise<{ code: number; out: Record<string, unknown> }> {
     const { image, database } = await live();
     const name = `axion-evolve-cli-${hex(4)}`;
+    const envFile = await cliEnvFile(database);
     const argv = ['run', '--rm', '-i', '--name', name, '--network', 'none', '--user', await uidGid(), ...LOG_OPTS,
-      '-v', `${SOCKET_DIR}:${SOCKET_DIR}`, '-e', `DATABASE_URL=postgresql:///${database}?host=${SOCKET_DIR}&user=${DB_USER}`,
+      '-v', `${SOCKET_DIR}:${SOCKET_DIR}`, '--env-file', envFile,
       '-w', '/app/server', image, 'node', '--import', 'tsx', 'src/cli/evolve-missions.ts', cmd, ...args];
     let r: ProcResult;
     try {
@@ -334,6 +360,8 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
     } catch (e) {
       await proc('docker', ['rm', '-f', name], { timeoutMs: 60_000 }).catch(() => null);
       throw e;
+    } finally {
+      await rm(envFile, { force: true });
     }
     const line = r.stdout.trim().split('\n').at(-1) ?? '';
     let out: unknown;
@@ -368,13 +396,20 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
       const { code, out } = await cli('next');
       if (code !== 0) throw new Error(`evolve-missions next: exit ${code} ${JSON.stringify(out).slice(0, 200)}`);
       const m = out.mission as Record<string, unknown> | null | undefined;
-      if (m === null || m === undefined) return null;
+      // M7: the claim checks the run halt itself (no separate `halted` container per tick)
+      if (out.halted === true) return { mission: null, halted: typeof out.reason === 'string' ? out.reason : 'halted' };
+      if (m === null || m === undefined) return { mission: null };
       if (typeof m.id !== 'string' || typeof m.title !== 'string' || typeof m.text !== 'string' || !Array.isArray(m.criteria)) {
         throw new Error(`evolve-missions next: unexpected mission shape ${JSON.stringify(Object.keys(m))}`);
       }
       const mission: Mission = { id: m.id, title: m.title, text: m.text, criteria: m.criteria.map(String) };
       if (typeof m.owner === 'string') mission.owner = m.owner;
-      return mission;
+      return { mission };
+    },
+    async file(owner, text) {
+      const { code, out } = await cli('file', ['--owner', owner, '--text', text]);
+      if (code !== 0 || typeof out.id !== 'string') throw new Error(`evolve-missions file: exit ${code} ${JSON.stringify(out).slice(0, 300)}`);
+      return { id: out.id };
     },
     progress: (id, body) => write('progress', id, body),
     finish: (id, body) => write('finish', id, body),
@@ -517,6 +552,14 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
         }
       } else {
         log(`sweep: docker ps failed: ${tail(r.stderr)}`);
+      }
+      // the mission CLI env files a killed runner left (M8); a fresh one may belong to a concurrent `axion-evolve file`
+      if (existsSync(cliEnvDir)) {
+        for (const e of await readdir(cliEnvDir)) {
+          const f = join(cliEnvDir, e);
+          const st = await stat(f).catch(() => null);
+          if (st && Date.now() - st.mtimeMs > 2 * TIMING.missionCliMs) { await rm(f, { force: true }); removed.push(f); }
+        }
       }
       // the output files of Guard runs an earlier runner waited for (kept while a Guard still runs)
       if (existsSync(guardLogDir) && !(await guardBusy())) {
@@ -728,6 +771,12 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
 
     guardBusy,
 
+    async guardDeploying() {
+      let st;
+      try { st = await readState(P.root); } catch (e) { return `state.json cannot be read: ${msg(e).slice(0, 200)}`; }
+      const d = st?.deploying;
+      return d ? `state.json: deploying ${d.sha.slice(0, 12)} at ${d.step} since ${d.startedAt}` : null;
+    },
 
     now: () => Date.now(),
     sleep,
