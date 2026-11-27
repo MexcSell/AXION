@@ -6,6 +6,7 @@ import { Panel } from '@/components/ui/Panel';
 import { Chip } from '@/components/ui/Chips';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { LiveStatus } from '@/components/ui/LiveStatus';
 import { useSiteGrants, revokeGrant } from '@/api/siteGrants';
 import { openDialog, toast } from '@/store/ui';
 import { cx } from '@/lib/format';
@@ -93,7 +94,7 @@ export function SiteGrants() {
           {data && <span className="dim tnum" style={{ fontSize: 12 }} data-active-count={activeN}>{activeN} active of {list.length}</span>}
           <span className="spacer" /><HelpTrigger k="grants.panel" />
         </div>
-        {!data && !error ? <div className="dim" style={{ padding: 10 }}>Loading grants…</div>
+        {!data && !error ? <LiveStatus className="dim" style={{ padding: 10 }}>Loading grants…</LiveStatus>
           : list.length === 0 ? <EmptyState icon={Globe} title="No site grants" body="Agents have no website access. New sites always need a separate, exact grant." />
           : <ul className="sg-list" aria-label="Site grants"><AnimatePresence initial={false}>{list.map((g, i) => <Row key={g.id} g={g} now={now} index={i} />)}</AnimatePresence></ul>}
       </div>

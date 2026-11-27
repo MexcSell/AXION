@@ -10,6 +10,7 @@ import type { DialogComponentProps } from '@/dialogs/DialogHost';
 import { Modal } from '@/components/ui/Modal';
 import { Field, Segmented } from '@/components/ui/Form';
 import { HelpTrigger } from '@/components/ui/HelpTrigger';
+import { LiveStatus } from '@/components/ui/LiveStatus';
 import { Chip, MissionStatusChip, InstanceStateChip, TaskStateChip, RoleChip } from '@/components/ui/Chips';
 import { RobotAvatar } from '@/components/art/RobotAvatar';
 import { useData, useMission, attachMissionFiles } from '@/store/data';
@@ -438,7 +439,7 @@ function TaskCriteria({ close, props }: DialogComponentProps<{ missionId: string
       <div className="row" style={{ gap: 8 }}><TaskStateChip state={t.state} /><span className="muted" style={{ fontSize: 12.5 }}>Owner</span><RobotAvatar role={owner?.role ?? 'dev'} size={26} /><b>{owner?.name}</b></div>
       {!canReassign && <div id="reassign-why" className="dim" data-testid="reassign-why" style={{ fontSize: 12 }}>Only an administrator or the mission owner can reassign: reassigning writes the task's brief.</div>}
       <div className="section-label">Delegation brief</div>
-      {mine && bq.data ? <DelegationBriefCard brief={mine} all={bq.data.briefs} /> : bq.loading ? <span className="dim">Loading…</span> : bq.error ? <span className="dim">{bq.error}</span> : <NoBrief demo={!api_} />}
+      {mine && bq.data ? <DelegationBriefCard brief={mine} all={bq.data.briefs} /> : bq.loading ? <LiveStatus className="dim" style={{ display: 'inline' }}>Loading…</LiveStatus> : bq.error ? <span className="dim">{bq.error}</span> : <NoBrief demo={!api_} />}
       <div className="section-label">Expected result</div>
       <p style={{ fontSize: 13 }}>“{t.title}” is complete when its output is attached, tests pass and an independent verifier accepts the evidence.</p>
       <div className="section-label">Dependencies</div>

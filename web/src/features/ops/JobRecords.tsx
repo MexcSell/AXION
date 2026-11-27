@@ -4,6 +4,7 @@ import { Panel } from '@/components/ui/Panel';
 import { Chip } from '@/components/ui/Chips';
 import { IconButton } from '@/components/ui/IconButton';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { LiveStatus } from '@/components/ui/LiveStatus';
 import { api, ApiFailure } from '@/api/client';
 
 const STATUSES = ['queued', 'leased', 'succeeded', 'failed', 'canceled', 'dead'] as const;
@@ -31,7 +32,7 @@ export function JobRecords() {
     <Panel icon={Database} titleSize="lg" title="Job records" help="ops.jobRecords" delay={.02} className="ops-job-records"
       sub="Records only: no workers run in this build"
       actions={<><Chip hue={err ? 0 : 205} size="sm"><Lock size={11} />read-only</Chip><IconButton size="xs" icon={RefreshCw} label="Refresh now" onClick={() => void load()} className={busy ? 'spin' : undefined} /></>}>
-      {err ? <div className="dim" style={{ fontSize: 13 }}>{err}</div> : !q ? <div className="dim" style={{ fontSize: 13 }}>Loading…</div> : q.total === 0 ? (
+      {err ? <LiveStatus kind="error" className="dim" style={{ fontSize: 13 }}>{err}</LiveStatus> : !q ? <LiveStatus className="dim" style={{ fontSize: 13 }}>Loading…</LiveStatus> : q.total === 0 ? (
         <div data-testid="job-records-empty"><EmptyState icon={Database} title="No job records yet" body="Records only: no workers run in this build, so nothing creates or claims a job." /></div>
       ) : (
         <div data-testid="job-records">

@@ -6,6 +6,7 @@ import { Panel } from '@/components/ui/Panel';
 import { Chip } from '@/components/ui/Chips';
 import { Switch, Segmented } from '@/components/ui/Form';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { LiveStatus } from '@/components/ui/LiveStatus';
 import { useChatModelRoute, useChatUsage } from '@/api/chatModel';
 import { useUI } from '@/store/ui';
 import { plainError } from '@/lib/plainError';
@@ -45,7 +46,7 @@ export function ChatModelSettings({ admin }: { admin: boolean }) {
     finally { setBusy(false); }
   };
 
-  if (!data) return <Panel icon={Bot} title="AI Chat">{error ? <EmptyState icon={Bot} title="Could not load the chat model" body={error} /> : <div className="dim">Loading…</div>}</Panel>;
+  if (!data) return <Panel icon={Bot} title="AI Chat">{error ? <EmptyState icon={Bot} title="Could not load the chat model" body={error} /> : <LiveStatus className="dim">Loading…</LiveStatus>}</Panel>;
   const row = (e: ChatRouteEntryDto, i: number | null) => (
     <motion.li key={e.id} layout className="chatm-row" data-chat-model={e.id} data-usable={e.usable ? '1' : '0'} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}>
       {i !== null ? <b className="chatm-rank tnum">{i + 1}</b> : <span className="chatm-rank dim">–</span>}
@@ -97,7 +98,7 @@ function ChatUsage() {
   return (
     <Panel icon={BarChart3} title="Chat usage" sub="model calls made by the chats (from the audit log)" help="settings.chatUsage" delay={.06}
       actions={<Segmented ariaLabel="Period" size="sm" value={days} onChange={setDays} options={[{ key: '1', label: 'Today' }, { key: '7', label: '7 days' }, { key: '30', label: '30 days' }]} />}>
-      {!data ? <div className="dim">{error ?? 'Loading…'}</div> : !data.rows.length ? <EmptyState icon={BarChart3} title="No chat answers in this period" body="Answers from the General Manager and the agents show up here." /> : <>
+      {!data ? <LiveStatus kind={error ? 'error' : 'loading'} className="dim">{error ?? 'Loading…'}</LiveStatus> : !data.rows.length ? <EmptyState icon={BarChart3} title="No chat answers in this period" body="Answers from the General Manager and the agents show up here." /> : <>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 10 }} data-chat-usage-total>
           <Chip hue={210} size="sm">{total.calls} calls</Chip>
           <Chip hue={total.errors ? 0 : 150} size="sm">{total.errors} failed</Chip>
