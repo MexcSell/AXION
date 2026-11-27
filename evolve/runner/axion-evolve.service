@@ -1,6 +1,6 @@
 # The AXION evolution runner (evolve step 2): claims owner `improve` missions, has the Workshop's engineer change the code,
-# checks it and hands it to the Guard (axion-guard). Installed to /etc/systemd/system by evolve/install.sh and enabled,
-# never started by it (Claude Code starts it).
+# checks it and hands it to the Guard (axion-guard). Installed to /etc/systemd/system by evolve/install.sh, never enabled
+# or started by it (R36: Claude Code enables and starts it after the smoke: systemctl enable --now axion-evolve).
 # KillMode=process: a stop signals the runner only. A Guard deploy it started keeps running to its own end (a killed Guard
 # leaves an unfinished deploy that needs `axion-guard rollback`); the next start waits for it and settles the mission from
 # the Guard's history, then sweeps the runner's leftover containers. The runner starts the Guard detached (its own
