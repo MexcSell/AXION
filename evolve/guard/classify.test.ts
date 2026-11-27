@@ -12,10 +12,12 @@ test('protected.txt parses to exactly the agreed rule list', () => {
     'server/migrations/**', 'server/src/auth/**', 'server/src/approvals/**', 'server/src/policy/**', 'server/src/grants/**',
     'server/src/cloud/claude-cli.ts', '**/.env*', '**/.env*/**',
     'server/src/main.ts', 'server/src/migrate.ts', 'server/src/migrate-cli.ts', 'server/src/leader.ts', 'server/src/locks.ts', 'server/src/health.ts',
-    'server/src/cli/evolve-missions.ts',
+    'server/src/cli/evolve-missions.ts', 'server/src/jobs/run-halts.ts', 'server/src/db.ts', 'server/src/missions/machine.ts', 'server/src/events/log.ts',
     'evolve/**', '.dockerignore', '**/Dockerfile*', '**/*.Dockerfile', '**/docker-compose*', '**/.gitattributes',
-    '.claude/**', '**/.claude/**', '**/CLAUDE.md', '**/CLAUDE.local.md', '**/AGENTS.md', '**/.mcp.json', '.vscode/**', '.github/**',
-    '.husky/**', '.devcontainer/**', '**/.envrc',
+    '.claude/**', '**/.claude/**', '**/CLAUDE.md', '**/CLAUDE.local.md', '**/AGENTS.md', '**/.mcp.json',
+    '**/.vscode/**', '**/.cursor/**', '**/.idea/**', '**/*.code-workspace', '**/.devcontainer/**', '**/.devcontainer.json',
+    '.github/**', '.husky/**', '**/.envrc',
+    'web/docs/evolve/**', 'web/docs/improve/**',
     '**/package.json', '**/package-lock.json', '**/.npmrc',
     'server/vitest.config.ts', 'server/tsconfig.json', 'web/tsconfig.json', 'web/vite.config.ts', 'web/security-headers.ts', 'server/test/setup.ts', 'server/test/helpers.ts', 'web/scripts/api-e2e.sh',
     'modify:server/test/**', 'modify:web/scripts/**',
@@ -55,8 +57,16 @@ test('R26: agent and tool configuration is protected at the root (leading-dot se
     '.github/workflows/ci.yml', '.husky/pre-commit', '.devcontainer/devcontainer.json', '.envrc', 'server/.envrc']) {
     for (const s of ['A', 'M'] as const) assert.deepEqual(hit(p, s), [p], `${p} ${s}`);
   }
-  // .vscode, .github, .husky, .devcontainer are root-only rules; near-misses are not protected
-  for (const p of ['web/.vscode/settings.json', 'docs/.github/x.md', 'web/src/claude.ts', 'web/src/CLAUDE.md.ts', 'web/src/agents.tsx', 'notes/.claudex/a',
+  // R33: editor and dev-container settings at any depth; the owner's evolution and improvement docs
+  for (const p of ['web/.vscode/settings.json', '.vscode/tasks.json', 'server/.cursor/rules/x.mdc', '.cursor/mcp.json', 'web/.idea/workspace.xml', '.idea/x.iml',
+    'axion.code-workspace', 'web/w.code-workspace', 'web/.devcontainer/devcontainer.json', '.devcontainer.json', 'server/.devcontainer.json',
+    'web/docs/evolve/2026-11-26-step2-plan.md', 'web/docs/evolve/new-ruling.md', 'web/docs/improve/BACKLOG.md', 'web/docs/improve/cycles/c99-brief.md',
+    'server/src/jobs/run-halts.ts', 'server/src/db.ts', 'server/src/missions/machine.ts', 'server/src/events/log.ts']) {
+    for (const s of ['A', 'M', 'D'] as const) assert.deepEqual(hit(p, s), [p], `${p} ${s}`);
+  }
+  // .github and .husky are root-only rules; near-misses are not protected
+  for (const p of ['docs/.github/x.md', 'web/src/vscode.ts', 'web/src/idea.ts', 'web/.cursorrules.md', 'web/docs/evolvex/a.md', 'web/docs/x/evolve/a.md',
+    'web/src/docs/improve/a.ts', 'server/src/jobs/run-halts.test.ts', 'server/src/dbx.ts', 'server/src/events/hooks.ts', 'server/src/missions/service.ts', 'web/src/claude.ts', 'web/src/CLAUDE.md.ts', 'web/src/agents.tsx', 'notes/.claudex/a',
     'web/.mcp.json.bak', 'web/envrc']) {
     assert.deepEqual(hit(p, 'A'), [], p);
   }

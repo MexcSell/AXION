@@ -43,7 +43,10 @@ test('cliSettings: Edit and Write denied directory-wide on every plain protected
     assert.equal(deny.includes(`Write(//work/${p})`), plain, `Write ${r}`);
   }
   assert.ok(!deny.some((d) => /\((?:\/\/work\/)?(?:server\/test|web\/scripts)\/\*\*\)$/.test(d)), 'no directory-wide modify: deny');
-  for (const p of ['.claude/**', '**/CLAUDE.md', '**/.mcp.json', '.github/**', '.vscode/**']) assert.ok(deny.includes(`Write(//work/${p})`), `R26 ${p}`);
+  for (const p of ['.claude/**', '**/CLAUDE.md', '**/.mcp.json', '.github/**', '**/.vscode/**', '**/.cursor/**', '**/.idea/**', '**/*.code-workspace',
+    '**/.devcontainer.json', 'web/docs/evolve/**', 'web/docs/improve/**', 'server/src/jobs/run-halts.ts', 'server/src/db.ts']) {
+    assert.ok(deny.includes(`Write(//work/${p})`) && deny.includes(`Edit(//work/${p})`), `R26/R32/R33 ${p}`);
+  }
   for (const p of ['**/.git/**', '**/.git*', '**/.gitattributes']) {
     assert.ok(deny.includes(`Edit(//work/${p})`) && deny.includes(`Write(//work/${p})`), p);
   }

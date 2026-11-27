@@ -26,8 +26,14 @@ server/src/leader.ts
 server/src/locks.ts
 server/src/health.ts
 
-# The host runner's door into missions (evolution step 2): it writes mission state from the live image
+# The host runner's door into missions (evolution step 2): it writes mission state from the live image. R32: and the
+# trusted modules it imports whose change could silently disable a kill switch or a state rule (the run-halt check, the
+# DB layer, the mission state machine, the event log); its other imports fail closed when broken
 server/src/cli/evolve-missions.ts
+server/src/jobs/run-halts.ts
+server/src/db.ts
+server/src/missions/machine.ts
+server/src/events/log.ts
 
 # The Guard, deploy and Docker files
 evolve/**
@@ -39,18 +45,29 @@ evolve/**
 **/.gitattributes
 
 # Agent and tool configuration that runs code or steers an agent when the tree is opened (hooks, MCP servers, editor
-# tasks, CI workflows, git hooks, dev containers, direnv): evolve/main is pulled back into the owner's checkout (R26)
+# tasks, CI workflows, git hooks, dev containers, direnv): evolve/main is pulled back into the owner's checkout (R26).
+# R33: editor and dev-container settings at any depth (an editor opens nested folders too); CI and git hooks only work at
+# the root
 .claude/**
 **/.claude/**
 **/CLAUDE.md
 **/CLAUDE.local.md
 **/AGENTS.md
 **/.mcp.json
-.vscode/**
+**/.vscode/**
+**/.cursor/**
+**/.idea/**
+**/*.code-workspace
+**/.devcontainer/**
+**/.devcontainer.json
 .github/**
 .husky/**
-.devcontainer/**
 **/.envrc
+
+# R33: the owner's design, plans and rulings for evolution and the improvement cycles (the engineer reads them; it must
+# not rewrite the rules it is judged by)
+web/docs/evolve/**
+web/docs/improve/**
 
 # Dependencies (supply-chain risk); npm config (a project .npmrc can preload code into every npm-started node: node-options)
 **/package.json
