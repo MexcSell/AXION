@@ -1,0 +1,69 @@
+// axion-evolve's command line (cli.ts): argument parsing, exit codes, and the file-only commands against fake effects.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { main, onceCode, parseArgs, UsageError } from './cli.ts';
+import type { HistoryEntry, RunnerEffects } from './loop.ts';
+
+test('parseArgs: the commands; run takes nothing (never --inject-failure); once takes only --inject-failure', () => {
+  assert.deepEqual(parseArgs(['run']), { cmd: 'run' });
+  assert.deepEqual(parseArgs(['once']), { cmd: 'once', inject: false });
+  assert.deepEqual(parseArgs(['once', '--inject-failure']), { cmd: 'once', inject: true });
+  assert.deepEqual(parseArgs(['approve', 'M-12']), { cmd: 'approve', mission: 'M-12' });
+  assert.deepEqual(parseArgs(['pause', 'owner', ' says  so']), { cmd: 'pause', reason: 'owner says so' });
+  assert.deepEqual(parseArgs([]), { cmd: 'help' });
+  for (const bad of [['run', '--inject-failure'], ['run', 'x'], ['once', '--inject'], ['once', '--inject-failure', 'x'], ['approve'], ['approve', 'a', 'b'], ['status', 'x'], ['resume', 'x'], ['deploy']]) {
+    assert.throws(() => parseArgs(bad), UsageError, bad.join(' '));
+  }
+});
+
+test('onceCode: 0 live, 1 any other end, 3 needs owner, 4 busy, 5 nothing claimed', () => {
+  const ch = (outcome: string) => ({ kind: 'change' as const, outcome: { mission: 'M-1', outcome: outcome as 'live', attempt: 1, reason: '' } });
+  assert.equal(onceCode(ch('live')), 0);
+  assert.equal(onceCode(ch('needs_owner')), 3);
+  for (const o of ['rolled_back', 'rejected', 'failed', 'stopped', 'gone', 'error']) assert.equal(onceCode(ch(o)), 1, o);
+  assert.equal(onceCode({ kind: 'busy' }), 4);
+  for (const k of [{ kind: 'idle' as const }, { kind: 'paused' as const, reason: 'x' }, { kind: 'halted' as const, reason: 'x' }, { kind: 'cap' as const, count: 12 }]) assert.equal(onceCode(k), 5);
+});
+
+function fakeFx() {
+  const hist: HistoryEntry[] = [];
+  let paused: string | null = null;
+  const fx = {
+    async paused() { return paused; },
+    async writePaused(r: string) { paused = r; },
+    async clearPaused() { const w = paused !== null; paused = null; return w; },
+    async readHistory() { return hist; },
+    async appendHistory(e: Omit<HistoryEntry, 'at'>) { hist.push({ at: '2026-11-27T00:00:00Z', ...e }); },
+    async guardBusy() { return false; },
+    now: () => Date.parse('2026-11-27T12:00:00Z'),
+    async lock() { return null; },
+  } as unknown as RunnerEffects;
+  return { fx, hist, isPaused: () => paused };
+}
+
+test('pause / resume / status: PAUSED written and removed, history lines, status text; usage errors exit 2', async () => {
+  const f = fakeFx();
+  const out: string[] = [];
+  const deps = { env: { AXION_GUARD_ROOT: '/nonexistent-root' }, out: (s: string) => out.push(s), err: (s: string) => out.push(s), effects: () => f.fx, noSignals: true };
+  assert.equal(await main(['pause', 'testing'], deps), 0);
+  assert.match(f.isPaused()!, /paused by the owner at .*: testing/);
+  assert.equal(await main(['status'], deps), 0);
+  assert.match(out.join('\n'), /paused: YES/);
+  assert.match(out.join('\n'), /changes today \(UTC\): 0 of 12/);
+  assert.equal(await main(['resume'], deps), 0);
+  assert.equal(f.isPaused(), null);
+  assert.deepEqual(f.hist.map((h) => h.event), ['pause', 'resume']);
+  assert.equal(await main(['run', '--inject-failure'], deps), 2);
+  assert.equal(await main(['once'], deps), 4, 'the lock is held → busy');
+  assert.match(out.at(-1)!, /"kind":"busy"/);
+});
+
+test('bin/axion-evolve runs the installed copy of cli.ts with node; the unit runs it as a restartable service that is never killed with the Guard', () => {
+  const bin = readFileSync(new URL('../bin/axion-evolve', import.meta.url), 'utf8');
+  assert.match(bin, /^exec node \/srv\/axion-evolve\/guard\/evolve\/runner\/cli\.ts "\$@"$/m);
+  const unit = readFileSync(new URL('./axion-evolve.service', import.meta.url), 'utf8');
+  for (const l of ['ExecStart=/usr/local/bin/axion-evolve run', 'Restart=on-failure', 'RestartSec=30', 'KillMode=process', 'WantedBy=multi-user.target']) {
+    assert.ok(unit.split('\n').includes(l), l);
+  }
+});

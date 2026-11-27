@@ -21,6 +21,18 @@
 #                                   Call it as `recreate_live_network … || exit 1` (errexit is off inside, every step checked).
 #   ensure_edge_network <name>      create it if missing (a normal bridge)
 #   live_network_isolated <name>    0 when <name> is internal with inhibit_ipv4=true
+#
+# Evolution step 2 (the runner and its Workshop):
+#   copy_missing <src> <dest>       rsync -a --ignore-existing: copies only what the destination does not have yet (an
+#                                   old native file is never copied over live data, however new its mtime)
+#   runner_running                  0 when axion-evolve.service is active (install.sh refuses then: stop it first)
+#   ensure_workshop_network <name> <egress>  the Workshop's network, isolated like the live one (internal, no IPv4 on the
+#                                   host side); recreated when it lacks the isolation and only the egress is attached (3 =
+#                                   other members, left alone); the egress proxy connected to it (its only way out)
+#   ensure_workshop_image <tag> <dockerfile> <context>  build it once per tag (the Guard's commit), legacy builder
+#   write_workshop_env <src-env> <dest>  only when <dest> is missing: CLAUDE_CODE_OAUTH_TOKEN=<CLAUDE_CODE_OAUTH_TOKEN1 of
+#                                   <src-env>>, mode 600; the value is never printed and never an argument (bash builtins)
+#   install_runner_unit <unit> [<systemd-dir>]  install when changed + daemon-reload; enable, never --now (not started)
 
 retire_native_units() {
   local unit en ac
@@ -118,4 +130,73 @@ _live_restore() {
   _reload_front "$front"
   if [ ${#left[@]} -gt 0 ]; then echo "  RESTORE INCOMPLETE: $net exists, still detached: ${left[*]} (docker network connect $net <name>)" >&2; return 1; fi
   echo "  restored: $net exists ($(live_network_isolated "$net" && echo isolated || echo 'NOT isolated')), every member is connected again" >&2
+}
+
+copy_missing() {
+  [ -e "$1" ] || { echo "  (no $1)"; return 0; }
+  rsync -a --ignore-existing "$1" "$2"
+}
+
+runner_running() {
+  [ "$(systemctl is-active axion-evolve.service 2>/dev/null || true)" = active ]
+}
+
+ensure_workshop_network() {
+  local net=$1 egress=$2 others=()
+  if docker network inspect "$net" >/dev/null 2>&1 && ! live_network_isolated "$net"; then
+    mapfile -t others < <(docker ps -a --filter "network=$net" --format '{{.Names}}' | grep -vxF -- "$egress" | grep -v '^$' || true)
+    if [ ${#others[@]} -gt 0 ]; then
+      echo "  refusing: $net lacks the isolation and has other members: ${others[*]} (remove them, then run install again)" >&2
+      return 3
+    fi
+    if _attached "$egress" "$net"; then docker network disconnect -f "$net" "$egress" || return 1; fi
+    docker network rm "$net" >/dev/null || return 1
+    echo "  removed $net (it lacked the isolation)"
+  fi
+  if docker network inspect "$net" >/dev/null 2>&1; then echo "  already done: $net (internal, no IPv4 on the host side)"
+  else
+    docker network create "${ISOLATED_NET_OPTS[@]}" "$net" >/dev/null || return 1
+    echo "  created $net (internal, no IPv4 on the host side)"
+  fi
+  if ! docker container inspect "$egress" >/dev/null 2>&1; then echo "  $egress is missing; not connected to $net" >&2; return 1; fi
+  if _attached "$egress" "$net"; then echo "  already done: $egress on $net"
+  else docker network connect "$net" "$egress" || return 1; echo "  connected $egress to $net (the Workshop's only way out)"; fi
+}
+
+ensure_workshop_image() {
+  local tag=$1 file=$2 ctx=$3
+  if docker image inspect "$tag" >/dev/null 2>&1; then echo "  already done: $tag"; return 0; fi
+  DOCKER_BUILDKIT=0 docker build -q -f "$file" -t "$tag" "$ctx" >/dev/null || { echo "  building $tag failed" >&2; return 1; }
+  echo "  built $tag"
+}
+
+write_workshop_env() {
+  local src=$1 dest=$2 v=""
+  if [ -f "$dest" ]; then echo "  already done: $(basename "$dest") (delete it to rebuild)"; return 0; fi
+  # the value travels through a pipe and a variable only; printf is a bash builtin (no process, nothing in ps)
+  v=$(grep -E '^CLAUDE_CODE_OAUTH_TOKEN1=' "$src" 2>/dev/null | tail -n 1 | cut -d= -f2-) || v=""
+  v=${v%$'\r'}
+  case "$v" in \"*\") v=${v#\"}; v=${v%\"} ;; \'*\') v=${v#\'}; v=${v%\'} ;; esac
+  if [ ${#v} -lt 20 ]; then echo "  CLAUDE_CODE_OAUTH_TOKEN1 is missing or too short in $src; $(basename "$dest") not written" >&2; return 1; fi
+  rm -f "$dest.tmp"
+  ( umask 077; printf 'CLAUDE_CODE_OAUTH_TOKEN=%s\n' "$v" > "$dest.tmp" ) || return 1
+  chmod 600 "$dest.tmp" && mv -f "$dest.tmp" "$dest" || return 1
+  v=""
+  echo "  written $(basename "$dest") (mode 600, one key: CLAUDE_CODE_OAUTH_TOKEN; the value is not shown)"
+}
+
+install_runner_unit() {
+  local src=$1 dir=${2:-/etc/systemd/system} name
+  name=$(basename "$src")
+  if cmp -s "$src" "$dir/$name"; then echo "  already done: $dir/$name"
+  else
+    install -m 644 "$src" "$dir/$name" || return 1
+    systemctl daemon-reload || return 1
+    echo "  installed $dir/$name"
+  fi
+  if [ "$(systemctl is-enabled "$name" 2>/dev/null || true)" = enabled ]; then echo "  already done: $name is enabled"
+  else
+    systemctl enable "$name" >/dev/null 2>&1 || { echo "  systemctl enable $name failed" >&2; return 1; }
+    echo "  enabled $name (not started: Claude Code starts it)"
+  fi
 }

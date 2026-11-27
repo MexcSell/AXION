@@ -2,7 +2,8 @@
 // networks/containers they touch, one-shot failure injection, and a log of every call. No real Docker or systemd.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, readFileSync, chmodSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, chmodSync, mkdirSync, statSync, existsSync, utimesSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -47,6 +48,9 @@ if (a[0] === 'inspect') {
   if (m) out(c.networks.includes(m[1]) ? 'yes\\n' : '\\n');
 }
 if (a[0] === 'exec') out('');
+if (a[0] === 'container' && a[1] === 'inspect') { if (!ctrs[a.at(-1)]) die('no such container'); out('[{}]\\n'); }
+if (a[0] === 'image' && a[1] === 'inspect') { if (!(st.images || []).includes(a.at(-1))) die('no such image'); out('[{}]\\n'); }
+if (a[0] === 'build') { st.images = [...(st.images || []), a[a.indexOf('-t') + 1]]; st.buildEnv = process.env.DOCKER_BUILDKIT ?? null; out('sha256:x\\n'); }
 die('fake docker: unexpected ' + line, 99);
 `;
 
@@ -56,17 +60,19 @@ const S = process.env.FAKE_STATE, L = process.env.FAKE_LOG;
 const st = JSON.parse(fs.readFileSync(S, 'utf8'));
 const a = process.argv.slice(2);
 fs.appendFileSync(L, 'systemctl ' + a.join(' ') + '\\n');
+if (a[0] === 'daemon-reload') { st.reloads = (st.reloads || 0) + 1; st.units['axion-evolve.service'] ??= { enabled: 'disabled', active: 'inactive' }; fs.writeFileSync(S, JSON.stringify(st)); process.exit(0); }
 const u = st.units[a.at(-1)];
 if (a[0] === 'list-unit-files') { if (u) process.stdout.write(a.at(-1) + ' ' + u.enabled + '\\n'); process.exit(0); }
 if (!u) process.exit(1);
 if (a[0] === 'is-enabled') { process.stdout.write(u.enabled + '\\n'); process.exit(u.enabled === 'enabled' ? 0 : 1); }
 if (a[0] === 'is-active') { process.stdout.write(u.active + '\\n'); process.exit(u.active === 'active' ? 0 : 3); }
 if (a[0] === 'disable' && a[1] === '--now') { u.enabled = 'disabled'; u.active = 'inactive'; fs.writeFileSync(S, JSON.stringify(st)); process.exit(0); }
+if (a[0] === 'enable') { u.enabled = 'enabled'; fs.writeFileSync(S, JSON.stringify(st)); process.exit(0); }
 process.exit(99);
 `;
 
 type World = { networks: Record<string, { internal: boolean; inhibit: boolean }>; containers: Record<string, { running: boolean; networks: string[] }>;
-  units?: Record<string, { enabled: string; active: string }>; failOnce?: string[] };
+  units?: Record<string, { enabled: string; active: string }>; failOnce?: string[]; images?: string[]; buildEnv?: string | null; reloads?: number };
 
 function world(w: World) {
   const d = mkdtempSync(join(tmpdir(), 'guard-install-lib-'));
@@ -81,6 +87,7 @@ function world(w: World) {
     return { code: r.status, out: r.stdout, err: r.stderr };
   };
   return {
+    dir: d,
     run,
     state: () => JSON.parse(readFileSync(join(d, 'state.json'), 'utf8')) as World,
     log: () => readFileSync(join(d, 'log'), 'utf8').trim().split('\n').filter(Boolean),
@@ -166,4 +173,116 @@ test('recreate_live_network: a failure after the first disconnect puts the netwo
     for (const [n, c] of Object.entries(s.containers)) assert.ok(c.networks.includes('axion-live'), `${fail}: ${n}`);
     assert.ok(w.log().includes('exec axion-front nginx -s reload'), `${fail}: front reloaded`);
   }
+});
+
+// ---- evolution step 2: the runner's install steps ----
+
+test('copy_missing: rsync --ignore-existing never replaces a file the destination has, even a newer source; copies what is missing', () => {
+  const w = world({ networks: {}, containers: {} });
+  const src = join(w.dir, 'src'); const dst = join(w.dir, 'dst');
+  mkdirSync(join(src, 'up'), { recursive: true }); mkdirSync(join(dst, 'up'), { recursive: true });
+  writeFileSync(join(src, 'anchors.jsonl'), 'stale native\n'); writeFileSync(join(dst, 'anchors.jsonl'), 'live\n');
+  utimesSync(join(dst, 'anchors.jsonl'), new Date('2020-01-01'), new Date('2020-01-01'));
+  writeFileSync(join(src, 'up', 'old.png'), 'native'); writeFileSync(join(dst, 'up', 'old.png'), 'live');
+  utimesSync(join(dst, 'up', 'old.png'), new Date('2020-01-01'), new Date('2020-01-01'));
+  writeFileSync(join(src, 'up', 'new.png'), 'only native');
+  const r = w.run(`copy_missing ${src}/up/ ${dst}/up/ && copy_missing ${src}/anchors.jsonl ${dst}/anchors.jsonl && copy_missing ${src}/none ${dst}/none`);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(readFileSync(join(dst, 'anchors.jsonl'), 'utf8'), 'live\n');
+  assert.equal(readFileSync(join(dst, 'up', 'old.png'), 'utf8'), 'live');
+  assert.equal(readFileSync(join(dst, 'up', 'new.png'), 'utf8'), 'only native');
+  assert.match(r.out, /\(no .*none\)/);
+  assert.match(readFileSync(new URL('../install.sh', import.meta.url), 'utf8'), /copy_missing "\$SRC_DATA\/audit-anchors\.jsonl"/);
+  assert.doesNotMatch(readFileSync(new URL('../install.sh', import.meta.url), 'utf8'), /rsync[^\n]*--update/);
+});
+
+test('ensure_workshop_network: created isolated, the egress connected; idempotent; a non-isolated one with only the egress is recreated', () => {
+  const w = world({ networks: { 'axion-edge': { internal: false, inhibit: false } }, containers: { 'axion-egress': { running: true, networks: ['axion-edge'] } } });
+  const a = w.run('ensure_workshop_network axion-workshop axion-egress');
+  assert.equal(a.code, 0, a.err);
+  assert.deepEqual(w.state().networks['axion-workshop'], { internal: true, inhibit: true });
+  assert.ok(w.state().containers['axion-egress'].networks.includes('axion-workshop'));
+  assert.ok(w.log().includes(`network create ${ISO} axion-workshop`));
+  const before = w.log().length;
+  const b = w.run('ensure_workshop_network axion-workshop axion-egress');
+  assert.equal(b.code, 0, b.err);
+  assert.match(b.out, /already done: axion-workshop[\s\S]*already done: axion-egress on axion-workshop/);
+  assert.ok(!w.log().slice(before).some((l) => /create|connect|rm/.test(l)), 'nothing changed the second time');
+  const old = world({ networks: { 'axion-workshop': { internal: true, inhibit: false } }, containers: { 'axion-egress': { running: true, networks: ['axion-edge', 'axion-workshop'] } } });
+  const c = old.run('ensure_workshop_network axion-workshop axion-egress');
+  assert.equal(c.code, 0, c.err);
+  assert.deepEqual(old.state().networks['axion-workshop'], { internal: true, inhibit: true });
+  assert.ok(old.state().containers['axion-egress'].networks.includes('axion-workshop'));
+});
+
+test('ensure_workshop_network: a non-isolated network with other members is left alone (rc 3); a missing egress fails (rc 1)', () => {
+  const w = world({ networks: { 'axion-workshop': { internal: false, inhibit: false } }, containers: {
+    'axion-egress': { running: true, networks: ['axion-workshop'] }, 'axion-workshop-M-1-a1': { running: true, networks: ['axion-workshop'] } } });
+  const r = w.run('ensure_workshop_network axion-workshop axion-egress || echo "rc=$?"');
+  assert.match(r.out, /rc=3/);
+  assert.match(r.err, /axion-workshop-M-1-a1/);
+  assert.ok(!w.log().some((l) => /network (rm|create|disconnect)/.test(l)));
+  const n = world({ networks: {}, containers: {} });
+  assert.match(n.run('ensure_workshop_network axion-workshop axion-egress || echo "rc=$?"').out, /rc=1/);
+});
+
+test('ensure_workshop_image: built once per tag with the legacy builder; an existing tag is not rebuilt', () => {
+  const w = world({ networks: {}, containers: {} });
+  const a = w.run('ensure_workshop_image axion-workshop:abc /g/evolve/docker/workshop.Dockerfile /g/evolve/docker');
+  assert.equal(a.code, 0, a.err);
+  assert.ok(w.log().includes('build -q -f /g/evolve/docker/workshop.Dockerfile -t axion-workshop:abc /g/evolve/docker'));
+  assert.equal(w.state().buildEnv, '0');
+  const b = w.run('ensure_workshop_image axion-workshop:abc /g/evolve/docker/workshop.Dockerfile /g/evolve/docker');
+  assert.match(b.out, /already done: axion-workshop:abc/);
+  assert.equal(w.log().filter((l) => l.startsWith('build')).length, 1);
+});
+
+test('write_workshop_env: only CLAUDE_CODE_OAUTH_TOKEN=<TOKEN1>, mode 600, the value never printed; not rebuilt when present; refuses a missing token', () => {
+  const w = world({ networks: {}, containers: {} });
+  const tok1 = 'sk-' + 'ant-oat01-' + randomBytes(30).toString('base64url');
+  const tok2 = 'sk-' + 'ant-oat01-' + randomBytes(30).toString('base64url');
+  const src = join(w.dir, 'root.env');
+  writeFileSync(src, `OTHER=1\nCLAUDE_CODE_OAUTH_TOKEN2=${tok2}\nCLAUDE_CODE_OAUTH_TOKEN1="${tok1}"\n`);
+  const dest = join(w.dir, 'secrets', 'workshop.env');
+  mkdirSync(join(w.dir, 'secrets'));
+  const r = w.run(`write_workshop_env ${src} ${dest}`);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(readFileSync(dest, 'utf8'), `CLAUDE_CODE_OAUTH_TOKEN=${tok1}\n`);
+  assert.equal(statSync(dest).mode & 0o777, 0o600);
+  for (const t of [tok1, tok2]) assert.ok(!r.out.includes(t) && !r.err.includes(t), 'never printed');
+  assert.ok(!existsSync(`${dest}.tmp`));
+  writeFileSync(src, `CLAUDE_CODE_OAUTH_TOKEN1=${tok2}\n`);
+  assert.match(w.run(`write_workshop_env ${src} ${dest}`).out, /already done/);
+  assert.equal(readFileSync(dest, 'utf8'), `CLAUDE_CODE_OAUTH_TOKEN=${tok1}\n`, 'kept, like live.env');
+  const none = join(w.dir, 'none.env'); writeFileSync(none, 'CLAUDE_CODE_OAUTH_TOKEN2=x\n');
+  const d2 = join(w.dir, 'secrets', 'w2.env');
+  const bad = w.run(`write_workshop_env ${none} ${d2} || echo "rc=$?"`);
+  assert.match(bad.out, /rc=1/);
+  assert.ok(!existsSync(d2));
+});
+
+test('install_runner_unit: installed, daemon-reload, enabled (never --now, never started); idempotent', () => {
+  const w = world({ networks: {}, containers: {} });
+  const unit = new URL('../runner/axion-evolve.service', import.meta.url).pathname;
+  const dir = join(w.dir, 'systemd'); mkdirSync(dir);
+  const a = w.run(`install_runner_unit ${unit} ${dir}`);
+  assert.equal(a.code, 0, a.err);
+  assert.equal(readFileSync(join(dir, 'axion-evolve.service'), 'utf8'), readFileSync(unit, 'utf8'));
+  const sys = w.log().filter((l) => l.startsWith('systemctl'));
+  assert.ok(sys.includes('systemctl daemon-reload'));
+  assert.ok(sys.includes('systemctl enable axion-evolve.service'));
+  assert.ok(!sys.some((l) => /--now|start|restart/.test(l)), sys.join('; '));
+  assert.equal(w.state().units!['axion-evolve.service'].active, 'inactive');
+  const b = w.run(`install_runner_unit ${unit} ${dir}`);
+  assert.match(b.out, /already done: .*axion-evolve\.service[\s\S]*already done: axion-evolve\.service is enabled/);
+  assert.equal(w.state().reloads, 1);
+});
+
+test('runner_running: install.sh refuses while axion-evolve.service is active', () => {
+  const on = world({ networks: {}, containers: {}, units: { 'axion-evolve.service': { enabled: 'enabled', active: 'active' } } });
+  assert.match(on.run('runner_running && echo yes || echo no').out, /yes/);
+  const off = world({ networks: {}, containers: {}, units: { 'axion-evolve.service': { enabled: 'enabled', active: 'inactive' } } });
+  assert.match(off.run('runner_running && echo yes || echo no').out, /no/);
+  assert.match(world({ networks: {}, containers: {} }).run('runner_running && echo yes || echo no').out, /no/);
+  assert.match(readFileSync(new URL('../install.sh', import.meta.url), 'utf8'), /if runner_running; then .*exit 2; fi/);
 });

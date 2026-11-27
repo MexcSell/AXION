@@ -1,0 +1,4 @@
+#!/bin/sh
+# axion-evolve: the runner's command line (evolve step 2). Installed as /usr/local/bin/axion-evolve by evolve/install.sh.
+# Always runs the Guard's own installed copy (never a checkout an agent can write to). `axion-evolve help` for usage.
+exec node /srv/axion-evolve/guard/evolve/runner/cli.ts "$@"

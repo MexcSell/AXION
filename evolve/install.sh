@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# Host install for AXION evolution step 1 (design §7, §13 B3/B4). Idempotent: every step is skipped when already done.
+# Host install for AXION evolution steps 1 and 2 (design §7, §13 B3/B4). Idempotent: every step is skipped when already done.
 # Run as root by Claude Code on the owner's word. It does NOT touch the shared PostgreSQL config, other apps' databases or
-# containers. It retires the native site's systemd units (step 0). Usage:
+# containers. It retires the native site's systemd units (step 0). Step 2 adds the runner (axion-evolve): the Workshop
+# network, image and token file, its directories and its systemd unit (enabled, NOT started: Claude Code starts it). It
+# refuses while axion-evolve.service runs (stop it first: the Guard copy it runs from is replaced here). Usage:
 #   evolve/install.sh [--recreate-live-network] <git-dir-of-the-AXION-repo> <commit>
 #     e.g. evolve/install.sh /home/luca/AXION/.git evolve-step1
 #   --recreate-live-network  recreate an existing live network that lacks the host isolation (inhibit_ipv4): the front,
 #                            the slots and the egress proxy are disconnected and reconnected (a few seconds without the site).
 #                            Without the flag such a network is left alone and the install ends with exit 3.
-# Env: EVOLVE_ROOT (default /srv/axion-evolve), SRC_ENV_SERVER (default /home/luca/AXION/server/.env),
+# Env: EVOLVE_ROOT (default /srv/axion-evolve), SRC_ENV_SERVER (default /home/luca/AXION/server/.env), SYSTEMD_DIR (/etc/systemd/system),
 #      SRC_ENV_ROOT (default /home/luca/AXION/.env), SRC_DATA (default /home/luca/AXION/server/data), PREFIX (default axion)
 set -euo pipefail
 RECREATE_LIVE=0
@@ -21,6 +23,7 @@ ROOT="${EVOLVE_ROOT:-/srv/axion-evolve}"; P="${PREFIX:-axion}"
 SRC_ENV_SERVER="${SRC_ENV_SERVER:-/home/luca/AXION/server/.env}"; SRC_ENV_ROOT="${SRC_ENV_ROOT:-/home/luca/AXION/.env}"
 SRC_DATA="${SRC_DATA:-/home/luca/AXION/server/data}"
 [ "$(id -u)" = 0 ] || { echo "run as root" >&2; exit 2; }
+if runner_running; then echo "install: axion-evolve.service is running; stop it first (systemctl stop axion-evolve), then start it again after the install" >&2; exit 2; fi
 done_() { echo "  already done: $*"; }
 step() { echo "== $*"; }
 SHA=$(git --git-dir="$GIT_SRC" rev-parse --verify "$REV^{commit}")
@@ -62,7 +65,8 @@ else
   echo "  guard installed at $SHA (pg $pgv for backups)"
 fi
 ln -sfn "$ROOT/guard/evolve/bin/axion-guard" /usr/local/bin/axion-guard
-chmod 755 "$ROOT/guard/evolve/bin/axion-guard" "$ROOT/guard/evolve/backup.sh"
+ln -sfn "$ROOT/guard/evolve/bin/axion-evolve" /usr/local/bin/axion-evolve
+chmod 755 "$ROOT/guard/evolve/bin/axion-guard" "$ROOT/guard/evolve/bin/axion-evolve" "$ROOT/guard/evolve/backup.sh"
 
 step "4. secrets/live.env (mode 600; values never printed)"
 if [ -f "$ROOT/secrets/live.env" ]; then done_ "live.env (delete it to rebuild)"
@@ -94,14 +98,25 @@ if ! docker container inspect "$P-egress" >/dev/null 2>&1; then
   echo "  started $P-egress (edge + live, port 3128, no published port)"
 fi
 
-step "6. shared data copied (not moved) from $SRC_DATA"
-copy() { # $1 source, $2 dest; copies only when the destination is missing or older
-  [ -e "$1" ] || { echo "  (no $1)"; return; }
-  rsync -a --update "$1" "$2"; }
-copy "$SRC_DATA/uploads/" "$ROOT/data/uploads/"
-copy "$SRC_DATA/audit-anchors.jsonl" "$ROOT/data/audit-anchors.jsonl"
-copy "$SRC_DATA/cloud-home/claude-2" "$ROOT/data/cloud-home/"
+step "6. shared data copied (not moved) from $SRC_DATA, only what the live data does not have yet"
+# --ignore-existing: a file the live side already has is never replaced (with --update a newer stale native file could
+# overwrite live data, e.g. the audit anchors the live site appends to)
+copy_missing "$SRC_DATA/uploads/" "$ROOT/data/uploads/"
+copy_missing "$SRC_DATA/audit-anchors.jsonl" "$ROOT/data/audit-anchors.jsonl"
+copy_missing "$SRC_DATA/cloud-home/claude-2" "$ROOT/data/cloud-home/"
 chown -R axion:axion "$ROOT/data"
 echo "  ok ($(du -sh "$ROOT/data" | cut -f1))"
+
+step "7. the Workshop (step 2): network $P-workshop (only way out: $P-egress), image, secrets/workshop.env"
+ensure_workshop_network "$P-workshop" "$P-egress" || { rc=$?; [ "$rc" = 3 ] && PENDING="${PENDING:+$PENDING; }$P-workshop lacks the isolation" || { echo "install: stopped: the Workshop network (see above)" >&2; exit 1; }; }
+ensure_workshop_image "axion-workshop:${SHA:0:12}" "$ROOT/guard/evolve/docker/workshop.Dockerfile" "$ROOT/guard/evolve/docker" \
+  || { echo "install: stopped: the Workshop image (see above)" >&2; exit 1; }
+write_workshop_env "$SRC_ENV_ROOT" "$ROOT/secrets/workshop.env" || { echo "install: stopped: secrets/workshop.env (see above)" >&2; exit 1; }
+
+step "8. the runner (step 2): directories, axion-evolve.service (enabled, not started)"
+# work/ is the Guard's scratch dir (it empties it before every deploy); the runner's change trees live in changes/
+install -d -m 700 "$ROOT/work" "$ROOT/changes"
+install_runner_unit "$ROOT/guard/evolve/runner/axion-evolve.service" "${SYSTEMD_DIR:-/etc/systemd/system}" \
+  || { echo "install: stopped: the runner unit (see above)" >&2; exit 1; }
 if [ -n "$PENDING" ]; then echo "install: done (guard $SHA), except: $PENDING"; exit 3; fi
 echo "install: done (guard $SHA)"

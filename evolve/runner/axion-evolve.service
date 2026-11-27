@@ -1,0 +1,23 @@
+# The AXION evolution runner (evolve step 2): claims owner `improve` missions, has the Workshop's engineer change the code,
+# checks it and hands it to the Guard (axion-guard). Installed to /etc/systemd/system by evolve/install.sh and enabled,
+# never started by it (Claude Code starts it).
+# KillMode=process: a stop signals the runner only. A Guard deploy it started keeps running to its own end (a killed Guard
+# leaves an unfinished deploy that needs `axion-guard rollback`); the next start waits for it and settles the mission from
+# the Guard's history, then sweeps the runner's leftover containers.
+[Unit]
+Description=AXION evolution runner (axion-evolve)
+After=docker.service network-online.target postgresql.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/axion-evolve run
+Restart=on-failure
+RestartSec=30
+KillMode=process
+TimeoutStopSec=90
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=multi-user.target
