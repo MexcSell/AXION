@@ -1,5 +1,5 @@
 import { Sparkles, GitCommitHorizontal, FileDiff, ShieldAlert, ClipboardCheck, Hourglass } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { EvolveInfo, EvolveState } from '../../data/types';
 
 /**
@@ -45,6 +45,28 @@ function StateHeader({ e }: { e: EvolveInfo }) {
   );
 }
 
+/** Above this many changed files the list starts collapsed to the first FILES_SHOWN with a "Show all N files" button. */
+export const FILES_SHOWN = 20;
+
+/** The files the list shows: all of them when expanded or when there are FILES_SHOWN or fewer, otherwise the first FILES_SHOWN. */
+export const visibleFiles = (files: string[], expanded: boolean): string[] =>
+  expanded || files.length <= FILES_SHOWN ? files : files.slice(0, FILES_SHOWN);
+
+function FilesList({ files }: { files: string[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const long = files.length > FILES_SHOWN;
+  return (
+    <>
+      <ul className="evo-files" id={long ? 'evo-files-list' : undefined}>{visibleFiles(files, expanded).map((f) => <li key={f}><code>{f}</code></li>)}</ul>
+      {long && (
+        <button type="button" className="btn sm ghost" style={{ marginTop: 4 }} aria-expanded={expanded} aria-controls="evo-files-list" onClick={() => setExpanded((v) => !v)}>
+          {expanded ? 'Show fewer files' : `Show all ${files.length} files`}
+        </button>
+      )}
+    </>
+  );
+}
+
 function ChangePanel({ e }: { e: EvolveInfo }) {
   if (!e.commit && !e.filesChanged?.length && !e.diffStat) return null;
   return (
@@ -57,7 +79,7 @@ function ChangePanel({ e }: { e: EvolveInfo }) {
       {e.filesChanged?.length ? (
         <>
           <div className="row" style={{ gap: 8, marginBottom: 4 }}><FileDiff size={15} className="info" /><b>Files changed ({e.filesChanged.length})</b></div>
-          <ul className="evo-files">{e.filesChanged.map((f) => <li key={f}><code>{f}</code></li>)}</ul>
+          <FilesList files={e.filesChanged} />
         </>
       ) : null}
       {e.diffStat && <pre className="evo-pre" aria-label="Diff summary">{e.diffStat}</pre>}
