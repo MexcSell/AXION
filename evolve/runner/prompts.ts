@@ -11,10 +11,10 @@ const quote = (v: unknown) => JSON.stringify(v, null, 1).replace(/</g, '\\u003c'
 
 // what gates.ts flags (FLAG_RULES plus symlinks and unusable new file names); keep in step with it
 const FLAG_LIST = 'network calls (fetch(, WebSocket, EventSource, XMLHttpRequest, sendBeacon), absolute or protocol-relative URLs '
-  + '(http://, https://, ws://, wss://, ftp://, \'//host\'), reading the environment (process.env, importing process), importing Node I/O '
-  + 'modules (fs, http, https, http2, net, dgram, tls, dns, child_process, worker_threads, cluster, vm, inspector), file-system writes, '
-  + 'renames or deletes (fs.write*, rm, rmSync, rename, unlink, copyFile), SQL DROP / TRUNCATE / DELETE FROM without WHERE, eval( or '
-  + 'Function( (with or without new), symlinks, or new file names with characters outside A-Z a-z 0-9 _ . / @ + -';
+  + '(http://, https://, ws://, wss://, ftp://, \'//host\'), reading the environment (process.env, importing process), importing Node network '
+  + 'or process modules (http, https, http2, net, dgram, tls, dns, child_process, worker_threads, cluster, vm, inspector), file-system writes, '
+  + 'renames or deletes (fs.write*, rm, rmSync, rename, unlink, copyFile), SQL DROP / TRUNCATE / DELETE FROM without WHERE, calling eval '
+  + '(eval(, (0, eval)) or Function( (with or without new), symlinks, or new file names with characters outside A-Z a-z 0-9 _ . / @ + -';
 
 export function engineerPrompt(o: { mission: Mission; attempt: number; feedback?: string; protectedPatterns: string[] }): string {
   const m = o.mission;

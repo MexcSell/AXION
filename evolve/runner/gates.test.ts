@@ -105,8 +105,10 @@ const FIXTURES: Record<string, { hit: string[]; miss: string[] }> = {
   },
   node_io: {
     hit: ["import http from 'node:http'", "import https from 'https'", "const net = require('net')", "import dgram from 'node:dgram'", "import tls from 'tls'",
-      "import { spawn } from 'node:child_process'", "import { rm } from 'node:fs/promises'", "await import('node:http2')", "import * as dns from 'dns'", "import fs from 'fs'"],
-    miss: ["import x from './http'", "import { join } from 'node:path'", "import h from 'httpx'", 'const net = 1', "import { a } from '../fs'"],
+      "import { spawn } from 'node:child_process'", "await import('node:http2')", "import * as dns from 'dns'"],
+    // R35: an fs import alone is not flagged (reading files is ordinary); fs writes/deletes/renames stay flagged (fs_write)
+    miss: ["import x from './http'", "import { join } from 'node:path'", "import h from 'httpx'", 'const net = 1', "import { a } from '../fs'",
+      "import fs from 'fs'", "import { readFileSync } from 'node:fs'", "import { readFile } from 'node:fs/promises'", "const fs = require('fs')"],
   },
   child_process: { hit: ["import { spawn } from 'node:child_process'", "require('child_process')"], miss: ['const child_processor = 1'] },
   fs_write: {
@@ -116,8 +118,10 @@ const FIXTURES: Record<string, { hit: string[]; miss: string[] }> = {
   },
   sql: { hit: ['await q("DROP TABLE users")', 'drop table if exists x', 'TRUNCATE users', 'truncate table x', "q('DELETE FROM missions')", 'delete from x;'], miss: ['dropdown()', 'drop the item', "q('DELETE FROM missions WHERE id = $1')", 'truncate(text, 40)', 'deleted from list'] },
   eval: {
-    hit: ['eval(code)', 'new Function("return 1")', 'window.eval (x)', "Function('return 1')()", '(0, eval)(code)', "globalThis['eval'](c)"],
-    miss: ['evaluate(x)', 'medieval(x)', 'new FunctionComponent()', 'isFunction(x)', 'retrieval(x)', 'const evaluation = 1'],
+    hit: ['eval(code)', 'new Function("return 1")', 'window.eval (x)', "Function('return 1')()", '(0, eval)(code)', '(0,eval)(code)', "globalThis['eval'](c)"],
+    // R35: eval as a word that is not called (attributes, ids, file names, test names) is not flagged
+    miss: ['evaluate(x)', 'medieval(x)', 'new FunctionComponent()', 'isFunction(x)', 'retrieval(x)', 'const evaluation = 1',
+      '<div data-eval-id="x">', "const dir = 'eval-runs'", 'import { runs } from "./eval-runs"', 'const eval_count = 2', "describe('eval mode', () => {})", 'type Eval = 1'],
   },
 };
 
@@ -168,4 +172,10 @@ test('fix 2: an added or renamed path that fails SAFE_PATH or isCanonicalPath is
   const withSecret = flagged([{ path: `web/"${PASSWORD} x.ts`, status: 'A' }]);
   assert.equal(withSecret.length, 1);
   assert.ok(!withSecret[0].includes(PASSWORD) && withSecret[0].includes('[redacted]'), withSecret[0]);
+});
+
+test('R35: an fs import alone raises no flag; an fs write/rm/rename/unlink in the same diff still does', () => {
+  assert.deepEqual(scanFlags("import { readFileSync, writeFileSync } from 'node:fs'"), []);
+  assert.deepEqual(scanFlags("import fs from 'node:fs/promises'"), []);
+  for (const l of ['await fs.writeFile(p, d)', 'fs.rmSync(p)', 'await fs.rename(a, b)', 'fs.unlinkSync(p)']) assert.deepEqual(scanFlags(l), ['fs_write'], l);
 });

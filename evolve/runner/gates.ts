@@ -6,7 +6,7 @@
 //                  message or the report; a binary change (cannot be scanned) counts too. A hit names the place, never the value,
 //                  and every output list (hits, flags, protected paths) has all secret forms replaced by [redacted] (C1).
 //   flags:         a static scan of added lines (B1b): network calls, absolute/protocol-relative URLs, environment reads,
-//                  Node I/O module imports, child processes, file writes/deletes, destructive SQL, eval. A flag → the mission
+//                  Node network/process module imports (not fs: R35), child processes, file writes/deletes, destructive SQL, eval. A flag → the mission
 //                  waits for the owner. A best-effort tripwire, not a sandbox: the checks run no-network, and the reviewer reads too.
 // The diff must be `git diff` text (Task 4: `--text` so binary content is shown as lines, or it is caught as unscannable);
 // `files` must list every changed path (from `git diff --name-status -z -M`).
@@ -45,7 +45,9 @@ export function loadRules(file: string | URL = new URL('../protected.txt', impor
 const re = (r: RegExp) => (s: string) => r.test(s);
 const SQL_CI = /\bdrop\s+(?:table|schema|database|index|view|materialized|column|constraint|trigger|function|type|extension|role|user|sequence|owned|policy)\b|\btruncate\s+table\b|\bdelete\s+from\b(?![^\n]*\bwhere\b)/i;
 
-const NODE_IO = /(?:\bfrom\s*|\brequire\s*\(\s*|\bimport\s*\(\s*|\bimport\s+)['"`](?:node:)?(?:fs|fs\/promises|http|https|http2|net|dgram|tls|dns|dns\/promises|child_process|worker_threads|cluster|vm|inspector)['"`]/;
+// R35: fs / fs/promises are not in this list (reading files is ordinary code); their writes, deletes and renames are the
+// fs_write flag below
+const NODE_IO = /(?:\bfrom\s*|\brequire\s*\(\s*|\bimport\s*\(\s*|\bimport\s+)['"`](?:node:)?(?:http|https|http2|net|dgram|tls|dns|dns\/promises|child_process|worker_threads|cluster|vm|inspector)['"`]/;
 
 export const FLAG_RULES: { id: string; label: string; test: (line: string) => boolean }[] = [
   {
@@ -65,7 +67,7 @@ export const FLAG_RULES: { id: string; label: string; test: (line: string) => bo
     label: 'process.env',
     test: re(/\bprocess\s*(?:\.\s*env\b|\[\s*['"`]env['"`]\s*\])|\{[^}]*\benv\b[^}]*\}\s*=\s*process\b|(?:\bfrom\s*|\brequire\s*\(\s*|\bimport\s*\(\s*|\bimport\s+)['"`](?:node:)?process['"`]/),
   },
-  { id: 'node_io', label: 'Node I/O module import', test: re(NODE_IO) },
+  { id: 'node_io', label: 'Node network/process module import', test: re(NODE_IO) },
   { id: 'child_process', label: 'child_process', test: re(/\bchild_process\b/) },
   {
     id: 'fs_write',
@@ -75,8 +77,9 @@ export const FLAG_RULES: { id: string; label: string; test: (line: string) => bo
   // DROP <object>, TRUNCATE TABLE, DELETE FROM without WHERE on the line (any case); bare TRUNCATE x only in upper case,
   // since truncate(text, 40) is a common helper
   { id: 'sql', label: 'destructive SQL', test: (s) => SQL_CI.test(s) || /\bTRUNCATE\s+["\w]/.test(s) },
-  // eval as a word (also (0, eval)(x), globalThis['eval']), Function( with or without new
-  { id: 'eval', label: 'eval(/new Function(', test: re(/\beval\b|\bFunction\s*\(/) },
+  // R35: eval called (`eval(`, `(0, eval)`), not eval as a word (data-eval-id, eval-runs); kept beside the ruling's two forms:
+  // the bracket call globalThis['eval'] and Function( with or without new (the plan's `new Function(`)
+  { id: 'eval', label: 'eval(/new Function(', test: re(/\beval\s*\(|\(\s*0\s*,\s*eval\s*\)|\[\s*['"`]eval['"`]\s*\]|\bFunction\s*\(/) },
 ];
 
 /** ids of the flag rules that fire on one line of text */
