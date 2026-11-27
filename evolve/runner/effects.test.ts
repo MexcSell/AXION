@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { injectFailurePatch, makeEffects, parseGuardResult, parseEnvValues, realProc, TYPECHECK_SCRIPT } from './effects.ts';
+import { injectFailurePatch, makeEffects, parseGuardResult, parseEnvValues, realProc, trimHistory, TYPECHECK_SCRIPT } from './effects.ts';
 import type { Proc } from './effects.ts';
 import { runnerPaths, CAPS, HISTORY_KEEP } from './config.ts';
 import { classify } from '../guard/classify.ts';
@@ -440,4 +440,55 @@ test('R31: the worker ids are looked up at run time (id -u/-g axion-ws), checked
   assert.deepEqual(seen, ['id -u axion-ws', 'id -g axion-ws', 'getent passwd 987']);
   await assert.rejects(workerIdsOf(mk({ '-u axion-ws': '1000', '-g axion-ws': '1000' })), /login shell \/bin\/bash/);
   await assert.rejects(workerIdsOf(mk({})), /axion-ws/);
+});
+
+// ---- follow-up round (R41) ----
+
+test('R41: every end live is also appended to went-live.jsonl (mode 600, never trimmed); wentLive reads the newest commit of a mission', async () => {
+  const w = world();
+  assert.equal(await w.fx.wentLive('M-1'), null);
+  await w.fx.appendHistory({ event: 'end', mission: 'M-1', attempt: 1, commit: 'a'.repeat(40), outcome: 'live', reason: 'x' });
+  await w.fx.appendHistory({ event: 'end', mission: 'M-2', attempt: 1, commit: 'b'.repeat(40), outcome: 'rolled_back', reason: 'x' });
+  assert.equal(await w.fx.wentLive('M-1'), 'a'.repeat(40));
+  assert.equal(await w.fx.wentLive('M-2'), null);
+  assert.equal(await w.fx.wentLive('M-11'), null, 'no prefix match');
+  assert.equal(statSync(w.paths.wentLive).mode & 0o777, 0o600);
+  for (let i = 0; i < HISTORY_KEEP + HISTORY_KEEP / 4 + 5; i++) await w.fx.appendHistory({ event: 'note', reason: `n${i}` });
+  assert.ok(!(await w.fx.readHistory()).some((e) => e.mission === 'M-1'), 'the history line is trimmed away');
+  assert.equal(await w.fx.wentLive('M-1'), 'a'.repeat(40), 'the went-live record is not');
+});
+
+test('R41 trimHistory: the newest lines plus every older held line that is still open; a closed or superseded held line goes', () => {
+  const L = (e: Record<string, unknown>) => JSON.stringify({ at: '2026-11-27T10:00:00Z', ...e });
+  const lines = [
+    L({ event: 'held', mission: 'M-1', ref: 'incoming/evolve-M-1-a1' }),
+    L({ event: 'held', mission: 'M-2', ref: 'incoming/evolve-M-2-a1' }),
+    L({ event: 'end', mission: 'M-2', ref: 'incoming/evolve-M-2-a1', outcome: 'live' }),
+    L({ event: 'held', mission: 'M-3', ref: 'incoming/evolve-M-3-a1' }),
+    L({ event: 'claim', mission: 'M-3' }),
+    ...Array.from({ length: 10 }, (_, i) => L({ event: 'note', reason: `n${i}` })),
+  ];
+  const t = trimHistory(lines, 10);
+  assert.deepEqual(t, [lines[0], ...lines.slice(-10)]);
+  assert.deepEqual(trimHistory(lines.slice(0, 3), 10), lines.slice(0, 3));
+});
+
+test('R41: an open held entry survives the history trim in appendHistory, so approve still finds it', async () => {
+  const w = world();
+  await w.fx.appendHistory({ event: 'held', mission: 'M-4', attempt: 1, ref: 'incoming/evolve-M-4-a1', commit: 'c'.repeat(40), base: w.base });
+  for (let i = 0; i < HISTORY_KEEP + HISTORY_KEEP / 4 + 5; i++) await w.fx.appendHistory({ event: 'note', reason: `n${i}` });
+  const h = await w.fx.readHistory();
+  assert.ok(h.length <= HISTORY_KEEP + 1 + HISTORY_KEEP / 4);
+  assert.equal(h[0].event, 'held');
+  assert.equal(h[0].mission, 'M-4');
+});
+
+test('N5: the mission CLI env file is never left behind when the uid lookup fails (it is created after it)', async () => {
+  const f = dockerFake(() => ({ code: 0, stdout: '{"halted":false}\n' }));
+  const w = world({ proc: f.proc });
+  const fx = makeEffects({ paths: w.paths, proc: async (cmd, args, o) => (cmd === 'id' ? { code: 1, stdout: '', stderr: 'no such user', truncated: false } : f.proc(cmd, args, o)), log: () => {}, workerIds: '64999:64998' });
+  await assert.rejects(fx.missions.recover(), /cannot look up the axion user/);
+  const dir = join(w.root, 'runner-cli');
+  assert.ok(!existsSync(dir) || readdirSync(dir).length === 0, 'no env file left');
+  assert.equal(f.calls.length, 0);
 });

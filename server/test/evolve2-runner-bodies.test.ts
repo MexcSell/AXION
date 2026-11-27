@@ -113,6 +113,7 @@ function fakeRunner(plan: Plan = {}) {
     async guardOutcome(sha) { return recorded[sha] ?? null; },
     async guardBusy() { return false; },
     async guardDeploying() { return null; },
+    async wentLive() { return null; },
     now: () => now,
     async sleep(ms) { now += ms; },
     log() {},

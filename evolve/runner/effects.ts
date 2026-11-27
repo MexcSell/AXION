@@ -197,6 +197,26 @@ export async function workerIdsOf(proc: Proc, who: string = WORKER_USER): Promis
   return resolveRunAs((c, a) => proc(c, a, { timeoutMs: 30_000 }), who);
 }
 
+/**
+ * runner-history's trim: the newest `keep` lines, plus every older `held` line that is still open (no later `end` of the
+ * same mission and ref, no later `held` or `claim` of that mission), in their order (R41: `axion-evolve approve` must
+ * still find a held change however much history came after it). Unparsable lines in the dropped part go.
+ */
+export function trimHistory(lines: string[], keep: number): string[] {
+  if (lines.length <= keep) return lines;
+  const cut = lines.length - keep;
+  const parsed = lines.map((l) => { try { return JSON.parse(l) as HistoryEntry; } catch { return null; } });
+  const kept: string[] = [];
+  for (let i = 0; i < cut; i++) {
+    const e = parsed[i];
+    if (!e || e.event !== 'held' || !e.mission) continue;
+    const closed = parsed.slice(i + 1).some((x) => x && x.mission === e.mission
+      && ((x.event === 'end' && x.ref === e.ref) || x.event === 'held' || x.event === 'claim'));
+    if (!closed) kept.push(lines[i]);
+  }
+  return [...kept, ...lines.slice(cut)];
+}
+
 export type EffectsOptions = {
   paths: RunnerPaths;
   proc?: Proc;
@@ -337,7 +357,12 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
     await chmod(cliEnvDir, 0o700);
     const file = join(cliEnvDir, `cli-${hex(6)}.env`);
     const fh = await open(file, 'wx', 0o600);
-    try { await fh.writeFile(`DATABASE_URL=${url}\n${schema ? `DATABASE_SCHEMA=${schema}\n` : ''}`); } finally { await fh.close(); }
+    try {
+      try { await fh.writeFile(`DATABASE_URL=${url}\n${schema ? `DATABASE_SCHEMA=${schema}\n` : ''}`); } finally { await fh.close(); }
+    } catch (e) {
+      await rm(file, { force: true }); // N5: never left behind
+      throw e;
+    }
     return file;
   }
   /** the DB user's uid:gid (peer auth on the socket); R31: never 0, never a login account */
@@ -351,8 +376,10 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
   async function cli(cmd: string, args: string[] = [], input?: string): Promise<{ code: number; out: Record<string, unknown> }> {
     const { image, database } = await live();
     const name = `axion-evolve-cli-${hex(4)}`;
+    // N5: everything that can fail before the run comes first; the env file is created last and removed in `finally`
+    const runAs = await uidGid();
     const envFile = await cliEnvFile(database);
-    const argv = ['run', '--rm', '-i', '--name', name, '--network', 'none', '--user', await uidGid(), ...LOG_OPTS,
+    const argv = ['run', '--rm', '-i', '--name', name, '--network', 'none', '--user', runAs, ...LOG_OPTS,
       '-v', `${SOCKET_DIR}:${SOCKET_DIR}`, '--env-file', envFile,
       '-w', '/app/server', image, 'node', '--import', 'tsx', 'src/cli/evolve-missions.ts', cmd, ...args];
     let r: ProcResult;
@@ -511,14 +538,34 @@ export function makeEffects(o: EffectsOptions): RunnerEffects {
     },
     async appendHistory(e) {
       await mkdir(P.root, { recursive: true });
-      await appendFile(P.history, `${JSON.stringify({ at: new Date().toISOString(), ...e })}\n`, { mode: 0o600 });
+      const at = new Date().toISOString();
+      // R41: every change that went live, durably (never trimmed): the "Already live" guard must outlive the history trim
+      if (e.event === 'end' && e.outcome === 'live' && e.mission && e.commit) {
+        await appendFile(P.wentLive, `${JSON.stringify({ at, mission: e.mission, commit: e.commit })}\n`, { mode: 0o600 });
+        await chmod(P.wentLive, 0o600);
+      }
+      await appendFile(P.history, `${JSON.stringify({ at, ...e })}\n`, { mode: 0o600 });
       await chmod(P.history, 0o600);
       const lines = (await readFile(P.history, 'utf8')).split('\n').filter((l) => l.trim());
       if (lines.length > HISTORY_KEEP + HISTORY_KEEP / 4) {
         const tmp = `${P.history}.${process.pid}.tmp`;
-        await writeFile(tmp, `${lines.slice(-HISTORY_KEEP).join('\n')}\n`, { mode: 0o600 });
+        await writeFile(tmp, `${trimHistory(lines, HISTORY_KEEP).join('\n')}\n`, { mode: 0o600 });
         await rename(tmp, P.history);
       }
+    },
+
+    async wentLive(mission) {
+      let text: string;
+      try { text = await readFile(P.wentLive, 'utf8'); } catch { return null; }
+      let sha: string | null = null;
+      for (const l of text.split('\n')) {
+        if (!l.includes(mission)) continue;
+        try {
+          const v = JSON.parse(l) as Record<string, unknown>;
+          if (v.mission === mission && typeof v.commit === 'string' && /^[0-9a-f]{40}$/.test(v.commit)) sha = v.commit;
+        } catch { /* torn line */ }
+      }
+      return sha;
     },
 
     async lock() {

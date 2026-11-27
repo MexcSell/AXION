@@ -67,6 +67,8 @@ export type RunnerPaths = {
   paused: string;
   lock: string;
   history: string;
+  /** R41: <root>/went-live.jsonl: {mission, commit} of every change that went live; append-only, never trimmed, mode 600 */
+  wentLive: string;
   /** the change trees: <changes>/<mission>/a<n>/{tree,objects,index,check} (NOT <root>/work: the Guard sweeps that) */
   changes: string;
   secretsDir: string;
@@ -86,6 +88,7 @@ export function runnerPaths(env: Record<string, string | undefined> = process.en
     paused: join(root, 'PAUSED'),
     lock: join(root, 'runner.lock'),
     history: join(root, 'runner-history.jsonl'),
+    wentLive: join(root, 'went-live.jsonl'),
     changes: join(root, 'changes'),
     secretsDir: join(root, 'secrets'),
     workshopEnv: join(root, 'secrets', 'workshop.env'),
