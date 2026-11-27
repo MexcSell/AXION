@@ -1,13 +1,16 @@
 /**
  * Evolution step 2: the host runner's door into AXION missions (protected: evolve/protected.txt).
  *
- *   node --import tsx server/src/cli/evolve-missions.ts <command> [args]     (only DATABASE_URL is needed in the environment)
+ *   docker run ... -w /app/server ... node --import tsx src/cli/evolve-missions.ts <command> [args]     (only DATABASE_URL is needed)
+ *   (the cwd must be server/: tsx is in server/node_modules, so `--import tsx` from the repo root does not resolve)
  *
  * Prints exactly ONE JSON line on stdout. Exit 0 = ok, 1 = refused or failed (`{"error": <code>, ...}`), 2 = usage or bad input.
  *
  *   halted                         → {halted:false} | {halted:true, reason}   (run_halts: global, or class `evolution`)
  *   recover                        → {recovered: [ids]}   evolve.state claimed|working|checking|deploying → failed, "interrupted (runner restarted)"
- *   next                           → {mission:null} | {mission:null, halted:true, reason} | {mission:{id,title,text,criteria,owner}}   (claims it: evolve.state claimed)
+ *   next                           → {mission:null} | {mission:null, halted:true, reason} | {mission:{id,title,text,criteria,owner}}   (claims it: evolve.state claimed, attempt 1)
+ *                                    a running mission whose last change ended without going live (rejected|rolled_back|failed|needs_owner,
+ *                                    e.g. after Retry or a pause/resume) is claimable again: the old evolve moves into evolve.history (last 5)
  *   progress <id>   stdin {by, text, evolve}          → {ok:true, id, state}
  *   finish <id>     stdin {outcome, text, evolve}     → {ok:true, id, status, state}   completed: verify+complete; failed: fail; needs_owner: requestApproval
  *   approved <id>                  → {ok:true, id, status:'running', state:'deploying'}   (waiting_approval → approvalDone → running)
@@ -15,6 +18,11 @@
  *
  * Texts from the runner and the agents are stored verbatim (never interpreted), cut to fixed lengths (see CAPS). Every write takes the
  * mission row lock first (`select … for update`) and merges into the row it read; state changes use system actions only.
+ * Strings are cut on a code-point boundary (never between the halves of a surrogate pair); NUL and lone surrogates are refused (exit 2),
+ * since Postgres cannot store either in text or jsonb.
+ *
+ * Host contract (ruling R24, implemented by the runner): the run loop, `axion-evolve approve` and `recover` hold ONE host lock, so `recover`
+ * never fails a change an approve is deploying. Approve order: `approved <id>` (approvalDone) → Guard deploy --approve → `finish <id>`.
  */
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -36,9 +44,12 @@ export const CAPS = { text: 4000, by: 40, lastEvent: 200, logTail: 200, missionT
 /** a change in flight: what `recover` fails after a runner restart */
 const IN_FLIGHT: EvolveState[] = ['claimed', 'working', 'checking', 'deploying'];
 /** what `progress` may set; the end states come only from `finish` (and `approved` sets deploying after the owner's yes) */
-const PROGRESS_STATES = ['claimed', 'working', 'checking', 'deploying', 'rejected'] as const;
+const PROGRESS_STATES = ['claimed', 'working', 'checking', 'deploying'] as const;
 /** the change is over: progress and finish refuse */
-const FINISHED: EvolveState[] = ['live', 'rolled_back', 'needs_owner', 'failed'];
+const FINISHED: EvolveState[] = ['live', 'rejected', 'rolled_back', 'needs_owner', 'failed'];
+/** ruling R23: a running mission whose last change ended like this is claimed again as a fresh change (never `live`, never in flight) */
+const RECLAIMABLE: EvolveState[] = ['rejected', 'rolled_back', 'failed', 'needs_owner'];
+const HISTORY_TAIL = 5;
 const FAILABLE: MissionStatus[] = ['planning', 'running', 'waiting_approval', 'verifying'];
 const RECOVER_REASON = 'interrupted (runner restarted)';
 
@@ -50,7 +61,16 @@ const usage = (detail: string) => new Refusal(2, { error: 'usage', detail });
 const badInput = (detail: string) => new Refusal(2, { error: 'bad_input', detail: detail.slice(0, 500) });
 const refuse = (out: Record<string, unknown>) => new Refusal(1, out);
 
-const cut = (n: number) => z.string().transform((s) => s.slice(0, n));
+/** Cut to at most n UTF-16 units without splitting a surrogate pair (a lone half cannot be stored as JSON text). */
+export function clip(s: string, n: number): string {
+  if (s.length <= n) return s;
+  const code = s.charCodeAt(n - 1);
+  return s.slice(0, code >= 0xd800 && code <= 0xdbff ? n - 1 : n);
+}
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+export const storable = (s: string) => !s.includes('\u0000') && !LONE_SURROGATE.test(s);
+const str = () => z.string().refine(storable, 'contains NUL or a lone surrogate (cannot be stored)');
+const cut = (n: number) => str().transform((s) => clip(s, n));
 const list = z.array(cut(CAPS.path)).transform((a) => a.slice(0, CAPS.list));
 const sha = z.string().regex(/^[0-9a-f]{7,64}$/, 'a lowercase hex commit id');
 /** Partial<EvolveInfo>, field for field (`satisfies` fails tsc when a key is missing or extra); unknown keys are refused. */
@@ -62,13 +82,13 @@ const EVOLVE_SHAPE = {
   filesChanged: list, hits: list,
   diffStat: cut(CAPS.medium), checks: cut(CAPS.medium), report: cut(CAPS.long),
   guard: z.object({ outcome: cut(CAPS.short), failedStep: cut(CAPS.short).optional(), reason: cut(CAPS.text).optional() }).strict(),
-} satisfies Record<keyof EvolveInfo, z.ZodType>;
+} satisfies Record<Exclude<keyof EvolveInfo, 'history'>, z.ZodType>; // history is the CLI's own (a re-claim), never input
 const EvolvePatch = z.object(EVOLVE_SHAPE).partial().strict();
 // `finish` sets the end state itself (the outcome decides); a given rejected/rolled_back state of a failed change is kept
 const FinishEvolve = EvolvePatch.extend({ state: z.enum(['claimed', 'working', 'checking', 'deploying', 'rejected', 'rolled_back', 'failed', 'live', 'needs_owner']).optional() }).strict();
 type _Fits = [z.infer<typeof EvolvePatch>, z.infer<typeof FinishEvolve>] extends [Partial<EvolveInfo>, Partial<EvolveInfo>] ? true : never;
 const _fits: _Fits = true; void _fits;
-const line = (n: number) => z.string().min(1).transform((s) => s.slice(0, n));
+const line = (n: number) => str().min(1).transform((s) => clip(s, n));
 const ProgressIn = z.object({ by: line(CAPS.by), text: line(CAPS.text), evolve: EvolvePatch }).strict();
 const FinishIn = z.object({ outcome: z.enum(['completed', 'failed', 'needs_owner']), text: line(CAPS.text), evolve: FinishEvolve }).strict();
 type Patch = Partial<EvolveInfo>;
@@ -93,7 +113,7 @@ const missionId = (argv: string[], cmd: string) => {
 /** The mission row with its current revision, owner and the revision's author, locked (`for update` of the mission row). */
 async function lockMission(c: Tx, id: string) {
   return (await c.query(
-    `select m.*, r.kind, r.title, r.text, r.criteria, r.created_by, u.role as owner_role, u.status as owner_status, u.name as owner_name, cb.role as editor_role
+    `select m.*, r.kind, r.title, r.text, r.criteria, r.created_by, u.role as owner_role, u.status as owner_status, u.name as owner_name, cb.role as editor_role, cb.status as editor_status
        from missions m
        join mission_revisions r on r.mission_id = m.id and r.revision = m.current_revision
        join users u on u.id = m.owner_id
@@ -104,12 +124,12 @@ async function lockMission(c: Tx, id: string) {
 type Row = Record<string, any>;
 
 /** Merge one progress line into the locked row: staffing log (bounded tail), evolve, summary, lastEvent; the status may change in the same write. */
-async function write(c: Tx, r: Row, o: { by: string; text: string; evolve: Patch; status?: MissionStatus; extra?: Record<string, unknown>; now: number }) {
+async function write(c: Tx, r: Row, o: { by: string; text: string; evolve: Patch; fresh?: boolean; status?: MissionStatus; extra?: Record<string, unknown>; now: number }) {
   const p = (r.presentation ?? {}) as Record<string, any>;
-  const evolve = { attempt: 0, ...(p.evolve ?? {}), ...o.evolve, updatedAt: new Date(o.now).toISOString() } as EvolveInfo;
+  const evolve = { attempt: 0, ...(o.fresh ? {} : p.evolve ?? {}), ...o.evolve, updatedAt: new Date(o.now).toISOString() } as EvolveInfo;
   const st = (p.staffing ?? { stage: 'working', joined: 0, plan: [], log: [] }) as { stage?: string; joined?: number; log?: unknown[] };
   const log = [...(st.log ?? []), { at: o.now, by: o.by, text: o.text }].slice(-CAPS.logTail);
-  const lastEvent = o.text.split('\n')[0].slice(0, CAPS.lastEvent);
+  const lastEvent = clip(o.text.split('\n')[0], CAPS.lastEvent);
   const pres = { evolve, staffing: { ...st, log }, summary: o.text, summaryAt: o.now, lastEvent, lastEventAt: o.now, ...(o.extra ?? {}) };
   const u = await c.query(`update missions set presentation = presentation || $2::jsonb, status=$3, row_version=row_version+1, updated_at=now()
       where id=$1 and row_version=$4 and status=$5 returning id`, [r.id, JSON.stringify(pres), o.status ?? r.status, r.row_version, r.status]);
@@ -165,17 +185,22 @@ async function next(io: CliIo) {
          join users u on u.id = m.owner_id
          join users cb on cb.id = r.created_by
         where m.tenant_id = $1 and m.deleted_at is null and m.status = 'running' and r.kind = 'improve'
-          and u.role = 'admin' and u.status = 'approved' and cb.role = 'admin'
-          and not (m.presentation ? 'evolve') and m.presentation->'staffing'->>'stage' = 'working'
+          and u.role = 'admin' and u.status = 'approved' and cb.role = 'admin' and cb.status = 'approved'
+          and (not (m.presentation ? 'evolve') or m.presentation->'evolve'->>'state' = any($2::text[]))
+          and m.presentation->'staffing'->>'stage' = 'working'
         order by m.created_at, m.id
         limit 1
-        for update of m skip locked`, [TENANT])).rows[0];
+        for update of m skip locked`, [TENANT, RECLAIMABLE])).rows[0];
     if (!cand) return { mission: null };
     const r = await lockMission(c, cand.id);
     const p = r?.presentation ?? {};
+    const prev = p.evolve as EvolveInfo | undefined;
     if (!r || r.status !== 'running' || r.kind !== 'improve' || r.owner_role !== 'admin' || r.owner_status !== 'approved' || r.editor_role !== 'admin'
-      || p.evolve || p.staffing?.stage !== 'working') return { mission: null };
-    await write(c, r, { by: ACTOR, text: 'The runner picked up this change.', evolve: { state: 'claimed', attempt: 0 }, now });
+      || r.editor_status !== 'approved' || (prev && !RECLAIMABLE.includes(prev.state)) || p.staffing?.stage !== 'working') return { mission: null };
+    // a fresh change: the previous one (if any) is kept, without its own history, in a bounded tail
+    const history = prev ? [...(prev.history ?? []), (({ history: _h, ...rest }) => rest)(prev)].slice(-HISTORY_TAIL) : undefined;
+    await write(c, r, { by: ACTOR, text: prev ? `The runner picked up this mission again (the previous change ended ${prev.state}).` : 'The runner picked up this change.',
+      evolve: { state: 'claimed', attempt: 1, ...(history ? { history } : {}) }, fresh: true, now });
     return { mission: { id: r.id as string, title: r.title as string, text: r.text as string,
       criteria: ((r.criteria ?? []) as { text: string }[]).map((x) => String(x.text)), owner: r.owner_name as string } };
   });
@@ -253,6 +278,7 @@ async function file(argv: string[], io: CliIo) {
   const owner = flag(argv, '--owner'), text = flag(argv, '--text');
   if (!owner || text === undefined) throw usage('file --owner <user name> --text <mission text>');
   if (!text.trim()) throw usage('the mission text is empty');
+  if (!storable(text)) throw badInput('the mission text contains NUL or a lone surrogate');
   if (text.length > CAPS.missionText) throw badInput(`the mission text is longer than ${CAPS.missionText} characters`);
   const u = (await io.pool.query('select id, name, role, status from users where tenant_id=$1 and name_key=$2', [TENANT, normalizeName(owner).key])).rows[0];
   if (!u) throw refuse({ error: 'no_such_owner' });

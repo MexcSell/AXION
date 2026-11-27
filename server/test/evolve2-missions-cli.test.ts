@@ -7,7 +7,7 @@ import { staffingStep } from '../src/missions/staffing-sim.ts';
 import { recordHalt } from '../src/jobs/run-halts.ts';
 import { checkEvent } from './contracts/events.ts';
 import { eventDto } from '../src/events/log.ts';
-import { runCli } from '../src/cli/evolve-missions.ts';
+import { runCli, clip, CAPS } from '../src/cli/evolve-missions.ts';
 
 // Evolution step 2, task 2: the host runner's door into AXION missions. Most cases call the CLI's entry function in-process against
 // this file's own schema; the spawned cases run the real script with nothing but DATABASE_URL in its environment (plan ruling P2).
@@ -81,7 +81,8 @@ describe('next', () => {
     const r1 = await cli(['next']);
     expect(r1).toEqual({ code: 0, out: { mission: { id: a, title: expect.any(String), text: 'First change.', criteria: ['Rows are 32 px'], owner: 'Luca' } } });
     const p = await pres(a);
-    expect(p.evolve).toMatchObject({ state: 'claimed', attempt: 0 });
+    expect(p.evolve).toMatchObject({ state: 'claimed', attempt: 1 });
+    expect(p.evolve.history).toBeUndefined();
     expect(new Date(p.evolve.updatedAt).toISOString()).toBe(p.evolve.updatedAt);
     expect((await row(a)).row_version).toBe(before + 1);
     const ev = (await events(a)).at(-1);
@@ -117,6 +118,11 @@ describe('next', () => {
     await t.pool.query(`insert into mission_revisions(mission_id, revision, title, kind, priority, text, files, criteria, created_by)
       select mission_id, 2, title, kind, priority, 'Delete everything.', files, criteria, $2 from mission_revisions where mission_id=$1 and revision=1`, [edited, mina_id]);
     await t.pool.query(`update missions set current_revision=2 where id=$1`, [edited]);
+    // the latest revision's author is an administrator who is no longer approved (disabled)
+    const otto = (await A.member('Otto')).id;
+    await t.pool.query(`update users set role='admin', status='disabled' where id=$1`, [otto]);
+    const byDisabled = await fileOne('Change by a disabled admin.');
+    await t.pool.query(`update mission_revisions set created_by=$2 where mission_id=$1`, [byDisabled, otto]);
     // deleted
     const deleted = await fileOne('Deleted change.');
     await t.pool.query(`update missions set deleted_at=now() where id=$1`, [deleted]);
@@ -126,7 +132,7 @@ describe('next', () => {
     for (const id of [memberOwned, unstaffed, research]) expect((await row(id)).status, id).toBe('running');
 
     expect(await cli(['next'])).toEqual({ code: 0, out: { mission: null } });
-    for (const id of [memberOwned, paused, unstaffed, research, edited, deleted]) expect((await pres(id)).evolve, id).toBeUndefined();
+    for (const id of [memberOwned, paused, unstaffed, research, edited, byDisabled, deleted]) expect((await pres(id)).evolve, id).toBeUndefined();
 
     const good = await fileOne('Good change.');
     expect(((await cli(['next'])).out.mission as { id: string }).id).toBe(good);
@@ -289,7 +295,11 @@ describe('finish and approved', () => {
     expect((await row(id)).status).toBe('running'); // the route's resume opens a gate with no pending approval requests
     expect(await cli(['approved', id])).toEqual({ code: 1, out: { error: 'mission_not_waiting', status: 'running' } });
     expect(await cli(['progress', id], { by: 'a', text: 'b', evolve: {} })).toMatchObject({ code: 1, out: { error: 'change_finished', state: 'needs_owner' } });
-    expect((await cli(['next'])).out.mission).toBeNull();
+    // ruling R23: the parked mission is claimable again as a fresh change; the needs_owner change goes into history
+    expect(((await cli(['next'])).out.mission as { id: string }).id).toBe(id);
+    const p = await pres(id);
+    expect(p.evolve).toMatchObject({ state: 'claimed', attempt: 1 });
+    expect(p.evolve.history).toEqual([expect.objectContaining({ state: 'needs_owner' })]);
     const other = await fileOne('Other');
     await claim();
     await t.pool.query(`update missions set status='waiting_approval' where id=$1`, [other]);
@@ -328,6 +338,89 @@ describe('recover', () => {
   });
 });
 
+describe('re-claim after a change that did not go live (ruling R23)', () => {
+  it('Retry: failed → retry_queued → start → running; next claims it fresh (attempt 1), the failed change kept in history', async () => {
+    const id = await fileOne();
+    await claim();
+    await cli(['progress', id], { by: 'web-dev-01', text: 'Working.', evolve: { state: 'working', attempt: 3, commit: 'd'.repeat(40), report: 'old report' } });
+    expect((await cli(['finish', id], { outcome: 'failed', text: 'Checks failed.', evolve: { state: 'rejected', guard: { outcome: 'rejected', failedStep: 'checks' } } })).out).toMatchObject({ status: 'failed', state: 'rejected' });
+    expect(await cli(['next'])).toEqual({ code: 0, out: { mission: null } }); // failed is not running
+    expect((await A.admin.req('POST', `/missions/${id}/actions/retry`, {}, key())).status).toBe(200);
+    expect((await A.admin.req('POST', `/missions/${id}/actions/start`, {}, key())).status).toBe(200);
+    expect((await row(id)).status).toBe('running');
+    expect(((await cli(['next'])).out.mission as { id: string }).id).toBe(id);
+    const e = (await pres(id)).evolve;
+    expect(e).toEqual({ state: 'claimed', attempt: 1, updatedAt: expect.any(String), history: [expect.objectContaining({ state: 'rejected', attempt: 3, commit: 'd'.repeat(40), report: 'old report' })] });
+    expect(e.history[0].history).toBeUndefined();
+    expect(await cli(['next'])).toEqual({ code: 0, out: { mission: null } }); // claimed once
+    // the fresh change runs as usual
+    expect((await cli(['finish', id], { outcome: 'completed', text: 'Live.', evolve: {} })).out).toMatchObject({ status: 'completed', state: 'live' });
+  });
+
+  it('a running mission whose change is live or in flight is never re-claimed; the history keeps the last 5', async () => {
+    const live = await fileOne('Live one');
+    const flying = await fileOne('In flight');
+    const set = (id: string, state: string) => t.pool.query(`update missions set presentation = jsonb_set(presentation, '{evolve,state}', to_jsonb($2::text)) where id=$1`, [id, state]);
+    await claim(); await claim();
+    await set(live, 'live');
+    for (const s of ['claimed', 'working', 'checking', 'deploying']) { await set(flying, s); expect(await cli(['next']), s).toEqual({ code: 0, out: { mission: null } }); }
+    expect((await pres(live)).evolve.state).toBe('live');
+    await set(flying, 'failed');
+    for (let i = 0; i < 7; i++) {
+      expect(((await cli(['next'])).out.mission as { id: string }).id).toBe(flying);
+      await set(flying, i % 2 ? 'rolled_back' : 'failed');
+    }
+    const h = (await pres(flying)).evolve.history as { state: string }[];
+    expect(h).toHaveLength(5);
+  });
+});
+
+describe('storable text (Postgres refuses NUL and lone surrogates in jsonb)', () => {
+  const E = '\u{1F600}'; // two UTF-16 units
+  it('clip never splits a surrogate pair', () => {
+    expect(clip('ab' + E, 3)).toBe('ab');
+    expect(clip('ab' + E, 4)).toBe('ab' + E);
+    expect(clip('abc', 5)).toBe('abc');
+  });
+  it('an emoji straddling every cap is dropped whole and the write succeeds', async () => {
+    const id = await fileOne();
+    await claim();
+    const at = (n: number) => 'x'.repeat(n - 1) + E + 'tail';
+    const r = await cli(['progress', id], { by: at(CAPS.by), text: at(CAPS.lastEvent) + '\n' + 'y'.repeat(CAPS.text), evolve: {
+      report: at(CAPS.long), diffStat: at(CAPS.medium), checks: at(CAPS.medium), filesChanged: [at(CAPS.path)], hits: [at(CAPS.path)],
+      guard: { outcome: at(CAPS.short), failedStep: at(CAPS.short), reason: at(CAPS.text) } } });
+    expect(r, JSON.stringify(r.out)).toMatchObject({ code: 0 });
+    const p = await pres(id);
+    const last = p.staffing.log.at(-1);
+    expect(last.by).toBe('x'.repeat(CAPS.by - 1));
+    expect(last.text).toHaveLength(CAPS.text);
+    expect(p.lastEvent).toBe('x'.repeat(CAPS.lastEvent - 1));
+    expect(p.evolve.report).toBe('x'.repeat(CAPS.long - 1));
+    expect(p.evolve.diffStat).toBe('x'.repeat(CAPS.medium - 1));
+    expect(p.evolve.filesChanged).toEqual(['x'.repeat(CAPS.path - 1)]);
+    expect(p.evolve.guard).toEqual({ outcome: 'x'.repeat(CAPS.short - 1), failedStep: 'x'.repeat(CAPS.short - 1), reason: 'x'.repeat(CAPS.text - 1) });
+    // the text cap itself, straddled
+    await cli(['progress', id], { by: 'a', text: at(CAPS.text), evolve: {} });
+    expect((await pres(id)).staffing.log.at(-1).text).toBe('x'.repeat(CAPS.text - 1));
+    // an emoji that fits is kept verbatim
+    await cli(['progress', id], { by: 'a', text: 'done ' + E, evolve: {} });
+    expect((await pres(id)).summary).toBe('done ' + E);
+  });
+  it('NUL or a lone surrogate anywhere is bad input (exit 2), nothing written', async () => {
+    const id = await fileOne();
+    await claim();
+    const v = (await row(id)).row_version;
+    for (const bad of ['a\u0000b', 'lone \uD83D', 'lone \uDE00 low']) {
+      for (const body of [{ by: 'a', text: bad, evolve: {} }, { by: bad, text: 'b', evolve: {} }, { by: 'a', text: 'b', evolve: { report: bad } }, { by: 'a', text: 'b', evolve: { filesChanged: [bad] } }]) {
+        expect(await cli(['progress', id], body), JSON.stringify(body)).toMatchObject({ code: 2, out: { error: 'bad_input' } });
+      }
+      expect((await cli(['finish', id], { outcome: 'failed', text: bad, evolve: {} })).code).toBe(2);
+    }
+    expect((await row(id)).row_version).toBe(v);
+    expect(await cli(['file', '--owner', 'Luca', '--text', 'a\u0000b'])).toMatchObject({ code: 2, out: { error: 'bad_input' } });
+  });
+});
+
 describe('usage', () => {
   it('no command, an unknown command or a missing id is exit 2', async () => {
     expect((await cli([])).code).toBe(2);
@@ -358,6 +451,8 @@ describe('the real script, started with nothing but DATABASE_URL', () => {
     const p = run(['progress', id], JSON.stringify({ by: 'web-dev-01', text: 'From stdin.', evolve: { state: 'working', attempt: 1 } }));
     expect([p.status, p.stdout]).toEqual([0, JSON.stringify({ ok: true, id, state: 'working' }) + '\n']);
     expect((await pres(id)).staffing.log.at(-1).text).toBe('From stdin.');
+    const lone = run(['progress', id], '{"by":"a","text":"x\\ud83d","evolve":{}}');
+    expect([lone.status, JSON.parse(lone.stdout).error]).toEqual([2, 'bad_input']);
     const done = run(['finish', id], JSON.stringify({ outcome: 'completed', text: 'Live.', evolve: {} }));
     expect(done.status, done.stderr).toBe(0);
     const again = run(['finish', id], JSON.stringify({ outcome: 'completed', text: 'Live.', evolve: {} }));

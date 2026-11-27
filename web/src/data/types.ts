@@ -76,6 +76,8 @@ export interface EvolveInfo {
   commit?: string; base?: string; filesChanged?: string[]; diffStat?: string; checks?: string;
   guard?: { outcome: string; failedStep?: string; reason?: string };
   report?: string; hits?: string[];
+  /** earlier changes of this mission (a re-claim after one ended without going live), oldest first, at most 5; not rendered */
+  history?: Omit<EvolveInfo, 'history'>[];
 }
 
 export interface Mission {
