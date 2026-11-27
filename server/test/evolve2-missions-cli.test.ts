@@ -97,7 +97,8 @@ describe('next', () => {
       (await b.req('POST', '/missions', { text, files: [], shared, improve }, key())).body.mission.id as string;
     // member-owned, made improve behind the API's back
     const memberOwned = await mk(mina, 'Research our competitors.', false);
-    await t.pool.query(`update mission_revisions set kind='improve' where mission_id=$1`, [memberOwned]);
+    // (the revision is put down as written by the admin, so only the owner's role can exclude it)
+    await t.pool.query(`update mission_revisions set kind='improve', created_by=$2 where mission_id=$1`, [memberOwned, A.adminId]);
     await staffAll(memberOwned);
     // not running (paused through the API)
     const paused = await fileOne('Paused change.');

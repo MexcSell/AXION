@@ -260,7 +260,12 @@ async function file(argv: string[], io: CliIo) {
   const id = await tx(io.pool, (c) => createMission(c, { tenantId: TENANT, owner: { id: u.id, name: u.name }, text, files: [], shared: false, improve: true,
     actor: 'claude-code', actorKind: 'system', correlationId: `evolve-file-${Date.now()}`, presentation: { filedBy: 'claude-code' } }));
   // the API's staffing simulation never hears of this mission: take its steps here, one transaction each, no delay
-  for (let i = 0; i < 64 && await tx(io.pool, (c) => staffingStep(c, id)); i++) { /* next step */ }
+  // a failed step still names the mission that now exists (exit 1, staffing_unfinished with its id)
+  try {
+    for (let i = 0; i < 64 && await tx(io.pool, (c) => staffingStep(c, id)); i++) { /* next step */ }
+  } catch (e) {
+    throw refuse({ error: 'staffing_unfinished', id, code: String((e as { code?: unknown })?.code ?? (e as Error)?.name ?? 'ERROR') });
+  }
   const r = (await io.pool.query('select status, presentation from missions where id=$1', [id])).rows[0];
   if (r?.status !== 'running' || r?.presentation?.staffing?.stage !== 'working') throw refuse({ error: 'staffing_unfinished', id, status: r?.status });
   return { id };
@@ -305,14 +310,20 @@ async function main() {
   const url = process.env.DATABASE_URL;
   if (!url) { await print({ error: 'no_database_url' }); process.exitCode = 1; return; }
   let r: CliResult;
-  const pool = makePool(url, process.env.DATABASE_SCHEMA || undefined, 2);
   try {
-    // only progress and finish read stdin (the runner always passes -i; another command never waits on it)
-    const cmd = process.argv[2];
-    r = await runCli(process.argv.slice(2), { pool, stdin: cmd === 'progress' || cmd === 'finish' ? readStdin : undefined });
-  } finally { await pool.end().catch(() => {}); }
+    const pool = makePool(url, process.env.DATABASE_SCHEMA || undefined, 2);
+    try {
+      // only progress and finish read stdin (the runner always passes -i; another command never waits on it)
+      const cmd = process.argv[2];
+      r = await runCli(process.argv.slice(2), { pool, stdin: cmd === 'progress' || cmd === 'finish' ? readStdin : undefined });
+    } finally { await pool.end().catch(() => {}); }
+  } catch (e) { // e.g. a bad schema name or an unreadable stdin: still exactly one line
+    r = { code: 1, out: { error: 'failed', code: String((e as Error)?.name ?? 'ERROR'), message: String((e as Error)?.message ?? e).slice(0, 300) } };
+  }
   await print(r.out);
   process.exitCode = r.code;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) void main();
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  main().catch(() => { process.stdout.write('{"error":"failed","code":"MAIN"}\n'); process.exitCode = 1; });
+}
