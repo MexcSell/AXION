@@ -20,7 +20,8 @@ Restart=on-failure
 RestartSec=30
 KillMode=process
 TimeoutStopSec=90
-Environment=PATH=/usr/local/bin:/usr/bin:/bin
+# the sbin dirs too: the Guard it starts runs backup.sh, which needs /usr/sbin/runuser (first live mission M-137, 2026-11-27)
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 [Install]
 WantedBy=multi-user.target

@@ -70,7 +70,9 @@ test('bin/axion-evolve runs the installed copy of cli.ts with node; the unit run
   const bin = readFileSync(new URL('../bin/axion-evolve', import.meta.url), 'utf8');
   assert.match(bin, /^exec node \/srv\/axion-evolve\/guard\/evolve\/runner\/cli\.ts "\$@"$/m);
   const unit = readFileSync(new URL('./axion-evolve.service', import.meta.url), 'utf8');
-  for (const l of ['ExecStart=/usr/local/bin/axion-evolve run', 'Restart=on-failure', 'RestartSec=30', 'KillMode=process', 'WantedBy=multi-user.target']) {
+  for (const l of ['ExecStart=/usr/local/bin/axion-evolve run', 'Restart=on-failure', 'RestartSec=30', 'KillMode=process', 'WantedBy=multi-user.target',
+    // the Guard started from the unit runs backup.sh, which needs /usr/sbin/runuser
+    'Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin']) {
     assert.ok(unit.split('\n').includes(l), l);
   }
 });

@@ -9,6 +9,9 @@
 #   EVOLVE_ROOT           default /srv/axion-evolve
 #   AXION_GUARD_DATABASE  the database the deploy's slots use (default axion); a lowercase PostgreSQL name, else refused
 set -euo pipefail
+# runuser lives in /usr/sbin, which a service's PATH may lack (axion-evolve.service started the Guard without it: M-137);
+# appended, so a PATH that already names a runuser keeps it first
+PATH="$PATH:/usr/sbin:/sbin"
 ROOT="${EVOLVE_ROOT:-/srv/axion-evolve}"
 DB="${AXION_GUARD_DATABASE:-axion}"
 KEEP=14
