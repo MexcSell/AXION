@@ -9,8 +9,7 @@ import { idempotent } from '../idempotency.ts';
 import { emit } from '../events/hooks.ts';
 import { transition, USER_ACTIONS, type MissionStatus, type MissionAction } from './machine.ts';
 import { canManage } from './visibility.ts';
-import { SELECT_MISSION, conflict, defaultPresentation, filesFor, getVisibleRow, listVisible, loadRow, missionDto, nextMissionId } from './service.ts';
-import { readOrgView } from './staffing-org.ts';
+import { SELECT_MISSION, conflict, createMission, filesFor, getVisibleRow, listVisible, loadRow, missionDto } from './service.ts';
 
 const CreateIn = z.object({ text: z.string().max(20_000).default(''), files: z.array(z.string().max(40)).max(10).default([]), shared: z.boolean().default(false),
   /** evolution step 2: the mission changes AXION itself (kind `improve`); administrators only */
@@ -45,22 +44,9 @@ export default async function missionRoutes(app: FastifyInstance) {
     if (!b.text.trim() && !b.files.length) throw new ApiError('VALIDATION', 400, 'Describe the mission or attach a file.', { fieldErrors: { text: 'empty' } });
     if (b.improve && ctx.user.role !== 'admin') throw new ApiError('FORBIDDEN', 403, 'Only an administrator can start a mission that improves AXION itself.');
     const out = await idempotent(app.db, req, ctx, async (c) => {
-      const m = await (async () => {
-        const files = await filesFor(c, ctx, b.files);
-        const id = await nextMissionId(c);
-        const d = defaultPresentation(b.text, files, ctx.user.name, Date.now(), await readOrgView(c, ctx.tenantId), b.improve ? 'improve' : undefined); // cycle 11: staffed by the active org
-        // draft → submit → plan in one transaction (spec §10.6; the GM starts staffing at once)
-        let status: MissionStatus = 'draft';
-        status = transition(status, 'submit');
-        status = transition(status, 'plan');
-        await c.query(`insert into missions(id, tenant_id, owner_id, shared, status, presentation) values ($1,$2,$3,$4,$5,$6)`,
-          [id, ctx.tenantId, ctx.user.id, b.shared, status, JSON.stringify(d.presentation)]);
-        await c.query(`insert into mission_revisions(mission_id, revision, title, kind, priority, text, files, criteria, created_by) values ($1,1,$2,$3,'normal',$4,$5,'[]',$6)`,
-          [id, d.title, d.kind, b.text.trim(), JSON.stringify(files), ctx.user.id]);
-        await audit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, action: 'mission.create', subject: id, result: 'ok', correlationId: ctx.correlationId, detail: { shared: b.shared, files: files.length } });
-        await emit(c, { tenantId: ctx.tenantId, actor: ctx.user.id, correlationId: ctx.correlationId, type: 'mission.created', subject: id, missionId: id, payload: { status } });
-        return missionDto(await loadRow(c, id));
-      })();
+      const files = await filesFor(c, ctx, b.files);
+      const id = await createMission(c, { tenantId: ctx.tenantId, owner: ctx.user, text: b.text, files, shared: b.shared, improve: !!b.improve, actor: ctx.user.id, correlationId: ctx.correlationId });
+      const m = missionDto(await loadRow(c, id));
       return { status: 201, body: { mission: m } };
     });
     if (out.status === 201) app.onMissionChanged?.((out.body as { mission: { id: string } }).mission.id, 'planning');

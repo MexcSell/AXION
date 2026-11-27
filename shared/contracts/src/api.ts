@@ -194,7 +194,8 @@ export interface EventPayloads {
   'mission.stateChanged': { from: MissionStatus; to: MissionStatus; action: string; by: string; simulated?: boolean };
   'mission.shared': { shared: boolean };
   'mission.deleted': { ownerId: string; shared: boolean };
-  'staffing.progressed': { simulated: boolean; stage: string; joined: number; agentId?: string; text: string };
+  /** `evolve: true` (evolution step 2): a progress line of the host runner on an `improve` mission, written by cli/evolve-missions.ts */
+  'staffing.progressed': { simulated: boolean; stage: string; joined: number; agentId?: string; text: string; evolve?: boolean };
   /** staffing gave up after repeated failures; `at` is epoch milliseconds */
   'staffing.stalled': { code: string; reason: string; at: number; attempts: number };
   'staffing.resumed': { by: string };

@@ -12,7 +12,7 @@ export const EVENT_VALIDATORS: { [K in EventType]: V<EventPayloads[K]> } = {
   'mission.stateChanged': obj({ from: oneOf(MISSION_STATUSES), to: oneOf(MISSION_STATUSES), action: str, by: str, simulated: opt(bool) }),
   'mission.shared': obj({ shared: bool }),
   'mission.deleted': obj({ ownerId: str, shared: bool }),
-  'staffing.progressed': obj({ simulated: bool, stage: str, joined: int, agentId: opt(str), text: str }),
+  'staffing.progressed': obj({ simulated: bool, stage: str, joined: int, agentId: opt(str), text: str, evolve: opt(bool) }),
   'staffing.stalled': obj({ code: str, reason: str, at: num, attempts: int }),
   'staffing.resumed': obj({ by: str }),
   'approval.requested': obj({ approvalId: str, kind: str, risk: str, policyVersion: int, reasons: arr(str) }),

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { tx } from '../db.ts';
+import { tx, type Tx } from '../db.ts';
 import { emit } from '../events/hooks.ts';
 import { audit } from '../audit.ts';
 import { transition, toUiStatus, type MissionStatus } from './machine.ts';
@@ -45,52 +45,7 @@ export function startStaffingSim(app: FastifyInstance, stepMs = 1500) {
     if (closed) return;
     let more = false;
     try {
-      more = await tx(app.db, async (c) => {
-        const r = (await c.query('select * from missions where id=$1 and deleted_at is null for update', [id])).rows[0];
-        if (!r || !['planning', 'running'].includes(r.status)) return false;
-        const p = r.presentation ?? {};
-        if (!p.staffing || p.staffing.stage === 'working' || p.staffing.stalled) return false; // a stalled mission waits for a person's Retry
-        const now = Date.now();
-        // Stage 6: the team lives in agent_instances. The GM instance exists from the first step.
-        const simulated = !!r.demo; // staffing of a real mission is the real record, even though nothing executes
-        if (await insertInstance(c, { tenantId: r.tenant_id, missionId: id, agentId: 'gm', ...(simulated ? { state: 'working', task: 'Coordinating mission plan' } : {}), simulated })) {
-          await emit(c, { tenantId: r.tenant_id, type: 'instance.created', subjectKind: 'instance', subject: `${id}:gm`, missionId: id, actor: 'gm', actorKind: 'agent', payload: { instanceId: `${id}:gm`, agentId: 'gm', simulated } });
-        }
-        const team = (await c.query('select agent_id from agent_instances where mission_id=$1 order by seq', [id])).rows.map((x) => x.agent_id as string);
-        const view = { ...p, id, status: toUiStatus(r.status), agentIds: team, progress: p.progress ?? 0 };
-        const next = p.staffing.plan[p.staffing.joined];
-        const nameIds = [p.executorId, next?.agentId, next?.managerId].filter(Boolean);
-        const names = await c.query<{ id: string; name: string }>(
-          'select id, name from agent_definitions where tenant_id=$1 and id=any($2::text[])', [r.tenant_id, nameIds]);
-        const patch = advance(view as never, now, new Map(names.rows.map(a => [a.id, a.name]))) as Record<string, any> | null;
-        if (!patch) return false;
-        const { status: nextStatus, lastEventAgoMin: _l, summaryAgoMin: _s, agentIds: _a, ...rest } = patch;
-        void _l; void _s; void _a; // agentIds is derived from instances, never written to presentation
-        const pres: Record<string, unknown> = { ...rest };
-        if (rest.lastEvent) pres.lastEventAt = now;
-        if (rest.summary) pres.summaryAt = now;
-        let to: MissionStatus = r.status;
-        if (nextStatus === 'running' && r.status === 'planning') to = transition('planning', 'start');
-        const u = await c.query(`update missions set presentation = presentation || $2::jsonb, status=$3, row_version=row_version+1, updated_at=now() where id=$1 and status=$4 returning id`,
-          [id, JSON.stringify(pres), to, r.status]);
-        if (!u.rowCount) return false;
-        const st = rest.staffing as { stage: string; joined: number; plan: { agentId: string; why: string; managerId?: string }[] };
-        const joinedAgent = st.stage === 'recruiting' ? st.plan[st.joined - 1]?.agentId : st.stage === 'appointing' ? p.executorId : undefined;
-        if (joinedAgent && joinedAgent !== 'gm') {
-          // cycle 11: a real mission's plan names each agent's manager (fixed when the mission was created); DEMO plans never do
-          const planned = st.stage === 'recruiting' ? st.plan[st.joined - 1]?.managerId : undefined;
-          const mgr = st.stage === 'appointing' ? 'gm' : !simulated && planned && team.includes(planned) ? planned : (p.executorId as string);
-          await joinMission(c, { tenantId: r.tenant_id, missionId: id, agentId: joinedAgent, managerAgentId: mgr, simulated,
-            task: st.stage === 'appointing' ? 'General executor' : st.plan[st.joined - 1]?.why ?? '' });
-        }
-        await emit(c, { tenantId: r.tenant_id, type: 'staffing.progressed', subject: id, missionId: id, actor: st.stage === 'appointing' ? 'gm' : p.executorId ?? 'gm', actorKind: 'agent',
-          payload: { simulated: true, stage: st.stage, joined: st.joined, agentId: joinedAgent, text: rest.lastEvent } });
-        if (to !== r.status) {
-          await c.query(`insert into mission_runs(mission_id, revision, status, execution) values ($1,$2,'running','disabled')`, [id, r.current_revision]);
-          await emit(c, { tenantId: r.tenant_id, type: 'mission.stateChanged', subject: id, missionId: id, payload: { from: r.status, to, action: 'start', by: 'system', simulated: true } });
-        }
-        return st.stage !== 'working';
-      });
+      more = await tx(app.db, (c) => staffingStep(c, id));
     } catch (e) {
       const n = (fails.get(id) ?? 0) + 1;
       fails.set(id, n);
@@ -117,4 +72,56 @@ export function startStaffingSim(app: FastifyInstance, stepMs = 1500) {
     .catch(() => {}));
 
   app.addHook('onClose', async () => { closed = true; timers.forEach((t) => clearTimeout(t)); timers.clear(); });
+}
+
+/**
+ * One staffing step inside the caller's transaction (the mission row is locked first). Returns true while more steps remain.
+ * Exported (evolution step 2) so `cli/evolve-missions.ts file` can staff a mission it created outside the API, with no delay; the
+ * API's simulation calls exactly this, one transaction per step.
+ */
+export async function staffingStep(c: Tx, id: string): Promise<boolean> {
+  const r = (await c.query('select * from missions where id=$1 and deleted_at is null for update', [id])).rows[0];
+  if (!r || !['planning', 'running'].includes(r.status)) return false;
+  const p = r.presentation ?? {};
+  if (!p.staffing || p.staffing.stage === 'working' || p.staffing.stalled) return false; // a stalled mission waits for a person's Retry
+  const now = Date.now();
+  // Stage 6: the team lives in agent_instances. The GM instance exists from the first step.
+  const simulated = !!r.demo; // staffing of a real mission is the real record, even though nothing executes
+  if (await insertInstance(c, { tenantId: r.tenant_id, missionId: id, agentId: 'gm', ...(simulated ? { state: 'working', task: 'Coordinating mission plan' } : {}), simulated })) {
+    await emit(c, { tenantId: r.tenant_id, type: 'instance.created', subjectKind: 'instance', subject: `${id}:gm`, missionId: id, actor: 'gm', actorKind: 'agent', payload: { instanceId: `${id}:gm`, agentId: 'gm', simulated } });
+  }
+  const team = (await c.query('select agent_id from agent_instances where mission_id=$1 order by seq', [id])).rows.map((x) => x.agent_id as string);
+  const view = { ...p, id, status: toUiStatus(r.status), agentIds: team, progress: p.progress ?? 0 };
+  const next = p.staffing.plan[p.staffing.joined];
+  const nameIds = [p.executorId, next?.agentId, next?.managerId].filter(Boolean);
+  const names = await c.query<{ id: string; name: string }>(
+    'select id, name from agent_definitions where tenant_id=$1 and id=any($2::text[])', [r.tenant_id, nameIds]);
+  const patch = advance(view as never, now, new Map(names.rows.map(a => [a.id, a.name]))) as Record<string, any> | null;
+  if (!patch) return false;
+  const { status: nextStatus, lastEventAgoMin: _l, summaryAgoMin: _s, agentIds: _a, ...rest } = patch;
+  void _l; void _s; void _a; // agentIds is derived from instances, never written to presentation
+  const pres: Record<string, unknown> = { ...rest };
+  if (rest.lastEvent) pres.lastEventAt = now;
+  if (rest.summary) pres.summaryAt = now;
+  let to: MissionStatus = r.status;
+  if (nextStatus === 'running' && r.status === 'planning') to = transition('planning', 'start');
+  const u = await c.query(`update missions set presentation = presentation || $2::jsonb, status=$3, row_version=row_version+1, updated_at=now() where id=$1 and status=$4 returning id`,
+    [id, JSON.stringify(pres), to, r.status]);
+  if (!u.rowCount) return false;
+  const st = rest.staffing as { stage: string; joined: number; plan: { agentId: string; why: string; managerId?: string }[] };
+  const joinedAgent = st.stage === 'recruiting' ? st.plan[st.joined - 1]?.agentId : st.stage === 'appointing' ? p.executorId : undefined;
+  if (joinedAgent && joinedAgent !== 'gm') {
+    // cycle 11: a real mission's plan names each agent's manager (fixed when the mission was created); DEMO plans never do
+    const planned = st.stage === 'recruiting' ? st.plan[st.joined - 1]?.managerId : undefined;
+    const mgr = st.stage === 'appointing' ? 'gm' : !simulated && planned && team.includes(planned) ? planned : (p.executorId as string);
+    await joinMission(c, { tenantId: r.tenant_id, missionId: id, agentId: joinedAgent, managerAgentId: mgr, simulated,
+      task: st.stage === 'appointing' ? 'General executor' : st.plan[st.joined - 1]?.why ?? '' });
+  }
+  await emit(c, { tenantId: r.tenant_id, type: 'staffing.progressed', subject: id, missionId: id, actor: st.stage === 'appointing' ? 'gm' : p.executorId ?? 'gm', actorKind: 'agent',
+    payload: { simulated: true, stage: st.stage, joined: st.joined, agentId: joinedAgent, text: rest.lastEvent } });
+  if (to !== r.status) {
+    await c.query(`insert into mission_runs(mission_id, revision, status, execution) values ($1,$2,'running','disabled')`, [id, r.current_revision]);
+    await emit(c, { tenantId: r.tenant_id, type: 'mission.stateChanged', subject: id, missionId: id, payload: { from: r.status, to, action: 'start', by: 'system', simulated: true } });
+  }
+  return st.stage !== 'working';
 }

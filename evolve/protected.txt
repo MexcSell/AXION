@@ -26,6 +26,9 @@ server/src/leader.ts
 server/src/locks.ts
 server/src/health.ts
 
+# The host runner's door into missions (evolution step 2): it writes mission state from the live image
+server/src/cli/evolve-missions.ts
+
 # The Guard, deploy and Docker files
 evolve/**
 .dockerignore

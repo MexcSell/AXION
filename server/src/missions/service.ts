@@ -1,7 +1,10 @@
 import type { Tx, Db } from '../db.ts';
 import { ApiError, badRequest, notFound } from '../errors.ts';
 import type { Ctx } from '../auth/session.ts';
-import { toUiStatus, type MissionStatus } from './machine.ts';
+import { toUiStatus, transition, type MissionStatus } from './machine.ts';
+import { audit } from '../audit.ts';
+import { emit } from '../events/hooks.ts';
+import { readOrgView } from './staffing-org.ts';
 import { VISIBLE_SQL } from './visibility.ts';
 import { guessKind, deriveTitle, staffingPlan } from '../../../web/src/features/mission/staffing-plan.ts';
 import type { Mission } from '../../../web/src/data/types.ts';
@@ -124,6 +127,37 @@ export async function filesFor(c: Tx, ctx: Ctx, ids: string[]): Promise<MissionF
 
 export async function nextMissionId(c: Tx) {
   return 'M-' + (await c.query(`select nextval('mission_seq') as n`)).rows[0].n;
+}
+
+export interface CreateMissionInput {
+  tenantId: string; owner: { id: string; name: string }; text: string; files: MissionFileDto[]; shared: boolean;
+  /** an administrator's `improve` mission (the caller checks the role) */
+  improve?: boolean;
+  /** who did it, for the audit row and the event: the owner through the API; the evolve CLI names itself */
+  actor: string; actorKind?: 'human' | 'system'; correlationId: string;
+  /** extra top-level presentation fields (the evolve CLI's `filedBy`) */
+  presentation?: Record<string, unknown>;
+}
+
+/**
+ * Create a mission in the caller's transaction, exactly as POST /missions does (the route and `cli/evolve-missions.ts file` share it):
+ * draft → submit → plan, revision 1 created by the owner, audit `mission.create`, event `mission.created`. Returns the id. The caller
+ * starts the staffing (the route through onMissionChanged; the CLI runs the steps itself).
+ */
+export async function createMission(c: Tx, o: CreateMissionInput): Promise<string> {
+  const id = await nextMissionId(c);
+  const d = defaultPresentation(o.text, o.files, o.owner.name, Date.now(), await readOrgView(c, o.tenantId), o.improve ? 'improve' : undefined); // cycle 11: staffed by the active org
+  // draft → submit → plan in one transaction (spec §10.6; the GM starts staffing at once)
+  let status: MissionStatus = 'draft';
+  status = transition(status, 'submit');
+  status = transition(status, 'plan');
+  await c.query(`insert into missions(id, tenant_id, owner_id, shared, status, presentation) values ($1,$2,$3,$4,$5,$6)`,
+    [id, o.tenantId, o.owner.id, o.shared, status, JSON.stringify({ ...d.presentation, ...(o.presentation ?? {}) })]);
+  await c.query(`insert into mission_revisions(mission_id, revision, title, kind, priority, text, files, criteria, created_by) values ($1,1,$2,$3,'normal',$4,$5,'[]',$6)`,
+    [id, d.title, d.kind, o.text.trim(), JSON.stringify(o.files), o.owner.id]);
+  await audit(c, { tenantId: o.tenantId, actor: o.actor, action: 'mission.create', subject: id, result: 'ok', correlationId: o.correlationId, detail: { shared: o.shared, files: o.files.length } });
+  await emit(c, { tenantId: o.tenantId, actor: o.actor, ...(o.actorKind ? { actorKind: o.actorKind } : {}), correlationId: o.correlationId, type: 'mission.created', subject: id, missionId: id, payload: { status } });
+  return id;
 }
 
 export function conflict() { return new ApiError('MISSION_REVISION_CONFLICT', 409, 'Someone changed this mission meanwhile. Reload it and apply your change again.', { retryable: false }); }

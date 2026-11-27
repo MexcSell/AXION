@@ -12,6 +12,7 @@ test('protected.txt parses to exactly the agreed rule list', () => {
     'server/migrations/**', 'server/src/auth/**', 'server/src/approvals/**', 'server/src/policy/**', 'server/src/grants/**',
     'server/src/cloud/claude-cli.ts', '**/.env*', '**/.env*/**',
     'server/src/main.ts', 'server/src/migrate.ts', 'server/src/migrate-cli.ts', 'server/src/leader.ts', 'server/src/locks.ts', 'server/src/health.ts',
+    'server/src/cli/evolve-missions.ts',
     'evolve/**', '.dockerignore', '**/Dockerfile*', '**/*.Dockerfile', '**/docker-compose*', '**/.gitattributes',
     '**/package.json', '**/package-lock.json', '**/.npmrc',
     'server/vitest.config.ts', 'server/tsconfig.json', 'web/tsconfig.json', 'web/vite.config.ts', 'web/security-headers.ts', 'server/test/setup.ts', 'server/test/helpers.ts', 'web/scripts/api-e2e.sh',
@@ -31,7 +32,7 @@ test('plain rules hit any status, including new files', () => {
   assert.deepEqual(hit('web/scripts/api-e2e.sh'), ['web/scripts/api-e2e.sh']);
   // fix wave I4: what shapes the judge or the deploy contract
   for (const p of ['server/tsconfig.json', 'web/tsconfig.json', 'web/vite.config.ts', 'web/security-headers.ts', 'server/src/main.ts', 'server/src/migrate.ts',
-    'server/src/migrate-cli.ts', 'server/src/leader.ts', 'server/src/locks.ts', 'server/src/health.ts', 'server/.env.d/x', '.env.d/a/b', '.npmrc', 'server/.npmrc', 'web/.npmrc',
+    'server/src/migrate-cli.ts', 'server/src/leader.ts', 'server/src/locks.ts', 'server/src/health.ts', 'server/src/cli/evolve-missions.ts', 'server/.env.d/x', '.env.d/a/b', '.npmrc', 'server/.npmrc', 'web/.npmrc',
     'web/.env.local.d/x.txt']) {
     assert.deepEqual(hit(p, 'A'), [p], p);
   }
@@ -49,7 +50,7 @@ test('**/ rules match at the repo root and at any depth', () => {
 test('ordinary app code is not protected', () => {
   for (const p of ['server/src/missions/x.ts', 'web/src/pages/Home.tsx', 'server/src/cloud/other.ts', 'README.md',
     'server/src/authx/a.ts', 'web/package.json.md', 'server/migrationsx/a.sql', 'evolvex/a.ts', 'server/src/auth', 'xevolve/a.ts',
-    'my.dockerignore', 'server/test-setup.ts', 'web/src/Docker.ts']) {
+    'my.dockerignore', 'server/test-setup.ts', 'web/src/Docker.ts', 'server/src/cli/demo.ts', 'server/src/cli/evolve-missions.tsx']) {
     assert.deepEqual(hit(p, 'M'), [], p);
   }
 });
