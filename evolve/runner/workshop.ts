@@ -12,7 +12,9 @@
 // and confirmed gone (containerAlive otherwise). CLI errors and reviewer concerns have every secret form redacted.
 
 import { spawn } from 'node:child_process';
-import { isAbsolute } from 'node:path';
+import { readdirSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
+import { globToRegExp, isCanonicalPath } from '../guard/classify.ts';
 import { LOG_OPTS } from '../guard/effects-docker.ts';
 import { engineerPrompt, parseReport, parseReview, reviewerPrompt } from './prompts.ts';
 import type { Mission } from './prompts.ts';
@@ -71,15 +73,43 @@ export const WORKSHOP_DEFAULTS: WorkshopConfig = {
   secrets: [],
 };
 
+/** characters a path may have to be written into a permission rule (no glob, escape, quote or bracket characters) */
+const SAFE_PATH = /^[A-Za-z0-9_.\/@+-]+$/;
+
 /**
- * The --settings JSON for every Workshop run. `protectedPatterns` are evolve/protected.txt rules: Edit and Write are denied
- * on each, `modify:` ones too. R25 (deny only Edit there, so new test files could be written) does not work with the CLI:
- * verified with 2.1.325 (Task 3 fix round 1), an Edit(path) deny rule also refuses Write of a NEW file under that path, so
- * both stay explicit and new files under server/test/** and web/scripts/** cannot be created by the engineer.
+ * The files (and symlinks; never followed) of an exported tree that existing `modify:` rules cover, as sorted repo-relative
+ * paths, matched with the Guard's globs. Throws when the tree cannot be read.
  */
-export function cliSettings(protectedPatterns: string[]): object {
+export function existingModifyFiles(treeDir: string, protectedPatterns: string[]): string[] {
+  const res = protectedPatterns.filter((r) => r.startsWith('modify:')).map((r) => globToRegExp(r.slice('modify:'.length)));
+  if (res.length === 0) return [];
+  const out: string[] = [];
+  const walk = (rel: string) => {
+    for (const e of readdirSync(join(treeDir, rel), { withFileTypes: true })) {
+      const p = rel === '' ? e.name : `${rel}/${e.name}`;
+      if (e.isDirectory()) walk(p);
+      else if (res.some((re) => re.test(p))) out.push(p);
+    }
+  };
+  walk('');
+  return out.sort();
+}
+
+/**
+ * The --settings JSON for every Workshop run.
+ *  - every plain protected rule (and the git rules): Edit and Write denied directory-wide;
+ *  - a `modify:` rule (new files allowed, e.g. server/test/**): NO directory-wide deny (R27; with CLI 2.1.325 an Edit deny
+ *    on a directory also refuses Write of a new file there); instead the files that already exist under it in the exported
+ *    tree (`existingModify`, from existingModifyFiles) get exact Edit and Write denies, so they cannot be changed;
+ *  - Read (which governs Grep and Glob too) denied on /proc, /etc, /srv, /root, HOME and /tmp.
+ * Throws on an `existingModify` path that is not canonical or has characters outside SAFE_PATH (it would not be a literal rule).
+ */
+export function cliSettings(protectedPatterns: string[], existingModify: string[] = []): object {
   const at = (p: string) => `/${WORK}/${p}`; // `//work/…`: an absolute path in the CLI's rule syntax
-  const writeDeny = [...protectedPatterns.map((r) => r.replace(/^modify:/, '')), ...GIT_RULES]
+  for (const p of existingModify) {
+    if (!isCanonicalPath(p) || !SAFE_PATH.test(p)) throw new Error(`unusable file name under a modify: rule: ${JSON.stringify(p.slice(0, 120))}`);
+  }
+  const writeDeny = [...protectedPatterns.filter((r) => !r.startsWith('modify:')), ...GIT_RULES, ...existingModify]
     .flatMap((p) => [`Edit(${at(p)})`, `Write(${at(p)})`]);
   const readDeny = NO_READ.flatMap((d) => [`Read(/${d})`, `Read(/${d}/**)`]);
   return {
@@ -212,9 +242,17 @@ export async function runEngineer(
     throw new Error(`invalid changeDir: ${JSON.stringify(o.changeDir)}`);
   }
   const rules = cfg.rules;
+  const tree = `${o.changeDir.replace(/\/+$/, '')}/tree`;
+  // R27: the existing files under modify: rules, read from the exported tree right before the run
+  let settings: object;
+  try {
+    settings = cliSettings(rules, existingModifyFiles(tree, rules));
+  } catch (e) {
+    return { ok: false, report: '', timedOut: false, error: redactSecrets(`refused before the run (exported tree): ${e instanceof Error ? e.message : String(e)}`, cfg.secrets) };
+  }
   const name = `${cfg.namePrefix}-${o.mission.id}-a${o.attempt}`;
   const prompt = engineerPrompt({ mission: o.mission, attempt: o.attempt, feedback: o.feedback, protectedPatterns: rules });
-  const args = dockerRun(cfg, name, `${o.changeDir.replace(/\/+$/, '')}/tree`, engineerArgs({ model: cfg.model, settings: cliSettings(rules) }));
+  const args = dockerRun(cfg, name, tree, engineerArgs({ model: cfg.model, settings }));
   const r = await cliRun(x, name, args, prompt, cfg.engineerCapMs);
   if (!r.ok) {
     return { ok: false, report: '', timedOut: r.timedOut, error: redactSecrets(r.error, cfg.secrets), ...(r.containerAlive ? { containerAlive: true as const } : {}) };

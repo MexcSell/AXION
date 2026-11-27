@@ -1,11 +1,26 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cliSettings, engineerArgs, reviewerArgs, runEngineer, runReviewer, WORKSHOP_DEFAULTS, ENGINEER_TOOLS } from './workshop.ts';
+import { mkdirSync, mkdtempSync, writeFileSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { cliSettings, engineerArgs, reviewerArgs, runEngineer, runReviewer, WORKSHOP_DEFAULTS, ENGINEER_TOOLS, existingModifyFiles } from './workshop.ts';
 import type { Exec, ExecOpts, RunResult } from './workshop.ts';
 import { loadRules } from './gates.ts';
 import { LOG_OPTS } from '../guard/effects-docker.ts';
 
 const RULES = loadRules();
+
+/** a change dir with an exported tree: two existing files under modify: rules, one ordinary file */
+function changeDir(extra: string[] = []): string {
+  const d = mkdtempSync(join(tmpdir(), 'axion-ws-test-'));
+  for (const f of ['server/test/a.test.ts', 'server/test/deep/b.test.ts', 'web/scripts/x.sh', 'web/src/c.ts', ...extra]) {
+    mkdirSync(join(d, 'tree', f, '..'), { recursive: true });
+    writeFileSync(join(d, 'tree', f), 'x');
+  }
+  return d;
+}
+const CHANGE = changeDir();
+const EXISTING = ['server/test/a.test.ts', 'server/test/deep/b.test.ts', 'web/scripts/x.sh'];
 const MODEL = 'claude-opus-5-5';
 const mission = { id: 'M-7', title: 'Bigger button', text: 'Make it bigger', criteria: ['40px'] };
 
@@ -18,18 +33,55 @@ test('cliSettings: allow only the five file tools, scoped to /work', () => {
   assert.ok(!JSON.stringify(s).includes('Bash'));
 });
 
-test('cliSettings: Edit and Write are denied on every protected pattern (modify: ones too: the CLI refuses Write under an Edit deny anyway) and on git files', () => {
-  const s = cliSettings(RULES) as { permissions: { deny: string[] } };
+test('cliSettings: Edit and Write denied directory-wide on every plain protected pattern, never on a modify: one (R27), and on git files', () => {
+  const s = cliSettings(RULES, EXISTING) as { permissions: { deny: string[] } };
   const deny = s.permissions.deny;
   for (const r of RULES) {
     const p = r.replace(/^modify:/, '');
-    assert.ok(deny.includes(`Edit(//work/${p})`), `Edit ${p}`);
-    assert.ok(deny.includes(`Write(//work/${p})`), `Write ${p}`);
+    const plain = !r.startsWith('modify:');
+    assert.equal(deny.includes(`Edit(//work/${p})`), plain, `Edit ${r}`);
+    assert.equal(deny.includes(`Write(//work/${p})`), plain, `Write ${r}`);
   }
+  assert.ok(!deny.some((d) => /\((?:\/\/work\/)?(?:server\/test|web\/scripts)\/\*\*\)$/.test(d)), 'no directory-wide modify: deny');
   for (const p of ['.claude/**', '**/CLAUDE.md', '**/.mcp.json', '.github/**', '.vscode/**']) assert.ok(deny.includes(`Write(//work/${p})`), `R26 ${p}`);
   for (const p of ['**/.git/**', '**/.git*', '**/.gitattributes']) {
     assert.ok(deny.includes(`Edit(//work/${p})`) && deny.includes(`Write(//work/${p})`), p);
   }
+});
+
+test('R27: the existing files under modify: rules get exact Edit and Write denies, in order, nothing else', () => {
+  const deny = (cliSettings(RULES, EXISTING) as { permissions: { deny: string[] } }).permissions.deny;
+  for (const f of EXISTING) assert.ok(deny.includes(`Edit(//work/${f})`) && deny.includes(`Write(//work/${f})`), f);
+  assert.ok(!deny.some((d) => d.includes('web/src/c.ts')));
+  const none = (cliSettings(RULES) as { permissions: { deny: string[] } }).permissions.deny;
+  assert.ok(!none.some((d) => d.includes('server/test/a.test.ts')));
+});
+
+test('R27: a path with characters outside [A-Za-z0-9_./@+-] (or not canonical) is refused', () => {
+  for (const bad of ['server/test/a b.ts', 'server/test/a*.ts', 'server/test/[x].ts', 'server/test/a).ts', 'server/test/!a', 'server/test/a\\b', '/etc/x', 'server/test/../x', 'server/test/a\n.ts', 'server/test/ä.ts']) {
+    assert.throws(() => cliSettings(RULES, [bad]), /unusable file name/, JSON.stringify(bad));
+  }
+  assert.doesNotThrow(() => cliSettings(RULES, ['server/test/@x/a+b_c-d.e.test.ts']));
+});
+
+test('R27: existingModifyFiles walks the tree (files and symlinks, not directories) with the guard globs', () => {
+  const d = changeDir(['server/test/fixtures/data.json', 'server/testx/no.ts']);
+  symlinkSync('/proc/self/environ', join(d, 'tree', 'server/test/link'));
+  assert.deepEqual(existingModifyFiles(join(d, 'tree'), RULES), [
+    'server/test/a.test.ts', 'server/test/deep/b.test.ts', 'server/test/fixtures/data.json', 'server/test/link', 'web/scripts/x.sh',
+  ]);
+});
+
+test('R27: runEngineer refuses the run (no docker call) when a modify: file name is unusable or the tree is missing', async () => {
+  const d = changeDir(['server/test/a b.test.ts']);
+  const { exec, calls } = fakeExec();
+  const r = await runEngineer({ changeDir: d, mission, attempt: 1 }, exec, cfg);
+  assert.equal(r.ok, false);
+  assert.match(r.error ?? '', /unusable file name/);
+  const r2 = await runEngineer({ changeDir: '/nonexistent/axion-ws', mission, attempt: 1 }, exec, cfg);
+  assert.equal(r2.ok, false);
+  assert.match(r2.error ?? '', /tree/);
+  assert.equal(calls.length, 0);
 });
 
 test('cliSettings: Read (which also governs Grep and Glob) is denied on /proc, /etc, /srv, /root, HOME and /tmp', () => {
@@ -103,16 +155,16 @@ const cfg = { ...WORKSHOP_DEFAULTS, image: 'axion-workshop:abc123def456', rules:
 
 test('runEngineer: removes a leftover container, then the exact docker run argv; the prompt goes on stdin', async () => {
   const { exec, calls } = fakeExec({ runAnswer: { stdout: envelope('done <report>{"goal":"g"}</report>') } });
-  const r = await runEngineer({ changeDir: '/srv/axion-evolve/work/M-7', mission, attempt: 2, feedback: 'tsc failed' }, exec, cfg);
+  const r = await runEngineer({ changeDir: CHANGE, mission, attempt: 2, feedback: 'tsc failed' }, exec, cfg);
   assert.deepEqual(r, { ok: true, report: '{"goal":"g"}', timedOut: false, denials: 0 });
   assert.deepEqual(calls[0].args, ['rm', '-f', 'axion-workshop-M-7-a2']);
-  const settings = cliSettings(RULES);
+  const settings = cliSettings(RULES, EXISTING);
   assert.deepEqual(calls[1].cmd, 'docker');
   assert.deepEqual(calls[1].args, [
     'run', '--rm', '-i', '--name', 'axion-workshop-M-7-a2', '--network', 'axion-workshop', ...LOG_OPTS,
     '--user', '1000:1000', '--read-only', '--tmpfs', '/tmp', '--tmpfs', '/home/w', '--cap-drop', 'ALL',
     '--security-opt', 'no-new-privileges', '--pids-limit', '512', '--memory', '4g',
-    '-v', '/srv/axion-evolve/work/M-7/tree:/work', '--env-file', '/srv/axion-evolve/secrets/workshop.env',
+    '-v', `${CHANGE}/tree:/work`, '--env-file', '/srv/axion-evolve/secrets/workshop.env',
     '-e', 'HOME=/home/w', '-e', 'HTTPS_PROXY=http://axion-egress:3128', '-e', 'NO_PROXY=', '-e', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1',
     '-w', '/work', 'axion-workshop:abc123def456', 'claude', ...engineerArgs({ model: MODEL, settings }),
   ]);
@@ -124,7 +176,7 @@ test('runEngineer: removes a leftover container, then the exact docker run argv;
 
 test('runEngineer: at the wall cap the container is killed (docker kill) and the result says timedOut', async () => {
   const { exec, calls } = fakeExec({ hang: true });
-  const r = await runEngineer({ changeDir: '/srv/axion-evolve/work/M-7', mission, attempt: 1 }, exec, cfg);
+  const r = await runEngineer({ changeDir: CHANGE, mission, attempt: 1 }, exec, cfg);
   assert.equal(r.ok, false);
   assert.equal(r.timedOut, true);
   assert.equal(r.containerAlive, undefined);
@@ -134,7 +186,7 @@ test('runEngineer: at the wall cap the container is killed (docker kill) and the
 
 test('I5: a failed docker kill is retried, then rm -f; the container is confirmed gone with docker inspect', async () => {
   const { exec, calls } = fakeExec({ hang: true, killFails: true });
-  const r = await runEngineer({ changeDir: '/w/M-7', mission, attempt: 1 }, exec, cfg);
+  const r = await runEngineer({ changeDir: CHANGE, mission, attempt: 1 }, exec, cfg);
   assert.equal(r.ok, false);
   assert.equal(r.timedOut, true);
   assert.equal(r.containerAlive, undefined);
@@ -144,7 +196,7 @@ test('I5: a failed docker kill is retried, then rm -f; the container is confirme
 test('I5: a container that cannot be removed is a hard error (containerAlive), for a timeout and for a failed docker client', async () => {
   for (const mode of [{ hang: true, alive: true }, { runRejects: true, alive: true }]) {
     const { exec, calls } = fakeExec(mode);
-    const r = await runEngineer({ changeDir: '/w/M-7', mission, attempt: 1 }, exec, cfg);
+    const r = await runEngineer({ changeDir: CHANGE, mission, attempt: 1 }, exec, cfg);
     assert.equal(r.ok, false);
     assert.equal(r.containerAlive, true);
     assert.match(r.error ?? '', /still exists.*do not use the tree/);
@@ -157,7 +209,7 @@ test('I5: a container that cannot be removed is a hard error (containerAlive), f
 
 test('I5: a failed docker client (not a timeout) is cleaned up the same way', async () => {
   const { exec, calls } = fakeExec({ runRejects: true });
-  const r = await runEngineer({ changeDir: '/w/M-7', mission, attempt: 1 }, exec, cfg);
+  const r = await runEngineer({ changeDir: CHANGE, mission, attempt: 1 }, exec, cfg);
   assert.equal(r.ok, false);
   assert.equal(r.timedOut, false);
   assert.equal(r.containerAlive, undefined);
@@ -167,7 +219,7 @@ test('I5: a failed docker client (not a timeout) is cleaned up the same way', as
 test('I3: secret values (any form) are redacted from the CLI error and the reviewer concerns', async () => {
   const secret = 'pw' + 'a1b2c3d4e5f6a7b8';
   const scfg = { ...cfg, secrets: [secret] };
-  const r = await runEngineer({ changeDir: '/w/M-7', mission, attempt: 1 }, fakeExec({ runAnswer: { code: 1, stderr: `auth failed for ${secret} (${Buffer.from(secret).toString('hex')})` } }).exec, scfg);
+  const r = await runEngineer({ changeDir: CHANGE, mission, attempt: 1 }, fakeExec({ runAnswer: { code: 1, stderr: `auth failed for ${secret} (${Buffer.from(secret).toString('hex')})` } }).exec, scfg);
   assert.ok(!(r.error ?? '').includes(secret) && !(r.error ?? '').includes(Buffer.from(secret).toString('hex')), r.error ?? '');
   assert.match(r.error ?? '', /\[redacted\]/);
   const rv = await runReviewer({ mission, diff: '+x\n' }, fakeExec({ runAnswer: { stdout: envelope(`{"ok": false, "concerns": ["it adds ${secret}"]}`) } }).exec, scfg);
@@ -184,7 +236,7 @@ test('runEngineer: a CLI error, unparsable output or a missing report block is n
     [{ stdout: envelope('I changed things') }, /no report/],
   ] as const) {
     const { exec } = fakeExec({ runAnswer: answer });
-    const r = await runEngineer({ changeDir: '/w/M-7', mission, attempt: 1 }, exec, cfg);
+    const r = await runEngineer({ changeDir: CHANGE, mission, attempt: 1 }, exec, cfg);
     assert.equal(r.ok, false);
     assert.equal(r.timedOut, false);
     assert.match(r.error ?? '', why);
