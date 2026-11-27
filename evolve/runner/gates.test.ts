@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { gates, parseDiff, scanFlags, loadRules, FLAG_RULES } from './gates.ts';
+import { gates, parseDiff, scanFlags, loadRules, FLAG_RULES, redactSecrets, secretForms } from './gates.ts';
 
 // Fake secret values are built at run time, so no token-like literal sits in the repo (push protection).
 const TOKEN = ['sk', 'ant', 'oat01', randomBytes(30).toString('base64url')].join('-');
@@ -91,13 +91,34 @@ test('parseDiff: added lines with file and new line number; a "+++" inside a hun
 
 // each flag fires on a positive fixture and not on a near-miss
 const FIXTURES: Record<string, { hit: string[]; miss: string[] }> = {
-  fetch: { hit: ['await fetch(url)', 'x = fetch ("/a")', 'globalThis.fetch(u)'], miss: ['prefetch(x)', 'fetchData(x)', 'const fetched = 1'] },
-  url: { hit: ['const u = "https://evil.example/x"', "load('http://10.0.0.1:80/')"], miss: ['fetchJson("/api/v1/x")', 'xmlns="http://www.w3.org/2000/svg"', '// see docs'] },
-  env: { hit: ['const k = process.env.KEY', "process['env']", 'const { env } = process'], miss: ['process.envelope', 'const environment = 1'] },
+  fetch: {
+    hit: ['await fetch(url)', 'x = fetch ("/a")', 'globalThis.fetch(u)', "globalThis['fetch'](u)", 'const ws = new WebSocket(u)', 'new EventSource(u)', 'new XMLHttpRequest()', 'navigator.sendBeacon(u, d)'],
+    miss: ['prefetch(x)', 'fetchData(x)', 'const fetched = 1', 'type WebSocketLike = {}', "const label = 'fetching'"],
+  },
+  url: {
+    hit: ['const u = "https://evil.example/x"', "load('http://10.0.0.1:80/')", "const u = '//evil.example/p?' + d", 'new WebSocket("ws://evil.example/x")', "'wss://x.example'", 'const u = "//localhost:3000/x"', "'ftp://files.example/a'"],
+    miss: ['fetchJson("/api/v1/x")', 'xmlns="http://www.w3.org/2000/svg"', '// see docs', 'const c = a // b.c', "const s = '//'", "const r = '/api//x'"],
+  },
+  env: {
+    hit: ['const k = process.env.KEY', "process['env']", 'const { env } = process', "import { env } from 'node:process'", "const p = require('process').env", 'import process from "process"'],
+    miss: ['process.envelope', 'const environment = 1', "import { x } from './process'", "import { y } from './process-utils'"],
+  },
+  node_io: {
+    hit: ["import http from 'node:http'", "import https from 'https'", "const net = require('net')", "import dgram from 'node:dgram'", "import tls from 'tls'",
+      "import { spawn } from 'node:child_process'", "import { rm } from 'node:fs/promises'", "await import('node:http2')", "import * as dns from 'dns'", "import fs from 'fs'"],
+    miss: ["import x from './http'", "import { join } from 'node:path'", "import h from 'httpx'", 'const net = 1', "import { a } from '../fs'"],
+  },
   child_process: { hit: ["import { spawn } from 'node:child_process'", "require('child_process')"], miss: ['const child_processor = 1'] },
-  fs_write: { hit: ['fs.writeFileSync(p, d)', 'await fsp.writeFile(p, d)', 'fs.rmSync(p)', 'await unlink(p)', 'fs.unlinkSync(p)', 'writeFileSync(p, d)', 'fs.rm(p, cb)', 'createWriteStream(p)'], miss: ['fs.readFileSync(p)', 'rewriteFile(x)', 'const unlinked = true', 'fs.rmdirSyncish'] },
+  fs_write: {
+    hit: ['fs.writeFileSync(p, d)', 'await fsp.writeFile(p, d)', 'fs.rmSync(p)', 'await unlink(p)', 'fs.unlinkSync(p)', 'writeFileSync(p, d)', 'fs.rm(p, cb)', 'createWriteStream(p)',
+      'await rm(p)', 'await rename(a, b)', 'rmdir(p)', 'await copyFile(a, b)'],
+    miss: ['fs.readFileSync(p)', 'rewriteFile(x)', 'const unlinked = true', 'fs.rmdirSyncish', 'form(x)', 'confirm(x)', 'onRename(x)', 'renameKey(x)'],
+  },
   sql: { hit: ['await q("DROP TABLE users")', 'drop table if exists x', 'TRUNCATE users', 'truncate table x', "q('DELETE FROM missions')", 'delete from x;'], miss: ['dropdown()', 'drop the item', "q('DELETE FROM missions WHERE id = $1')", 'truncate(text, 40)', 'deleted from list'] },
-  eval: { hit: ['eval(code)', 'new Function("return 1")', 'window.eval (x)'], miss: ['evaluate(x)', 'medieval(x)', 'new FunctionComponent()'] },
+  eval: {
+    hit: ['eval(code)', 'new Function("return 1")', 'window.eval (x)', "Function('return 1')()", '(0, eval)(code)', "globalThis['eval'](c)"],
+    miss: ['evaluate(x)', 'medieval(x)', 'new FunctionComponent()', 'isFunction(x)', 'retrieval(x)', 'const evaluation = 1'],
+  },
 };
 
 test('every flag rule has fixtures; each fires on its positives and not on its near-misses', () => {
@@ -111,4 +132,27 @@ test('every flag rule has fixtures; each fires on its positives and not on its n
 test('flags come from added lines only and name file and line', () => {
   const r = run({ diff: diffOf('web/src/a.ts', ['const x = 1;', 'eval(code)'], ['fetch(old)']) });
   assert.deepEqual(r.flags, ['eval(/new Function( in web/src/a.ts:3']);
+});
+
+test('C1: no output list echoes a secret value (in any encoding) that is part of a file name', () => {
+  const file = `web/${PASSWORD}.txt`;
+  const prot = `evolve/${TOKEN}.md`;
+  const diff = diffOf(file, ['eval(x)', 'const u = "https://e.example"']) + diffOf(prot, ['x']);
+  const r = gates({ ...base, diff, files: [{ path: file, status: 'A' }, { path: prot, status: 'A' }] });
+  assert.ok(r.secretHits.length > 0 && r.flags.length > 0 && r.protectedHits.length > 0);
+  const all = [...r.secretHits, ...r.flags, ...r.protectedHits].join('\n');
+  for (const v of [PASSWORD, TOKEN]) {
+    for (const f of secretForms(v)) assert.ok(!all.toLowerCase().includes(f.toLowerCase()), `form ${f.length} chars leaked`);
+  }
+  assert.ok(r.flags.some((f) => f.includes('[redacted]')), r.flags.join('; '));
+  assert.ok(r.protectedHits.some((p) => p === 'evolve/[redacted].md'), r.protectedHits.join('; '));
+});
+
+test('redactSecrets replaces every form of every value (hex in any case), leaves other text', () => {
+  const hex = Buffer.from(PASSWORD).toString('hex').toUpperCase();
+  const b64 = Buffer.from('a' + PASSWORD).toString('base64');
+  const out = redactSecrets(`x ${PASSWORD} y ${hex} z ${b64} w ${[...TOKEN].reverse().join('')}`, SECRETS);
+  for (const v of [PASSWORD, TOKEN]) for (const f of secretForms(v)) assert.ok(!out.toLowerCase().includes(f.toLowerCase()));
+  assert.ok(out.startsWith('x [redacted] y [redacted] z '));
+  assert.equal(redactSecrets('nothing here short', SECRETS), 'nothing here short');
 });

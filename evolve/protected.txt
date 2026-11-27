@@ -38,6 +38,20 @@ evolve/**
 # git attributes: export-ignore/export-subst would change what `git archive` puts in the build (the Guard also overrides them)
 **/.gitattributes
 
+# Agent and tool configuration that runs code or steers an agent when the tree is opened (hooks, MCP servers, editor
+# tasks, CI workflows, git hooks, dev containers, direnv): evolve/main is pulled back into the owner's checkout (R26)
+.claude/**
+**/.claude/**
+**/CLAUDE.md
+**/CLAUDE.local.md
+**/AGENTS.md
+**/.mcp.json
+.vscode/**
+.github/**
+.husky/**
+.devcontainer/**
+**/.envrc
+
 # Dependencies (supply-chain risk); npm config (a project .npmrc can preload code into every npm-started node: node-options)
 **/package.json
 **/package-lock.json

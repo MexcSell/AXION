@@ -14,7 +14,7 @@ const FLAG_LIST = 'network calls (fetch(, absolute http:// or https:// URLs), re
 
 export function engineerPrompt(o: { mission: Mission; attempt: number; feedback?: string; protectedPatterns: string[] }): string {
   const m = o.mission;
-  const prot = o.protectedPatterns.map((r) => (r.startsWith('modify:') ? `  - ${r.slice(7)}  (existing files; treat as read-only)` : `  - ${r}`));
+  const prot = o.protectedPatterns.map((r) => (r.startsWith('modify:') ? `  - ${r.slice(7)}  (you may add new files there; never change existing ones (Edit is refused there, rewrite a file you created with Write))` : `  - ${r}`));
   const parts = [
     'You are the engineer agent of AXION, a web application (server/ = Node.js + TypeScript API, web/ = React front end).',
     'You work in /work, an exported copy of the repository: no git, no shell, no network tools. Your tools are Read, Edit, Write, Glob and Grep, inside /work only.',

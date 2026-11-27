@@ -18,14 +18,15 @@ test('cliSettings: allow only the five file tools, scoped to /work', () => {
   assert.ok(!JSON.stringify(s).includes('Bash'));
 });
 
-test('cliSettings: Edit and Write are denied on every protected pattern (modify: ones too) and on git files', () => {
+test('cliSettings: Edit and Write are denied on every protected pattern, only Edit on modify: ones (R25), and both on git files', () => {
   const s = cliSettings(RULES) as { permissions: { deny: string[] } };
   const deny = s.permissions.deny;
   for (const r of RULES) {
     const p = r.replace(/^modify:/, '');
     assert.ok(deny.includes(`Edit(//work/${p})`), `Edit ${p}`);
-    assert.ok(deny.includes(`Write(//work/${p})`), `Write ${p}`);
+    assert.equal(deny.includes(`Write(//work/${p})`), !r.startsWith('modify:'), `Write ${p}`);
   }
+  for (const p of ['.claude/**', '**/CLAUDE.md', '**/.mcp.json', '.github/**', '.vscode/**']) assert.ok(deny.includes(`Write(//work/${p})`), `R26 ${p}`);
   for (const p of ['**/.git/**', '**/.git*', '**/.gitattributes']) {
     assert.ok(deny.includes(`Edit(//work/${p})`) && deny.includes(`Write(//work/${p})`), p);
   }
@@ -52,27 +53,44 @@ test('engineerArgs / reviewerArgs: exactly the constraint flags; tools Read,Edit
 
 type Call = { cmd: string; args: string[]; opts?: ExecOpts };
 
-/** A recording fake Exec. `docker run` answers `runAnswer`; with `hang`, it only ends after `docker kill <name>`. */
-function fakeExec(o: { runAnswer?: Partial<RunResult>; hang?: boolean } = {}) {
+/**
+ * A recording fake Exec. `docker run` answers `runAnswer`; with `hang`, it only ends after a working `docker kill <name>`
+ * (or `rm -f`). `killFails`: kill answers an error and stops nothing. `alive`: the container never goes away (rm -f fails,
+ * inspect finds it). `runRejects`: the docker client itself fails (e.g. the backstop timeout).
+ */
+function fakeExec(o: { runAnswer?: Partial<RunResult>; hang?: boolean; killFails?: boolean; alive?: boolean; runRejects?: boolean } = {}) {
   const calls: Call[] = [];
   let release: (() => void) | null = null;
+  let running = false;
   const exec: Exec = {
     async run(cmd, args, opts) {
       calls.push({ cmd, args: [...args], ...(opts ? { opts } : {}) });
       if (args[0] === 'run') {
+        if (o.runRejects) { running = true; throw new Error('docker run timed out after 1 ms'); }
         if (o.hang) {
+          running = true;
           await new Promise<void>((r) => { release = r; });
           return { code: 137, stdout: '', stderr: '' };
         }
         return { code: 0, stdout: '', stderr: '', ...o.runAnswer };
       }
-      if (args[0] === 'kill') release?.();
+      if (args[0] === 'kill') {
+        if (o.killFails || o.alive) return { code: 1, stdout: '', stderr: 'Error response from daemon: cannot kill container: timeout' };
+        running = false; release?.();
+      }
+      if (args[0] === 'rm' && running) {
+        if (o.alive) return { code: 1, stdout: '', stderr: 'Error response from daemon: could not remove' };
+        running = false; release?.();
+      }
+      if (args[0] === 'container' && args[1] === 'inspect') {
+        return running ? { code: 0, stdout: 'running\n', stderr: '' } : { code: 1, stdout: '', stderr: `Error: No such container: ${args[args.length - 1]}` };
+      }
       return { code: 0, stdout: '', stderr: '' };
     },
     sleep(ms, signal) {
-      // the wall cap "expires" at once when the run hangs; otherwise it waits for the abort
-      if (o.hang) return Promise.resolve();
-      return new Promise((r) => signal?.addEventListener('abort', () => r(), { once: true }));
+      // the wall cap "expires" at once when the run hangs; a sleep without a signal (grace waits) ends at once
+      if (o.hang || !signal) return Promise.resolve();
+      return new Promise((r) => signal.addEventListener('abort', () => r(), { once: true }));
     },
   };
   return { exec, calls };
@@ -109,7 +127,53 @@ test('runEngineer: at the wall cap the container is killed (docker kill) and the
   const r = await runEngineer({ changeDir: '/srv/axion-evolve/work/M-7', mission, attempt: 1 }, exec, cfg);
   assert.equal(r.ok, false);
   assert.equal(r.timedOut, true);
-  assert.deepEqual(calls.map((c) => c.args.slice(0, 2)), [['rm', '-f'], ['run', '--rm'], ['kill', 'axion-workshop-M-7-a1']]);
+  assert.equal(r.containerAlive, undefined);
+  assert.deepEqual(calls.map((c) => c.args.slice(0, 2)), [['rm', '-f'], ['run', '--rm'], ['kill', 'axion-workshop-M-7-a1'], ['rm', '-f'], ['container', 'inspect']]);
+  assert.equal(calls[4].args[calls[4].args.length - 1], 'axion-workshop-M-7-a1');
+});
+
+test('I5: a failed docker kill is retried, then rm -f; the container is confirmed gone with docker inspect', async () => {
+  const { exec, calls } = fakeExec({ hang: true, killFails: true });
+  const r = await runEngineer({ changeDir: '/w/M-7', mission, attempt: 1 }, exec, cfg);
+  assert.equal(r.ok, false);
+  assert.equal(r.timedOut, true);
+  assert.equal(r.containerAlive, undefined);
+  assert.deepEqual(calls.map((c) => c.args[0] === 'container' ? 'inspect' : c.args[0]), ['rm', 'run', 'kill', 'kill', 'rm', 'inspect']);
+});
+
+test('I5: a container that cannot be removed is a hard error (containerAlive), for a timeout and for a failed docker client', async () => {
+  for (const mode of [{ hang: true, alive: true }, { runRejects: true, alive: true }]) {
+    const { exec, calls } = fakeExec(mode);
+    const r = await runEngineer({ changeDir: '/w/M-7', mission, attempt: 1 }, exec, cfg);
+    assert.equal(r.ok, false);
+    assert.equal(r.containerAlive, true);
+    assert.match(r.error ?? '', /still exists.*do not use the tree/);
+    assert.ok(calls.filter((c) => c.args[0] === 'container' && c.args[1] === 'inspect').length >= 2, 'inspected after each rm -f');
+  }
+  const rv = await runReviewer({ mission, diff: '+x\n' }, fakeExec({ hang: true, alive: true }).exec, cfg);
+  assert.equal(rv.ok, false);
+  assert.ok(rv.concerns.some((c) => /still exists/.test(c)));
+});
+
+test('I5: a failed docker client (not a timeout) is cleaned up the same way', async () => {
+  const { exec, calls } = fakeExec({ runRejects: true });
+  const r = await runEngineer({ changeDir: '/w/M-7', mission, attempt: 1 }, exec, cfg);
+  assert.equal(r.ok, false);
+  assert.equal(r.timedOut, false);
+  assert.equal(r.containerAlive, undefined);
+  assert.deepEqual(calls.map((c) => c.args[0] === 'container' ? 'inspect' : c.args[0]), ['rm', 'run', 'kill', 'rm', 'inspect']);
+});
+
+test('I3: secret values (any form) are redacted from the CLI error and the reviewer concerns', async () => {
+  const secret = 'pw' + 'a1b2c3d4e5f6a7b8';
+  const scfg = { ...cfg, secrets: [secret] };
+  const r = await runEngineer({ changeDir: '/w/M-7', mission, attempt: 1 }, fakeExec({ runAnswer: { code: 1, stderr: `auth failed for ${secret} (${Buffer.from(secret).toString('hex')})` } }).exec, scfg);
+  assert.ok(!(r.error ?? '').includes(secret) && !(r.error ?? '').includes(Buffer.from(secret).toString('hex')), r.error ?? '');
+  assert.match(r.error ?? '', /\[redacted\]/);
+  const rv = await runReviewer({ mission, diff: '+x\n' }, fakeExec({ runAnswer: { stdout: envelope(`{"ok": false, "concerns": ["it adds ${secret}"]}`) } }).exec, scfg);
+  assert.deepEqual(rv, { ok: false, concerns: ['it adds [redacted]'] });
+  const rv2 = await runReviewer({ mission, diff: '+x\n' }, fakeExec({ runAnswer: { code: 1, stderr: `bad ${secret}` } }).exec, scfg);
+  assert.ok(!rv2.concerns.join(' ').includes(secret));
 });
 
 test('runEngineer: a CLI error, unparsable output or a missing report block is not ok', async () => {

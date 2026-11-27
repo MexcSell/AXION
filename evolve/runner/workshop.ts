@@ -8,14 +8,15 @@
 //   - the CLI: the Global Constraints flag set, tools Read,Edit,Write,Glob,Grep (engineer) or none (reviewer), dontAsk, and
 //     the settings below (allow scoped to /work, deny protected paths and git files for Edit/Write, deny Read — which also
 //     governs Grep and Glob — on /proc, /etc, /srv, /root, HOME and /tmp). Verified against the real CLI 2.1.325 (Task 3).
-// Prompts go on stdin (a diff can exceed the 128 KB argv string limit). At the wall cap the container is killed.
+// Prompts go on stdin (a diff can exceed the 128 KB argv string limit). At the wall cap the container is killed, removed
+// and confirmed gone (containerAlive otherwise). CLI errors and reviewer concerns have every secret form redacted.
 
 import { spawn } from 'node:child_process';
 import { isAbsolute } from 'node:path';
 import { LOG_OPTS } from '../guard/effects-docker.ts';
 import { engineerPrompt, parseReport, parseReview, reviewerPrompt } from './prompts.ts';
 import type { Mission } from './prompts.ts';
-import { loadRules } from './gates.ts';
+import { loadRules, redactSecrets } from './gates.ts';
 
 export type RunResult = { code: number; stdout: string; stderr: string };
 export type ExecOpts = { input?: string; timeoutMs?: number };
@@ -52,6 +53,8 @@ export type WorkshopConfig = {
   maxReviewDiff: number;
   /** protected rules (the runner's installed evolve/protected.txt) */
   rules: string[];
+  /** secret values (secrets/*.env): every form of them is redacted from CLI errors and reviewer concerns (I3) */
+  secrets: string[];
 };
 
 export const WORKSHOP_DEFAULTS: WorkshopConfig = {
@@ -65,13 +68,19 @@ export const WORKSHOP_DEFAULTS: WorkshopConfig = {
   reviewerCapMs: 5 * 60_000,
   maxReviewDiff: 400_000,
   get rules() { return loadRules(); },
+  secrets: [],
 };
 
-/** The --settings JSON for every Workshop run. `protectedPatterns` are evolve/protected.txt rules (`modify:` ones denied as well). */
+/**
+ * The --settings JSON for every Workshop run. `protectedPatterns` are evolve/protected.txt rules: Edit and Write are denied
+ * on each; a `modify:` rule (new files allowed) denies only Edit (R25), so a new test file can be written there, while an
+ * overwrite of an existing file through Write is status M, which the Guard's classify reports as a protected hit.
+ */
 export function cliSettings(protectedPatterns: string[]): object {
   const at = (p: string) => `/${WORK}/${p}`; // `//work/…`: an absolute path in the CLI's rule syntax
-  const writeDeny = [...protectedPatterns.map((r) => r.replace(/^modify:/, '')), ...GIT_RULES]
-    .flatMap((p) => [`Edit(${at(p)})`, `Write(${at(p)})`]);
+  const writeDeny = [...protectedPatterns, ...GIT_RULES].flatMap((r) => (r.startsWith('modify:')
+    ? [`Edit(${at(r.slice('modify:'.length))})`]
+    : [`Edit(${at(r)})`, `Write(${at(r)})`]));
   const readDeny = NO_READ.flatMap((d) => [`Read(/${d})`, `Read(/${d}/**)`]);
   return {
     permissions: {
@@ -110,33 +119,58 @@ function dockerRun(cfg: WorkshopConfig, name: string, mount: string | null, clau
 }
 
 type Envelope = { is_error?: unknown; subtype?: unknown; result?: unknown; permission_denials?: unknown };
-type CliOutcome = { ok: true; result: string; denials: number } | { ok: false; timedOut: boolean; error: string };
+type CliOutcome = { ok: true; result: string; denials: number } | { ok: false; timedOut: boolean; error: string; containerAlive?: true };
 
 const tail = (s: string, n = 400) => (s.length > n ? `…${s.slice(-n)}` : s).trim();
+const NO_SUCH = /no such (container|object)/i;
+const DOCKER_T = { timeoutMs: 60_000 };
 
-/** one containerised CLI run: remove a leftover of the same name, run, kill at the cap, parse the JSON envelope */
-async function cliRun(x: Exec, name: string, args: string[], input: string, capMs: number): Promise<CliOutcome> {
-  await x.run('docker', ['rm', '-f', name], { timeoutMs: 60_000 });
-  const ac = new AbortController();
-  let timedOut = false;
-  const run = x.run('docker', args, { input, timeoutMs: capMs + 120_000 });
-  const cap = x.sleep(capMs, ac.signal).then(() => {
-    if (ac.signal.aborted) return;
-    timedOut = true;
-    return x.run('docker', ['kill', name], { timeoutMs: 60_000 }).catch(() => undefined);
-  });
-  let r: RunResult;
-  try {
-    r = await run;
-  } catch (e) {
-    ac.abort();
-    await cap;
-    if (!timedOut) await x.run('docker', ['kill', name], { timeoutMs: 60_000 }).catch(() => undefined);
-    return { ok: false, timedOut, error: e instanceof Error ? e.message : String(e) };
+/** `docker kill`, tried twice; an already stopped or removed container counts as killed */
+async function kill(x: Exec, name: string): Promise<void> {
+  for (let i = 0; i < 2; i++) {
+    const r = await x.run('docker', ['kill', name], DOCKER_T).catch(() => null);
+    if (r && (r.code === 0 || NO_SUCH.test(r.stderr) || /is not running/i.test(r.stderr))) return;
   }
+}
+
+/** `docker rm -f` then `docker container inspect` until the container is confirmed gone (two rounds); false = it still exists */
+async function ensureGone(x: Exec, name: string): Promise<boolean> {
+  for (let i = 0; i < 2; i++) {
+    await x.run('docker', ['rm', '-f', name], DOCKER_T).catch(() => null);
+    const r = await x.run('docker', ['container', 'inspect', '--format', '{{.State.Status}}', name], DOCKER_T).catch(() => null);
+    if (r && r.code !== 0 && NO_SUCH.test(r.stderr)) return true;
+  }
+  return false;
+}
+
+/**
+ * One containerised CLI run: remove a leftover of the same name, run, kill at the cap, parse the JSON envelope.
+ * After a timeout or a failed docker client the container is killed, removed and confirmed gone (I5); if it still exists
+ * the outcome says containerAlive: the caller must not diff or commit the tree (the container may still write to /work).
+ */
+async function cliRun(x: Exec, name: string, args: string[], input: string, capMs: number): Promise<CliOutcome> {
+  await x.run('docker', ['rm', '-f', name], DOCKER_T);
+  const ac = new AbortController();
+  const runP = x.run('docker', args, { input, timeoutMs: capMs + 120_000 }).then((r) => ({ r }), (e: unknown) => ({ e }));
+  const first = await Promise.race([runP, x.sleep(capMs, ac.signal).then(() => 'cap' as const)]);
   ac.abort();
-  await cap;
-  if (timedOut) return { ok: false, timedOut: true, error: `killed at the wall cap (${Math.round(capMs / 1000)} s)` };
+  let done: { r: RunResult } | { e: unknown } | null = first === 'cap' ? null : first;
+  const timedOut = done === null;
+  if (timedOut) {
+    await kill(x, name);
+    // the docker client ends once the container is gone; bounded wait (the client has its own backstop timeout)
+    done = await Promise.race([runP, x.sleep(30_000).then(() => null)]);
+  }
+  if (timedOut || (done !== null && 'e' in done)) {
+    if (!timedOut) await kill(x, name);
+    const why = timedOut ? `killed at the wall cap (${Math.round(capMs / 1000)} s)`
+      : `docker client failed: ${done !== null && 'e' in done ? (done.e instanceof Error ? done.e.message : String(done.e)) : ''}`;
+    if (!(await ensureGone(x, name))) {
+      return { ok: false, timedOut, containerAlive: true, error: `${why}; container ${name} still exists after kill and rm -f: do not use the tree` };
+    }
+    return { ok: false, timedOut, error: why };
+  }
+  const r = (done as { r: RunResult }).r;
   if (r.code !== 0 && r.stdout.trim() === '') return { ok: false, timedOut: false, error: `exit ${r.code}: ${tail(r.stderr)}` };
   let env: Envelope;
   try {
@@ -155,7 +189,14 @@ function checkMission(m: Mission, attempt: number) {
   if (!Number.isInteger(attempt) || attempt < 1 || attempt > 99) throw new Error(`invalid attempt: ${attempt}`);
 }
 
-export type EngineerResult = { ok: boolean; report: string; timedOut: boolean; error?: string; denials?: number };
+export type EngineerResult = {
+  ok: boolean; report: string; timedOut: boolean;
+  /** why not ok; secret forms redacted */
+  error?: string;
+  denials?: number;
+  /** the container could not be confirmed gone: do not diff or commit the tree (I5) */
+  containerAlive?: true;
+};
 
 /**
  * One engineer attempt on the exported tree at <changeDir>/tree (owned by uid 1000). ok = the CLI finished without error and
@@ -175,7 +216,9 @@ export async function runEngineer(
   const prompt = engineerPrompt({ mission: o.mission, attempt: o.attempt, feedback: o.feedback, protectedPatterns: rules });
   const args = dockerRun(cfg, name, `${o.changeDir.replace(/\/+$/, '')}/tree`, engineerArgs({ model: cfg.model, settings: cliSettings(rules) }));
   const r = await cliRun(x, name, args, prompt, cfg.engineerCapMs);
-  if (!r.ok) return { ok: false, report: '', timedOut: r.timedOut, error: r.error };
+  if (!r.ok) {
+    return { ok: false, report: '', timedOut: r.timedOut, error: redactSecrets(r.error, cfg.secrets), ...(r.containerAlive ? { containerAlive: true as const } : {}) };
+  }
   const report = parseReport(r.result);
   if (report === null) return { ok: false, report: '', timedOut: false, error: 'no report block in the answer', denials: r.denials };
   return { ok: true, report: report.slice(0, 10_000), timedOut: false, denials: r.denials };
@@ -193,8 +236,9 @@ export async function runReviewer(
   const name = `${cfg.namePrefix}-${o.mission.id}-a${attempt}-review`;
   const args = dockerRun(cfg, name, null, reviewerArgs({ model: cfg.model, settings: cliSettings(cfg.rules) }));
   const r = await cliRun(x, name, args, reviewerPrompt({ mission: o.mission, diff: o.diff }), cfg.reviewerCapMs);
-  if (!r.ok) return { ok: false, concerns: [`review did not complete: ${r.error}`] };
-  return parseReview(r.result);
+  if (!r.ok) return { ok: false, concerns: [redactSecrets(`review did not complete: ${r.error}`, cfg.secrets)] };
+  const v = parseReview(r.result);
+  return { ok: v.ok, concerns: v.concerns.map((c) => redactSecrets(c, cfg.secrets)) };
 }
 
 function collector() {

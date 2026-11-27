@@ -3,9 +3,11 @@
 //   protectedHits: the Guard's classify() on the changed paths (a hit → the mission waits for the owner).
 //   secretHits:    any secret value (length ≥ 12; also base64/base64url at every alignment, hex, reversed, split over added
 //                  lines) or the markers sk-ant- / CLAUDE_CODE_OAUTH / -----BEGIN in an added line, a file name, the commit
-//                  message or the report; a binary change (cannot be scanned) counts too. A hit names the place, never the value.
-//   flags:         a static scan of added lines (B1b): network calls, absolute URLs, environment reads, child processes,
-//                  file writes/deletes, destructive SQL, eval. A flag → the mission waits for the owner.
+//                  message or the report; a binary change (cannot be scanned) counts too. A hit names the place, never the value,
+//                  and every output list (hits, flags, protected paths) has all secret forms replaced by [redacted] (C1).
+//   flags:         a static scan of added lines (B1b): network calls, absolute/protocol-relative URLs, environment reads,
+//                  Node I/O module imports, child processes, file writes/deletes, destructive SQL, eval. A flag → the mission
+//                  waits for the owner. A best-effort tripwire, not a sandbox: the checks run no-network, and the reviewer reads too.
 // The diff must be `git diff` text (Task 4: `--text` so binary content is shown as lines, or it is caught as unscannable);
 // `files` must list every changed path (from `git diff --name-status -z -M`).
 
@@ -21,7 +23,7 @@ export type GateInput = {
   /** the engineer's report (shown on the mission page) */
   report: string;
   /** the commit message */
-  message?: string;
+  message: string;
   /** protected rules; default: the runner's installed evolve/protected.txt */
   rules?: string[];
 };
@@ -38,21 +40,38 @@ export function loadRules(file: string | URL = new URL('../protected.txt', impor
 const re = (r: RegExp) => (s: string) => r.test(s);
 const SQL_CI = /\bdrop\s+(?:table|schema|database|index|view|materialized|column|constraint|trigger|function|type|extension|role|user|sequence|owned|policy)\b|\btruncate\s+table\b|\bdelete\s+from\b(?![^\n]*\bwhere\b)/i;
 
+const NODE_IO = /(?:\bfrom\s*|\brequire\s*\(\s*|\bimport\s*\(\s*|\bimport\s+)['"`](?:node:)?(?:fs|fs\/promises|http|https|http2|net|dgram|tls|dns|dns\/promises|child_process|worker_threads|cluster|vm|inspector)['"`]/;
+
 export const FLAG_RULES: { id: string; label: string; test: (line: string) => boolean }[] = [
-  { id: 'fetch', label: 'fetch(', test: re(/\bfetch\s*\(/) },
-  // absolute URLs; XML namespace URIs (svg markup) are identifiers, never fetched
-  { id: 'url', label: 'absolute http(s) URL', test: re(/\bhttps?:\/\/(?!www\.w3\.org\/)[^\s'"`<>)]/i) },
-  { id: 'env', label: 'process.env', test: re(/\bprocess\s*(?:\.\s*env\b|\[\s*['"`]env['"`]\s*\])|\{[^}]*\benv\b[^}]*\}\s*=\s*process\b/) },
+  {
+    id: 'fetch',
+    label: 'network call (fetch(, WebSocket, …)',
+    test: re(/\bfetch\s*\(|\[\s*['"`]fetch['"`]\s*\]|\bnew\s+(?:WebSocket|EventSource|XMLHttpRequest)\b|\bsendBeacon\s*\(/),
+  },
+  // absolute URLs of any network scheme, and protocol-relative ones in a string ('//host.x/…', "//host:port");
+  // XML namespace URIs (svg markup) are identifiers, never fetched
+  {
+    id: 'url',
+    label: 'absolute URL',
+    test: re(/\b(?:https?|wss?|ftp):\/\/(?!www\.w3\.org\/)[^\s'"`<>)]|['"`]\/\/(?!www\.w3\.org\/)[\w-]+[.:]/i),
+  },
+  {
+    id: 'env',
+    label: 'process.env',
+    test: re(/\bprocess\s*(?:\.\s*env\b|\[\s*['"`]env['"`]\s*\])|\{[^}]*\benv\b[^}]*\}\s*=\s*process\b|(?:\bfrom\s*|\brequire\s*\(\s*|\bimport\s*\(\s*|\bimport\s+)['"`](?:node:)?process['"`]/),
+  },
+  { id: 'node_io', label: 'Node I/O module import', test: re(NODE_IO) },
   { id: 'child_process', label: 'child_process', test: re(/\bchild_process\b/) },
   {
     id: 'fs_write',
     label: 'fs write/delete',
-    test: re(/\b(?:fs|fsp|promises)\s*\.\s*(?:write\w*|append\w*|rm|rmSync|rmdir|rmdirSync|unlink\w*|rename\w*|truncate\w*|copyFile\w*|cp|cpSync|createWriteStream)\b|\b(?:writeFileSync|writeFile|writeSync|appendFileSync|appendFile|createWriteStream|rmSync|rmdirSync|unlink|unlinkSync)\s*\(/),
+    test: re(/\b(?:fs|fsp|promises)\s*\.\s*(?:write\w*|append\w*|rm|rmSync|rmdir|rmdirSync|unlink\w*|rename\w*|truncate\w*|copyFile\w*|cp|cpSync|createWriteStream)\b|\b(?:writeFileSync|writeFile|writeSync|appendFileSync|appendFile|createWriteStream|rmSync|rmdirSync|rmdir|rm|rename|renameSync|copyFile|copyFileSync|unlink|unlinkSync)\s*\(/),
   },
   // DROP <object>, TRUNCATE TABLE, DELETE FROM without WHERE on the line (any case); bare TRUNCATE x only in upper case,
   // since truncate(text, 40) is a common helper
   { id: 'sql', label: 'destructive SQL', test: (s) => SQL_CI.test(s) || /\bTRUNCATE\s+["\w]/.test(s) },
-  { id: 'eval', label: 'eval(/new Function(', test: re(/\beval\s*\(|\bnew\s+Function\s*\(/) },
+  // eval as a word (also (0, eval)(x), globalThis['eval']), Function( with or without new
+  { id: 'eval', label: 'eval(/new Function(', test: re(/\beval\b|\bFunction\s*\(/) },
 ];
 
 /** ids of the flag rules that fire on one line of text */
@@ -123,13 +142,15 @@ function b64Cores(v: string, url: boolean): string[] {
 
 type Needle = { what: string; forms: string[]; ci: boolean };
 
+const secretValues = (secrets: string[]) => [...new Set(secrets.map((s) => s.trim()).filter((s) => s.length >= MIN_SECRET))];
+
+/** the forms a value is searched (and redacted) in: as is, reversed, hex (index 2; any case), base64 and base64url cores */
+export function secretForms(v: string): string[] {
+  return [...new Set([v, [...v].reverse().join(''), Buffer.from(v).toString('hex'), ...b64Cores(v, false), ...b64Cores(v, true)])];
+}
+
 function needles(secrets: string[]): Needle[] {
-  const values = [...new Set(secrets.map((s) => s.trim()).filter((s) => s.length >= MIN_SECRET))];
-  const list: Needle[] = values.map((v, i) => ({
-    what: `secret value #${i + 1}`,
-    forms: [...new Set([v, [...v].reverse().join(''), Buffer.from(v).toString('hex'), ...b64Cores(v, false), ...b64Cores(v, true)])],
-    ci: false,
-  }));
+  const list: Needle[] = secretValues(secrets).map((v, i) => ({ what: `secret value #${i + 1}`, forms: secretForms(v), ci: false }));
   for (const m of MARKERS) list.push({ what: m, forms: [m], ci: true });
   return list;
 }
@@ -139,6 +160,20 @@ function found(text: string, n: Needle): boolean {
   const lower = text.toLowerCase();
   // hex may be upper or lower case; everything else is exact
   return n.forms.some((f, i) => (i === 2 ? lower.includes(f) : text.includes(f)));
+}
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * `text` with every form of every secret value (length ≥ 12) replaced by [redacted]; longest forms first, hex in any case.
+ * Used for everything that may be shown (gate output, CLI errors, reviewer concerns); never on what is scanned.
+ */
+export function redactSecrets(text: string, secrets: string[]): string {
+  const forms = secretValues(secrets).flatMap((v) => secretForms(v).map((f, i) => ({ f, ci: i === 2 })));
+  forms.sort((a, b) => b.f.length - a.f.length);
+  let out = text;
+  for (const { f, ci } of forms) out = out.replace(new RegExp(escapeRe(f), ci ? 'gi' : 'g'), '[redacted]');
+  return out;
 }
 
 export function gates(o: GateInput): GateResult {
@@ -161,7 +196,7 @@ export function gates(o: GateInput): GateResult {
     for (const [file, joined] of byFile) {
       if (found(joined, n) && !secretHits.some((s) => s.startsWith(`${n.what} in added line ${file}:`))) hit(`${n.what} in added lines of ${file}`);
     }
-    if (o.message !== undefined && found(o.message, n)) hit(`${n.what} in the commit message`);
+    if (found(o.message, n)) hit(`${n.what} in the commit message`);
     if (found(o.report, n)) hit(`${n.what} in the report`);
   }
   for (const h of headers) {
@@ -181,5 +216,6 @@ export function gates(o: GateInput): GateResult {
     flags.length = MAX_FLAGS;
     flags.push(`… ${more} more`);
   }
-  return { protectedHits, secretHits, flags };
+  const clean = (l: string[]) => [...new Set(l.map((x) => redactSecrets(x, o.secrets)))];
+  return { protectedHits: clean(protectedHits), secretHits: clean(secretHits), flags: clean(flags) };
 }

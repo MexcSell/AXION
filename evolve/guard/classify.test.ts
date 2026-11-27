@@ -14,6 +14,8 @@ test('protected.txt parses to exactly the agreed rule list', () => {
     'server/src/main.ts', 'server/src/migrate.ts', 'server/src/migrate-cli.ts', 'server/src/leader.ts', 'server/src/locks.ts', 'server/src/health.ts',
     'server/src/cli/evolve-missions.ts',
     'evolve/**', '.dockerignore', '**/Dockerfile*', '**/*.Dockerfile', '**/docker-compose*', '**/.gitattributes',
+    '.claude/**', '**/.claude/**', '**/CLAUDE.md', '**/CLAUDE.local.md', '**/AGENTS.md', '**/.mcp.json', '.vscode/**', '.github/**',
+    '.husky/**', '.devcontainer/**', '**/.envrc',
     '**/package.json', '**/package-lock.json', '**/.npmrc',
     'server/vitest.config.ts', 'server/tsconfig.json', 'web/tsconfig.json', 'web/vite.config.ts', 'web/security-headers.ts', 'server/test/setup.ts', 'server/test/helpers.ts', 'web/scripts/api-e2e.sh',
     'modify:server/test/**', 'modify:web/scripts/**',
@@ -44,6 +46,19 @@ test('**/ rules match at the repo root and at any depth', () => {
     'server/.env.local', 'package.json', 'web/package.json', 'package-lock.json', 'server/package-lock.json', 'docker-compose.yml',
     'deploy/docker-compose.prod.yaml', '.dockerignore']) {
     assert.deepEqual(hit(p, 'A'), [p], p);
+  }
+});
+
+test('R26: agent and tool configuration is protected at the root (leading-dot segments) and, for **/ rules, at any depth', () => {
+  for (const p of ['.claude/settings.json', '.claude/hooks/x.sh', 'web/.claude/settings.local.json', 'CLAUDE.md', 'web/CLAUDE.md',
+    'CLAUDE.local.md', 'server/src/CLAUDE.local.md', 'AGENTS.md', 'web/src/AGENTS.md', '.mcp.json', 'web/.mcp.json', '.vscode/tasks.json',
+    '.github/workflows/ci.yml', '.husky/pre-commit', '.devcontainer/devcontainer.json', '.envrc', 'server/.envrc']) {
+    for (const s of ['A', 'M'] as const) assert.deepEqual(hit(p, s), [p], `${p} ${s}`);
+  }
+  // .vscode, .github, .husky, .devcontainer are root-only rules; near-misses are not protected
+  for (const p of ['web/.vscode/settings.json', 'docs/.github/x.md', 'web/src/claude.ts', 'web/src/CLAUDE.md.ts', 'web/src/agents.tsx', 'notes/.claudex/a',
+    'web/.mcp.json.bak', 'web/envrc']) {
+    assert.deepEqual(hit(p, 'A'), [], p);
   }
 });
 
