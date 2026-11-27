@@ -74,6 +74,8 @@ export const WORKSHOP_DEFAULTS: WorkshopConfig = {
 };
 
 /** characters a path may have to be written into a permission rule (no glob, escape, quote or bracket characters) */
+/** largest --settings JSON passed in argv (one argv string may be at most 131072 bytes) */
+export const MAX_SETTINGS = 120_000;
 const SAFE_PATH = /^[A-Za-z0-9_.\/@+-]+$/;
 
 /**
@@ -250,6 +252,9 @@ export async function runEngineer(
   } catch (e) {
     return { ok: false, report: '', timedOut: false, error: redactSecrets(`refused before the run (exported tree): ${e instanceof Error ? e.message : String(e)}`, cfg.secrets) };
   }
+  // the settings travel as one argv string (Linux MAX_ARG_STRLEN 128 KiB; 852 rules ≈ 39 KB in Task 3): refuse well before it
+  const size = JSON.stringify(settings).length;
+  if (size > MAX_SETTINGS) return { ok: false, report: '', timedOut: false, error: `refused before the run: the settings are too large (${size} bytes, ${MAX_SETTINGS} allowed)` };
   const name = `${cfg.namePrefix}-${o.mission.id}-a${o.attempt}`;
   const prompt = engineerPrompt({ mission: o.mission, attempt: o.attempt, feedback: o.feedback, protectedPatterns: rules });
   const args = dockerRun(cfg, name, tree, engineerArgs({ model: cfg.model, settings }));

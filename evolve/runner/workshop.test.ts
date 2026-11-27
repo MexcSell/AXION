@@ -84,6 +84,15 @@ test('R27: runEngineer refuses the run (no docker call) when a modify: file name
   assert.equal(calls.length, 0);
 });
 
+test('R27: a tree whose exact rules would not fit in one argv string refuses the run', async () => {
+  const d = changeDir(Array.from({ length: 2600 }, (_, i) => `server/test/generated/file-${String(i).padStart(5, '0')}.test.ts`));
+  const { exec, calls } = fakeExec();
+  const r = await runEngineer({ changeDir: d, mission, attempt: 1 }, exec, cfg);
+  assert.equal(r.ok, false);
+  assert.match(r.error ?? '', /settings are too large/);
+  assert.equal(calls.length, 0);
+});
+
 test('cliSettings: Read (which also governs Grep and Glob) is denied on /proc, /etc, /srv, /root, HOME and /tmp', () => {
   const deny = (cliSettings([]) as { permissions: { deny: string[] } }).permissions.deny;
   for (const d of ['proc', 'etc', 'srv', 'root', 'home/w', 'tmp']) {
