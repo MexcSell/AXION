@@ -56,6 +56,7 @@ type Script = {
   /** evolve/main after n deploys (M3) */
   liveShaFn: (deploys: number) => string;
   recovered: () => string[];
+  wentLive: { mission: string; commit: string }[];
 };
 
 function fake(s: Partial<Script> = {}) {
@@ -65,6 +66,7 @@ function fake(s: Partial<Script> = {}) {
   const queue = [...(s.missions ?? [mission()])];
   const deploys = [...(s.deploys ?? [live()])];
   const refs: Record<string, string> = { ...(s.refs ?? {}) };
+  const wentLive: { mission: string; commit: string }[] = [...(s.wentLive ?? [])];
   const recorded: Record<string, DeployAnswer['result']> = {};
   let now = T0;
   let paused: string | null = null;
@@ -97,7 +99,11 @@ function fake(s: Partial<Script> = {}) {
     async writePaused(reason) { calls.push('writePaused'); paused = reason; },
     async clearPaused() { const was = paused !== null; paused = null; return was; },
     async readHistory() { return history.map((e) => ({ ...e })); },
-    async appendHistory(e) { history.push({ at: new Date(now).toISOString(), ...e }); },
+    async appendHistory(e) {
+      if (e.event === 'end' && e.outcome === 'live' && e.mission && e.commit) wentLive.push({ mission: e.mission, commit: e.commit });
+      history.push({ at: new Date(now).toISOString(), ...e });
+    },
+    async wentLive(id) { return [...wentLive].reverse().find((x) => x.mission === id)?.commit ?? null; },
     async lock() {
       calls.push('lock');
       if (s.lockFree === false) return null;
@@ -849,4 +855,90 @@ test('M1 under PAUSED: an open deploy is still settled from the Guard\'s record;
   await runForever(f.fx, { maxTicks: 1 });
   assert.deepEqual(f.finish().map((x) => `${x.id}:${x.body.outcome}`), ['M-5:completed']);
   assert.ok(!f.calls.includes('next'));
+});
+
+// ---- follow-up round (R41): N1–N4, the durable went-live record ----
+
+test('N3: an unsettled deploy whose finish keeps failing does not grow the history (≥10 ticks), and is not counted as settled', async () => {
+  const uns: HistoryEntry = { at: '2026-11-27T09:30:00Z', event: 'unsettled', mission: 'M-5', attempt: 1, commit: shaOf(5), base: BASE, ref: 'incoming/evolve-M-5-a1', since: '2026-11-27T09:30:00Z' };
+  const f = fake({ history: [uns], missions: [], guardOutcome: () => ({ outcome: 'live' }), finish: () => { throw new Error('evolve-missions finish: exit 1 {"error":"failed"}'); } });
+  await runForever(f.fx, { maxTicks: 1 });
+  const n0 = f.history.length;
+  await runForever(f.fx, { maxTicks: 12 });
+  assert.equal(f.history.length, n0, f.history.map((h) => h.event).join(' '));
+  assert.ok(!f.history.some((h) => h.event === 'end'), 'never closed while the finish fails');
+  assert.equal(f.calls.filter((c) => c === 'recover').length, 0, 'no recover while it is open');
+  // once the CLI works again it is closed with one settled line
+  const ok = fake({ history: f.history, missions: [], guardOutcome: () => ({ outcome: 'live' }) });
+  await runForever(ok.fx, { maxTicks: 3 });
+  assert.deepEqual(ok.history.slice(n0).map((h) => `${h.event}:${h.outcome ?? ''}`), ['end:settled']);
+});
+
+test('N3: a deploy line whose finish throws is closed (end) and becomes unsettled once; later ticks add nothing', async () => {
+  const dep: HistoryEntry = { at: '2026-11-27T09:30:00Z', event: 'deploy', mission: 'M-5', attempt: 1, commit: shaOf(5), base: BASE, ref: 'incoming/evolve-M-5-a1', since: '2026-11-27T09:30:00Z' };
+  const f = fake({ history: [dep], missions: [], guardOutcome: () => ({ outcome: 'rolled_back', failedStep: 'watch' }), finish: () => { throw new Error('down'); } });
+  await runForever(f.fx, { maxTicks: 10 });
+  assert.deepEqual(f.history.map((h) => `${h.event}:${h.outcome ?? ''}`), ['deploy:', 'end:rolled_back', 'unsettled:']);
+});
+
+test('R41: the "Already live" guard also uses the durable went-live record (the history end line may be trimmed away)', async () => {
+  const f = fake({ history: [], wentLive: [{ mission: 'M-1', commit: shaOf(7) }] });
+  const r = await once(f.fx, { inject: false });
+  assert.equal(r.kind === 'change' && r.outcome.outcome, 'live');
+  assert.ok(!f.calls.some((c) => c.startsWith('engineer') || c === 'deploy'));
+  assert.match(f.finish()[0].body.text, /Already live: 777777777777/);
+  // a normal live end is recorded there too
+  const g = fake();
+  await once(g.fx, { inject: false });
+  assert.equal(await g.fx.wentLive('M-1'), shaOf(1));
+});
+
+test('N1: the "Already live" finish failing is settled at once (recover), not left claimed', async () => {
+  const f = fake({ wentLive: [{ mission: 'M-1', commit: shaOf(7) }], finish: () => { throw new Error('down'); } });
+  await once(f.fx, { inject: false });
+  inOrder(f.calls, ['next', 'finish:completed', 'recover', 'unlock']);
+});
+
+test('I3 in approve (a): the mission refuses the write right after approved → recover before the lock is released', async () => {
+  const held: HistoryEntry = { at: '2026-11-27T09:00:00Z', event: 'held', mission: 'M-1', attempt: 1, ref: 'incoming/evolve-M-1-a1', commit: shaOf(1), base: BASE };
+  const f = fake({ history: [held], refs: { 'incoming/evolve-M-1-a1': shaOf(1) }, progress: () => ({ ok: false, refusal: { error: 'mission_not_running', status: 'paused' } }) });
+  const r = await approve(f.fx, 'M-1');
+  assert.equal(r.code, 1);
+  assert.ok(!f.calls.includes('deploy'));
+  inOrder(f.calls, ['approved', 'recover', 'unlock']);
+});
+
+test('I3 in approve (b): a member pauses during the Guard run, the final finish is refused → recover before unlock; a throwing finish is reconciled at once', async () => {
+  const held: HistoryEntry = { at: '2026-11-27T09:00:00Z', event: 'held', mission: 'M-1', attempt: 1, ref: 'incoming/evolve-M-1-a1', commit: shaOf(1), base: BASE };
+  const f = fake({ history: [held], refs: { 'incoming/evolve-M-1-a1': shaOf(1) }, finish: () => ({ ok: false, refusal: { error: 'mission_not_running', status: 'paused' } }) });
+  const r = await approve(f.fx, 'M-1');
+  assert.equal(r.code, 0, r.message);
+  inOrder(f.calls, ['deploy', 'finish:completed', 'recover', 'unlock']);
+  assert.equal(await f.fx.wentLive('M-1'), shaOf(1), 'the went-live record holds it for the "Already live" guard');
+  let n = 0;
+  const g = fake({ history: [held], refs: { 'incoming/evolve-M-1-a1': shaOf(1) }, finish: () => { if (++n === 1) throw new Error('timeout'); return { ok: true }; } });
+  await approve(g.fx, 'M-1');
+  assert.deepEqual(g.finish().map((x) => x.body.outcome), ['completed', 'completed']);
+  inOrder(g.calls, ['finish:completed', 'finish:completed', 'recover', 'unlock']);
+});
+
+test('N2 (approve, M5 busy): a refused finish needs_owner is followed by recover before unlock', async () => {
+  const held: HistoryEntry = { at: '2026-11-27T09:00:00Z', event: 'held', mission: 'M-1', attempt: 1, ref: 'incoming/evolve-M-1-a1', commit: shaOf(1), base: BASE };
+  const f = fake({ history: [held], refs: { 'incoming/evolve-M-1-a1': shaOf(1) }, deploys: Array.from({ length: 40 }, busy),
+    finish: () => ({ ok: false, refusal: { error: 'mission_not_running', status: 'paused' } }) });
+  const r = await approve(f.fx, 'M-1');
+  assert.equal(r.code, 4);
+  inOrder(f.calls, ['finish:needs_owner', 'recover', 'unlock']);
+  assert.equal(f.refs['incoming/evolve-M-1-a1'], shaOf(1));
+});
+
+test('N4: a recover that throws after a change is owed: a recover_pending note (once), the next tick recovers, then a recovered note', async () => {
+  let n = 0;
+  const f = fake({ missions: [mission(), mission('M-2')], progress: (b) => (b.by === AGENTS.reviewer ? { ok: false, refusal: { error: 'mission_not_running' } } : { ok: true }),
+    recovered: () => { if (++n === 2) throw new Error('CLI down'); return []; } });
+  await runForever(f.fx, { maxTicks: 2 });
+  const notes = f.history.filter((h) => h.event === 'note' && (h.outcome === 'recover_pending' || h.outcome === 'recovered')).map((h) => h.outcome);
+  assert.deepEqual(notes, ['recover_pending', 'recovered'], 'owed in tick 1, run at the start of tick 2 (no restart)');
+  assert.equal(f.calls.filter((c) => c === 'recover').length, 3 + 1, 'startup, the throwing one, the owed one, and after M-2');
+  assert.equal(f.history.filter((h) => h.event === 'note' && h.outcome === 'recover_pending').length, 1);
 });

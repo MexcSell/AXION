@@ -128,6 +128,11 @@ export interface RunnerEffects {
   guardOutcome(sha: string, since?: string): Promise<GuardResult | null>;
   /** a live axion-guard holds the Guard lock */
   guardBusy(): Promise<boolean>;
+  /**
+   * R41: the commit of this mission's change that went live, from the durable went-live record (appendHistory adds a line
+   * for every `end` with outcome live; never trimmed), or null.
+   */
+  wentLive(mission: string): Promise<string | null>;
   /** M2: state.json's unfinished deploy (`deploying`), as a reason; null = none. An unreadable state.json is a reason too. */
   guardDeploying(): Promise<string | null>;
   now(): number;
@@ -632,22 +637,42 @@ async function settle(fx: RunnerEffects, o: { wait: boolean; recover: boolean })
       fin = ['needs_owner', `The Guard asks for the owner's approval${note}. To deploy it: axion-evolve approve ${d.mission}`, { ...evolve, hits: (out.hits ?? []).map((x) => `protected: ${x}`) }];
     } else if (out?.outcome === 'needs_owner') { outcome = 'failed'; fin = ['failed', `inject-failure run: the Guard asked for the owner's approval; an injected commit is never held${note}.`, { ...evolve, state: 'failed', guard: gi }]; }
     const unsettled = d.event === 'unsettled';
-    // the truth first; an `unsettled` line was already ended once, so its second end does not count again for the streak
-    await fx.appendHistory({ event: 'end', mission: d.mission, attempt: d.attempt, commit: d.commit, outcome: unsettled ? 'settled' : outcome,
+    if (unsettled) {
+      // N3: already ended once (its outcome, held line, streak, alarm and ref were handled then): only the mission's finish
+      // is missing. A finish that fails again writes nothing (the line stays open, the history does not grow).
+      if (fin) {
+        try {
+          await w.finish(fin[0], fin[1], fin[2]);
+        } catch (e) {
+          fx.log(`${d.mission}: finish during reconcile failed again (${w.red(msg(e)).slice(0, 200)}); it stays unsettled and the next tick tries again`);
+          continue;
+        }
+      }
+      await fx.appendHistory({ event: 'end', mission: d.mission, attempt: d.attempt, commit: d.commit, outcome: 'settled',
+        ...(d.injected ? { injected: true } : {}), reason: `reconcile: ${out ? out.outcome : 'no Guard outcome recorded (recover fails it)'}` });
+      if (outcome !== 'needs_owner' && d.ref) await fx.deleteRef(d.ref).catch(() => {});
+      res.settled++;
+      continue;
+    }
+    // a deploy line: the truth first (the end line closes it), then the mission's finish
+    await fx.appendHistory({ event: 'end', mission: d.mission, attempt: d.attempt, commit: d.commit, outcome,
       ...(d.injected ? { injected: true } : {}), reason: `reconcile: ${out ? out.outcome : 'no Guard outcome recorded (recover fails it)'}` });
+    let closed = true;
     if (fin) {
       try {
         await w.finish(fin[0], fin[1], fin[2]);
       } catch (e) {
         fx.log(`${d.mission}: finish during reconcile failed (${w.red(msg(e)).slice(0, 200)}); the next tick tries again`);
         await fx.appendHistory({ event: 'unsettled', mission: d.mission, attempt: d.attempt, ref: d.ref, commit: d.commit, base: d.base, since: d.since ?? d.at, ...(d.injected ? { injected: true } : {}) });
+        closed = false;
       }
     }
     if (outcome === 'needs_owner') await fx.appendHistory({ event: 'held', mission: d.mission, attempt: d.attempt, ref: d.ref, commit: d.commit, base: d.base });
     else if (d.ref) await fx.deleteRef(d.ref).catch(() => {});
-    if (outcome === 'rolled_back' && !unsettled) await pauseOnStreak(fx, d.mission);
+    if (outcome === 'rolled_back') await pauseOnStreak(fx, d.mission);
     if (outcome === 'inject_live') await raiseAlarm(fx, d.commit, d.mission);
-    res.settled++;
+    // N3: counted only when really closed (a finish that threw leaves it open as unsettled)
+    if (closed) res.settled++;
   }
   if (fx.stopping()) return { ...res, stopped: true };
   if (o.recover) {
@@ -660,8 +685,33 @@ async function settle(fx: RunnerEffects, o: { wait: boolean; recover: boolean })
       fx.log(`recovered (failed as interrupted): ${rec.join(', ')}`);
       await fx.appendHistory({ event: 'note', reason: `recover: ${rec.join(', ')}`.slice(0, 300) });
     }
+    // N4: a recover that was owed (an earlier one threw) is done now
+    if (recoverPending(await fx.readHistory())) await fx.appendHistory({ event: 'note', outcome: RECOVERED, reason: 'the owed recover ran' });
   }
   return res;
+}
+
+/** N4: a recover is owed (the one after a change threw) until a later `recovered` note */
+const RECOVER_PENDING = 'recover_pending';
+const RECOVERED = 'recovered';
+function recoverPending(h: HistoryEntry[]): boolean {
+  const last = [...h].reverse().find((e) => e.event === 'note' && (e.outcome === RECOVER_PENDING || e.outcome === RECOVERED));
+  return last?.outcome === RECOVER_PENDING;
+}
+
+/**
+ * I3: settle now (reconcile, then recover when nothing is left open), while the caller still holds runner.lock. A settle that
+ * throws leaves a `recover_pending` note (once), so the next tick recovers even when nothing is open then (N4).
+ */
+async function settleNow(fx: RunnerEffects, id: string): Promise<void> {
+  if (fx.stopping()) return;
+  try {
+    await settle(fx, { wait: false, recover: true });
+  } catch (e) {
+    fx.log(`settling after ${id} failed: ${msg(e).slice(0, 300)}; recover is owed and the next tick runs it`);
+    const h = await fx.readHistory().catch(() => [] as HistoryEntry[]);
+    if (!recoverPending(h)) await fx.appendHistory({ event: 'note', mission: id, outcome: RECOVER_PENDING, reason: 'the settle after this change failed; recover owed' }).catch(() => {});
+  }
 }
 
 /** the newest end line of a mission's change (a reconcile's `settled` line is not an outcome) */
@@ -678,7 +728,7 @@ async function tickLocked(fx: RunnerEffects, inject: boolean): Promise<TickResul
   // while PAUSED (the paths that leave one often write PAUSED too: unclear outcome, rollback streak, inject alarm)
   const s0 = await settle(fx, { wait: false, recover: false });
   if (s0.stopped || fx.stopping()) return { kind: 'idle' };
-  if (s0.settled > 0) await settle(fx, { wait: false, recover: true });
+  if (s0.settled > 0 || recoverPending(await fx.readHistory())) await settle(fx, { wait: false, recover: true });
   const p = await fx.paused();
   if (p !== null) return { kind: 'paused', reason: p.trim() };
   if (s0.pending) return { kind: 'halted', reason: 'a Guard deploy of an earlier change still runs; it is settled once the Guard ends' };
@@ -699,22 +749,25 @@ async function tickLocked(fx: RunnerEffects, inject: boolean): Promise<TickResul
   }
   await fx.appendHistory({ event: 'claim', mission: m.id });
   const prev = lastEnd(h, m.id);
-  if (prev?.outcome === 'live' && prev.commit) {
-    // the Guard made this mission's last change live, but the mission could not be finished then (it refused writes; a
-    // finished live mission is completed and never claimed again): settle it with that truth, never make it a second time
+  const liveSha = prev?.outcome === 'live' && prev.commit ? prev.commit : await fx.wentLive(m.id);
+  let out: ChangeOutcome;
+  if (liveSha) {
+    // the Guard made this mission's change live (runner-history, or the durable went-live record: R41), but the mission could
+    // not be finished then (it refused writes; a finished live mission is completed and never claimed again): settle it with
+    // that truth, never make it a second time
     const secrets = await fx.secrets().catch(() => [] as string[]);
     const w = writer(fx, m.id, secrets);
-    const text = `Already live: ${short(prev.commit)} went live through the Guard earlier, while this mission refused writes; it is not made a second time.`;
-    const okFin = secrets.length > 0 && await w.finish('completed', text, { attempt: prev.attempt ?? 1, commit: prev.commit }).catch(() => false);
-    const o: ChangeOutcome = { mission: m.id, outcome: 'live', attempt: prev.attempt ?? 1, commit: prev.commit, reason: text.slice(0, 300) };
-    await fx.appendHistory({ event: 'end', mission: m.id, attempt: o.attempt, commit: prev.commit, outcome: 'settled', reason: `claimed again after live: ${okFin ? 'finished completed' : 'finish failed'}` });
-    return { kind: 'change', outcome: okFin ? o : { ...o, settle: true } };
+    const attempt = prev?.outcome === 'live' ? prev.attempt ?? 1 : 1;
+    const text = `Already live: ${short(liveSha)} went live through the Guard earlier, while this mission refused writes; it is not made a second time.`;
+    const okFin = secrets.length > 0 && await w.finish('completed', text, { attempt, commit: liveSha }).catch(() => false);
+    out = { mission: m.id, outcome: 'live', attempt, commit: liveSha, reason: text.slice(0, 300), ...(okFin ? {} : { settle: true as const }) };
+    await fx.appendHistory({ event: 'end', mission: m.id, attempt, commit: liveSha, outcome: 'settled', reason: `claimed again after live: ${okFin ? 'finished completed' : 'finish failed'}` });
+  } else {
+    out = await runChange(fx, m, { inject });
   }
-  const out = await runChange(fx, m, { inject });
-  // I3: a refused write, a finish that threw or a runner error: settle now (reconcile, then recover when nothing is open)
-  if (out.settle && !fx.stopping()) {
-    await settle(fx, { wait: false, recover: true }).catch((e) => fx.log(`settling after ${m.id} failed: ${msg(e).slice(0, 300)}; the next tick tries again`));
-  }
+  // I3: a refused write, a finish that threw or a runner error: settle now (reconcile, then recover when nothing is open); N1:
+  // also after the "Already live" finish failed
+  if (out.settle) await settleNow(fx, m.id);
   return { kind: 'change', outcome: out };
 }
 
@@ -790,6 +843,8 @@ export async function approve(fx: RunnerEffects, id: string): Promise<{ code: nu
   if (!ID_RE.test(id)) return { code: 2, message: `not a mission id: ${JSON.stringify(id)}` };
   const release = await fx.lock();
   if (!release) return { code: 4, message: 'the runner lock is held (a change or another approve is running); try again later' };
+  /** I3/N2 (R41): a refused write or a finish that failed or was refused: settle and recover before the lock goes */
+  let needSettle = false;
   try {
     const h = await fx.readHistory();
     const held = [...h].reverse().find((e) => e.event === 'held' && e.mission === id);
@@ -828,14 +883,16 @@ export async function approve(fx: RunnerEffects, id: string): Promise<{ code: nu
       .catch(() => { /* w.gone is set */ });
     if (w.gone) {
       await fx.appendHistory({ event: 'end', mission: id, attempt, ref: held.ref, commit: held.commit, outcome: 'gone', reason: `mission write refused: ${w.gone.error}` });
+      needSettle = true;
       return { code: 1, message: `the mission refused a write right after the approval (${w.gone.error}); nothing deployed` };
     }
     try {
       a = await deployMirrored({ fx, w, id, attempt }, { ref: held.ref, sha: held.commit, approve: { sha: held.commit, base: live } });
     } catch (e) {
       const text = e instanceof Stop ? e.message : `the approve stopped: ${w.red(msg(e))}`;
-      await w.finish('failed', text, { attempt, state: 'failed' }).catch(() => false);
+      const fok = await w.finish('failed', text, { attempt, state: 'failed' }).catch(() => false);
       await fx.appendHistory({ event: 'end', mission: id, attempt, ref: held.ref, commit: held.commit, outcome: 'stopped', reason: text.slice(0, 300) });
+      if (!fok) needSettle = true;
       return { code: 1, message: text };
     }
     const gi = guardInfo(a);
@@ -849,7 +906,8 @@ export async function approve(fx: RunnerEffects, id: string): Promise<{ code: nu
         + `The change ${short(held.commit)} stays held at ${held.ref}. To try again: axion-evolve approve ${id}`;
       await fx.appendHistory({ event: 'end', mission: id, attempt, ref: held.ref, commit: held.commit, outcome: 'busy', reason: text.slice(0, 300), by: 'approve' });
       await fx.appendHistory({ event: 'held', mission: id, attempt, ref: held.ref, commit: held.commit, base: held.base });
-      await w.finish('needs_owner', text, { attempt, commit: held.commit, base: held.base, guard: gi }).catch((e) => { fx.log(`${id}: finish needs_owner failed (${w.red(msg(e)).slice(0, 200)})`); return false; });
+      const fok = await w.finish('needs_owner', text, { attempt, commit: held.commit, base: held.base, guard: gi }).catch((e) => { fx.log(`${id}: finish needs_owner failed (${w.red(msg(e)).slice(0, 200)})`); return false; });
+      if (!fok) needSettle = true; // N2
       return { code: 4, message: w.red(text) };
     }
     let code = 1;
@@ -868,10 +926,12 @@ export async function approve(fx: RunnerEffects, id: string): Promise<{ code: nu
     // the truth first, then the mission (a finish that throws leaves the deploy for the next start's reconcile)
     await fx.appendHistory({ event: 'end', mission: id, attempt, ref: held.ref, commit: held.commit, outcome, reason: w.red(fin[1]).slice(0, 300), by: 'approve' });
     try {
-      await w.finish(fin[0], fin[1], fin[2]);
+      // a refusal (a member paused the mission while the Guard ran) leaves it deploying: settled below (I3 site b)
+      if (!(await w.finish(fin[0], fin[1], fin[2]))) needSettle = true;
     } catch (e) {
-      fx.log(`${id}: finish failed (${w.red(msg(e)).slice(0, 200)}); the next runner start settles it from the Guard's history`);
+      fx.log(`${id}: finish failed (${w.red(msg(e)).slice(0, 200)}); settled from the Guard's history right after and at the next ticks`);
       await fx.appendHistory({ event: 'unsettled', mission: id, attempt, ref: held.ref, commit: held.commit, base: held.base, since });
+      needSettle = true;
     }
     // still held (after the end line, so a later approve finds it as the newest held entry)
     if (outcome === 'needs_owner') await fx.appendHistory({ event: 'held', mission: id, attempt, ref: held.ref, commit: held.commit, base: live });
@@ -880,6 +940,8 @@ export async function approve(fx: RunnerEffects, id: string): Promise<{ code: nu
     if (kind === 'unclear') await pauseUnclear(fx, id, a, w.red);
     return { code, message: w.red(fin[1].split('\n')[0]) };
   } finally {
+    // still under runner.lock: reconcile, then recover when nothing is open (I3 in approve, N2)
+    if (needSettle) await settleNow(fx, id);
     await release();
   }
 }
